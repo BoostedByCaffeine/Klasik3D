@@ -1,9 +1,11 @@
 import React from 'react';
-import { Award } from 'lucide-react';
+import { Award, Home, Play, RotateCcw, Save } from 'lucide-react';
 import { DAILY_QUOTA_COMPLETION_BONUS, KlasikGameState } from '../game/rules';
+import { AppRuntimeVersion } from '../pwa/pwaManager';
 
 interface StatusModalProps {
   gameState: KlasikGameState;
+  appVersion?: AppRuntimeVersion;
   onResume: () => void;
   onNextDayOrRetry: () => void;
   onReturnToTitle: () => void;
@@ -12,6 +14,7 @@ interface StatusModalProps {
 
 export const StatusModal: React.FC<StatusModalProps> = ({
   gameState,
+  appVersion = 'web',
   onResume,
   onNextDayOrRetry,
   onReturnToTitle,
@@ -20,6 +23,7 @@ export const StatusModal: React.FC<StatusModalProps> = ({
   const isPaused = gameState.phase === 'paused';
   const quotaMet = gameState.cupsServedToday >= gameState.dailyOrderQuota;
   const goalMet = gameState.dailyRevenue >= gameState.dailyGoal || quotaMet;
+  const isApkVersion = appVersion === 'apk';
 
   return (
     <div
@@ -95,20 +99,28 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             <button
               type="button"
               onClick={onResume}
-              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow"
+              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow flex items-center justify-center gap-1.5"
             >
-              Resume Shift [Esc / P]
+              <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+              <span>{isApkVersion ? 'Resume Shift' : 'Resume Shift [Esc / P]'}</span>
             </button>
           ) : (
             <button
               type="button"
               data-start="true"
               onClick={onNextDayOrRetry}
-              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow"
+              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow flex items-center justify-center gap-1.5"
             >
-              {goalMet
-                ? `Start Day ${gameState.day + 1} Shift`
-                : `Retry Day ${gameState.day} Shift`}
+              {goalMet ? (
+                <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+              ) : (
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>
+                {goalMet
+                  ? `Start Day ${gameState.day + 1} Shift`
+                  : `Retry Day ${gameState.day} Shift`}
+              </span>
             </button>
           )}
 
@@ -116,16 +128,18 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             <button
               type="button"
               onClick={onOpenSaveExport}
-              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-xs font-semibold text-stone-200 cursor-pointer"
+              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-xs font-semibold text-stone-200 cursor-pointer flex items-center justify-center gap-1.5"
             >
-              Backup / Restore Save
+              <Save className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span>Backup / Restore Save</span>
             </button>
             <button
               type="button"
               onClick={onReturnToTitle}
-              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-xs font-semibold text-stone-300 cursor-pointer"
+              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-xs font-semibold text-stone-300 cursor-pointer flex items-center justify-center gap-1.5"
             >
-              Return to 3D Title
+              <Home className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <span>Return to 3D Title</span>
             </button>
           </div>
         </div>

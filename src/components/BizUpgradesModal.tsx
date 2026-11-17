@@ -1,5 +1,16 @@
 import React, { useState } from 'react';
-import { Check, Clock, Coffee, Crown, Gift, Shirt, Trophy, X, Zap } from 'lucide-react';
+import {
+  Check,
+  Clock,
+  Coffee,
+  Crown,
+  Gift,
+  Lock,
+  Shirt,
+  Trophy,
+  X,
+  Zap,
+} from 'lucide-react';
 import {
   CustomerSkinPackId,
   GOLDEN_MACHINE_GROSS_THRESHOLD,
@@ -17,7 +28,6 @@ interface BizUpgradesModalProps {
   ) => void;
   onUnlockOrEquipCustomerPack: (packId: CustomerSkinPackId) => void;
   onClaimLoginReward: (day: number) => void;
-  onUnlockGoldenMilestoneNow: () => void;
   onClose: () => void;
 }
 
@@ -29,7 +39,6 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
   onUnlockOrEquipEquipmentSkin,
   onUnlockOrEquipCustomerPack,
   onClaimLoginReward,
-  onUnlockGoldenMilestoneNow,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<HubTab>('upgrades');
@@ -51,6 +60,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
     100,
     Math.round((lifetimeGrossIncome / GOLDEN_MACHINE_GROSS_THRESHOLD) * 100)
   );
+  const remainingGrossForGold = Math.max(
+    0,
+    Math.round(GOLDEN_MACHINE_GROSS_THRESHOLD - lifetimeGrossIncome)
+  );
   const isGoldenEquipped = equippedMachineSkin === 'golden-espresso-machine';
 
   return (
@@ -68,11 +81,11 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               id="upgrades-modal-title"
               className="text-sm sm:text-base font-bold font-display text-amber-100"
             >
-              Cafe Upgrades, Golden 100K Skins &amp; Login Unlockables
+              Cafe Upgrades, Golden 150K Skins &amp; Login Unlockables
             </h2>
             <p className="text-[11px] text-stone-400">
               60+ Unlockables · Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} /
-              $100,000
+              $150,000
               {isGoldenEquipped ? ' · 2x GOLDEN SALE INCOME ACTIVE!' : ''}
             </p>
           </div>
@@ -96,7 +109,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           {(
             [
               { id: 'upgrades', label: `Upgrades (${upgrades.length})`, Icon: Zap },
-              { id: 'equipment_skins', label: 'Golden 100K & Equipment Skins', Icon: Crown },
+              { id: 'equipment_skins', label: 'Golden 150K & Equipment Skins', Icon: Crown },
               {
                 id: 'customer_skins',
                 label: `Customer Skins (${customerSkinPacks.length})`,
@@ -150,7 +163,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     type="button"
                     disabled={upg.purchased || !canAfford}
                     onClick={() => onPurchaseUpgrade(upg.id)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono tabular-nums whitespace-nowrap transition-colors ${
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono tabular-nums whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
                       upg.purchased
                         ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 cursor-default'
                         : canAfford
@@ -158,7 +171,14 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
                     }`}
                   >
-                    {upg.purchased ? 'Installed' : `Buy · $${upg.cost}`}
+                    {upg.purchased ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span>Installed</span>
+                      </>
+                    ) : (
+                      <span>Buy · ${upg.cost}</span>
+                    )}
                   </button>
                 </div>
               );
@@ -166,7 +186,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           </div>
         )}
 
-        {/* Tab 2: Golden Espresso Machine ($100k Gross Income -> 2x Sale Income) & Equipment Skins */}
+        {/* Tab 2: Golden Espresso Machine ($150k Gross Income -> 2x Sale Income) & Equipment Skins */}
         {activeTab === 'equipment_skins' && (
           <div className="space-y-3 overflow-y-auto pr-1">
             {/* Hero Golden Espresso Machine Milestone Banner */}
@@ -175,14 +195,14 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 <div>
                   <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 flex items-center gap-1">
                     <Trophy className="w-3 h-3 shrink-0" />
-                    <span>GRAND MILESTONE SKIN · 2X SALE INCOME MULTIPLIER</span>
+                    <span>TRUE GRINDER PRESTIGE REWARD · 2X SALE INCOME MULTIPLIER</span>
                   </span>
                   <h3 className="text-sm font-bold text-amber-100">
                     Golden Espresso Machine (24K Solid Gold Dual-Boiler)
                   </h3>
                 </div>
                 <span className="text-xs font-mono font-bold text-amber-300 bg-stone-950/70 px-2.5 py-1 rounded-lg border border-amber-400/40">
-                  ${Math.round(lifetimeGrossIncome).toLocaleString()} / $100,000 Gross
+                  ${Math.round(lifetimeGrossIncome).toLocaleString()} / $150,000 Gross
                 </span>
               </div>
 
@@ -195,29 +215,37 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <span className="text-[11px] text-amber-100/90">
-                  Doubles (2x) all drink sale income &amp; table tips once equipped!
+                  Earned exclusively by grinding to $150,000 gross income. Doubles (2x) all drink
+                  sale income &amp; table tips once equipped!
                 </span>
                 <div className="flex items-center gap-2">
-                  {lifetimeGrossIncome < GOLDEN_MACHINE_GROSS_THRESHOLD && (
-                    <button
-                      type="button"
-                      onClick={onUnlockGoldenMilestoneNow}
-                      className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs cursor-pointer shadow"
+                  {lifetimeGrossIncome < GOLDEN_MACHINE_GROSS_THRESHOLD ? (
+                    <span
+                      data-testid="golden-machine-locked-badge"
+                      className="px-3 py-1.5 rounded-lg bg-stone-950/90 border border-amber-500/35 text-stone-400 font-mono font-bold text-xs inline-flex items-center gap-1.5"
                     >
-                      Unlock &amp; Equip 100K Golden Machine Now
-                    </button>
-                  )}
-                  {lifetimeGrossIncome >= GOLDEN_MACHINE_GROSS_THRESHOLD && (
+                      <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        Locked · Grind ${remainingGrossForGold.toLocaleString()} More ({grossPct}%)
+                      </span>
+                    </span>
+                  ) : (
                     <button
                       type="button"
+                      data-testid="btn-equip-golden-machine"
                       onClick={() =>
                         onUnlockOrEquipEquipmentSkin(
                           isGoldenEquipped ? 'classic-steel' : 'golden-espresso-machine'
                         )
                       }
-                      className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs cursor-pointer shadow"
+                      className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs cursor-pointer shadow flex items-center gap-1.5"
                     >
-                      {isGoldenEquipped ? 'Equipped (2x Active) · Unequip' : 'Equip Golden Machine (2x)'}
+                      <Trophy className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {isGoldenEquipped
+                          ? 'Equipped (2x Active) · Unequip'
+                          : 'Equip Golden Machine (2x)'}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -231,10 +259,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   equippedGrinderSkin === skin.id ||
                   equippedPitcherSkin === skin.id;
                 const needsGross =
-                  skin.grossIncomeRequirement &&
-                  lifetimeGrossIncome < skin.grossIncomeRequirement &&
-                  !skin.unlocked;
-                const canAfford = skin.unlocked || (!needsGross && cash >= skin.cost);
+                  Boolean(skin.grossIncomeRequirement) &&
+                  lifetimeGrossIncome < (skin.grossIncomeRequirement || 0);
+                const canAfford = !needsGross && (skin.unlocked || cash >= skin.cost);
 
                 return (
                   <div
@@ -267,7 +294,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       type="button"
                       disabled={isEquipped || !canAfford}
                       onClick={() => onUnlockOrEquipEquipmentSkin(skin.id)}
-                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors ${
+                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors flex items-center justify-center gap-1.5 ${
                         isEquipped
                           ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 cursor-default'
                           : canAfford
@@ -275,13 +302,21 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                           : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
                       }`}
                     >
-                      {isEquipped
-                        ? 'Equipped on 3D Counter'
-                        : skin.unlocked
-                        ? 'Equip Skin'
-                        : needsGross
-                        ? `Requires $100K Gross (${grossPct}%)`
-                        : `Unlock & Equip · $${skin.cost}`}
+                      {isEquipped ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 shrink-0" />
+                          <span>Equipped on 3D Counter</span>
+                        </>
+                      ) : needsGross ? (
+                        <>
+                          <Lock className="w-3.5 h-3.5 shrink-0" />
+                          <span>Requires $150K Gross ({grossPct}%)</span>
+                        </>
+                      ) : skin.unlocked ? (
+                        <span>Equip Skin</span>
+                      ) : (
+                        <span>Unlock &amp; Equip · ${skin.cost}</span>
+                      )}
                     </button>
                   </div>
                 );
@@ -325,7 +360,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     type="button"
                     disabled={isEquipped || !canAfford}
                     onClick={() => onUnlockOrEquipCustomerPack(pack.id)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors ${
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
                       isEquipped
                         ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 cursor-default'
                         : canAfford
@@ -333,11 +368,16 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
                     }`}
                   >
-                    {isEquipped
-                      ? 'Active Patron Style'
-                      : pack.unlocked
-                      ? 'Activate Patron Pack'
-                      : `Unlock Pack · $${pack.cost}`}
+                    {isEquipped ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span>Active Patron Style</span>
+                      </>
+                    ) : pack.unlocked ? (
+                      <span>Activate Patron Pack</span>
+                    ) : (
+                      <span>Unlock Pack · ${pack.cost}</span>
+                    )}
                   </button>
                 </div>
               );
@@ -424,7 +464,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     ) : isUnlockedToClaim ? (
                       <span>Claim Tier {item.day} Unlockable</span>
                     ) : (
-                      <span>Locked ({overallPct}% Complete)</span>
+                      <>
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        <span>Locked ({overallPct}% Complete)</span>
+                      </>
                     )}
                   </button>
                 </div>

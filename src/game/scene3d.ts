@@ -4880,8 +4880,11 @@ export class KlasikCafeScene3D {
     const recipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : null;
     const nextStep = getNextRecommendedStep(this.gameState.currentCup, recipe, pinnedOrder);
     const effectiveSyrup = pinnedOrder?.customSyrup || recipe?.syrup || 'vanilla';
-    const recommendedToolKey =
-      nextStep.toolKey === 'syrup' ? `syrup-${effectiveSyrup}` : nextStep.toolKey;
+    const recommendedToolKey = this.gameState.realismMode
+      ? null
+      : nextStep.toolKey === 'syrup'
+      ? `syrup-${effectiveSyrup}`
+      : nextStep.toolKey;
 
     const haloCoords: Record<string, [number, number]> = {
       grinder: [-0.78, 0.22],

@@ -29,7 +29,6 @@ import {
   loadGameFromStorage,
   performCupAction,
   purchaseUpgrade,
-  reachGoldenMachineMilestone,
   saveGameToStorage,
   serveCurrentCupToCustomer,
   startNextDayShift,
@@ -37,6 +36,7 @@ import {
   unlockOrEquipEquipmentSkin,
 } from './game/rules';
 import { KlasikCafeScene3D, StepAnimType } from './game/scene3d';
+import { triggerBaristaHaptic } from './game/haptics';
 import { soundEngine } from './game/sound';
 import { spotifyManager, SpotifyVinylState } from './game/spotifyManager';
 import { pwaManager, PwaEnvironmentStatus } from './pwa/pwaManager';
@@ -196,6 +196,7 @@ export default function App() {
       }
 
       const prev = gameStateRef.current;
+      const appVersion = pwaManager.getStatus().appVersion;
       const next = serveCurrentCupToCustomer(prev, customerId);
 
       // 1. Check if Serve was BLOCKED due to incomplete drink
@@ -206,6 +207,7 @@ export default function App() {
 
       if (wasBlocked) {
         soundEngine.playErrorThud();
+        triggerBaristaHaptic('blocked_or_error', appVersion);
         setGameState(next);
         flashAnimBanner(next.lastActionFeedback, 1600, null);
         return;
@@ -216,6 +218,7 @@ export default function App() {
         next.satisfactionScore < prev.satisfactionScore && next.cash === prev.cash;
       if (wasComplaint) {
         soundEngine.playErrorThud();
+        triggerBaristaHaptic('blocked_or_error', appVersion);
         setGameState(next);
         sceneRef.current?.updateGameState(next);
         flashAnimBanner(next.lastActionFeedback, 2200, null);
@@ -224,6 +227,7 @@ export default function App() {
 
       // 3. Valid Completed Drink Served!
       soundEngine.playCashRegister();
+      triggerBaristaHaptic('serve_success', appVersion);
       const earned = Math.max(0, Math.round(next.cash - prev.cash));
       const serveDuration = getStepDurationMs(prev, 'serve_drink');
       setGameState(next);
@@ -299,6 +303,7 @@ export default function App() {
       }
 
       const nextState = performCupAction(curState, action, syrupFlavor);
+      const appVersion = pwaManager.getStatus().appVersion;
 
       const cupUnchanged =
         JSON.stringify(nextState.currentCup) === JSON.stringify(curState.currentCup) &&
@@ -306,6 +311,7 @@ export default function App() {
 
       if (cupUnchanged) {
         soundEngine.playErrorThud();
+        triggerBaristaHaptic('blocked_or_error', appVersion);
         setGameState(nextState);
         flashAnimBanner(`Locked: ${nextState.lastActionFeedback}`, 1400, null);
         return;
@@ -315,24 +321,34 @@ export default function App() {
 
       if (resolvedStep === 'grind') {
         soundEngine.playGrind(stepDur / 1000);
+        triggerBaristaHaptic('grind', appVersion);
         flashAnimBanner('Grinding 18g Fresh Dark-Roast Beans...', stepDur, stepKey);
       } else if (resolvedStep === 'tamp') {
         soundEngine.playTamp();
+        triggerBaristaHaptic('tamp', appVersion);
         flashAnimBanner('Tamping Coffee Puck at 30 lbs...', stepDur, stepKey);
       } else if (resolvedStep === 'pull_espresso') {
         soundEngine.playEspressoPump(stepDur / 1000);
+        triggerBaristaHaptic('pull_espresso', appVersion);
         flashAnimBanner('Extracting 9-Bar Double Espresso Shot...', stepDur, stepKey);
       } else if (resolvedStep === 'steep_tea') {
         soundEngine.playTeaSteep(stepDur / 1000);
+        triggerBaristaHaptic('steep_tea', appVersion);
         flashAnimBanner('Steeping Artisanal Tea & Botanicals at 80°C...', stepDur, stepKey);
       } else if (resolvedStep === 'steam_milk') {
         soundEngine.playSteamHiss(stepDur / 1000);
+        triggerBaristaHaptic('steam_milk', appVersion);
         flashAnimBanner('Steaming 65°C Microfoam & Pouring Rosetta Latte Art...', stepDur, stepKey);
       } else if (resolvedStep === 'add_ice') {
         soundEngine.playIceClink();
+        triggerBaristaHaptic('add_ice', appVersion);
         flashAnimBanner('Scooping Crystal Ice Cubes into Cup...', stepDur, stepKey);
       } else if (resolvedStep === 'add_syrup') {
         soundEngine.playSyrupOrWhisk(resolvedFlavor === 'matcha');
+        triggerBaristaHaptic(
+          resolvedFlavor === 'matcha' ? 'whisk_matcha' : 'add_syrup',
+          appVersion
+        );
         flashAnimBanner(
           resolvedFlavor === 'matcha'
             ? 'Whisking Ceremonial Uji Matcha in Chawan...'
@@ -342,6 +358,7 @@ export default function App() {
         );
       } else {
         soundEngine.playCeramicClink(1.0);
+        triggerBaristaHaptic('rinse_cup', appVersion);
         flashAnimBanner('Rinsed Cup & Knocked Spent Puck into Knock Box', stepDur, null);
       }
 
@@ -448,9 +465,12 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gameState.phase]);
 
-  // Global Keyboard Shortcuts
+  // Global Keyboard Shortcuts (Disabled in Android APK Version; Active on Live Web & PWA)
   useEffect(() => {
+    if (pwaStatus.appVersion === 'apk') return;
+
     const onKeyDown = (e: KeyboardEvent) => {
+      if (pwaManager.getStatus().appVersion === 'apk') return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -493,6 +513,7 @@ export default function App() {
         const nextSt = (cur < 5 ? cur + 1 : 1) as BaristaStationId;
         handleSelectStation(nextSt);
       } else if (e.code === 'Space') {
+        if (gameStateRef.current.realismMode) return;
         e.preventDefault();
         handleCupAction('quick_brew_step');
       } else if (e.code === 'KeyG') {
@@ -524,7 +545,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeModal, handleCupAction, handleSelectStation, handleStartShift]);
+  }, [activeModal, handleCupAction, handleSelectStation, handleStartShift, pwaStatus.appVersion]);
 
   const handleChangeWeather = (weather: WeatherMode) => {
     soundEngine.init();
@@ -540,6 +561,17 @@ export default function App() {
 
   const handleChangeGraphics = (graphicsQuality: GraphicsQuality) => {
     setGameState((prev) => ({ ...prev, graphicsQuality }));
+  };
+
+  const handleToggleRealismMode = () => {
+    soundEngine.playCeramicClink(1.08);
+    setGameState((prev) => ({
+      ...prev,
+      realismMode: !prev.realismMode,
+      lastActionFeedback: !prev.realismMode
+        ? 'Realism Mode Enabled: Step shortcuts hidden. Rely on Recipe Codex & touch 3D equipment directly!'
+        : 'Realism Mode Disabled: Guided step-by-step HUD shortcuts restored.',
+    }));
   };
 
   const handleToggleMute = () => {
@@ -600,7 +632,12 @@ export default function App() {
       )}
 
       {/* Cozy Studio Preloader Splash */}
-      {isLoading && <LoadingScreen onFinished={() => setIsLoading(false)} />}
+      {isLoading && (
+        <LoadingScreen
+          appVersion={pwaStatus.appVersion}
+          onFinished={() => setIsLoading(false)}
+        />
+      )}
 
       {/* Living 3D Title Card Overlay */}
       {!isLoading && gameState.phase === 'title' && (
@@ -647,6 +684,7 @@ export default function App() {
           }
           onToggleVinyl={() => spotifyManager.togglePlayPause()}
           onChangeGraphics={handleChangeGraphics}
+          onToggleRealismMode={handleToggleRealismMode}
           onRequestFullscreenLandscape={handleRequestFullscreenLandscape}
           onOpenModal={(modal) => setActiveModal(modal)}
         />
@@ -656,6 +694,7 @@ export default function App() {
       {(gameState.phase === 'paused' || gameState.phase === 'gameover') && !activeModal && (
         <StatusModal
           gameState={gameState}
+          appVersion={pwaStatus.appVersion}
           onResume={() => setGameState((prev) => ({ ...prev, phase: 'playing' }))}
           onNextDayOrRetry={() => setGameState((prev) => startNextDayShift(prev))}
           onReturnToTitle={() => setGameState((prev) => ({ ...prev, phase: 'title' }))}
@@ -689,10 +728,6 @@ export default function App() {
           onClaimLoginReward={(rewardDay) => {
             soundEngine.playCashRegister();
             setGameState((prev) => claimLoginReward(prev, rewardDay));
-          }}
-          onUnlockGoldenMilestoneNow={() => {
-            soundEngine.playCashRegister();
-            setGameState((prev) => reachGoldenMachineMilestone(prev));
           }}
           onClose={() => setActiveModal(null)}
         />

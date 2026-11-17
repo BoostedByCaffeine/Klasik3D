@@ -27,10 +27,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install web dependencies & build production bundle
+      - name: Install web dependencies & build offline APK bundle
         env:
           VITE_APP_PLATFORM: apk
         run: |
@@ -39,12 +36,31 @@ jobs:
 
       - name: Generate Capacitor Android Project & Compile Landscape Fullscreen APK
         run: |
-          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          rm -rf android
           npx cap add android
-          # Force AndroidManifest.xml to Landscape + Fullscreen Immersive
-          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"/' android/app/src/main/AndroidManifest.xml
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/src/main/AndroidManifest.xml";
+            if (fs.existsSync(p)) {
+              let xml = fs.readFileSync(p, "utf8");
+              xml = xml.replace(
+                "android:name=\".MainActivity\"",
+                "android:name=\".MainActivity\" android:screenOrientation=\"sensorLandscape\" android:configChanges=\"orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode\""
+              );
+              if (!xml.includes("android.permission.VIBRATE")) {
+                xml = xml.replace("<application", "    <uses-permission android:name=\"android.permission.VIBRATE\" />\n    <application");
+              }
+              fs.writeFileSync(p, xml);
+            }
+          '
           npx cap sync android
-          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          elif [ -d "/usr/local/lib/android/sdk" ]; then
+            echo "sdk.dir=/usr/local/lib/android/sdk" > android/local.properties
+          fi
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
 
       - name: Upload Klasik3D.apk Artifact

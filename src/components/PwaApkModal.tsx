@@ -29,16 +29,15 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
-      - uses: android-actions/setup-android@v3
       - run: npm install --legacy-peer-deps --no-audit --no-fund
       - run: VITE_APP_PLATFORM=apk npx vite build --base=./
       - name: Build Capacitor Landscape Fullscreen Offline APK
         run: |
-          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          rm -rf android
           npx cap add android
-          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
           npx cap sync android
-          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
       - uses: actions/upload-artifact@v4
         with:
@@ -53,15 +52,13 @@ npm install --legacy-peer-deps --no-audit --no-fund
 VITE_APP_PLATFORM=apk npx vite build --base=./
 
 echo "Adding Capacitor Android wrapper (Landscape + Fullscreen Immersive + Offline Bundled)..."
-npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-if [ ! -d "android" ]; then
-  npx cap add android
-fi
-sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
+npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+rm -rf android
+npx cap add android
 npx cap sync android
 
 echo "Compiling Klasik3D.apk with Gradle..."
-cd android && chmod +x gradlew && ./gradlew assembleDebug
+cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
 cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
 echo "Success! 100% Offline Native Android package saved to ./Klasik3D.apk"
 `;

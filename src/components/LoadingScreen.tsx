@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { Coffee, FastForward } from 'lucide-react';
+import { AppRuntimeVersion } from '../pwa/pwaManager';
 import { StudioLogo } from './StudioLogo';
 
 interface LoadingScreenProps {
+  appVersion?: AppRuntimeVersion;
   onFinished: () => void;
 }
 
@@ -12,21 +15,33 @@ const LOADING_STEPS = [
   'Opening Garage Garden Pergola...',
 ];
 
-const BARISTA_TIPS = [
+const WEB_BARISTA_TIPS = [
   'Tip: Click any hanging order ticket or press Space to execute the next recommended barista step.',
   'Tip: Press M anytime to drop or lift the 3D vinyl turntable needle.',
   'Tip: Customers who receive 100% accurate drinks sit in the Garage Garden and leave bonus tips!',
   'Tip: Press 1–5 or A/D to glide smoothly between the five barista stations.',
 ];
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onFinished }) => {
+const APK_BARISTA_TIPS = [
+  'Tip: Tap any hanging order ticket or touch the 3D espresso bar equipment to brew step by step.',
+  'Tip: Tap the 3D vinyl turntable needle at Station 5 to spin records and sync Phone Spotify.',
+  'Tip: Customers who receive 100% accurate drinks sit in the Garage Garden and leave bonus tips!',
+  'Tip: Enable Realism Mode in the top Menu to rely purely on the Recipe Codex and 3D tools.',
+];
+
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({
+  appVersion = 'web',
+  onFinished,
+}) => {
   const [progress, setProgress] = useState(18);
   const [tipIndex, setTipIndex] = useState(0);
   const [fadingOut, setFadingOut] = useState(false);
 
+  const tips = appVersion === 'apk' ? APK_BARISTA_TIPS : WEB_BARISTA_TIPS;
+
   useEffect(() => {
     const tipTimer = window.setInterval(() => {
-      setTipIndex((prev) => (prev + 1) % BARISTA_TIPS.length);
+      setTipIndex((prev) => (prev + 1) % tips.length);
     }, 1800);
 
     const progTimer = window.setInterval(() => {
@@ -45,7 +60,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onFinished }) => {
       window.clearInterval(tipTimer);
       window.clearInterval(progTimer);
     };
-  }, [onFinished]);
+  }, [onFinished, tips.length]);
 
   const stepIndex = Math.min(
     LOADING_STEPS.length - 1,
@@ -60,8 +75,9 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onFinished }) => {
       role="status"
       aria-label="Loading Klasik 3D Garage Garden Cafe"
     >
-      <div className="text-xs tracking-widest text-amber-300/80 font-mono">
-        BOOSTED BY CAFFEINE STUDIOS · WEBGL 3D ENGINE
+      <div className="text-xs tracking-widest text-amber-300/80 font-mono flex items-center gap-1.5">
+        <Coffee className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <span>BOOSTED BY CAFFEINE STUDIOS · WEBGL 3D ENGINE</span>
       </div>
 
       <div className="flex flex-col items-center max-w-md w-full text-center gap-6">
@@ -92,16 +108,16 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onFinished }) => {
 
         <button
           type="button"
+          data-testid="btn-skip-loading"
           onClick={onFinished}
-          className="text-xs text-stone-400 hover:text-amber-300 underline transition-colors cursor-pointer"
+          className="text-xs text-stone-400 hover:text-amber-300 underline transition-colors cursor-pointer inline-flex items-center gap-1"
         >
-          Skip Preloader
+          <FastForward className="w-3.5 h-3.5 shrink-0" />
+          <span>Skip Preloader</span>
         </button>
       </div>
 
-      <div className="max-w-lg text-center text-xs text-stone-400">
-        {BARISTA_TIPS[tipIndex]}
-      </div>
+      <div className="max-w-lg text-center text-xs text-stone-400">{tips[tipIndex]}</div>
     </div>
   );
 };

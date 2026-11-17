@@ -41,7 +41,16 @@ export const SHIFT_SECONDS = 300;
 export const MAX_QUEUE = 3;
 export const MAX_GARDEN_SEATS = 6;
 export const DAILY_QUOTA_COMPLETION_BONUS = 50;
-export const GOLDEN_MACHINE_GROSS_THRESHOLD = 100000;
+export const GOLDEN_MACHINE_GROSS_THRESHOLD = 150000;
+
+export function stripKeyboardShortcutsForApk(text: string, isApk: boolean): string {
+  if (!isApk || !text) return text;
+  return text
+    .replace(/\s*\[(?:Key\s+)?[A-Za-z0-9 /]+\]/g, '')
+    .replace(/\bPress\s+R\b/gi, 'Tap Rinse')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 export function getDailyOrderQuota(day: number): number {
   return Math.min(50, 30 + (Math.max(1, day) - 1) * 5);
@@ -407,6 +416,7 @@ export interface KlasikGameState {
   weather: WeatherMode;
   activeStation: BaristaStationId;
   graphicsQuality: GraphicsQuality;
+  realismMode: boolean;
   day: number;
   cash: number;
   lifetimeGrossIncome: number;
@@ -615,7 +625,7 @@ export const INITIAL_EQUIPMENT_SKINS: EquipmentSkinItem[] = [
     slot: 'machine',
     name: 'Golden Espresso Machine (2x Sale Income)',
     description:
-      'Legendary 24K solid gold dual-boiler masterpiece! Obtained by accumulating $100,000 Gross Income. DOUBLES (2x) all drink sale income once equipped!',
+      'Legendary 24K solid gold dual-boiler masterpiece! Earned exclusively by grinding to $150,000 Gross Income. DOUBLES (2x) all drink sale income once equipped!',
     cost: 0,
     grossIncomeRequirement: GOLDEN_MACHINE_GROSS_THRESHOLD,
     saleMultiplier: 2,
@@ -809,12 +819,13 @@ export const INITIAL_LOGIN_REWARDS: LoginRewardItem[] = [
   {
     day: 7,
     id: 'login-day-7',
-    title: 'Tier 7: Grand Roaster $100K Milestone Boost!',
-    description: 'Requires 120m active shift play & 220 orders served. Unlocks 24K Golden Machine (2x Sales)!',
-    rewardLabel: '+$1,500 Cash & Unlocks 100K Golden Machine!',
+    title: 'Tier 7: Grand Roaster Heritage Brass Reserve',
+    description:
+      'Requires 120m active shift play & 220 orders served. Unlocks Royal Gold & Brass Burr Grinder + $1,500!',
+    rewardLabel: 'Heritage Brass Grinder + $1,500',
     cashBonus: 1500,
     grossIncomeBonus: 30000,
-    unlockSkinId: 'golden-espresso-machine',
+    unlockSkinId: 'heritage-brass',
     requiredShiftSeconds: 7200,
     requiredOrdersServed: 220,
     claimed: false,
@@ -926,6 +937,7 @@ export function createInitialGameState(): KlasikGameState {
     weather: 'morning',
     activeStation: 2,
     graphicsQuality: 'max',
+    realismMode: false,
     day,
     cash: 45,
     lifetimeGrossIncome: 0,
@@ -1452,12 +1464,8 @@ function syncGrossIncomeUnlocks(
   lifetimeGross: number
 ): EquipmentSkinItem[] {
   return equipmentSkins.map((s) => {
-    if (
-      s.id === 'golden-espresso-machine' &&
-      lifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD &&
-      !s.unlocked
-    ) {
-      return { ...s, unlocked: true };
+    if (s.id === 'golden-espresso-machine') {
+      return { ...s, unlocked: lifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD };
     }
     return s;
   });
@@ -1580,7 +1588,7 @@ export function serveCurrentCupToCustomer(
 
   const goldenBadge = payout.multiplier === 2 ? ' [2x GOLDEN MACHINE!]' : '';
   const unlockSuffix = justUnlockedGolden
-    ? ' · $100K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
+    ? ' · $150K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
     : '';
   const quotaSuffix = justCompletedQuota
     ? ` · DAILY QUOTA (${state.dailyOrderQuota} ORDERS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
@@ -1874,7 +1882,7 @@ export function reachGoldenMachineMilestone(state: KlasikGameState): KlasikGameS
     equipmentSkins: updatedSkins,
     equippedMachineSkin: 'golden-espresso-machine',
     lastActionFeedback:
-      '$100,000 Gross Income Milestone Reached! 24K Golden Espresso Machine Equipped (2x Sale Income)!',
+      '$150,000 Gross Income Milestone Reached! 24K Golden Espresso Machine Equipped (2x Sale Income)!',
   };
 }
 
@@ -2087,6 +2095,7 @@ export function exportSaveJson(state: KlasikGameState): string {
         satisfactionScore: state.satisfactionScore,
         weather: state.weather,
         graphicsQuality: state.graphicsQuality,
+        realismMode: Boolean(state.realismMode),
         upgrades: state.upgrades,
         equipmentSkins: state.equipmentSkins,
         equippedMachineSkin: state.equippedMachineSkin,
@@ -2165,9 +2174,14 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       satisfactionScore: typeof d.satisfactionScore === 'number' ? d.satisfactionScore : 100,
       weather: d.weather || base.weather,
       graphicsQuality: normalizeGraphicsQuality(d.graphicsQuality),
+      realismMode: Boolean(d.realismMode),
       upgrades: mergedUpgrades,
       equipmentSkins: mergedSkins,
-      equippedMachineSkin: d.equippedMachineSkin || base.equippedMachineSkin,
+      equippedMachineSkin:
+        d.equippedMachineSkin === 'golden-espresso-machine' &&
+        restoredGross < GOLDEN_MACHINE_GROSS_THRESHOLD
+          ? 'classic-steel'
+          : d.equippedMachineSkin || base.equippedMachineSkin,
       equippedGrinderSkin: d.equippedGrinderSkin || base.equippedGrinderSkin,
       equippedPitcherSkin: d.equippedPitcherSkin || base.equippedPitcherSkin,
       customerSkinPacks: mergedPacks,

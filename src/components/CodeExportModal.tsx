@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Copy, Save, Upload, X } from 'lucide-react';
 import { KlasikGameState, exportSaveJson, importSaveJson } from '../game/rules';
 
 interface CodeExportModalProps {
@@ -36,11 +37,11 @@ jobs:
       - name: Compile Android APK
         continue-on-error: true
         run: |
-          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          rm -rf android
           npx cap add android
-          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
           npx cap sync android
-          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../dist/Klasik3D.apk
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -101,23 +102,29 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
     >
       <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto bg-[#1b120d] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3.5">
         <div className="flex items-center justify-between border-b border-stone-800 pb-2.5">
-          <div>
-            <h2
-              id="export-modal-title"
-              className="text-base sm:text-lg font-bold font-display text-amber-100"
-            >
-              GitHub Deployment &amp; JSON Save Backup
-            </h2>
-            <p className="text-[11px] text-stone-400">
-              Cross-device save transfer &amp; lockfile-safe GitHub Pages Actions pipeline.
-            </p>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300 shrink-0">
+              <Save className="w-4 h-4" />
+            </div>
+            <div>
+              <h2
+                id="export-modal-title"
+                className="text-base sm:text-lg font-bold font-display text-amber-100"
+              >
+                GitHub Deployment &amp; JSON Save Backup
+              </h2>
+              <p className="text-[11px] text-stone-400">
+                Cross-device save transfer &amp; lockfile-safe GitHub Pages Actions pipeline.
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer"
+            className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
           >
-            Close
+            <X className="w-3.5 h-3.5" />
+            <span>Close</span>
           </button>
         </div>
 
@@ -131,16 +138,18 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopySave}
-                className="px-2.5 py-1 rounded-lg bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-[11px] font-medium text-amber-200 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-[11px] font-medium text-amber-200 cursor-pointer flex items-center gap-1"
               >
-                Copy JSON
+                <Copy className="w-3 h-3 shrink-0" />
+                <span>Copy JSON</span>
               </button>
               <button
                 type="button"
                 onClick={handleImportSave}
-                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 text-[11px] font-bold cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 text-[11px] font-bold cursor-pointer flex items-center gap-1"
               >
-                Import &amp; Restore
+                <Upload className="w-3 h-3 shrink-0" />
+                <span>Import &amp; Restore</span>
               </button>
             </div>
           </div>
@@ -153,27 +162,30 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
           />
         </div>
 
-        {/* GitHub Pages Deployment Commands & Lockfile-Safe Workflow */}
+        {/* GitHub Pages Deployment Guide */}
         <div className="p-3 rounded-xl bg-[#140d09] border border-stone-800 space-y-1.5 text-[11px] font-mono text-stone-300">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-amber-300 font-sans font-semibold">
-              GitHub Pages (`boostedbycaffeine/klasik`) Auto-Deploy Pipeline:
+          <div className="flex items-center justify-between">
+            <span className="text-amber-300 font-semibold font-sans">
+              GitHub Actions Auto-Deploy (.github/workflows/deploy.yml)
             </span>
             <button
               type="button"
               onClick={handleCopyWorkflow}
-              className="px-2 py-0.5 rounded bg-[#291c14] hover:bg-[#38261b] border border-amber-500/30 text-[10px] font-sans font-semibold text-amber-200 cursor-pointer"
+              className="px-2 py-0.5 rounded bg-[#291c14] hover:bg-[#38261b] border border-amber-500/30 text-[10px] font-sans font-semibold text-amber-200 cursor-pointer flex items-center gap-1"
             >
-              Copy deploy.yml
+              <Copy className="w-2.5 h-2.5 shrink-0" />
+              <span>Copy Workflow YAML</span>
             </button>
           </div>
-          <div>git init &amp;&amp; git add . &amp;&amp; git commit -m &quot;feat: Klasik 3D Garage Garden Cafe&quot;</div>
-          <div>git remote add origin https://github.com/boostedbycaffeine/klasik.git</div>
-          <div>git push -u origin main # Runs npm install --no-audit --no-fund &amp;&amp; npm run build</div>
+          <p className="text-[11px] font-sans text-stone-400 leading-relaxed">
+            Pre-configured in <code className="text-amber-200">.github/workflows/deploy.yml</code>{' '}
+            and <code className="text-amber-200">.github/workflows/android-apk.yml</code>. In GitHub
+            Settings &rarr; Pages, set Source to <strong>GitHub Actions</strong>.
+          </p>
         </div>
 
         {feedback && (
-          <div className="p-2.5 rounded-xl bg-[#291c14] border border-amber-500/40 text-xs text-amber-200">
+          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-xs text-amber-200 font-medium text-center">
             {feedback}
           </div>
         )}

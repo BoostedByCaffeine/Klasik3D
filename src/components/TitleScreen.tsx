@@ -212,9 +212,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               <Play className="w-3.5 h-3.5 fill-current shrink-0" />
               <span>Start Shift (Day {day})</span>
             </span>
-            <span className="text-[10px] font-mono bg-stone-950/15 px-1.5 py-0.5 rounded">
-              Enter / Space
-            </span>
+            {!isApkVersion && (
+              <span className="text-[10px] font-mono bg-stone-950/15 px-1.5 py-0.5 rounded">
+                Enter / Space
+              </span>
+            )}
           </button>
 
           <div className="grid grid-cols-2 gap-1.5">
@@ -286,9 +288,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Bottom Safe Margin: Single Flat Control-Hint Line */}
-      <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] text-stone-300 bg-[#0c0a09]/90 px-3 py-1 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0">
+      <div
+        data-testid="title-control-hint-bar"
+        className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] text-stone-300 bg-[#0c0a09]/90 px-3 py-1 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0"
+      >
         <span className="truncate">
-          1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide HUD
+          {isApkVersion
+            ? 'Use <- (Station) -> Pill to Switch Stations · Touch 3D Equipment or Bottom Bar to Brew & Serve'
+            : '1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide HUD'}
         </span>
         <span className="font-mono text-amber-300/90 hidden sm:inline shrink-0">
           {isApkVersion ? '100% Offline APK Ready' : 'Landscape 3D Barista Sim'}

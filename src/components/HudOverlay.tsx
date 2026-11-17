@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   Check,
   ChevronLeft,
   ChevronRight,
   Coffee,
+  Compass,
   CupSoda,
   Disc3,
   Download,
@@ -35,6 +37,7 @@ import {
   SyrupFlavor,
   getNextRecommendedStep,
   getRecipeById,
+  stripKeyboardShortcutsForApk,
   validateDrinkForServe,
 } from '../game/rules';
 import { SpotifyVinylState } from '../game/spotifyManager';
@@ -71,18 +74,24 @@ interface HudOverlayProps {
   onTogglePause: () => void;
   onToggleVinyl: () => void;
   onChangeGraphics: (quality: GraphicsQuality) => void;
+  onToggleRealismMode: () => void;
   onRequestFullscreenLandscape: () => void;
   onOpenModal: (
     modal: 'recipes' | 'upgrades' | 'customize' | 'spotify' | 'pwa' | 'export'
   ) => void;
 }
 
-const STATION_TABS: Array<{ id: BaristaStationId; short: string; badge: string }> = [
-  { id: 1, short: '1. Orders', badge: 'St. 1: Orders' },
-  { id: 2, short: '2. Espresso', badge: 'St. 2: Espresso' },
-  { id: 3, short: '3. Tea & Milk', badge: 'St. 3: Tea & Milk' },
-  { id: 4, short: '4. Serve', badge: 'St. 4: Serve' },
-  { id: 5, short: '5. Vinyl', badge: 'St. 5: Vinyl' },
+const STATION_TABS: Array<{
+  id: BaristaStationId;
+  name: string;
+  short: string;
+  badge: string;
+}> = [
+  { id: 1, name: 'Orders', short: '1. Orders', badge: 'St. 1: Orders' },
+  { id: 2, name: 'Espresso', short: '2. Espresso', badge: 'St. 2: Espresso' },
+  { id: 3, name: 'Tea & Milk', short: '3. Tea & Milk', badge: 'St. 3: Tea & Milk' },
+  { id: 4, name: 'Serve', short: '4. Serve', badge: 'St. 4: Serve' },
+  { id: 5, name: 'Vinyl', short: '5. Vinyl', badge: 'St. 5: Vinyl' },
 ];
 
 export const HudOverlay: React.FC<HudOverlayProps> = ({
@@ -103,6 +112,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onTogglePause,
   onToggleVinyl,
   onChangeGraphics,
+  onToggleRealismMode,
   onRequestFullscreenLandscape,
   onOpenModal,
 }) => {
@@ -110,7 +120,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   const [ticketsCollapsed, setTicketsCollapsed] = useState(false);
   const [topMenuOpen, setTopMenuOpen] = useState(false);
 
+  const isApkVersion = appVersion === 'apk';
+  const isRealismMode = Boolean(gameState.realismMode);
+
   useEffect(() => {
+    if (isApkVersion) return;
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -121,7 +135,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [isApkVersion]);
 
   const orderingCustomers = gameState.customers.filter((c) => c.state === 'ordering');
   const pinnedOrder =
@@ -152,7 +166,25 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
   const isMaxGraphics = gameState.graphicsQuality !== 'low';
   const qualityLabel = isMaxGraphics ? 'MAX' : 'LOW';
-  const isApkVersion = appVersion === 'apk';
+
+  const currentStationMeta =
+    STATION_TABS.find((s) => s.id === gameState.activeStation) || STATION_TABS[1];
+  const recommendedStationMeta =
+    STATION_TABS.find((s) => s.id === nextStep.station) || STATION_TABS[1];
+
+  const handlePrevStation = () => {
+    const prevSt = (
+      gameState.activeStation > 1 ? gameState.activeStation - 1 : 5
+    ) as BaristaStationId;
+    onSelectStation(prevSt);
+  };
+
+  const handleNextStation = () => {
+    const nextSt = (
+      gameState.activeStation < 5 ? gameState.activeStation + 1 : 1
+    ) as BaristaStationId;
+    onSelectStation(nextSt);
+  };
 
   const handleToggleGraphics = () => {
     onChangeGraphics(isMaxGraphics ? 'low' : 'max');
@@ -172,7 +204,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     return <Flame className="w-3 h-3 text-amber-400 shrink-0" />;
   };
 
-  // PURE 3D IMMERSIVE MODE (When HUD is Hidden via [H] or Hide HUD Toggle)
+  const displayBannerText = stripKeyboardShortcutsForApk(
+    activeAnimLabel || hoveredToolLabel || '',
+    isApkVersion
+  );
+
+  // PURE 3D IMMERSIVE MODE (When HUD is Hidden via Hide HUD Toggle)
   if (hudHidden) {
     return (
       <div className="fixed inset-0 z-10 pointer-events-none overflow-hidden">
@@ -180,37 +217,27 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         <div className="pointer-events-auto fixed top-2 right-2 flex items-center gap-1.5 bg-stone-950/85 border border-amber-500/40 rounded-full px-2.5 py-1 shadow-xl">
           <button
             type="button"
-            onClick={() => {
-              const prevSt = (
-                gameState.activeStation > 1 ? gameState.activeStation - 1 : 5
-              ) as BaristaStationId;
-              onSelectStation(prevSt);
-            }}
+            onClick={handlePrevStation}
             className="p-0.5 rounded-full bg-stone-800 hover:bg-stone-700 text-amber-200 cursor-pointer flex items-center justify-center"
-            title="Previous Station [A]"
+            title={isApkVersion ? 'Previous Station' : 'Previous Station [A]'}
             aria-label="Previous Station"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
           <span className="text-[10px] font-mono font-bold text-amber-100 whitespace-nowrap">
-            St.{gameState.activeStation}
+            ({currentStationMeta.name})
           </span>
           <button
             type="button"
-            onClick={() => {
-              const nextSt = (
-                gameState.activeStation < 5 ? gameState.activeStation + 1 : 1
-              ) as BaristaStationId;
-              onSelectStation(nextSt);
-            }}
+            onClick={handleNextStation}
             className="p-0.5 rounded-full bg-stone-800 hover:bg-stone-700 text-amber-200 cursor-pointer flex items-center justify-center"
-            title="Next Station [D]"
+            title={isApkVersion ? 'Next Station' : 'Next Station [D]'}
             aria-label="Next Station"
           >
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
 
-          {targetRecipe && (
+          {targetRecipe && !isRealismMode && (
             <button
               type="button"
               onClick={() => onCupAction('quick_brew_step')}
@@ -221,7 +248,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   ? 'bg-emerald-500 text-stone-950'
                   : 'bg-amber-500 text-stone-950'
               }`}
-              title={nextStep.instruction}
+              title={stripKeyboardShortcutsForApk(nextStep.instruction, isApkVersion)}
             >
               {drinkValidation.hasWrongIngredient ? (
                 <>
@@ -247,7 +274,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             data-testid="btn-show-hud"
             onClick={() => setHudHidden(false)}
             className="px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] font-bold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
-            title="Restore Full Barista HUD [H]"
+            title={isApkVersion ? 'Restore Full Barista HUD' : 'Restore Full Barista HUD [H]'}
           >
             <Eye className="w-3 h-3 shrink-0" />
             <span>Show HUD</span>
@@ -255,10 +282,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         </div>
 
         {/* Tiny progress pill at top-center only while actively executing a timed step */}
-        {stepProgress !== null && activeAnimLabel && (
+        {stepProgress !== null && displayBannerText && (
           <div className="fixed top-2 left-1/2 -translate-x-1/2 bg-stone-950/85 border border-amber-500/40 rounded-full px-3 py-0.5 flex items-center gap-2 shadow-lg">
             <span className="text-[10px] font-semibold text-amber-100 whitespace-nowrap">
-              {activeAnimLabel}
+              {displayBannerText}
             </span>
             <div className="w-16 h-1.5 rounded-full bg-stone-800 overflow-hidden">
               <div
@@ -276,7 +303,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between overflow-hidden">
       {/* 1. ULTRA-SLIM TOP TELEMETRY RIBBON (All Top Navigation Consolidated Inside Menu Button) */}
       <div className="flex flex-col w-full pointer-events-none relative">
-        <div className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/92 border-b border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0">
+        <div
+          data-testid="hud-top-bar"
+          className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/92 border-b border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
+        >
           {/* Left Cluster: Compact Station Pill + Mini Order Tickets */}
           <div className="flex items-center gap-1 min-w-0 shrink-0 sm:flex-1 overflow-x-auto no-scrollbar">
             <button
@@ -285,7 +315,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/35 text-[10px] sm:text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
               title="Toggle Order Strip"
             >
-              {STATION_TABS.find((s) => s.id === gameState.activeStation)?.badge}
+              {currentStationMeta.badge}
             </button>
 
             {isGoldenEquipped && (
@@ -350,14 +380,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             shiftTimeRemaining={gameState.shiftTimeRemaining}
           />
 
-          {/* Right Cluster: Consolidated Single Menu Button (Contains GFX, Music, Codex, Upgrades, Decor, Sound & Hide HUD) */}
+          {/* Right Cluster: Consolidated Single Menu Button (Contains GFX, Realism, Music, Codex, Upgrades, Decor, Sound & Hide HUD) */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               data-testid="btn-top-menu"
               aria-expanded={topMenuOpen}
               aria-label="Open Cafe Menu"
-              title="All Cafe Navigation: Graphics, Music, Recipe Codex, Upgrades, Decor, Sound & Hide HUD"
+              title="All Cafe Navigation: Graphics, Realism Mode, Music, Recipe Codex, Upgrades, Decor, Sound & Hide HUD"
               onClick={() => setTopMenuOpen((prev) => !prev)}
               className={`relative h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap transition-colors ${
                 topMenuOpen
@@ -378,11 +408,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           </div>
         </div>
 
-        {/* Consolidated Top Navigation Menu Drawer (Holds GFX Toggle, Music, Codex, Upgrades, Decor, Sound, Hide HUD & Pause) */}
+        {/* Consolidated Top Navigation Menu Drawer (Holds GFX Toggle, Realism Mode, Music, Codex, Upgrades, Decor, Sound, Hide HUD & Pause) */}
         {topMenuOpen && (
           <div
             data-testid="top-navigation-menu-drawer"
-            className="pointer-events-auto self-end mr-2 mt-1 w-[320px] sm:w-[440px] bg-[#1b120d]/98 border border-amber-500/45 rounded-xl p-2.5 shadow-2xl grid grid-cols-2 sm:grid-cols-3 gap-1.5 z-30"
+            className="pointer-events-auto self-end mr-2 mt-1 w-[320px] sm:w-[460px] bg-[#1b120d]/98 border border-amber-500/45 rounded-xl p-2.5 shadow-2xl grid grid-cols-2 sm:grid-cols-3 gap-1.5 z-30"
           >
             {/* 1. Graphics Toggle (LOW or MAX) */}
             <button
@@ -410,7 +440,33 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 2. Music / Spotify Vinyl Deck */}
+            {/* 2. Realism Mode Toggle (Hides Step-by-Step Shortcuts & Relies on 3D Tools + Codex) */}
+            <button
+              type="button"
+              data-testid="btn-toggle-realism"
+              onClick={() => {
+                onToggleRealismMode();
+              }}
+              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-colors ${
+                isRealismMode
+                  ? 'bg-amber-500 text-stone-950 border-amber-300 shadow'
+                  : 'bg-[#291c14] text-amber-200 border-amber-500/40 hover:bg-[#342419]'
+              }`}
+            >
+              <Compass className="w-4 h-4 shrink-0" />
+              <div className="min-w-0">
+                <div className="truncate">Realism: {isRealismMode ? 'ON' : 'OFF'}</div>
+                <div
+                  className={`text-[10px] truncate ${
+                    isRealismMode ? 'text-stone-900 font-semibold' : 'text-stone-400'
+                  }`}
+                >
+                  {isRealismMode ? 'Touch 3D Tools & Codex' : 'Guided HUD & Shortcuts'}
+                </div>
+              </div>
+            </button>
+
+            {/* 3. Music / Spotify Vinyl Deck */}
             <button
               type="button"
               data-testid="btn-menu-spotify"
@@ -431,7 +487,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 3. Recipe Codex */}
+            {/* 4. Recipe Codex */}
             <button
               type="button"
               data-testid="btn-menu-recipes"
@@ -448,7 +504,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 4. Upgrades & 100K Golden Machine */}
+            {/* 5. Upgrades & 150K Golden Machine */}
             <button
               type="button"
               data-testid="btn-menu-upgrades"
@@ -461,14 +517,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <Zap className="w-4 h-4 text-amber-400 shrink-0" />
               <div className="min-w-0">
                 <div className="truncate">Upgrades</div>
-                <div className="text-[10px] text-amber-400/90 truncate">100K Gold &amp; Skins</div>
+                <div className="text-[10px] text-amber-400/90 truncate">150K Gold &amp; Skins</div>
               </div>
               {unclaimedLoginCount > 0 && (
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute top-1.5 right-1.5" />
               )}
             </button>
 
-            {/* 5. Cafe Decor & Granular Weather Lighting */}
+            {/* 6. Cafe Decor & Granular Weather Lighting */}
             <button
               type="button"
               data-testid="btn-menu-decor"
@@ -485,7 +541,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 6. Sound & Granular Weather Audio Mute Toggle */}
+            {/* 7. Sound & Granular Weather Audio Mute Toggle */}
             <button
               type="button"
               data-testid="btn-toggle-mute"
@@ -505,7 +561,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 7. Hide HUD Toggle */}
+            {/* 8. Hide HUD Toggle */}
             <button
               type="button"
               data-testid="btn-toggle-hud"
@@ -517,12 +573,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             >
               <EyeOff className="w-4 h-4 text-amber-300 shrink-0" />
               <div className="min-w-0">
-                <div className="truncate">Hide HUD [H]</div>
+                <div className="truncate">
+                  {isApkVersion ? 'Hide HUD' : 'Hide HUD [H]'}
+                </div>
                 <div className="text-[10px] text-stone-400 truncate">Pure 3D View</div>
               </div>
             </button>
 
-            {/* 8. Fullscreen Landscape Lock */}
+            {/* 9. Fullscreen Landscape Lock */}
             <button
               type="button"
               onClick={() => {
@@ -538,7 +596,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 9. Pause / Shift Menu (or Install APK / PWA when on Web/PWA) */}
+            {/* 10. Install APK / PWA (Web & PWA only) + Pause / Shift Menu */}
             {!isApkVersion ? (
               <button
                 type="button"
@@ -563,12 +621,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onTogglePause();
               }}
-              className={`px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-stone-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center gap-2 ${
-                !isApkVersion ? 'col-span-2 sm:col-span-3 justify-center' : ''
+              className={`px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-stone-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center justify-center gap-2 ${
+                isApkVersion ? 'col-span-2 sm:col-span-3' : 'col-span-1 sm:col-span-2'
               }`}
             >
               <SlidersHorizontal className="w-4 h-4 text-amber-300 shrink-0" />
-              <span>Pause Shift &amp; Save Backup [Esc / P]</span>
+              <span>
+                {isApkVersion
+                  ? 'Pause Shift & Save Backup'
+                  : 'Pause Shift & Save Backup [Esc / P]'}
+              </span>
             </button>
           </div>
         )}
@@ -609,10 +671,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             <div />
           )}
 
-          {/* Slim Top-Right Progress / Desktop Hover Pill */}
-          {(activeAnimLabel || hoveredToolLabel) && (
+          {/* Slim Top-Right Progress / Hover Pill */}
+          {displayBannerText && (
             <div className="pointer-events-none inline-flex items-center gap-2 bg-stone-950/88 border border-amber-500/45 text-amber-100 text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full shadow-md max-w-[55vw] truncate">
-              <span className="truncate">{activeAnimLabel || hoveredToolLabel}</span>
+              <span className="truncate">{displayBannerText}</span>
               {stepDurationMs && stepProgress !== null && (
                 <span className="text-[9px] font-mono text-amber-300 shrink-0">
                   {(stepDurationMs / 1000).toFixed(1)}s
@@ -632,39 +694,62 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       </div>
 
       {/* 2. SINGLE-ROW EDGE-TO-EDGE BOTTOM BAR */}
-      <div className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/95 border-t border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar shrink-0">
-        {/* Left Side: Station Switcher Tabs */}
+      <div className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/95 border-t border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0">
+        {/* Left Side: Compact Switchable Station Pill <-(Orders)-> */}
         <div
-          className="flex items-center gap-1 shrink-0"
-          role="tablist"
-          aria-label="Barista Stations"
+          data-testid="station-switcher-pill"
+          className="inline-flex items-center gap-1 bg-stone-900/95 border border-amber-500/40 rounded-full p-0.5 shrink-0 shadow-sm"
+          role="group"
+          aria-label="Switch Barista Station"
         >
-          {STATION_TABS.map((st) => {
-            const isActive = gameState.activeStation === st.id;
-            const isRecommended = nextStep.station === st.id;
-            return (
+          <button
+            type="button"
+            data-testid="btn-station-prev"
+            onClick={handlePrevStation}
+            className="w-6 h-6 rounded-full bg-[#291c14] hover:bg-amber-500 hover:text-stone-950 text-amber-200 flex items-center justify-center transition-colors cursor-pointer"
+            title={isApkVersion ? 'Previous Station' : 'Previous Station [A / Left]'}
+            aria-label="Previous Station"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+          </button>
+
+          <div
+            data-testid="station-pill-label"
+            className="px-2.5 py-0.5 rounded-full bg-amber-500 text-stone-950 font-bold text-[10px] sm:text-xs whitespace-nowrap flex items-center gap-1"
+          >
+            <span>({currentStationMeta.name})</span>
+          </div>
+
+          <button
+            type="button"
+            data-testid="btn-station-next"
+            onClick={handleNextStation}
+            className="w-6 h-6 rounded-full bg-[#291c14] hover:bg-amber-500 hover:text-stone-950 text-amber-200 flex items-center justify-center transition-colors cursor-pointer"
+            title={isApkVersion ? 'Next Station' : 'Next Station [D / Right]'}
+            aria-label="Next Station"
+          >
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+          </button>
+
+          {/* Subtle Guided Next-Station Indicator (Hidden when Realism Mode is ON) */}
+          {!isRealismMode &&
+            targetRecipe &&
+            nextStep.station !== gameState.activeStation && (
               <button
-                key={st.id}
                 type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => onSelectStation(st.id)}
-                className={`px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                  isActive
-                    ? 'bg-amber-500 text-stone-950 font-bold shadow-sm'
-                    : isRecommended
-                    ? 'bg-stone-900 text-amber-300 border border-amber-500/45'
-                    : 'bg-stone-900/70 text-stone-300 hover:text-white'
-                }`}
+                data-testid="btn-recommended-station-guide"
+                onClick={() => onSelectStation(nextStep.station)}
+                className="px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 mr-0.5"
+                title={`Next step at ${recommendedStationMeta.badge}`}
               >
-                {st.short}
+                <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                <span>Go: {recommendedStationMeta.name}</span>
               </button>
-            );
-          })}
+            )}
         </div>
 
-        {/* Center-Left: Integrated One-Tap Next Step Button (Real offline Lucide icons) */}
-        {targetRecipe && (
+        {/* Center: Guided One-Tap Next Step Shortcut OR Realism Mode Diegetic Indicator */}
+        {!isRealismMode && targetRecipe && (
           <button
             type="button"
             data-testid="btn-quick-brew-step"
@@ -677,12 +762,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 ? 'bg-rose-500 hover:bg-rose-400 text-stone-950 animate-pulse'
                 : 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200'
             }`}
-            title={`${targetRecipe.name}: ${nextStep.instruction}`}
+            title={stripKeyboardShortcutsForApk(
+              `${targetRecipe.name}: ${nextStep.instruction}`,
+              isApkVersion
+            )}
           >
             {drinkValidation.hasWrongIngredient ? (
               <>
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>Rinse [R]</span>
+                <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
               </>
             ) : (
               <>
@@ -709,9 +797,29 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           </button>
         )}
 
-        {/* Right Side: Context-Sensitive Station Actions + Strict Validated Serve Button */}
+        {isRealismMode && (
+          <div
+            data-testid="realism-mode-active-strip"
+            className="flex items-center gap-1.5 shrink-0"
+          >
+            <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-[10px] sm:text-xs font-semibold text-amber-200 whitespace-nowrap inline-flex items-center gap-1">
+              <Compass className="w-3 h-3 text-amber-400 shrink-0" />
+              <span>Realism Mode: Touch 3D Equipment directly</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onOpenModal('recipes')}
+              className="px-2 py-1 rounded-md bg-[#291c14] hover:bg-[#36251b] border border-amber-500/40 text-[10px] sm:text-xs font-semibold text-amber-100 cursor-pointer whitespace-nowrap flex items-center gap-1"
+            >
+              <BookOpen className="w-3 h-3 text-amber-300 shrink-0" />
+              <span>Recipe Codex</span>
+            </button>
+          </div>
+        )}
+
+        {/* Right Side: Context-Sensitive Station Actions (Hidden in Realism Mode except Codex/Vinyl/Serve) */}
         <div className="flex items-center gap-1 shrink-0">
-          {gameState.activeStation === 1 && (
+          {!isRealismMode && gameState.activeStation === 1 && (
             <>
               <button
                 type="button"
@@ -732,10 +840,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </>
           )}
 
-          {gameState.activeStation === 2 && (
+          {!isRealismMode && gameState.activeStation === 2 && (
             <>
               <button
                 type="button"
+                data-testid="btn-action-grind"
                 onClick={() => onCupAction('grind')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   cup.hasGrounds
@@ -744,10 +853,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 }`}
               >
                 {cup.hasGrounds && <Check className="w-3 h-3 shrink-0" />}
-                <span>{cup.hasGrounds ? 'Ground' : '1. Grind [G]'}</span>
+                <span>
+                  {cup.hasGrounds
+                    ? 'Ground'
+                    : isApkVersion
+                    ? '1. Grind'
+                    : '1. Grind [G]'}
+                </span>
               </button>
               <button
                 type="button"
+                data-testid="btn-action-tamp"
                 onClick={() => onCupAction('tamp')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   cup.isTamped
@@ -759,10 +875,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 title={!cup.hasGrounds ? 'Grind beans first before tamping!' : 'Tamp coffee puck'}
               >
                 {cup.isTamped && <Check className="w-3 h-3 shrink-0" />}
-                <span>{cup.isTamped ? 'Tamped' : '2. Tamp [T]'}</span>
+                <span>
+                  {cup.isTamped
+                    ? 'Tamped'
+                    : isApkVersion
+                    ? '2. Tamp'
+                    : '2. Tamp [T]'}
+                </span>
               </button>
               <button
                 type="button"
+                data-testid="btn-action-shot"
                 onClick={() => onCupAction('pull_espresso')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   cup.hasEspresso
@@ -778,10 +901,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 }
               >
                 {cup.hasEspresso && <Check className="w-3 h-3 shrink-0" />}
-                <span>{cup.hasEspresso ? 'Shot' : '3. Shot [E]'}</span>
+                <span>
+                  {cup.hasEspresso
+                    ? 'Shot'
+                    : isApkVersion
+                    ? '3. Shot'
+                    : '3. Shot [E]'}
+                </span>
               </button>
               <button
                 type="button"
+                data-testid="btn-action-rinse"
                 onClick={() => onCupAction('rinse_cup')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   drinkValidation.hasWrongIngredient
@@ -794,12 +924,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 ) : (
                   <RotateCcw className="w-3 h-3 shrink-0" />
                 )}
-                <span>Rinse [R]</span>
+                <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
               </button>
             </>
           )}
 
-          {gameState.activeStation === 3 && (
+          {!isRealismMode && gameState.activeStation === 3 && (
             <>
               <button
                 type="button"
@@ -872,7 +1002,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </>
           )}
 
-          {gameState.activeStation === 4 && (
+          {!isRealismMode && gameState.activeStation === 4 && (
             <button
               type="button"
               onClick={() => onCupAction('rinse_cup')}
@@ -883,7 +1013,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               }`}
             >
               <RotateCcw className="w-3 h-3 shrink-0" />
-              <span>Rinse Cup [R]</span>
+              <span>{isApkVersion ? 'Rinse Cup' : 'Rinse Cup [R]'}</span>
             </button>
           )}
 
@@ -909,47 +1039,49 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onOpenModal('upgrades')}
                 className="px-1.5 sm:px-2 py-1 rounded-md bg-stone-800 hover:bg-stone-700 border border-stone-700 text-[10px] sm:text-xs font-semibold text-stone-200 cursor-pointer whitespace-nowrap"
               >
-                Shop &amp; 100K
+                Shop &amp; 150K
               </button>
             </>
           )}
 
-          {/* Strict Validated Serve Button (Real Lucide Icons) */}
-          <button
-            type="button"
-            onClick={() => onServeCustomer()}
-            className={`px-2 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
-              isDrinkReadyToServe
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 shadow-md'
-                : drinkValidation.hasWrongIngredient
-                ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-500/60 text-rose-200'
-                : 'bg-stone-900/90 hover:bg-stone-800 border border-stone-700 text-stone-400'
-            }`}
-            title={
-              isDrinkReadyToServe
-                ? 'Ring Bell & Serve Completed Drink!'
-                : drinkValidation.hasWrongIngredient
-                ? `Wrong ingredient (${drinkValidation.wrongIngredients[0]})! Serving will upset customer.`
-                : `Drink incomplete! Missing: ${drinkValidation.missingSteps.join(', ')}`
-            }
-          >
-            {isDrinkReadyToServe ? (
-              <>
-                <span>Serve</span>
-                <ArrowRight className="w-3 h-3 shrink-0" />
-              </>
-            ) : drinkValidation.hasWrongIngredient ? (
-              <>
-                <AlertTriangle className="w-3 h-3 shrink-0" />
-                <span>Serve (Wrong)</span>
-              </>
-            ) : (
-              <>
-                <Lock className="w-3 h-3 shrink-0" />
-                <span>Serve</span>
-              </>
-            )}
-          </button>
+          {/* Strict Validated Serve Button (Hidden in Realism Mode so player taps 3D Service Bell / Pickup Coaster directly) */}
+          {!isRealismMode && (
+            <button
+              type="button"
+              onClick={() => onServeCustomer()}
+              className={`px-2 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
+                isDrinkReadyToServe
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 shadow-md'
+                  : drinkValidation.hasWrongIngredient
+                  ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-500/60 text-rose-200'
+                  : 'bg-stone-900/90 hover:bg-stone-800 border border-stone-700 text-stone-400'
+              }`}
+              title={
+                isDrinkReadyToServe
+                  ? 'Ring Bell & Serve Completed Drink!'
+                  : drinkValidation.hasWrongIngredient
+                  ? `Wrong ingredient (${drinkValidation.wrongIngredients[0]})! Serving will upset customer.`
+                  : `Drink incomplete! Missing: ${drinkValidation.missingSteps.join(', ')}`
+              }
+            >
+              {isDrinkReadyToServe ? (
+                <>
+                  <span>Serve</span>
+                  <ArrowRight className="w-3 h-3 shrink-0" />
+                </>
+              ) : drinkValidation.hasWrongIngredient ? (
+                <>
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <span>Serve (Wrong)</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3 h-3 shrink-0" />
+                  <span>Serve</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

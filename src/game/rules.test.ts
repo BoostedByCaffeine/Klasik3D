@@ -24,6 +24,7 @@ import {
   exportSaveJson,
   importSaveJson,
   spawnCustomerOrder,
+  stripKeyboardShortcutsForApk,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -177,20 +178,22 @@ test('performCupAction steep_tea brews Artisanal Tea & Cold Refreshers step-by-s
   assert.ok(state.cash > cashBefore);
 });
 
-test('Golden Espresso Machine unlocks at 100k gross income and doubles (2x) all drink sale income once equipped', () => {
+test('Golden Espresso Machine requires 150k gross income and doubles (2x) all drink sale income once equipped', () => {
+  assert.equal(GOLDEN_MACHINE_GROSS_THRESHOLD, 150000);
   let state = createInitialGameState();
   const recipe = getRecipeById('velvet-latte');
 
   const normalPayout = calculateDrinkPayout(state, recipe, 100, 100, 2);
   assert.equal(normalPayout.multiplier, 1);
 
-  // Cannot equip before reaching $100,000 gross income
+  // Cannot equip before reaching $150,000 gross income (even at $100,000!)
+  state.lifetimeGrossIncome = 100000;
   state = unlockOrEquipEquipmentSkin(state, 'golden-espresso-machine');
   assert.notEqual(state.equippedMachineSkin, 'golden-espresso-machine');
 
-  // Reach $100,000 gross income milestone
+  // Reach $150,000 gross income milestone
   state = reachGoldenMachineMilestone(state);
-  assert.ok(state.lifetimeGrossIncome >= GOLDEN_MACHINE_GROSS_THRESHOLD);
+  assert.ok(state.lifetimeGrossIncome >= 150000);
   assert.equal(state.equippedMachineSkin, 'golden-espresso-machine');
 
   const goldenPayout = calculateDrinkPayout(state, recipe, 100, 100, 2);
@@ -268,11 +271,12 @@ test('purchaseUpgrade deducts cash and marks upgrade as purchased', () => {
   assert.equal(nextState.cash, 65);
 });
 
-test('exportSaveJson and importSaveJson round-trip game state, lifetimeGrossIncome, activeShiftSeconds, and equipped skins accurately', () => {
+test('exportSaveJson and importSaveJson round-trip game state, realismMode, 150k Golden Machine qualification, and equipped skins accurately', () => {
   let state = createInitialGameState();
   state.day = 4;
   state.cash = 148;
-  state.lifetimeGrossIncome = 105000;
+  state.realismMode = true;
+  state.lifetimeGrossIncome = 155000;
   state.activeShiftSeconds = 1850;
   state.equippedMachineSkin = 'golden-espresso-machine';
   state.dailyOrderQuota = 45;
@@ -282,11 +286,18 @@ test('exportSaveJson and importSaveJson round-trip game state, lifetimeGrossInco
   assert.ok(restored);
   assert.equal(restored.day, 4);
   assert.equal(restored.cash, 148);
-  assert.equal(restored.lifetimeGrossIncome, 105000);
+  assert.equal(restored.realismMode, true);
+  assert.equal(restored.lifetimeGrossIncome, 155000);
   assert.equal(restored.activeShiftSeconds, 1850);
   assert.equal(restored.equippedMachineSkin, 'golden-espresso-machine');
   assert.equal(restored.dailyOrderQuota, 45);
   assert.equal(restored.decor.counterWood, 'white-oak');
+
+  // Verify Golden Machine cannot be equipped via save import if gross income < $150,000
+  state.lifetimeGrossIncome = 105000;
+  const underQualifiedRestored = importSaveJson(exportSaveJson(state));
+  assert.ok(underQualifiedRestored);
+  assert.equal(underQualifiedRestored.equippedMachineSkin, 'classic-steel');
 });
 
 import { computeGranularWeatherParams } from './sound';
@@ -376,4 +387,86 @@ test('buildNativePhoneSpotifyLinks generates native spotify: URI and Android int
   );
   assert.equal(links.webFallbackUrl, 'https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6');
 });
+
+import {
+  BARISTA_VIBRATION_PATTERNS,
+  BaristaHapticEvent,
+  getHapticPatternForTool,
+  shouldTriggerApkVibration,
+  triggerBaristaHaptic,
+} from './haptics';
+
+test('Android APK Vibration API gating and barista tool haptic patterns are valid', () => {
+  assert.equal(shouldTriggerApkVibration('apk', true), true);
+  assert.equal(shouldTriggerApkVibration('apk', false), false);
+  assert.equal(shouldTriggerApkVibration('web', true), false);
+  assert.equal(shouldTriggerApkVibration('pwa', true), false);
+
+  const events: BaristaHapticEvent[] = [
+    'grind',
+    'tamp',
+    'pull_espresso',
+    'steep_tea',
+    'steam_milk',
+    'add_ice',
+    'add_syrup',
+    'whisk_matcha',
+    'rinse_cup',
+    'serve_success',
+    'blocked_or_error',
+  ];
+
+  for (const evt of events) {
+    const pattern = getHapticPatternForTool(evt);
+    assert.ok(Array.isArray(pattern) && pattern.length >= 3);
+    for (const ms of pattern) {
+      assert.ok(ms > 0 && ms <= 100);
+    }
+    assert.deepEqual(pattern, BARISTA_VIBRATION_PATTERNS[evt]);
+  }
+});
+
+test('triggerBaristaHaptic dispatches navigator.vibrate only in Android APK runtime', () => {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const calls: Array<number | number[]> = [];
+
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      vibrate: (pattern: number | number[]) => {
+        calls.push(pattern);
+        return true;
+      },
+    },
+  });
+
+  try {
+    assert.equal(triggerBaristaHaptic('grind', 'web'), false);
+    assert.equal(triggerBaristaHaptic('serve_success', 'pwa'), false);
+    assert.equal(calls.length, 0);
+
+    assert.equal(triggerBaristaHaptic('grind', 'apk'), true);
+    assert.equal(triggerBaristaHaptic('serve_success', 'apk'), true);
+    assert.equal(triggerBaristaHaptic('blocked_or_error', 'apk'), true);
+    assert.equal(calls.length, 3);
+    assert.deepEqual(calls[0], BARISTA_VIBRATION_PATTERNS.grind);
+    assert.deepEqual(calls[1], BARISTA_VIBRATION_PATTERNS.serve_success);
+    assert.deepEqual(calls[2], BARISTA_VIBRATION_PATTERNS.blocked_or_error);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'navigator', originalDescriptor);
+    }
+  }
+});
+
+test('stripKeyboardShortcutsForApk removes bracketed keyboard hints only for Android APK version', () => {
+  const sample = 'Stainless Rinse Sink [Key R] — Click to Dump & Rinse Cup [R]';
+  assert.equal(stripKeyboardShortcutsForApk(sample, false), sample);
+  assert.equal(
+    stripKeyboardShortcutsForApk(sample, true),
+    'Stainless Rinse Sink — Click to Dump & Rinse Cup'
+  );
+});
+
+
 

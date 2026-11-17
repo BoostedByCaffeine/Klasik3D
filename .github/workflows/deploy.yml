@@ -48,11 +48,26 @@ jobs:
       - name: Build Native Android APK into ./dist/Klasik3D.apk
         continue-on-error: true
         run: |
-          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          rm -rf android
           npx cap add android
-          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/src/main/AndroidManifest.xml";
+            if (fs.existsSync(p)) {
+              let xml = fs.readFileSync(p, "utf8");
+              xml = xml.replace("android:name=\".MainActivity\"", "android:name=\".MainActivity\" android:screenOrientation=\"sensorLandscape\"");
+              if (!xml.includes("android.permission.VIBRATE")) {
+                xml = xml.replace("<application", "    <uses-permission android:name=\"android.permission.VIBRATE\" />\n    <application");
+              }
+              fs.writeFileSync(p, xml);
+            }
+          '
           npx cap sync android
-          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          fi
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../dist/Klasik3D.apk
 
       - name: Configure GitHub Pages
