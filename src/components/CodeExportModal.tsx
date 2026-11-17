@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: 20
       - run: npm install --no-audit --no-fund
-      - run: npm run build -- --base=./
+      - run: npx vite build --base=./
       - run: touch ./dist/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

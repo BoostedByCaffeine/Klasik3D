@@ -31,7 +31,8 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Build static production bundle (relative base path)
-        run: npm run build -- --base=./
+        run: npx vite build --base=./
+
 
       - name: Ensure .nojekyll exists in dist
         run: touch ./dist/.nojekyll
