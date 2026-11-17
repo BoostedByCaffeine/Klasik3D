@@ -25,6 +25,7 @@ interface HudOverlayProps {
       | 'grind'
       | 'tamp'
       | 'pull_espresso'
+      | 'steep_tea'
       | 'steam_milk'
       | 'add_ice'
       | 'add_syrup'
@@ -46,7 +47,7 @@ interface HudOverlayProps {
 const STATION_TABS: Array<{ id: BaristaStationId; short: string; badge: string }> = [
   { id: 1, short: '1. Orders', badge: 'St. 1: Orders' },
   { id: 2, short: '2. Espresso', badge: 'St. 2: Espresso' },
-  { id: 3, short: '3. Milk & Syrup', badge: 'St. 3: Milk & Syrup' },
+  { id: 3, short: '3. Tea, Milk & Ice', badge: 'St. 3: Tea & Milk' },
   { id: 4, short: '4. Serve', badge: 'St. 4: Serve' },
   { id: 5, short: '5. Vinyl', badge: 'St. 5: Vinyl' },
 ];
@@ -69,6 +70,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 }) => {
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [ticketsCollapsed, setTicketsCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -94,12 +96,23 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   const cup = gameState.currentCup;
   const isDrinkReadyToServe =
     targetRecipe && evaluateDrinkMatch(cup, targetRecipe, pinnedOrder).accuracy >= 75;
+  const isGoldenEquipped = gameState.equippedMachineSkin === 'golden-espresso-machine';
+  const unclaimedLoginCount = (gameState.loginRewards || []).filter((r) => !r.claimed).length;
+
+  const categoryBadge = (() => {
+    if (!targetRecipe) return null;
+    if (targetRecipe.category === 'tea') return { label: '🍵 TEA', cls: 'text-lime-300 border-lime-500/40 bg-lime-500/15' };
+    if (targetRecipe.category === 'cold_drink') return { label: '🥤 COLD DRINK', cls: 'text-cyan-300 border-cyan-500/40 bg-cyan-500/15' };
+    if (targetRecipe.category === 'iced_coffee' || pinnedOrder?.customNeedsIce) return { label: '🧊 ICED COFFEE', cls: 'text-sky-300 border-sky-500/40 bg-sky-500/15' };
+    return { label: '🔥 HOT COFFEE', cls: 'text-amber-300 border-amber-500/40 bg-amber-500/15' };
+  })();
 
   const cupStatusText = (() => {
     if (
       !cup.hasGrounds &&
       !cup.isTamped &&
       !cup.hasEspresso &&
+      !cup.hasSteepedTea &&
       !cup.hasSteamedMilk &&
       !cup.hasIce &&
       cup.syrup === 'none'
@@ -110,6 +123,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     if (cup.hasEspresso) parts.push('Espresso');
     else if (cup.isTamped) parts.push('Tamped');
     else if (cup.hasGrounds) parts.push('Grounds');
+    if (cup.hasSteepedTea) parts.push('Steeped Tea');
     if (cup.hasSteamedMilk) parts.push('Milk');
     if (cup.hasIce) parts.push('Iced');
     if (cup.syrup !== 'none') parts.push(cup.syrup);
@@ -118,19 +132,25 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between overflow-hidden">
-      {/* 1. SINGLE ULTRA-THIN TOP TELEMETRY RIBBON + COMPACT DIEGETIC DIALOGUE BUBBLE */}
-      <div className="flex flex-col w-full pointer-events-none">
-        <div className="pointer-events-auto h-9 sm:h-11 w-full bg-stone-950/85 border-b border-amber-500/20 px-2.5 sm:px-3.5 flex items-center justify-between gap-2 shrink-0">
+      {/* 1. MOBILE-ACCESSIBLE TOP TELEMETRY RIBBON + COMPACT DIEGETIC DIALOGUE BUBBLE */}
+      <div className="flex flex-col w-full pointer-events-none relative">
+        <div className="pointer-events-auto h-10 sm:h-11 w-full bg-stone-950/90 border-b border-amber-500/25 px-2 sm:px-3.5 flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar shrink-0">
           {/* Left Cluster: Compact Station Pill + Collapsible Mini Order Tickets */}
-          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+          <div className="flex items-center gap-1.5 min-w-0 shrink-0 sm:flex-1 overflow-x-auto no-scrollbar">
             <button
               type="button"
               onClick={() => setTicketsCollapsed((prev) => !prev)}
-              className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/35 text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/35 text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer min-h-[30px]"
               title="Toggle Mini Order Tickets & Customer Speech Bubble"
             >
               {STATION_TABS.find((s) => s.id === gameState.activeStation)?.badge}
             </button>
+
+            {isGoldenEquipped && (
+              <span className="px-1.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400 text-[10px] font-mono font-bold text-amber-300 whitespace-nowrap shrink-0">
+                🏆 2x GOLD
+              </span>
+            )}
 
             {!ticketsCollapsed && (
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
@@ -142,7 +162,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       key={cust.id}
                       type="button"
                       onClick={() => onPinOrder(cust.id)}
-                      className={`relative flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-colors cursor-pointer shrink-0 max-w-[165px] overflow-hidden ${
+                      className={`relative flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-colors cursor-pointer shrink-0 max-w-[155px] overflow-hidden min-h-[30px] ${
                         isPinned
                           ? 'bg-amber-950/90 border-amber-400 text-amber-100'
                           : 'bg-stone-900/90 border-stone-800 text-stone-300 hover:border-stone-600'
@@ -160,7 +180,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                         </span>
                       )}
                       <span className="font-mono tabular-nums text-emerald-400 font-bold shrink-0">
-                        ${recipe.price}
+                        ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
                       </span>
                       <span
                         className={`absolute bottom-0 left-0 h-[2px] transition-all ${
@@ -179,7 +199,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             )}
           </div>
 
-          {/* Center Cluster: Inline Telemetry Stats in One Single Row */}
+          {/* Center Cluster: Inline Telemetry Stats */}
           <DailyGoalProgressBar
             day={gameState.day}
             mode={gameState.mode}
@@ -192,36 +212,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             shiftTimeRemaining={gameState.shiftTimeRemaining}
           />
 
-          {/* Right Cluster: Compact 28x28 Icon-Only Utility Buttons */}
+          {/* Right Cluster: Touch-Friendly Mobile & Desktop Utility Buttons (Never clipped!) */}
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label="Fullscreen Landscape"
-              title="Tap for Fullscreen Landscape"
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onRequestFullscreenLandscape();
-              }}
-              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
-            >
-              ⛶
-            </button>
-
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-label={isMuted ? 'Unmute Audio [M]' : 'Mute Audio [M]'}
-              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-              onClick={(e) => {
-                e.currentTarget.blur();
-                onToggleMute();
-              }}
-              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
-            >
-              {isMuted ? '🔇' : '🔊'}
-            </button>
-
             <button
               type="button"
               tabIndex={-1}
@@ -231,41 +223,47 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 e.currentTarget.blur();
                 onOpenModal('spotify');
               }}
-              className={`w-7 h-7 rounded-md border flex items-center justify-center text-xs cursor-pointer ${
+              className={`min-w-[32px] h-8 px-1.5 rounded-md border flex items-center justify-center gap-1 text-xs cursor-pointer ${
                 spotifyState.isPlaying
-                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                  ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-300'
                   : 'bg-stone-900 border-stone-700/80 text-stone-300'
               }`}
             >
-              🎵
+              <span>🎵</span>
+              <span className="hidden xl:inline text-[10px] font-semibold">Vinyl</span>
             </button>
 
             <button
               type="button"
               tabIndex={-1}
               aria-label="Recipes"
-              title="Recipe Codex"
+              title="Recipe Codex (Hot/Iced Coffee, Tea & Cold Drinks)"
               onClick={(e) => {
                 e.currentTarget.blur();
                 onOpenModal('recipes');
               }}
-              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-100 cursor-pointer"
+              className="min-w-[32px] h-8 px-1.5 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center gap-1 text-xs text-amber-100 cursor-pointer"
             >
-              📖
+              <span>📖</span>
+              <span className="hidden xl:inline text-[10px] font-semibold">Menu</span>
             </button>
 
             <button
               type="button"
               tabIndex={-1}
               aria-label="Upgrades"
-              title="Equipment Upgrades"
+              title="Upgrades, 100K Golden Machine & Daily Login Rewards"
               onClick={(e) => {
                 e.currentTarget.blur();
                 onOpenModal('upgrades');
               }}
-              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-300 cursor-pointer"
+              className="relative min-w-[32px] h-8 px-1.5 rounded-md bg-stone-900 hover:bg-stone-800 border border-amber-500/45 flex items-center justify-center gap-1 text-xs text-amber-300 cursor-pointer"
             >
-              ⚡
+              <span>⚡</span>
+              <span className="hidden xl:inline text-[10px] font-semibold">Shop/100K</span>
+              {unclaimedLoginCount > 0 && (
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
+              )}
             </button>
 
             <button
@@ -277,9 +275,49 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 e.currentTarget.blur();
                 onOpenModal('customize');
               }}
-              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-emerald-300 cursor-pointer"
+              className="min-w-[32px] h-8 px-1.5 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center gap-1 text-xs text-emerald-300 cursor-pointer"
             >
-              🪴
+              <span>🪴</span>
+              <span className="hidden xl:inline text-[10px] font-semibold">Decor</span>
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={isMuted ? 'Unmute Audio [M]' : 'Mute Audio [M]'}
+              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onToggleMute();
+              }}
+              className="min-w-[32px] h-8 px-1.5 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
+            >
+              {isMuted ? '🔇' : '🔊'}
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Fullscreen Landscape"
+              title="Tap for Fullscreen Landscape"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onRequestFullscreenLandscape();
+              }}
+              className="hidden sm:flex min-w-[32px] h-8 px-1.5 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 items-center justify-center text-xs text-amber-200 cursor-pointer"
+            >
+              ⛶
+            </button>
+
+            {/* Mobile-Friendly Quick Drawer Toggle so every upper menu is 1-tap accessible on small phones */}
+            <button
+              type="button"
+              aria-label="Quick Menu Drawer"
+              title="All Cafe Menus & Settings"
+              onClick={() => setMobileMenuOpen((prev) => !prev)}
+              className="min-w-[32px] h-8 px-2 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/45 flex items-center justify-center text-xs font-bold text-amber-200 cursor-pointer"
+            >
+              ☰
             </button>
 
             <button
@@ -291,20 +329,93 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 e.currentTarget.blur();
                 onTogglePause();
               }}
-              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-stone-200 cursor-pointer"
+              className="min-w-[32px] h-8 px-1.5 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-stone-200 cursor-pointer"
             >
               ⚙️
             </button>
           </div>
         </div>
 
-        {/* Diegetic Customer Ordering Dialogue Pill (Compact top-left speech bubble with Custom Add-on Badges) */}
+        {/* Mobile Quick-Access Upper Menu Drawer (100% accessible large touch buttons on phones) */}
+        {mobileMenuOpen && (
+          <div className="pointer-events-auto self-end mr-2 mt-1 bg-[#1b120d]/95 border border-amber-500/40 rounded-xl p-2 shadow-2xl grid grid-cols-2 sm:grid-cols-3 gap-1.5 z-30">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenModal('upgrades');
+              }}
+              className="px-3 py-2 rounded-lg bg-amber-500 text-stone-950 font-bold text-xs text-left cursor-pointer"
+            >
+              ⚡ Upgrades &amp; 100K Gold
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenModal('recipes');
+              }}
+              className="px-3 py-2 rounded-lg bg-[#291c14] text-amber-100 border border-stone-700 font-semibold text-xs text-left cursor-pointer"
+            >
+              📖 Recipes (Coffee/Tea)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenModal('spotify');
+              }}
+              className="px-3 py-2 rounded-lg bg-[#291c14] text-emerald-300 border border-emerald-500/40 font-semibold text-xs text-left cursor-pointer"
+            >
+              🎵 Spotify Vinyl Deck
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenModal('customize');
+              }}
+              className="px-3 py-2 rounded-lg bg-[#291c14] text-amber-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer"
+            >
+              🪴 Cafe Decor (18)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenModal('export');
+              }}
+              className="px-3 py-2 rounded-lg bg-[#291c14] text-stone-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer"
+            >
+              💾 Save &amp; GitHub
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onRequestFullscreenLandscape();
+              }}
+              className="px-3 py-2 rounded-lg bg-[#291c14] text-amber-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer"
+            >
+              ⛶ Fullscreen Lock
+            </button>
+          </div>
+        )}
+
+        {/* Diegetic Customer Ordering Dialogue Pill (Compact top-left speech bubble with Category & Custom Add-on Badges) */}
         {!ticketsCollapsed && pinnedOrder && targetRecipe && (
-          <div className="pointer-events-auto self-start mt-1.5 ml-2.5 max-w-md bg-stone-950/88 border border-amber-500/35 rounded-xl px-3 py-1.5 shadow-lg flex flex-wrap items-center gap-2">
+          <div className="pointer-events-auto self-start mt-1.5 ml-2.5 max-w-lg bg-stone-950/88 border border-amber-500/35 rounded-xl px-3 py-1.5 shadow-lg flex flex-wrap items-center gap-1.5">
+            {categoryBadge && (
+              <span
+                className={`px-1.5 py-0.5 rounded border text-[9px] font-mono font-bold shrink-0 ${categoryBadge.cls}`}
+              >
+                {categoryBadge.label}
+              </span>
+            )}
             <span className="text-[11px] font-bold text-amber-300 shrink-0">
               💬 {pinnedOrder.customerName}:
             </span>
-            <span className="text-[11px] italic text-stone-200 truncate max-w-[260px] sm:max-w-[330px]">
+            <span className="text-[11px] italic text-stone-200 truncate max-w-[230px] sm:max-w-[310px]">
               &ldquo;{pinnedOrder.dialogueLine}&rdquo;
             </span>
             <div className="flex items-center gap-1 shrink-0">
@@ -317,7 +428,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 </span>
               ))}
               <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-mono font-bold text-emerald-300">
-                +${pinnedOrder.customBonusTip} Tip
+                +${isGoldenEquipped ? pinnedOrder.customBonusTip * 2 : pinnedOrder.customBonusTip} Tip
               </span>
             </div>
           </div>
@@ -339,7 +450,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         <div className="pointer-events-auto mb-1.5 flex items-center gap-1.5 max-h-[34px] bg-stone-950/90 border border-amber-500/35 rounded-full px-3 py-1 shadow-lg">
           {targetRecipe ? (
             <>
-              <span className="text-[11px] font-medium text-stone-300 truncate max-w-[220px] sm:max-w-[360px]">
+              <span className="text-[11px] font-medium text-stone-300 truncate max-w-[210px] sm:max-w-[360px]">
                 <strong className="text-amber-300">{targetRecipe.name}:</strong>{' '}
                 {nextStep.instruction}
               </span>
@@ -465,6 +576,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <>
                   <button
                     type="button"
+                    onClick={() => onCupAction('steep_tea')}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold cursor-pointer whitespace-nowrap ${
+                      cup.hasSteepedTea
+                        ? 'bg-lime-500/25 border-lime-400 text-lime-200'
+                        : 'bg-stone-800 hover:bg-stone-700 border-lime-500/40 text-lime-200'
+                    }`}
+                  >
+                    🍵 Steep Tea
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => onCupAction('steam_milk')}
                     className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 border border-stone-600 text-xs font-semibold text-amber-100 cursor-pointer whitespace-nowrap"
                   >
@@ -536,7 +658,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     onClick={() => onOpenModal('upgrades')}
                     className="px-2.5 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 border border-stone-700 text-xs font-semibold text-stone-200 cursor-pointer whitespace-nowrap"
                   >
-                    Shop Upgrades
+                    Shop &amp; 100K Skins
                   </button>
                 </>
               )}

@@ -163,7 +163,7 @@ class SpotifyVinylManager {
   public togglePlayPause(): boolean {
     this.state.isPlaying = !this.state.isPlaying;
     soundEngine.playVinylNeedleDrop(this.state.isPlaying);
-    soundEngine.setLofiSynthActive(this.state.isPlaying && !this.state.showMiniEmbed);
+    soundEngine.setLofiSynthActive(this.state.isPlaying);
     this.notify();
     return this.state.isPlaying;
   }
@@ -172,7 +172,7 @@ class SpotifyVinylManager {
     if (this.state.isPlaying === playing) return;
     this.state.isPlaying = playing;
     soundEngine.playVinylNeedleDrop(playing);
-    soundEngine.setLofiSynthActive(playing && !this.state.showMiniEmbed);
+    soundEngine.setLofiSynthActive(playing);
     this.notify();
   }
 
@@ -196,7 +196,7 @@ class SpotifyVinylManager {
     this.state.rpm = found.rpm;
     this.state.isPlaying = true;
     soundEngine.playVinylNeedleDrop(true);
-    soundEngine.setLofiSynthActive(!this.state.showMiniEmbed);
+    soundEngine.setLofiSynthActive(true);
     this.notify();
   }
 
@@ -220,7 +220,6 @@ class SpotifyVinylManager {
     this.state.currentTrack = customPreset;
     this.state.isPlaying = true;
     this.state.showMiniEmbed = true;
-    soundEngine.setSpotifyDucking(true);
     soundEngine.playVinylNeedleDrop(true);
     this.notify();
     return true;
@@ -229,7 +228,6 @@ class SpotifyVinylManager {
   public setShowMiniEmbed(show: boolean) {
     this.state.showMiniEmbed = show;
     soundEngine.setSpotifyDucking(show);
-    soundEngine.setLofiSynthActive(this.state.isPlaying && !show);
     this.notify();
   }
 

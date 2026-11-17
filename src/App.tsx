@@ -19,6 +19,7 @@ import {
   SyrupFlavor,
   WeatherMode,
   advanceSimulationTick,
+  claimLoginReward,
   createInitialGameState,
   getEffectiveRecipeForOrder,
   getNextRecommendedStep,
@@ -26,9 +27,12 @@ import {
   loadGameFromStorage,
   performCupAction,
   purchaseUpgrade,
+  reachGoldenMachineMilestone,
   saveGameToStorage,
   serveCurrentCupToCustomer,
   startNextDayShift,
+  unlockOrEquipCustomerSkinPack,
+  unlockOrEquipEquipmentSkin,
 } from './game/rules';
 import { KlasikCafeScene3D, StepAnimType } from './game/scene3d';
 import { soundEngine } from './game/sound';
@@ -163,6 +167,7 @@ export default function App() {
         | 'grind'
         | 'tamp'
         | 'pull_espresso'
+        | 'steep_tea'
         | 'steam_milk'
         | 'add_ice'
         | 'add_syrup'
@@ -197,6 +202,7 @@ export default function App() {
         if (step.toolKey === 'grinder') resolvedStep = 'grind';
         else if (step.toolKey === 'tamper') resolvedStep = 'tamp';
         else if (step.toolKey === 'espresso') resolvedStep = 'pull_espresso';
+        else if (step.toolKey === 'tea') resolvedStep = 'steep_tea';
         else if (step.toolKey === 'milk') resolvedStep = 'steam_milk';
         else if (step.toolKey === 'ice') resolvedStep = 'add_ice';
         else if (step.toolKey === 'syrup') {
@@ -216,14 +222,17 @@ export default function App() {
       } else if (resolvedStep === 'pull_espresso') {
         soundEngine.playEspressoPump(1.25);
         flashAnimBanner('Extracting 9-Bar Double Espresso Shot...', 1400);
+      } else if (resolvedStep === 'steep_tea') {
+        soundEngine.playTeaSteep(1.25);
+        flashAnimBanner('Steeping Artisanal Tea & Botanicals at 80°C...', 1300);
       } else if (resolvedStep === 'steam_milk') {
         soundEngine.playSteamHiss(1.1);
         flashAnimBanner('Steaming 65°C Microfoam & Pouring Rosetta Latte Art...', 1400);
       } else if (resolvedStep === 'add_ice') {
-        soundEngine.playCeramicClink(1.18);
+        soundEngine.playIceClink();
         flashAnimBanner('Scooping Crystal Ice Cubes into Cup...', 950);
       } else if (resolvedStep === 'add_syrup') {
-        soundEngine.playCeramicClink(1.12);
+        soundEngine.playSyrupOrWhisk(resolvedFlavor === 'matcha');
         flashAnimBanner(
           resolvedFlavor === 'matcha'
             ? 'Whisking Ceremonial Uji Matcha in Chawan...'
@@ -245,7 +254,7 @@ export default function App() {
 
   const handleStartShift = useCallback((mode: GameMode) => {
     soundEngine.init();
-    soundEngine.playCashRegister();
+    soundEngine.playCustomerBell();
     soundEngine.setLofiSynthActive(spotifyManager.getState().isPlaying);
     sceneRef.current?.resetCameraOffsets();
     document.body.dataset.state = 'playing';
@@ -326,7 +335,8 @@ export default function App() {
   useEffect(() => {
     sceneRef.current?.updateGameState(gameState);
     soundEngine.setRainAmbience(
-      gameState.weather === 'rainy' && gameState.phase === 'playing'
+      gameState.weather === 'rainy' && gameState.phase === 'playing',
+      gameState.weather
     );
   }, [gameState]);
 
@@ -395,6 +405,9 @@ export default function App() {
       } else if (e.code === 'KeyE') {
         e.preventDefault();
         handleCupAction('pull_espresso');
+      } else if (e.code === 'KeyB') {
+        e.preventDefault();
+        handleCupAction('steep_tea');
       } else if (e.code === 'KeyS') {
         e.preventDefault();
         handleCupAction('steam_milk');
@@ -551,11 +564,26 @@ export default function App() {
 
       {activeModal === 'upgrades' && (
         <BizUpgradesModal
-          cash={gameState.cash}
-          upgrades={gameState.upgrades}
-          onPurchase={(upgradeId) => {
+          gameState={gameState}
+          onPurchaseUpgrade={(upgradeId) => {
             soundEngine.playCashRegister();
             setGameState((prev) => purchaseUpgrade(prev, upgradeId));
+          }}
+          onUnlockOrEquipEquipmentSkin={(skinId) => {
+            soundEngine.playCashRegister();
+            setGameState((prev) => unlockOrEquipEquipmentSkin(prev, skinId));
+          }}
+          onUnlockOrEquipCustomerPack={(packId) => {
+            soundEngine.playCashRegister();
+            setGameState((prev) => unlockOrEquipCustomerSkinPack(prev, packId));
+          }}
+          onClaimLoginReward={(rewardDay) => {
+            soundEngine.playCashRegister();
+            setGameState((prev) => claimLoginReward(prev, rewardDay));
+          }}
+          onUnlockGoldenMilestoneNow={() => {
+            soundEngine.playCashRegister();
+            setGameState((prev) => reachGoldenMachineMilestone(prev));
           }}
           onClose={() => setActiveModal(null)}
         />
@@ -592,6 +620,39 @@ export default function App() {
           onClose={() => setActiveModal(null)}
         />
       )}
+
+      {/* PERSISTENT SPOTIFY VINYL EMBED PLAYER (Never unmounts when modal closes so Spotify BGM keeps playing!) */}
+      <div
+        data-testid="persistent-spotify-embed-dock"
+        className={
+          activeModal === 'spotify' && spotifyState.mode === 'bridge'
+            ? 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md rounded-xl overflow-hidden border border-emerald-500/50 bg-black shadow-2xl'
+            : spotifyState.showMiniEmbed && gameState.phase !== 'title'
+            ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden border border-emerald-500/45 bg-stone-950/95 shadow-xl'
+            : 'fixed -bottom-96 left-0 w-72 h-20 opacity-0 pointer-events-none overflow-hidden'
+        }
+      >
+        {spotifyState.showMiniEmbed && activeModal !== 'spotify' && (
+          <div className="flex items-center justify-between px-2.5 py-1 bg-stone-950 border-b border-stone-800 text-[10px] text-emerald-300 font-semibold">
+            <span className="truncate">🎵 {spotifyState.currentTrack.title}</span>
+            <button
+              type="button"
+              onClick={() => spotifyManager.setShowMiniEmbed(false)}
+              className="text-stone-400 hover:text-white cursor-pointer ml-2"
+              title="Hide Mini Window (Audio Keeps Playing!)"
+            >
+              Minimize ▾
+            </button>
+          </div>
+        )}
+        <iframe
+          title="Spotify Vinyl Player"
+          src={spotifyState.currentTrack.embedUrl}
+          width="100%"
+          height="80"
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+        />
+      </div>
     </main>
   );
 }

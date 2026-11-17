@@ -27,6 +27,7 @@ export type StepAnimType =
   | 'grind'
   | 'tamp'
   | 'pull_espresso'
+  | 'steep_tea'
   | 'steam_milk'
   | 'add_ice'
   | 'add_syrup'
@@ -40,6 +41,7 @@ export interface SceneInteractionCallbacks {
       | 'grind'
       | 'tamp'
       | 'pull_espresso'
+      | 'steep_tea'
       | 'steam_milk'
       | 'add_ice'
       | 'add_syrup'
@@ -243,12 +245,16 @@ export class KlasikCafeScene3D {
   private stepHaloTexture!: THREE.CanvasTexture;
   private miataLicenseTexture!: THREE.CanvasTexture;
   private ticketTextures: THREE.CanvasTexture[] = [];
+  private lastTicketSignature = '';
 
-  // Dynamic materials for customization & highlighting
+  // Dynamic materials for customization, equipment skins & highlighting
   private counterWoodMat!: THREE.MeshStandardMaterial;
   private ceramicMugMat!: THREE.MeshStandardMaterial;
   private neonTubeMat!: THREE.MeshStandardMaterial;
   private ghostSnapMat!: THREE.MeshStandardMaterial;
+  private espressoChassisMat!: THREE.MeshStandardMaterial;
+  private grinderBodyMat!: THREE.MeshStandardMaterial;
+  private pitcherBodyMat!: THREE.MeshStandardMaterial;
 
   // Interactive & animated 3D groups
   private interactables: THREE.Object3D[] = [];
@@ -300,6 +306,8 @@ export class KlasikCafeScene3D {
   private milkPitcherGroup!: THREE.Group;
   private pitcherMilkMesh!: THREE.Mesh;
   private milkPourStreamMesh!: THREE.Mesh;
+  private teaPotGroup!: THREE.Group;
+  private teaPourStreamMesh!: THREE.Mesh;
   private iceScoopGroup!: THREE.Group;
   private syrupPumpHeads: Map<string, THREE.Group> = new Map();
   private syrupRibbonMesh!: THREE.Mesh;
@@ -693,9 +701,19 @@ export class KlasikCafeScene3D {
     this.pickupSpeechTexture.needsUpdate = true;
   }
 
-  // Draws Dynamic Hanging 3D Order Tickets above Station 1 (Customer Name, Drink Title, Add-ons & Live Patience Bar)
+  // Draws Dynamic Hanging 3D Order Tickets above Station 1 (Dirty-checked so textures only upload when changed!)
   private redrawOrderTicketTextures() {
     const ordering = this.gameState.customers.filter((c) => c.state === 'ordering');
+    const sig = ordering
+      .slice(0, 3)
+      .map(
+        (c) =>
+          `${c.id}:${c.recipeId}:${Math.round(c.patience / 5)}:${(c.customAddons || []).join(',')}`
+      )
+      .join('|');
+    if (sig === this.lastTicketSignature) return;
+    this.lastTicketSignature = sig;
+
     for (let i = 0; i < this.ticketTextures.length; i++) {
       const tex = this.ticketTextures[i];
       const canvas = tex.image as HTMLCanvasElement;
@@ -1933,7 +1951,7 @@ export class KlasikCafeScene3D {
     posDisplay.rotation.x = -0.35;
     registerGroup.add(posDisplay);
 
-    registerGroup.position.set(-1.95, 1.0, 0.28);
+    registerGroup.position.set(-2.24, 1.0, 0.28);
     this.registerInteractiveTool(
       'register',
       registerGroup,
@@ -1943,10 +1961,10 @@ export class KlasikCafeScene3D {
     );
     st1Group.add(registerGroup);
 
-    // 2. Glass Pastry Display Case at x = -1.50, z = 0.24
+    // 2. Glass Pastry Display Case at x = -1.78, z = 0.24 (Spans -1.95..-1.61, zero collision with Station 4 Bell at -1.32!)
     const pastryCaseGroup = new THREE.Group();
     const caseBase = new THREE.Mesh(
-      new THREE.BoxGeometry(0.36, 0.06, 0.32),
+      new THREE.BoxGeometry(0.34, 0.06, 0.3),
       this.counterWoodMat
     );
     caseBase.position.y = 0.03;
@@ -1959,17 +1977,17 @@ export class KlasikCafeScene3D {
       transparent: true,
       opacity: this.isSoftwareGl ? 0.32 : 0.88,
     });
-    const glassHood = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.3), glassCaseMat);
+    const glassHood = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.28), glassCaseMat);
     glassHood.position.y = 0.17;
     pastryCaseGroup.add(glassHood);
 
-    const pastryShelf = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.01, 0.24), brassMat);
+    const pastryShelf = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.01, 0.22), brassMat);
     pastryShelf.position.y = 0.15;
     pastryCaseGroup.add(pastryShelf);
 
     // 3D Croissants & Matcha Tarts inside Pastry Case
     const croissantMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.55 });
-    [-0.07, 0.07].forEach((px) => {
+    [-0.065, 0.065].forEach((px) => {
       const croissant = new THREE.Mesh(
         new THREE.TorusGeometry(0.035, 0.016, 10, 16, Math.PI * 1.3),
         croissantMat
@@ -1986,16 +2004,16 @@ export class KlasikCafeScene3D {
       pastryCaseGroup.add(matchaTart);
     });
 
-    pastryCaseGroup.position.set(-1.5, 1.0, 0.24);
+    pastryCaseGroup.position.set(-1.78, 1.0, 0.24);
     st1Group.add(pastryCaseGroup);
 
-    // 3. Overhead Hanging Order Tickets (x = -2.10 to -1.50, y = 1.82) with Dynamic CanvasTextures
+    // 3. Overhead Hanging Order Tickets (x = -2.28 to -1.68, y = 1.82) with Dynamic CanvasTextures
     const rail = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.032, 0.032), brassMat);
-    rail.position.set(-1.8, 1.98, 0.18);
+    rail.position.set(-1.98, 1.98, 0.18);
     st1Group.add(rail);
 
     this.ticketTextures = [];
-    const ticketXs = [-2.1, -1.8, -1.5];
+    const ticketXs = [-2.28, -1.98, -1.68];
     ticketXs.forEach((tx) => {
       const tCanvas = document.createElement('canvas');
       tCanvas.width = 256;
@@ -2017,7 +2035,7 @@ export class KlasikCafeScene3D {
     this.scene.add(st1Group);
   }
 
-  // Station 2 (x: -1.15 to 0.35): Knock Box (-1.08, 0.34), Burr Grinder (-0.82, 0.22), Tamping Mat (-0.52, 0.36), Dual-Boiler Espresso Machine (-0.05, 0.18), Rinse Sink (0.32, 0.28)
+  // Station 2 (x: -1.06 to 0.35): Knock Box (-1.04, 0.34), Burr Grinder (-0.80, 0.22), Tamping Mat (-0.50, 0.36), Dual-Boiler Espresso Machine (-0.05, 0.18), Rinse Sink (0.32, 0.28)
   private buildStation2EspressoBar() {
     const st2Group = new THREE.Group();
 
@@ -2026,6 +2044,7 @@ export class KlasikCafeScene3D {
       roughness: 0.2,
       metalness: 0.88,
     });
+    this.espressoChassisMat = brushedSteelMat;
     const chromeMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
       roughness: 0.1,
@@ -2035,6 +2054,11 @@ export class KlasikCafeScene3D {
       color: 0x18181b,
       roughness: 0.5,
       metalness: 0.35,
+    });
+    this.grinderBodyMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.45,
+      metalness: 0.45,
     });
     const brassMat = new THREE.MeshStandardMaterial({
       color: 0xd97706,
@@ -2070,7 +2094,7 @@ export class KlasikCafeScene3D {
     spentPuck.rotation.z = 0.2;
     knockBoxGroup.add(spentPuck);
 
-    knockBoxGroup.position.set(-1.08, 1.0, 0.34);
+    knockBoxGroup.position.set(-1.04, 1.0, 0.34);
     st2Group.add(knockBoxGroup);
 
     // 2. Conical Burr Grinder at x = -0.82, z = 0.22
@@ -2084,7 +2108,7 @@ export class KlasikCafeScene3D {
 
     const grinderTower = new THREE.Mesh(
       new THREE.CylinderGeometry(0.105, 0.12, 0.34, 24),
-      matteBlackMat
+      this.grinderBodyMat
     );
     grinderTower.position.y = 0.2;
     grinderTower.castShadow = true;
@@ -2553,13 +2577,18 @@ export class KlasikCafeScene3D {
       roughness: 0.15,
       metalness: 0.92,
     });
+    this.pitcherBodyMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.15,
+      metalness: 0.92,
+    });
     const brassPumpMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
       roughness: 0.22,
       metalness: 0.88,
     });
 
-    // 1. Dedicated Drink Assembly Mat / Coaster at x = 0.62, z = 0.38 (Completely clear of Ice Bin!)
+    // 1. Dedicated Drink Assembly Mat / Coaster at x = 0.62, z = 0.38 (Completely clear of Ice Bin & Teapot!)
     const assemblyCoasterGroup = new THREE.Group();
     const coasterDisc = new THREE.Mesh(
       new THREE.CylinderGeometry(0.11, 0.115, 0.016, 24),
@@ -2579,23 +2608,103 @@ export class KlasikCafeScene3D {
     assemblyCoasterGroup.position.set(0.62, 1.0, 0.38);
     st3Group.add(assemblyCoasterGroup);
 
+    // 1b. Kyoto Borosilicate Glass Teapot & Botanical Infuser at x = 0.62, z = 0.14
+    this.teaPotGroup = new THREE.Group();
+    const teapotWarmerBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.075, 0.082, 0.025, 20),
+      brassPumpMat
+    );
+    teapotWarmerBase.position.y = 0.0125;
+    this.teaPotGroup.add(teapotWarmerBase);
+
+    const teapotGlassMat = new THREE.MeshPhysicalMaterial({
+      color: 0xecfccb,
+      roughness: 0.1,
+      transmission: this.isSoftwareGl ? 0 : 0.78,
+      transparent: true,
+      opacity: this.isSoftwareGl ? 0.45 : 0.88,
+    });
+    const teapotBelly = new THREE.Mesh(
+      new THREE.SphereGeometry(0.078, 20, 16),
+      teapotGlassMat
+    );
+    teapotBelly.scale.set(1, 0.82, 1);
+    teapotBelly.position.y = 0.082;
+    this.teaPotGroup.add(teapotBelly);
+
+    // Inner Stainless & Botanical Leaf Infuser Core
+    const infuserCore = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.032, 0.028, 0.085, 16),
+      new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.55 })
+    );
+    infuserCore.position.y = 0.082;
+    this.teaPotGroup.add(infuserCore);
+
+    const teapotLid = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.042, 0.048, 0.018, 18),
+      brassPumpMat
+    );
+    teapotLid.position.y = 0.145;
+    this.teaPotGroup.add(teapotLid);
+
+    const lidKnob = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 12), this.counterWoodMat);
+    lidKnob.position.y = 0.162;
+    this.teaPotGroup.add(lidKnob);
+
+    const teapotSpout = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.02, 0.075, 12),
+      teapotGlassMat
+    );
+    teapotSpout.position.set(0, 0.095, 0.072);
+    teapotSpout.rotation.x = 0.65;
+    this.teaPotGroup.add(teapotSpout);
+
+    const teapotHandle = new THREE.Mesh(
+      new THREE.TorusGeometry(0.042, 0.008, 10, 20, Math.PI),
+      this.counterWoodMat
+    );
+    teapotHandle.rotation.y = Math.PI / 2;
+    teapotHandle.position.set(0, 0.088, -0.072);
+    this.teaPotGroup.add(teapotHandle);
+
+    this.teaPotGroup.position.set(0.62, 1.0, 0.14);
+    this.registerInteractiveTool(
+      'tea',
+      this.teaPotGroup,
+      'Kyoto Borosilicate Glass Teapot — Click to Steep Artisanal Tea & Botanicals',
+      3,
+      () => this.callbacks.onToolAction('steep_tea')
+    );
+    st3Group.add(this.teaPotGroup);
+
+    this.teaPourStreamMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.009, 0.005, 0.21, 12),
+      new THREE.MeshStandardMaterial({
+        color: 0x84cc16,
+        emissive: 0x4d7c0f,
+        emissiveIntensity: 0.35,
+      })
+    );
+    this.teaPourStreamMesh.visible = false;
+    st3Group.add(this.teaPourStreamMesh);
+
     // 2. Stainless Milk Pitcher at x = 0.44, z = 0.36
     this.milkPitcherGroup = new THREE.Group();
     const pitcherBody = new THREE.Mesh(
       new THREE.CylinderGeometry(0.064, 0.076, 0.175, 24, 1, true),
-      chromeMat
+      this.pitcherBodyMat
     );
     pitcherBody.position.y = 0.088;
     this.milkPitcherGroup.add(pitcherBody);
 
-    const pitcherBottom = new THREE.Mesh(new THREE.CircleGeometry(0.076, 24), chromeMat);
+    const pitcherBottom = new THREE.Mesh(new THREE.CircleGeometry(0.076, 24), this.pitcherBodyMat);
     pitcherBottom.rotation.x = Math.PI / 2;
     pitcherBottom.position.y = 0.002;
     this.milkPitcherGroup.add(pitcherBottom);
 
     const spoutLip = new THREE.Mesh(
       new THREE.CylinderGeometry(0.02, 0.01, 0.035, 12),
-      chromeMat
+      this.pitcherBodyMat
     );
     spoutLip.position.set(0.062, 0.162, 0);
     spoutLip.rotation.z = -0.45;
@@ -2603,7 +2712,7 @@ export class KlasikCafeScene3D {
 
     const pHandle = new THREE.Mesh(
       new THREE.TorusGeometry(0.042, 0.008, 10, 20, Math.PI),
-      chromeMat
+      this.pitcherBodyMat
     );
     pHandle.rotation.z = Math.PI / 2;
     pHandle.position.set(-0.068, 0.092, 0);
@@ -2928,7 +3037,7 @@ export class KlasikCafeScene3D {
     this.ghostCupMesh.position.y = 0.095;
     serveTrayGroup.add(this.ghostCupMesh);
 
-    serveTrayGroup.position.set(-1.35, 1.0, 0.12);
+    serveTrayGroup.position.set(-1.32, 1.0, 0.2);
     this.registerInteractiveTool(
       'serve',
       serveTrayGroup,
@@ -3782,6 +3891,7 @@ export class KlasikCafeScene3D {
       grind: 1.25,
       tamp: 1.15,
       pull_espresso: 1.5,
+      steep_tea: 1.35,
       steam_milk: 1.55,
       add_ice: 1.15,
       add_syrup: 1.2,
@@ -3809,6 +3919,8 @@ export class KlasikCafeScene3D {
 
     if (type === 'steam_milk') {
       this.drawFloatingBadgeText('65°C MICROFOAM', '#10b981');
+    } else if (type === 'steep_tea') {
+      this.drawFloatingBadgeText('80°C TEA INFUSION', '#84cc16');
     } else if (type === 'tamp') {
       this.drawFloatingBadgeText('30 LBS TAMP', '#10b981');
     } else if (type === 'pull_espresso') {
@@ -3874,18 +3986,32 @@ export class KlasikCafeScene3D {
       this.counterWoodMat.color.setHex(0x4a2c18);
     } else if (counterWood === 'white-oak') {
       this.counterWoodMat.color.setHex(0xa67c52);
+    } else if (counterWood === 'cherry-mahogany') {
+      this.counterWoodMat.color.setHex(0x6b2114);
+    } else if (counterWood === 'bamboo-zen') {
+      this.counterWoodMat.color.setHex(0xc4a46b);
     } else {
       this.counterWoodMat.color.setHex(0x27272a);
     }
 
     if (mugColor === 'cream') {
       this.ceramicMugMat.color.setHex(0xf8f5f0);
+      this.ceramicMugMat.metalness = 0.05;
     } else if (mugColor === 'matte-black') {
       this.ceramicMugMat.color.setHex(0x3f3f46);
+      this.ceramicMugMat.metalness = 0.1;
     } else if (mugColor === 'sage-green') {
       this.ceramicMugMat.color.setHex(0xbbf7d0);
+      this.ceramicMugMat.metalness = 0.05;
+    } else if (mugColor === 'royal-gold') {
+      this.ceramicMugMat.color.setHex(0xfbbf24);
+      this.ceramicMugMat.metalness = 0.75;
+    } else if (mugColor === 'sakura-pink') {
+      this.ceramicMugMat.color.setHex(0xfbcfe8);
+      this.ceramicMugMat.metalness = 0.05;
     } else {
       this.ceramicMugMat.color.setHex(0xfdba74);
+      this.ceramicMugMat.metalness = 0.05;
     }
 
     if (neonSignColor === 'amber') {
@@ -3894,9 +4020,71 @@ export class KlasikCafeScene3D {
     } else if (neonSignColor === 'emerald') {
       this.neonTubeMat.emissive.setHex(0x10b981);
       this.neonSignLight.color.setHex(0x10b981);
+    } else if (neonSignColor === 'cyber-cyan') {
+      this.neonTubeMat.emissive.setHex(0x06b6d4);
+      this.neonSignLight.color.setHex(0x06b6d4);
+    } else if (neonSignColor === 'violet-dream') {
+      this.neonTubeMat.emissive.setHex(0xa855f7);
+      this.neonSignLight.color.setHex(0xa855f7);
     } else {
       this.neonTubeMat.emissive.setHex(0xf43f5e);
       this.neonSignLight.color.setHex(0xf43f5e);
+    }
+
+    // Apply Equipped Espresso Machine Skin (including 24K GOLDEN ESPRESSO MACHINE!)
+    if (this.espressoChassisMat) {
+      const mSkin = this.gameState.equippedMachineSkin || 'classic-steel';
+      if (mSkin === 'golden-espresso-machine') {
+        this.espressoChassisMat.color.setHex(0xfbbf24);
+        this.espressoChassisMat.metalness = 0.96;
+        this.espressoChassisMat.roughness = 0.14;
+      } else if (mSkin === 'matte-obsidian') {
+        this.espressoChassisMat.color.setHex(0x1f2937);
+        this.espressoChassisMat.metalness = 0.65;
+        this.espressoChassisMat.roughness = 0.35;
+      } else if (mSkin === 'vintage-copper') {
+        this.espressoChassisMat.color.setHex(0xd97706);
+        this.espressoChassisMat.metalness = 0.9;
+        this.espressoChassisMat.roughness = 0.2;
+      } else {
+        this.espressoChassisMat.color.setHex(0xe5e7eb);
+        this.espressoChassisMat.metalness = 0.88;
+        this.espressoChassisMat.roughness = 0.2;
+      }
+    }
+
+    if (this.grinderBodyMat) {
+      const gSkin = this.gameState.equippedGrinderSkin || 'matte-black';
+      if (gSkin === 'cyber-chrome') {
+        this.grinderBodyMat.color.setHex(0xf8fafc);
+        this.grinderBodyMat.metalness = 0.95;
+        this.grinderBodyMat.roughness = 0.12;
+      } else if (gSkin === 'heritage-brass') {
+        this.grinderBodyMat.color.setHex(0xfbbf24);
+        this.grinderBodyMat.metalness = 0.92;
+        this.grinderBodyMat.roughness = 0.18;
+      } else {
+        this.grinderBodyMat.color.setHex(0x18181b);
+        this.grinderBodyMat.metalness = 0.45;
+        this.grinderBodyMat.roughness = 0.45;
+      }
+    }
+
+    if (this.pitcherBodyMat) {
+      const pSkin = this.gameState.equippedPitcherSkin || 'stainless-steel';
+      if (pSkin === 'rose-gold') {
+        this.pitcherBodyMat.color.setHex(0xfda4af);
+        this.pitcherBodyMat.metalness = 0.92;
+        this.pitcherBodyMat.roughness = 0.16;
+      } else if (pSkin === 'titanium-pearl') {
+        this.pitcherBodyMat.color.setHex(0xfef08a);
+        this.pitcherBodyMat.metalness = 0.88;
+        this.pitcherBodyMat.roughness = 0.14;
+      } else {
+        this.pitcherBodyMat.color.setHex(0xe2e8f0);
+        this.pitcherBodyMat.metalness = 0.92;
+        this.pitcherBodyMat.roughness = 0.15;
+      }
     }
 
     this.monsteraLeavesInstanced.count = plantDensity === 'lush-jungle' ? 36 : 18;
@@ -3905,7 +4093,11 @@ export class KlasikCafeScene3D {
   // Updates Coffee Grounds, Tamped Puck visibility, and Cup Progression State Machine target
   private updateActiveCupVisuals() {
     const cup = this.gameState.currentCup;
-    const hasAnyLiquid = cup.hasEspresso || cup.hasSteamedMilk || cup.syrup !== 'none';
+    const hasAnyLiquid =
+      cup.hasEspresso ||
+      cup.hasSteepedTea ||
+      cup.hasSteamedMilk ||
+      cup.syrup !== 'none';
 
     this.fluffyGroundsMesh.visible = cup.hasGrounds && !cup.isTamped;
     this.tampedPuckMesh.visible = cup.isTamped || cup.hasEspresso;
@@ -3923,13 +4115,14 @@ export class KlasikCafeScene3D {
 
     const isStageB =
       cup.hasEspresso ||
+      cup.hasSteepedTea ||
       cup.hasSteamedMilk ||
       cup.hasIce ||
       cup.syrup !== 'none' ||
       this.gameState.activeStation === 3;
 
     if (this.gameState.activeStation === 4 && hasAnyLiquid) {
-      this.cupTargetPos.set(-1.35, 1.03, 0.12);
+      this.cupTargetPos.set(-1.32, 1.03, 0.2);
     } else if (isStageB) {
       this.cupTargetPos.set(0.62, 1.01, 0.38);
     } else {
@@ -4099,14 +4292,14 @@ export class KlasikCafeScene3D {
 
     let targetFill = 0.0;
     if (cup.hasSteamedMilk) targetFill = 0.96;
-    else if (cup.hasEspresso) targetFill = 0.54;
+    else if (cup.hasEspresso || cup.hasSteepedTea) targetFill = 0.62;
     else if (cup.syrup !== 'none') targetFill = 0.28;
 
     // During active serve_drink Stage 1, keep the cup looking full on the Pickup Coaster!
     if (this.stepAnim?.type === 'serve_drink' && this.stepAnim.progress < 0.65) {
       targetFill = 0.96;
-    } else if (this.stepAnim?.type === 'pull_espresso') {
-      targetFill = Math.max(targetFill, Math.min(0.54, this.stepAnim.progress * 0.62));
+    } else if (this.stepAnim?.type === 'pull_espresso' || this.stepAnim?.type === 'steep_tea') {
+      targetFill = Math.max(targetFill, Math.min(0.62, this.stepAnim.progress * 0.68));
     } else if (this.stepAnim?.type === 'steam_milk' && this.stepAnim.progress > 0.45) {
       const pourP = (this.stepAnim.progress - 0.45) / 0.55;
       targetFill = Math.max(targetFill, 0.54 + pourP * 0.42);
@@ -4124,6 +4317,9 @@ export class KlasikCafeScene3D {
     if (cup.syrup === 'matcha') {
       _targetColor.setHex(0x4d7c0f);
       _targetCremaColor.setHex(0x84cc16);
+    } else if (cup.hasSteepedTea && !cup.hasEspresso) {
+      _targetColor.setHex(cup.hasSteamedMilk ? 0xd6bcfa : 0x84cc16);
+      _targetCremaColor.setHex(0xd9f99d);
     } else if (cup.syrup === 'chocolate') {
       _targetColor.setHex(0x5c3317);
       _targetCremaColor.setHex(0xd99b66);
@@ -4142,6 +4338,10 @@ export class KlasikCafeScene3D {
     }
 
     this.currentLiquidColor.lerp(_targetColor, damp);
+    this.currentLiquidCremaHelper(damp);
+  }
+
+  private currentLiquidCremaHelper(damp: number) {
     this.currentCremaColor.lerp(_targetCremaColor, damp);
 
     this.cupLiquidShaderMat.uniforms.uFillLevel.value = this.currentLiquidFill;
@@ -4170,6 +4370,7 @@ export class KlasikCafeScene3D {
     this.tampPressureRingMesh.visible = false;
     this.espressoStreamsGroup.visible = false;
     this.milkPourStreamMesh.visible = false;
+    this.teaPourStreamMesh.visible = false;
     this.syrupRibbonMesh.visible = false;
     this.floatingBadgeSprite.visible = false;
     this.pickupSpeechSprite.visible = false;
@@ -4180,6 +4381,8 @@ export class KlasikCafeScene3D {
 
     this.milkPitcherGroup.position.set(0.44, 1.0, 0.36);
     this.milkPitcherGroup.rotation.set(0, 0, 0);
+    this.teaPotGroup.position.set(0.62, 1.0, 0.14);
+    this.teaPotGroup.rotation.set(0, 0, 0);
     this.steamWandPivot.rotation.set(0, 0, 0);
     this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
     this.iceScoopGroup.rotation.set(0, 0, 0);
@@ -4403,14 +4606,30 @@ export class KlasikCafeScene3D {
       this.syrupRibbonMesh.position.set(0.62, 1.2, 0.38);
       this.activeCupDrizzleRing.visible = true;
       this.activeCupDrizzleRing.rotation.z = p * Math.PI * 4;
+    } else if (this.stepAnim.type === 'steep_tea') {
+      // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over the cup on Assembly Coaster (0.62, 1.01, 0.38)
+      this.activeBaristaCupGroup.position.set(0.62, 1.01, 0.38);
+      const arc = Math.sin(p * Math.PI);
+      this.teaPotGroup.position.set(
+        0.62,
+        evalQuadBezier(1.0, 1.26, 1.22, arc),
+        evalQuadBezier(0.14, 0.24, 0.26, arc)
+      );
+      this.teaPotGroup.rotation.x = arc * 0.85;
+      if (p > 0.2 && p < 0.85) {
+        this.teaPourStreamMesh.visible = true;
+        this.teaPourStreamMesh.position.set(0.62, 1.18, 0.36);
+        this.floatingBadgeSprite.visible = true;
+        this.floatingBadgeSprite.position.set(0.62, 1.44 + p * 0.05, 0.28);
+      }
     } else if (this.stepAnim.type === 'serve_drink') {
-      // 2-Stage Physical Pickup Choreography at Station 4 Walnut Pickup Coaster (-1.35, 1.03, 0.12)
+      // 2-Stage Physical Pickup Choreography at Station 4 Walnut Pickup Coaster (-1.32, 1.03, 0.20)
       if (p < 0.48) {
         const s1 = easeInOutCubic(p / 0.48);
         this.activeBaristaCupGroup.position.set(
-          evalQuadBezier(0.62, -0.35, -1.35, s1),
+          evalQuadBezier(0.62, -0.35, -1.32, s1),
           evalQuadBezier(1.01, 1.14, 1.03, s1),
-          evalQuadBezier(0.38, 0.28, 0.12, s1)
+          evalQuadBezier(0.38, 0.28, 0.2, s1)
         );
         this.bellRippleRingMesh.visible = s1 > 0.5;
         this.bellRippleRingMesh.scale.setScalar(1 + (s1 - 0.5) * 3.5);
@@ -4418,15 +4637,15 @@ export class KlasikCafeScene3D {
         const s2 = easeInOutCubic((p - 0.48) / 0.52);
         this.activeBaristaCupGroup.visible = s2 < 0.38;
         this.activeBaristaCupGroup.position.set(
-          -1.35,
+          -1.32,
           1.03 + s2 * 0.14,
-          THREE.MathUtils.lerp(0.12, -0.25, Math.min(1, s2 * 2.5))
+          THREE.MathUtils.lerp(0.2, -0.25, Math.min(1, s2 * 2.5))
         );
         this.pickupSpeechSprite.visible = true;
-        this.pickupSpeechSprite.position.set(-1.35, 1.68 + s2 * 0.08, -0.55);
+        this.pickupSpeechSprite.position.set(-1.32, 1.68 + s2 * 0.08, -0.55);
       }
       this.floatingBadgeSprite.visible = true;
-      this.floatingBadgeSprite.position.set(-1.35, 1.38 + p * 0.22, 0.12);
+      this.floatingBadgeSprite.position.set(-1.32, 1.38 + p * 0.22, 0.2);
     }
   }
 
@@ -4467,12 +4686,17 @@ export class KlasikCafeScene3D {
           const trackX = THREE.MathUtils.lerp(-0.18, cupPos.x, 0.75);
           _targetPos.set(trackX, 1.46, 1.28);
           _targetLook.set(cupPos.x, 1.08, 0.34);
-        } else if (t === 'steam_milk' || t === 'add_ice' || t === 'add_syrup') {
+        } else if (
+          t === 'steam_milk' ||
+          t === 'steep_tea' ||
+          t === 'add_ice' ||
+          t === 'add_syrup'
+        ) {
           _targetPos.set(0.68, 1.46, 1.3);
           _targetLook.set(cupPos.x, 1.1, 0.36);
         } else if (t === 'serve_drink') {
           _targetPos.set(-1.32, 1.54, 1.38);
-          _targetLook.set(-1.35, 1.15, -0.42);
+          _targetLook.set(-1.32, 1.15, -0.42);
         }
       }
 
@@ -4560,13 +4784,14 @@ export class KlasikCafeScene3D {
       grinder: [-0.82, 0.22],
       tamper: [-0.52, 0.36],
       espresso: [-0.19, 0.34],
+      tea: [0.62, 0.14],
       milk: [0.44, 0.36],
       ice: [0.85, 0.16],
       'syrup-vanilla': [1.08, 0.14],
       'syrup-caramel': [1.22, 0.14],
       'syrup-chocolate': [1.36, 0.14],
       'syrup-matcha': [1.48, 0.34],
-      serve: [-1.35, 0.12],
+      serve: [-1.32, 0.2],
     };
 
     if (

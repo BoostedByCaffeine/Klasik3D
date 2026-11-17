@@ -23,10 +23,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm install --no-audit --no-fund
+          node-version: '22'
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
       - run: npx vite build --base=./
-      - run: touch ./dist/.nojekyll
+      - run: cp ./dist/index.html ./dist/404.html && touch ./dist/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

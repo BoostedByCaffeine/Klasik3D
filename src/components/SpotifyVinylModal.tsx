@@ -175,29 +175,27 @@ export const SpotifyVinylModal: React.FC<SpotifyVinylModalProps> = ({
             </form>
 
             <div className="space-y-2 pt-1 border-t border-stone-800">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-stone-300">Spotify IFrame Mini-Deck</span>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[11px] font-semibold text-emerald-300 block">
+                    Persistent Background Spotify Deck
+                  </span>
+                  <span className="text-[10px] text-stone-400 block">
+                    Stays playing continuously in the background even after you close this modal!
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => spotifyManager.setShowMiniEmbed(!spotifyState.showMiniEmbed)}
-                  className="px-2.5 py-1 rounded-lg bg-[#291c14] border border-stone-700 text-xs font-semibold text-emerald-300 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-[#291c14] border border-emerald-500/40 text-xs font-semibold text-emerald-300 cursor-pointer shrink-0"
                 >
-                  {spotifyState.showMiniEmbed ? 'Hide Deck' : 'Open Deck'}
+                  {spotifyState.showMiniEmbed ? 'Minimize Floating Player' : 'Show Floating Player'}
                 </button>
               </div>
-
-              {spotifyState.showMiniEmbed && (
-                <div className="rounded-xl overflow-hidden border border-stone-800 bg-black">
-                  <iframe
-                    title="Spotify Vinyl Player"
-                    src={spotifyState.currentTrack.embedUrl}
-                    width="100%"
-                    height="80"
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                    loading="lazy"
-                  />
-                </div>
-              )}
+              {/* Space reserved for the persistent Spotify iframe docked below when modal is open */}
+              <div className="h-[84px] rounded-xl border border-stone-800/80 bg-black/40 flex items-center justify-center text-[11px] text-stone-400">
+                Spotify Vinyl Deck Active below — Press Play on the deck, then Close to keep BGM spinning!
+              </div>
             </div>
           </div>
         ) : (

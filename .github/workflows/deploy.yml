@@ -22,20 +22,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js 22 (Required by Vite 8+)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Build static production bundle (relative base path)
         run: npx vite build --base=./
 
-
-      - name: Ensure .nojekyll exists in dist
-        run: touch ./dist/.nojekyll
+      - name: Create 404.html SPA fallback and .nojekyll in dist
+        run: |
+          cp ./dist/index.html ./dist/404.html
+          touch ./dist/.nojekyll
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
