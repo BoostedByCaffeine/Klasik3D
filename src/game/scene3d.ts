@@ -66,24 +66,24 @@ interface StationCameraPreset {
 // Re-spaced camera presets matching the non-overlapping X-zones (-2.35 to +2.52)
 const STATION_CAMERAS: Record<BaristaStationId, StationCameraPreset> = {
   1: {
-    pos: new THREE.Vector3(-1.92, 1.64, 1.92),
+    pos: new THREE.Vector3(-1.92, 1.62, 1.88),
     look: new THREE.Vector3(-1.85, 1.24, -0.75),
   },
   2: {
-    pos: new THREE.Vector3(-0.36, 1.6, 1.82),
-    look: new THREE.Vector3(-0.36, 1.16, 0.05),
+    pos: new THREE.Vector3(-0.36, 1.58, 1.76),
+    look: new THREE.Vector3(-0.36, 1.2, 0.05),
   },
   3: {
-    pos: new THREE.Vector3(1.04, 1.6, 1.82),
-    look: new THREE.Vector3(1.04, 1.16, 0.08),
+    pos: new THREE.Vector3(1.04, 1.58, 1.76),
+    look: new THREE.Vector3(1.04, 1.2, 0.08),
   },
   4: {
-    pos: new THREE.Vector3(-1.25, 1.66, 1.88),
-    look: new THREE.Vector3(-1.25, 1.14, -1.65),
+    pos: new THREE.Vector3(-1.25, 1.64, 1.84),
+    look: new THREE.Vector3(-1.25, 1.18, -1.65),
   },
   5: {
-    pos: new THREE.Vector3(2.04, 1.56, 1.62),
-    look: new THREE.Vector3(2.1, 1.15, 0.12),
+    pos: new THREE.Vector3(2.04, 1.55, 1.58),
+    look: new THREE.Vector3(2.1, 1.18, 0.12),
   },
 };
 
@@ -380,9 +380,9 @@ export class KlasikCafeScene3D {
       }
     })();
 
-    // 2. WebGLRenderer Initialization (Optimized for Mobile & Desktop)
+    // 2. WebGLRenderer Initialization (Full MSAA & High-DPI support for High-End Android & Desktop)
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !this.isSoftwareGl && !this.isMobileDevice,
+      antialias: !this.isSoftwareGl,
       powerPreference: 'high-performance',
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -390,7 +390,12 @@ export class KlasikCafeScene3D {
     this.renderer.toneMappingExposure = 1.15;
 
     const { width, height } = this.getEffectiveLandscapeDimensions();
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
+    this.renderer.domElement.style.position = 'absolute';
+    this.renderer.domElement.style.inset = '0';
+    this.renderer.domElement.style.width = '100%';
+    this.renderer.domElement.style.height = '100%';
+    this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
     // 3. Scene & Camera Setup
@@ -442,40 +447,33 @@ export class KlasikCafeScene3D {
   }
 
   private shouldUsePhysicalTransmission(): boolean {
-    return (
-      !this.isSoftwareGl &&
-      !this.isMobileDevice &&
-      this.gameState.graphicsQuality === 'high'
-    );
+    return !this.isSoftwareGl && this.gameState.graphicsQuality === 'max';
   }
 
   private updateGraphicsQuality() {
-    const quality = this.gameState.graphicsQuality || 'auto';
+    const isLow = this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
     const dpr = window.devicePixelRatio || 1;
-    let targetRatio = 1.0;
-
-    if (this.isSoftwareGl || quality === 'low') {
-      targetRatio = 1.0;
-    } else if (quality === 'auto') {
-      targetRatio = this.isMobileDevice ? 1.0 : Math.min(dpr, 1.35);
-    } else {
-      targetRatio = Math.min(dpr, this.isMobileDevice ? 1.25 : 1.5);
-    }
+    const targetRatio = isLow ? 1.0 : Math.min(dpr, 2.0);
 
     this.renderer.setPixelRatio(targetRatio);
-    const enableShadows = !this.isSoftwareGl && quality !== 'low' && (!this.isMobileDevice || quality === 'high');
+    const enableShadows = !isLow;
     this.renderer.shadowMap.enabled = enableShadows;
-    this.renderer.shadowMap.type =
-      quality === 'high' && !this.isMobileDevice
-        ? THREE.PCFSoftShadowMap
-        : THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = enableShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
     if (this.sunLight) {
       this.sunLight.castShadow = enableShadows;
     }
 
+    if (this.monsteraLeavesInstanced) {
+      this.monsteraLeavesInstanced.count = isLow
+        ? 14
+        : this.gameState.decor.plantDensity === 'lush-jungle'
+        ? 36
+        : 22;
+    }
+
     const { width, height } = this.getEffectiveLandscapeDimensions();
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
   }
 
   private getEffectiveLandscapeDimensions(): {
@@ -486,15 +484,26 @@ export class KlasikCafeScene3D {
     const isPortraitRotated = window.innerHeight > window.innerWidth;
     if (isPortraitRotated) {
       return {
-        width: Math.max(1, window.innerHeight),
-        height: Math.max(1, window.innerWidth),
+        width: Math.max(1, window.innerHeight, document.documentElement.clientHeight || 0),
+        height: Math.max(1, window.innerWidth, document.documentElement.clientWidth || 0),
         isPortraitRotated: true,
       };
     }
     const rect = this.container.getBoundingClientRect();
     return {
-      width: Math.max(1, rect.width || window.innerWidth),
-      height: Math.max(1, rect.height || window.innerHeight),
+      width: Math.max(
+        1,
+        rect.width || 0,
+        window.innerWidth || 0,
+        document.documentElement.clientWidth || 0
+      ),
+      height: Math.max(
+        1,
+        rect.height || 0,
+        window.innerHeight || 0,
+        document.documentElement.clientHeight || 0,
+        window.visualViewport?.height || 0
+      ),
       isPortraitRotated: false,
     };
   }
@@ -1025,24 +1034,24 @@ export class KlasikCafeScene3D {
     grassPlane.receiveShadow = true;
     archGroup.add(grassPlane);
 
-    // 3. Main Walnut Barista Counter (Cleanly spans x = -2.55 to +2.65, y = 0..1.0)
+    // 3. Main Walnut Barista Counter (Cleanly spans x = -2.55 to +2.65, y = 0..1.0, extended front depth so walnut fills bottom viewport)
     const counterBaseMat = new THREE.MeshStandardMaterial({
       color: 0x1c1512,
       roughness: 0.7,
       metalness: 0.15,
     });
-    const counterBody = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.94, 0.95), counterBaseMat);
-    counterBody.position.set(0.05, 0.47, 0.24);
+    const counterBody = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.94, 1.36), counterBaseMat);
+    counterBody.position.set(0.05, 0.47, 0.44);
     counterBody.castShadow = true;
     counterBody.receiveShadow = true;
     archGroup.add(counterBody);
 
-    // Beveled Walnut Countertop Slab (Top surface strictly at y = 1.00)
+    // Beveled Walnut Countertop Slab (Top surface strictly at y = 1.00, front edge at z = 1.18)
     const counterTop = new THREE.Mesh(
-      new THREE.BoxGeometry(5.68, 0.06, 1.06),
+      new THREE.BoxGeometry(5.76, 0.06, 1.48),
       this.counterWoodMat
     );
-    counterTop.position.set(0.05, 0.97, 0.24);
+    counterTop.position.set(0.05, 0.97, 0.44);
     counterTop.castShadow = true;
     counterTop.receiveShadow = true;
     archGroup.add(counterTop);
@@ -1052,8 +1061,8 @@ export class KlasikCafeScene3D {
       roughness: 0.22,
       metalness: 0.88,
     });
-    const brassTrim = new THREE.Mesh(new THREE.BoxGeometry(5.7, 0.022, 1.08), brassMat);
-    brassTrim.position.set(0.05, 0.935, 0.24);
+    const brassTrim = new THREE.Mesh(new THREE.BoxGeometry(5.78, 0.022, 1.5), brassMat);
+    brassTrim.position.set(0.05, 0.935, 0.44);
     archGroup.add(brassTrim);
 
     // 4. Open-Concept Vintage Brick Garage Showroom Wall on Left (x = -5.4) with Framed Posters & Bookshelves
@@ -4201,6 +4210,10 @@ export class KlasikCafeScene3D {
       const isPortraitRotated = window.innerHeight > window.innerWidth;
       this.dragStartCoord = isPortraitRotated ? e.clientY : e.clientX;
       updateNdc(e.clientX, e.clientY);
+      if (e.pointerType !== 'mouse') {
+        this.hoveredToolKey = null;
+        this.callbacks.onHoverToolChange(null);
+      }
     });
 
     dom.addEventListener('pointermove', (e: PointerEvent) => {
@@ -4214,6 +4227,11 @@ export class KlasikCafeScene3D {
           -0.35,
           0.35
         );
+      }
+
+      // Never trigger persistent hover tooltips on touchscreens
+      if (e.pointerType !== 'mouse') {
+        return;
       }
 
       const now = performance.now();
@@ -4241,6 +4259,11 @@ export class KlasikCafeScene3D {
       if (!this.isPointerDragging) return;
       this.isPointerDragging = false;
 
+      if (e.pointerType !== 'mouse') {
+        this.hoveredToolKey = null;
+        this.callbacks.onHoverToolChange(null);
+      }
+
       if (this.gameState.phase !== 'playing') return;
       updateNdc(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
@@ -4266,6 +4289,7 @@ export class KlasikCafeScene3D {
     );
 
     window.addEventListener('resize', this.handleResize);
+    window.visualViewport?.addEventListener('resize', this.handleResize);
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => this.handleResize());
       this.resizeObserver.observe(this.container);
@@ -4282,7 +4306,7 @@ export class KlasikCafeScene3D {
     const { width, height } = this.getEffectiveLandscapeDimensions();
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -5199,6 +5223,7 @@ export class KlasikCafeScene3D {
     window.cancelAnimationFrame(this.frameId);
     window.clearTimeout(this.frameId);
     window.removeEventListener('resize', this.handleResize);
+    window.visualViewport?.removeEventListener('resize', this.handleResize);
     this.resizeObserver?.disconnect();
     this.studioLogoTexture?.dispose();
     this.woodBumpTexture?.dispose();

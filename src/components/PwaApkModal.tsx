@@ -1,22 +1,137 @@
 import React, { useState } from 'react';
+import { GraphicsQuality } from '../game/rules';
 import { PwaEnvironmentStatus, pwaManager } from '../pwa/pwaManager';
 
 interface PwaApkModalProps {
   pwaStatus: PwaEnvironmentStatus;
+  graphicsQuality: GraphicsQuality;
+  onChangeGraphics: (quality: GraphicsQuality) => void;
   onClose: () => void;
 }
 
-export const PwaApkModal: React.FC<PwaApkModalProps> = ({ pwaStatus, onClose }) => {
+const ANDROID_APK_WORKFLOW_YAML = `name: Build Klasik 3D Android APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
+      - run: npx vite build --base=./
+      - name: Build Capacitor Landscape Fullscreen APK
+        run: |
+          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npx cap add android
+          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Klasik3D-Android-APK
+          path: ./Klasik3D.apk`;
+
+const LOCAL_APK_BUILD_SCRIPT = `#!/usr/bin/env bash
+# Klasik 3D: Garage Garden Cafe — One-Command Native Android APK Builder
+set -e
+echo "Building Klasik 3D WebGL bundle..."
+npm install --legacy-peer-deps --no-audit --no-fund
+npx vite build --base=./
+
+echo "Adding Capacitor Android wrapper (Landscape + Fullscreen Immersive)..."
+npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+if [ ! -d "android" ]; then
+  npx cap add android
+fi
+sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
+npx cap sync android
+
+echo "Compiling Klasik3D.apk with Gradle..."
+cd android && chmod +x gradlew && ./gradlew assembleDebug
+cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
+echo "✅ Success! Native Android package saved to ./Klasik3D.apk"
+`;
+
+export const PwaApkModal: React.FC<PwaApkModalProps> = ({
+  pwaStatus,
+  graphicsQuality,
+  onChangeGraphics,
+  onClose,
+}) => {
   const [installMsg, setInstallMsg] = useState<string | null>(null);
-  const [generatedIconUrl, setGeneratedIconUrl] = useState<string | null>(null);
+  const [isCheckingApk, setIsCheckingApk] = useState(false);
+
+  const isMaxGraphics = graphicsQuality !== 'low';
+
+  const handleDownloadDirectApk = async () => {
+    setIsCheckingApk(true);
+    setInstallMsg(null);
+    try {
+      const resp = await fetch('./Klasik3D.apk', { method: 'HEAD' });
+      const contentType = resp.headers.get('content-type') || '';
+      if (resp.ok && !contentType.includes('text/html')) {
+        const a = document.createElement('a');
+        a.href = './Klasik3D.apk';
+        a.download = 'Klasik3D-GarageGardenCafe.apk';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setInstallMsg('Downloading Klasik3D-GarageGardenCafe.apk!');
+        setIsCheckingApk(false);
+        return;
+      }
+    } catch {
+      // Fallback below
+    }
+
+    // Download the 1-Command Android APK Build Script + Capacitor bundle instructions
+    const blob = new Blob([LOCAL_APK_BUILD_SCRIPT], { type: 'text/x-shellscript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'build-klasik3d-apk.sh';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    setIsCheckingApk(false);
+    setInstallMsg(
+      'Downloaded build-klasik3d-apk.sh! Push to GitHub to auto-build Klasik3D.apk via .github/workflows/android-apk.yml (or deploy.yml), or run bash build-klasik3d-apk.sh locally.'
+    );
+  };
+
+  const handleCopyApkWorkflow = async () => {
+    try {
+      await navigator.clipboard.writeText(ANDROID_APK_WORKFLOW_YAML);
+      setInstallMsg(
+        'Copied .github/workflows/android-apk.yml! It is also pre-installed in your repository.'
+      );
+    } catch {
+      setInstallMsg('Workflow is ready at .github/workflows/android-apk.yml in the repository.');
+    }
+  };
 
   const handleTriggerInstall = async () => {
     const res = await pwaManager.promptInstall();
     if (res === 'accepted') {
-      setInstallMsg('Klasik 3D installed! Launch from your home screen in full Landscape mode.');
+      setInstallMsg('Klasik 3D installed! Launch from your home screen in Fullscreen Landscape mode.');
     } else if (res === 'unavailable') {
       setInstallMsg(
-        'Use your browser menu ("Install App" or "Add to Home Screen") or generate an Android APK below.'
+        'Use your browser menu ("Install App" / "Add to Home Screen") or download the native Android APK above.'
       );
     }
   };
@@ -30,27 +145,21 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({ pwaStatus, onClose }) 
     );
   };
 
-  const handleGeneratePngIcons = async () => {
-    const dataUrl = await pwaManager.generatePngIconDataUrl(512, false);
-    setGeneratedIconUrl(dataUrl);
-    setInstallMsg('Generated 512x512 PNG icon for APK / iOS packaging!');
-  };
-
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="pwa-modal-title"
     >
-      <div className="w-full max-w-lg bg-[#1b120d] border border-[#5c3a21] rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3.5 max-h-[80vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-stone-800 pb-2.5">
+      <div className="w-full max-w-xl bg-[#1b120d] border border-amber-500/40 rounded-2xl p-3 sm:p-4 shadow-2xl space-y-2 max-h-[94%] overflow-y-auto no-scrollbar">
+        <div className="flex items-center justify-between border-b border-stone-800 pb-1.5">
           <div>
-            <h2 id="pwa-modal-title" className="text-base font-bold font-display text-amber-100">
-              Landscape PWA &amp; Android APK Packaging
+            <h2 id="pwa-modal-title" className="text-sm sm:text-base font-bold font-display text-amber-100">
+              Android APK Download &amp; 3D Graphics Settings
             </h2>
-            <p className="text-[11px] text-stone-400">
-              Offline Service Worker (`public/sw.js`) &amp; Landscape Lock active.
+            <p className="text-[10px] text-stone-400">
+              Native Landscape Fullscreen `.apk` Packaging &amp; High-End Android GPU Controls
             </p>
           </div>
           <button
@@ -62,68 +171,112 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({ pwaStatus, onClose }) 
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5">
+        {/* 1. Native Android APK (.apk) Section */}
+        <div className="p-2.5 rounded-xl bg-[#140d09] border border-emerald-500/40 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-bold text-emerald-300">
+              📲 Native Android APK Version (`Klasik3D.apk` · Landscape Fullscreen)
+            </div>
+            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-mono font-bold text-emerald-300 shrink-0">
+              v2.1 APK
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              data-testid="btn-download-apk"
+              disabled={isCheckingApk}
+              onClick={handleDownloadDirectApk}
+              className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs text-left cursor-pointer shadow flex items-center justify-between"
+            >
+              <span>⬇️ Download Klasik3D.apk</span>
+              <span className="text-[9px] font-mono bg-stone-950/15 px-1.5 py-0.5 rounded">
+                .APK
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyApkWorkflow}
+              className="p-2 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-200 font-semibold text-xs text-left cursor-pointer flex items-center justify-between"
+            >
+              <span>Copy GitHub APK Workflow</span>
+              <span className="text-[9px] font-mono text-amber-300">YAML</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 2. 2-State Graphics Settings (LOW vs MAX Only) */}
+        <div className="p-2.5 rounded-xl bg-[#211610] border border-stone-800 space-y-1.5">
+          <div className="text-xs font-bold text-amber-200">
+            ✨ 3D Graphics Quality (LOW or MAX Only)
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onChangeGraphics('low')}
+              className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                !isMaxGraphics
+                  ? 'bg-amber-500 text-stone-950 border-amber-300 font-bold shadow'
+                  : 'bg-[#140d09] text-stone-300 border-stone-800 hover:border-stone-600'
+              }`}
+            >
+              <div className="text-xs font-bold">LOW (Battery / 60 FPS)</div>
+              <div
+                className={`text-[10px] ${
+                  !isMaxGraphics ? 'text-stone-900' : 'text-stone-400'
+                }`}
+              >
+                1.0x DPR · No Shadows · Fast
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onChangeGraphics('max')}
+              className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                isMaxGraphics
+                  ? 'bg-amber-500 text-stone-950 border-amber-300 font-bold shadow'
+                  : 'bg-[#140d09] text-stone-300 border-stone-800 hover:border-stone-600'
+              }`}
+            >
+              <div className="text-xs font-bold">MAX (High-End Android HD)</div>
+              <div
+                className={`text-[10px] ${
+                  isMaxGraphics ? 'text-stone-900' : 'text-stone-400'
+                }`}
+              >
+                2.0x Retina DPR · Soft Shadows · PBR
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* 3. Fullscreen WebAPK & Landscape Orientation Lock */}
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={handleTriggerInstall}
-            className="p-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-left cursor-pointer space-y-0.5 shadow"
+            className="p-2 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-100 font-bold text-left cursor-pointer"
           >
-            <div className="text-xs">Install Standalone PWA</div>
-            <div className="text-[11px] font-normal text-stone-900">
-              {pwaStatus.isInstallable
-                ? 'One-click install ready'
-                : 'Install via browser / Home Screen'}
+            <div className="text-xs">Install Fullscreen PWA</div>
+            <div className="text-[10px] font-normal text-stone-400">
+              {pwaStatus.isInstallable ? 'One-click install ready' : 'Add to Home Screen'}
             </div>
           </button>
 
           <button
             type="button"
             onClick={handleLockLandscape}
-            className="p-3 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-100 font-bold text-left cursor-pointer space-y-0.5"
+            className="p-2 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-100 font-bold text-left cursor-pointer"
           >
             <div className="text-xs">Fullscreen Landscape Lock</div>
-            <div className="text-[11px] font-normal text-stone-400">
-              Lock horizontal barista view
+            <div className="text-[10px] font-normal text-stone-400">
+              Hide Android system bars
             </div>
           </button>
-        </div>
-
-        <div className="p-3 rounded-xl bg-[#211610] border border-stone-800 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-bold text-amber-200">
-                PNG App Icon Generator (512x512)
-              </div>
-              <div className="text-[11px] text-stone-400">
-                Download raster PNG icons for iOS and Android APK builders.
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleGeneratePngIcons}
-              className="px-2.5 py-1 rounded-lg bg-[#2d1e15] hover:bg-[#3b281c] border border-amber-500/30 text-xs font-semibold text-amber-200 cursor-pointer shrink-0"
-            >
-              Render 512px PNG
-            </button>
-          </div>
-
-          {generatedIconUrl && (
-            <div className="flex items-center gap-3 pt-1">
-              <img
-                src={generatedIconUrl}
-                alt="Generated Klasik 3D 512x512 App Icon"
-                referrerPolicy="no-referrer"
-                className="w-12 h-12 rounded-lg border border-amber-500/40"
-              />
-              <a
-                href={generatedIconUrl}
-                download="pwa-512x512.png"
-                className="px-2.5 py-1 rounded-lg bg-emerald-500 text-stone-950 font-bold text-xs"
-              >
-                Download pwa-512x512.png
-              </a>
-            </div>
-          )}
         </div>
 
         {installMsg && (

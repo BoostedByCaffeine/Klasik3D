@@ -5,10 +5,11 @@
   "description": "Cozy first-person 3D barista simulation and coffee shop management game by BoostedByCaffeine Studios.",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
   "orientation": "landscape",
-  "background_color": "#140e0b",
-  "theme_color": "#1c1410",
+  "background_color": "#0c0a09",
+  "theme_color": "#0c0a09",
   "icons": [
     {
       "src": "./favicon.svg",

@@ -1,16 +1,18 @@
 import React from 'react';
 import { StudioLogo } from './StudioLogo';
-import { GameMode, WeatherMode } from '../game/rules';
+import { GameMode, GraphicsQuality, WeatherMode } from '../game/rules';
 import { PwaEnvironmentStatus } from '../pwa/pwaManager';
 
 interface TitleScreenProps {
   day: number;
   cash: number;
   weather: WeatherMode;
+  graphicsQuality: GraphicsQuality;
   pwaStatus: PwaEnvironmentStatus;
   spotifyTrackTitle: string;
   onStartShift: (mode: GameMode) => void;
   onChangeWeather: (weather: WeatherMode) => void;
+  onChangeGraphics: (quality: GraphicsQuality) => void;
   onOpenSpotifyModal: () => void;
   onOpenPwaModal: () => void;
   onOpenCodeExportModal: () => void;
@@ -20,14 +22,18 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   day,
   cash,
   weather,
+  graphicsQuality,
   pwaStatus,
   spotifyTrackTitle,
   onStartShift,
   onChangeWeather,
+  onChangeGraphics,
   onOpenSpotifyModal,
   onOpenPwaModal,
   onOpenCodeExportModal,
 }) => {
+  const isMaxGraphics = graphicsQuality !== 'low';
+
   return (
     <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between px-3 py-1.5 sm:p-5 overflow-hidden">
       {/* Top Bar: Studio Logo (Exclusive to Intro/Title) & Quick Utility Actions */}
@@ -38,20 +44,33 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             ·
           </span>
           <span className="text-[10px] sm:text-[11px] font-medium text-amber-200/90 whitespace-nowrap">
-            {pwaStatus.isStandalone ? 'Standalone PWA / APK' : 'Live Web Build v1.3'}
+            {pwaStatus.isStandalone ? 'Standalone APK / PWA' : 'Live Web Build v2.1'}
           </span>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {!pwaStatus.isStandalone && (
-            <button
-              type="button"
-              onClick={onOpenPwaModal}
-              className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-amber-500/35 text-[11px] sm:text-xs font-semibold text-amber-200 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              Install PWA / APK
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onChangeGraphics(isMaxGraphics ? 'low' : 'max')}
+            className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border text-[11px] sm:text-xs font-mono font-bold transition-colors cursor-pointer whitespace-nowrap ${
+              isMaxGraphics
+                ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-400 text-amber-200'
+                : 'bg-[#261a13]/95 hover:bg-[#322219] border-stone-700 text-stone-300'
+            }`}
+            title="Toggle 3D Graphics Quality (LOW or MAX)"
+          >
+            GFX: {isMaxGraphics ? 'MAX' : 'LOW'}
+          </button>
+
+          <button
+            type="button"
+            data-testid="btn-open-apk-modal"
+            onClick={onOpenPwaModal}
+            className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 text-[11px] sm:text-xs font-bold transition-colors cursor-pointer whitespace-nowrap shadow-md"
+          >
+            📲 Download APK / PWA
+          </button>
+
           <button
             type="button"
             onClick={onOpenCodeExportModal}
@@ -63,7 +82,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Left-Third Diegetic Wooden-Framed Title Card (Leaves right 65% of 3D Diorama unobstructed) */}
-      <div className="my-auto max-w-[340px] sm:max-w-md w-full max-h-[calc(100dvh-76px)] overflow-y-auto no-scrollbar pointer-events-auto bg-[#1b120d]/95 border-2 border-[#5c3a21] rounded-2xl px-3 py-2 sm:p-4 shadow-2xl space-y-1.5 sm:space-y-2.5">
+      <div className="my-auto max-w-[340px] sm:max-w-md w-full max-h-[calc(100%-76px)] overflow-y-auto no-scrollbar pointer-events-auto bg-[#1b120d]/95 border-2 border-[#5c3a21] rounded-2xl px-3 py-2 sm:p-4 shadow-2xl space-y-1.5 sm:space-y-2.5">
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-amber-300/90 font-medium">
             <span>BoostedByCaffeine Studios</span>
@@ -218,9 +237,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Bottom Safe Margin: Single Flat Control-Hint Line */}
-      <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] text-stone-300 bg-[#140e0b]/90 px-3 py-1 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0">
+      <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] text-stone-300 bg-[#0c0a09]/90 px-3 py-1 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0">
         <span className="truncate">
-          1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide Dock
+          1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide HUD
         </span>
         <span className="font-mono text-amber-300/90 hidden sm:inline shrink-0">
           Landscape 3D Barista Sim

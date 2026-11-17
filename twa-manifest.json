@@ -1,0 +1,33 @@
+{
+  "packageId": "com.boostedbycaffeine.klasik3d",
+  "host": "boostedbycaffeine.github.io",
+  "name": "Klasik 3D: Garage Garden Cafe",
+  "launcherName": "Klasik 3D",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "themeColor": "#0c0a09",
+  "navigationColor": "#0c0a09",
+  "navigationColorDark": "#0c0a09",
+  "navigationDividerColor": "#0c0a09",
+  "navigationDividerColorDark": "#0c0a09",
+  "backgroundColor": "#0c0a09",
+  "enableNotifications": false,
+  "startUrl": "/Klasik3D/",
+  "iconUrl": "https://boostedbycaffeine.github.io/Klasik3D/pwa-512x512.png",
+  "maskableIconUrl": "https://boostedbycaffeine.github.io/Klasik3D/pwa-maskable-512x512.png",
+  "appVersionName": "2.1.0",
+  "appVersionCode": 21,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://boostedbycaffeine.github.io/Klasik3D/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": false,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://boostedbycaffeine.github.io/Klasik3D/",
+  "minSdkVersion": 24
+}

@@ -7,7 +7,11 @@ export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
 export type WeatherMode = 'morning' | 'golden' | 'rainy';
 export type BaristaStationId = 1 | 2 | 3 | 4 | 5;
-export type GraphicsQuality = 'low' | 'high' | 'auto';
+export type GraphicsQuality = 'low' | 'max';
+
+export function normalizeGraphicsQuality(val: unknown): GraphicsQuality {
+  return val === 'low' ? 'low' : 'max';
+}
 export type SyrupFlavor = 'none' | 'vanilla' | 'caramel' | 'chocolate' | 'matcha';
 export type DrinkCategory = 'hot_coffee' | 'iced_coffee' | 'tea' | 'cold_drink';
 export type CustomerSocialBehavior =
@@ -921,7 +925,7 @@ export function createInitialGameState(): KlasikGameState {
     mode: 'career',
     weather: 'morning',
     activeStation: 2,
-    graphicsQuality: 'auto',
+    graphicsQuality: 'max',
     day,
     cash: 45,
     lifetimeGrossIncome: 0,
@@ -2160,7 +2164,7 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       activeShiftSeconds: typeof d.activeShiftSeconds === 'number' ? d.activeShiftSeconds : 0,
       satisfactionScore: typeof d.satisfactionScore === 'number' ? d.satisfactionScore : 100,
       weather: d.weather || base.weather,
-      graphicsQuality: d.graphicsQuality || base.graphicsQuality,
+      graphicsQuality: normalizeGraphicsQuality(d.graphicsQuality),
       upgrades: mergedUpgrades,
       equipmentSkins: mergedSkins,
       equippedMachineSkin: d.equippedMachineSkin || base.equippedMachineSkin,

@@ -1,0 +1,53 @@
+name: Build Klasik 3D Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up JDK 21 for Android Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install web dependencies & build production bundle
+        run: |
+          npm install --legacy-peer-deps --no-audit --no-fund
+          npx vite build --base=./
+
+      - name: Generate Capacitor Android Project & Compile Landscape Fullscreen APK
+        run: |
+          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npx cap add android
+          # Force AndroidManifest.xml to Landscape + Fullscreen Immersive
+          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"/' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
+
+      - name: Upload Klasik3D.apk Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Klasik3D-Android-APK
+          path: ./Klasik3D.apk
+          if-no-files-found: error

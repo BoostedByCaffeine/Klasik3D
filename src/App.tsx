@@ -90,16 +90,27 @@ export default function App() {
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
 
-  // Enforce strict Landscape Viewport detection across all devices
+  // Enforce strict Landscape Viewport detection & sync CSS full-bleed dimensions across all devices
   useEffect(() => {
     const checkOrientation = () => {
-      setIsPortraitRotated(window.innerHeight > window.innerWidth);
+      const vw = Math.max(window.innerWidth || 0, document.documentElement.clientWidth || 0);
+      const vh = Math.max(
+        window.innerHeight || 0,
+        document.documentElement.clientHeight || 0,
+        window.visualViewport?.height || 0
+      );
+      document.documentElement.style.setProperty('--app-vw', `${vw}px`);
+      document.documentElement.style.setProperty('--app-vh', `${vh}px`);
+      setIsPortraitRotated(vh > vw);
     };
+    checkOrientation();
     window.addEventListener('resize', checkOrientation);
     window.addEventListener('orientationchange', checkOrientation);
+    window.visualViewport?.addEventListener('resize', checkOrientation);
     return () => {
       window.removeEventListener('resize', checkOrientation);
       window.removeEventListener('orientationchange', checkOrientation);
+      window.visualViewport?.removeEventListener('resize', checkOrientation);
     };
   }, []);
 
@@ -554,7 +565,7 @@ export default function App() {
   return (
     <main
       data-landscape-enforced={isPortraitRotated ? 'rotated-90' : 'native-landscape'}
-      className={`bg-[#140e0b] select-none ${
+      className={`bg-[#0c0a09] select-none ${
         isPortraitRotated ? 'klasik-root-portrait-rotated' : 'klasik-root-landscape'
       }`}
     >
@@ -593,10 +604,12 @@ export default function App() {
           day={gameState.day}
           cash={gameState.cash}
           weather={gameState.weather}
+          graphicsQuality={gameState.graphicsQuality}
           pwaStatus={pwaStatus}
           spotifyTrackTitle={spotifyState.currentTrack.title}
           onStartShift={handleStartShift}
           onChangeWeather={handleChangeWeather}
+          onChangeGraphics={handleChangeGraphics}
           onOpenSpotifyModal={() => setActiveModal('spotify')}
           onOpenPwaModal={() => setActiveModal('pwa')}
           onOpenCodeExportModal={() => setActiveModal('export')}
@@ -700,6 +713,8 @@ export default function App() {
       {activeModal === 'pwa' && (
         <PwaApkModal
           pwaStatus={pwaStatus}
+          graphicsQuality={gameState.graphicsQuality}
+          onChangeGraphics={handleChangeGraphics}
           onClose={() => setActiveModal(null)}
         />
       )}

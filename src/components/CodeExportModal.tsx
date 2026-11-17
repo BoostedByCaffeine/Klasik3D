@@ -7,7 +7,7 @@ interface CodeExportModalProps {
   onClose: () => void;
 }
 
-const GITHUB_WORKFLOW_YAML = `name: Deploy Klasik 3D to GitHub Pages
+const GITHUB_WORKFLOW_YAML = `name: Deploy Klasik 3D to GitHub Pages & Bundle APK
 on:
   push:
     branches: [main]
@@ -27,6 +27,21 @@ jobs:
       - run: npm install --legacy-peer-deps --no-audit --no-fund
       - run: npx vite build --base=./
       - run: cp ./dist/index.html ./dist/404.html && touch ./dist/.nojekyll
+      - name: Set up JDK 21 & Build Klasik3D.apk into ./dist/Klasik3D.apk
+        continue-on-error: true
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Compile Android APK
+        continue-on-error: true
+        run: |
+          npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npx cap add android
+          sed -i 's/android:name=".MainActivity"/android:name=".MainActivity" android:screenOrientation="sensorLandscape"/' android/app/src/main/AndroidManifest.xml
+          npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist/Klasik3D.apk
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
