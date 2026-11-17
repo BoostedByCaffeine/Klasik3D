@@ -51,23 +51,42 @@ jobs:
           npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           rm -rf android
           npx cap add android
-          node -e '
-            const fs = require("fs");
-            const p = "android/app/src/main/AndroidManifest.xml";
-            if (fs.existsSync(p)) {
-              let xml = fs.readFileSync(p, "utf8");
-              xml = xml.replace("android:name=\".MainActivity\"", "android:name=\".MainActivity\" android:screenOrientation=\"sensorLandscape\"");
-              if (!xml.includes("android.permission.VIBRATE")) {
-                xml = xml.replace("<application", "    <uses-permission android:name=\"android.permission.VIBRATE\" />\n    <application");
-              }
-              fs.writeFileSync(p, xml);
-            }
-          '
+          node << 'EOF'
+          const fs = require('fs');
+          const p = 'android/app/src/main/AndroidManifest.xml';
+          if (!fs.existsSync(p)) {
+            throw new Error('Missing AndroidManifest.xml at ' + p);
+          }
+          let xml = fs.readFileSync(p, 'utf8');
+          if (!/\bandroid:screenOrientation=/.test(xml)) {
+            xml = xml.replace(
+              /(<activity\b[^>]*?)(>)/,
+              '$1\n            android:screenOrientation="sensorLandscape"$2'
+            );
+          }
+          if (!/\bandroid:configChanges=/.test(xml)) {
+            xml = xml.replace(
+              /(<activity\b[^>]*?)(>)/,
+              '$1\n            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"$2'
+            );
+          }
+          if (!xml.includes('android.permission.VIBRATE')) {
+            xml = xml.replace(
+              '</manifest>',
+              '    <uses-permission android:name="android.permission.VIBRATE" />\n</manifest>'
+            );
+          }
+          fs.writeFileSync(p, xml, 'utf8');
+          console.log('Patched AndroidManifest.xml:\n' + xml);
+          EOF
+          python3 -c "import xml.etree.ElementTree as ET; ET.parse('android/app/src/main/AndroidManifest.xml'); print('AndroidManifest.xml XML validation passed')"
           npx cap sync android
           if [ -n "${ANDROID_HOME:-}" ]; then
             echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          elif [ -d "/usr/local/lib/android/sdk" ]; then
+            echo "sdk.dir=/usr/local/lib/android/sdk" > android/local.properties
           fi
-          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
           cp app/build/outputs/apk/debug/app-debug.apk ../dist/Klasik3D.apk
 
       - name: Configure GitHub Pages

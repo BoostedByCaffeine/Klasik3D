@@ -225,7 +225,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
           <span className="text-[10px] font-mono font-bold text-amber-100 whitespace-nowrap">
-            ({currentStationMeta.name})
+            {currentStationMeta.name}
           </span>
           <button
             type="button"
@@ -307,65 +307,66 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           data-testid="hud-top-bar"
           className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/92 border-b border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
         >
-          {/* Left Cluster: Compact Station Pill + Mini Order Tickets */}
-          <div className="flex items-center gap-1 min-w-0 shrink-0 sm:flex-1 overflow-x-auto no-scrollbar">
-            <button
-              type="button"
-              onClick={() => setTicketsCollapsed((prev) => !prev)}
-              className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/35 text-[10px] sm:text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
-              title="Toggle Order Strip"
-            >
-              {currentStationMeta.badge}
-            </button>
+          {/* Left Cluster: Direct Non-Shrinking Station Indicator + Flexible Mini Order Tickets */}
+          <button
+            type="button"
+            data-testid="hud-station-indicator"
+            onClick={() => setTicketsCollapsed((prev) => !prev)}
+            className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/35 text-[10px] sm:text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
+            title="Toggle Order Strip"
+          >
+            {currentStationMeta.badge}
+          </button>
 
-            {isGoldenEquipped && (
-              <span className="px-1.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400 text-[9px] font-mono font-bold text-amber-300 whitespace-nowrap shrink-0 inline-flex items-center gap-1">
-                <Trophy className="w-2.5 h-2.5 shrink-0" />
-                <span>2x</span>
-              </span>
-            )}
+          {isGoldenEquipped && (
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400 text-[9px] font-mono font-bold text-amber-300 whitespace-nowrap shrink-0 inline-flex items-center gap-1">
+              <Trophy className="w-2.5 h-2.5 shrink-0" />
+              <span>2x</span>
+            </span>
+          )}
 
-            {!ticketsCollapsed && (
-              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
-                {orderingCustomers.map((cust) => {
-                  const recipe = getRecipeById(cust.recipeId);
-                  const isPinned = pinnedOrder?.id === cust.id;
-                  return (
-                    <button
-                      key={cust.id}
-                      type="button"
-                      onClick={() => onPinOrder(cust.id)}
-                      className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[130px] overflow-hidden ${
-                        isPinned
-                          ? 'bg-amber-950/90 border-amber-400 text-amber-100'
-                          : 'bg-stone-900/90 border-stone-800 text-stone-300 hover:border-stone-600'
+          {!ticketsCollapsed ? (
+            <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
+              {orderingCustomers.map((cust) => {
+                const recipe = getRecipeById(cust.recipeId);
+                const isPinned = pinnedOrder?.id === cust.id;
+                return (
+                  <button
+                    key={cust.id}
+                    type="button"
+                    onClick={() => onPinOrder(cust.id)}
+                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[130px] overflow-hidden ${
+                      isPinned
+                        ? 'bg-amber-950/90 border-amber-400 text-amber-100'
+                        : 'bg-stone-900/90 border-stone-800 text-stone-300 hover:border-stone-600'
+                    }`}
+                    title={`${cust.customerName}: ${recipe.name}`}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: recipe.colorHex }}
+                    />
+                    <span className="font-semibold truncate">{cust.customerName}</span>
+                    <span className="font-mono tabular-nums text-emerald-400 font-bold shrink-0">
+                      ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
+                    </span>
+                    <span
+                      className={`absolute bottom-0 left-0 h-[2px] transition-all ${
+                        cust.patience > 50
+                          ? 'bg-emerald-400'
+                          : cust.patience > 25
+                          ? 'bg-amber-400'
+                          : 'bg-rose-500'
                       }`}
-                      title={`${cust.customerName}: ${recipe.name}`}
-                    >
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ backgroundColor: recipe.colorHex }}
-                      />
-                      <span className="font-semibold truncate">{cust.customerName}</span>
-                      <span className="font-mono tabular-nums text-emerald-400 font-bold shrink-0">
-                        ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
-                      </span>
-                      <span
-                        className={`absolute bottom-0 left-0 h-[2px] transition-all ${
-                          cust.patience > 50
-                            ? 'bg-emerald-400'
-                            : cust.patience > 25
-                            ? 'bg-amber-400'
-                            : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${Math.round(cust.patience)}%` }}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                      style={{ width: `${Math.round(cust.patience)}%` }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
 
           {/* Center Cluster: Inline Telemetry Stats */}
           <DailyGoalProgressBar
@@ -717,7 +718,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             data-testid="station-pill-label"
             className="px-2.5 py-0.5 rounded-full bg-amber-500 text-stone-950 font-bold text-[10px] sm:text-xs whitespace-nowrap flex items-center gap-1"
           >
-            <span>({currentStationMeta.name})</span>
+            <span>{currentStationMeta.name}</span>
           </div>
 
           <button
