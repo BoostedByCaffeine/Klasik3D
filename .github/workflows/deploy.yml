@@ -26,13 +26,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Build static production bundle (relative base path)
-        run: npx vite build --base=./
+        run: npm run build -- --base=./
 
       - name: Ensure .nojekyll exists in dist
         run: touch ./dist/.nojekyll

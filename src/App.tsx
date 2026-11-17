@@ -235,8 +235,10 @@ export default function App() {
         flashAnimBanner('Rinsed Cup & Knocked Spent Puck into Knock Box', 750);
       }
 
+      const nextState = performCupAction(curState, action, syrupFlavor);
+      sceneRef.current?.updateGameState(nextState);
       sceneRef.current?.triggerStepAnimation(resolvedStep, resolvedFlavor);
-      setGameState((prev) => performCupAction(prev, action, syrupFlavor));
+      setGameState(nextState);
     },
     [flashAnimBanner, handleServeCustomer]
   );
@@ -262,7 +264,7 @@ export default function App() {
       phase: 'playing',
       mode,
       activeStation: 2,
-      shiftTimeRemaining: 150,
+      shiftTimeRemaining: 300,
     }));
   }, []);
 

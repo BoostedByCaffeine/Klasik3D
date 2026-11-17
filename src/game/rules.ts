@@ -1,5 +1,6 @@
 // Complete Game Rules, Recipes, Customer Ordering Dialogue, Dynamic Add-On Modifiers,
-// Table Seating State Machine, Business Upgrades, Decor Customization, and Save/Export/Import System for Klasik 3D.
+// Daily 30-50 Order Quotas, Table Seating & Miata Showroom State Machine, Business Upgrades,
+// Decor Customization, and Save/Export/Import System for Klasik 3D.
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
@@ -7,7 +8,26 @@ export type WeatherMode = 'morning' | 'golden' | 'rainy';
 export type BaristaStationId = 1 | 2 | 3 | 4 | 5;
 export type GraphicsQuality = 'low' | 'high' | 'auto';
 export type SyrupFlavor = 'none' | 'vanilla' | 'caramel' | 'chocolate' | 'matcha';
-export type CustomerSocialBehavior = 'selfie' | 'chatting' | 'laptop' | 'relaxing';
+export type CustomerSocialBehavior =
+  | 'selfie'
+  | 'chatting'
+  | 'laptop'
+  | 'relaxing'
+  | 'car_selfie';
+
+export const SHIFT_SECONDS = 300;
+export const MAX_QUEUE = 4;
+export const MAX_GARDEN_SEATS = 6;
+export const DAILY_QUOTA_COMPLETION_BONUS = 50;
+
+export function getDailyOrderQuota(day: number): number {
+  return Math.min(50, 30 + (Math.max(1, day) - 1) * 5);
+}
+
+export function getDailyRevenueGoal(day: number): number {
+  const quota = getDailyOrderQuota(day);
+  return quota * 7 + (Math.max(1, day) - 1) * 20;
+}
 
 export interface DrinkRecipe {
   id: string;
@@ -28,7 +48,7 @@ export const RECIPES: DrinkRecipe[] = [
     id: 'klasik-espresso',
     name: 'Klasik Double Espresso',
     tagline: 'Rich 9-bar dark roast with tiger-stripe golden crema.',
-    price: 4,
+    price: 5,
     ingredientCost: 1,
     needsEspresso: true,
     needsSteamedMilk: false,
@@ -122,7 +142,7 @@ export interface CustomerOrder {
   patience: number; // 0..100
   maxPatience: number;
   state: 'ordering' | 'seated' | 'departing';
-  seatIndex: number | null; // 0, 1, 2 for the 3 garden tables
+  seatIndex: number | null; // 0..5 for the 6 cafe & garden tables
   seatedTimer: number;
   dialogueLine: string;
   customAddons: string[];
@@ -158,10 +178,12 @@ export interface KlasikGameState {
   cash: number;
   dailyRevenue: number;
   dailyGoal: number;
+  dailyOrderQuota: number;
+  quotaBonusAwarded: boolean;
   cupsServedToday: number;
   totalCupsServed: number;
   satisfactionScore: number; // 0..100
-  shiftTimeRemaining: number; // seconds (e.g. 150s per shift)
+  shiftTimeRemaining: number; // seconds (300s per shift)
   pinnedOrderId: string | null;
   currentCup: CupBuildState;
   customers: CustomerOrder[];
@@ -175,32 +197,32 @@ export const INITIAL_UPGRADES: BizUpgradeItem[] = [
     id: 'precision-burr-grinder',
     name: 'Titanium Conical Burr Grinder',
     description: 'Increases extraction quality and adds +$2 artisan aroma tip per cup.',
-    cost: 25,
+    cost: 35,
     effectLabel: '+$2 Tip / Cup',
     purchased: false,
   },
   {
     id: 'dual-pid-boiler',
     name: 'PID Dual-Boiler Pressure Profiling',
-    description: 'Stabilizes brew temperature so waiting customers lose patience 30% slower.',
-    cost: 40,
-    effectLabel: '+30% Customer Patience',
+    description: 'Stabilizes brew temperature so waiting customers lose patience 35% slower.',
+    cost: 55,
+    effectLabel: '+35% Customer Patience',
     purchased: false,
   },
   {
     id: 'audiophile-tube-preamp',
     name: 'Warm Vacuum Tube Turntable Preamp',
     description: 'Upgrades the 3D Vinyl Corner acoustics, boosting Garden Table tips by +$3.',
-    cost: 55,
+    cost: 75,
     effectLabel: '+$3 Vinyl Vibe Bonus',
     purchased: false,
   },
   {
     id: 'monstera-greenhouse-canopy',
-    name: 'Rare Variegated Monstera Pergola',
-    description: 'Transforms the Garage Garden into a botanical oasis, unlocking +$4 prestige tips.',
-    cost: 80,
-    effectLabel: '+$4 Botanical Prestige',
+    name: '1990 Miata Showroom & Botanical Pergola',
+    description: 'Spotlights the 1990 Mazda Miata MX-5 & garden oasis, unlocking +$4 prestige tips.',
+    cost: 110,
+    effectLabel: '+$4 Miata & Garden Prestige',
     purchased: false,
   },
 ];
@@ -216,11 +238,28 @@ const CUSTOMER_NAMES = [
   'Noah',
   'Elena',
   'Tala',
+  'Devon',
+  'Hana',
 ];
 
-const SHIRT_COLORS = ['#d97706', '#059669', '#2563eb', '#9333ea', '#e11d48', '#0d9488'];
-const AVATAR_COLORS = ['#f5d0b5', '#e2a983', '#c6865c', '#8d5524', '#f1c27d'];
-const SOCIAL_BEHAVIORS: CustomerSocialBehavior[] = ['selfie', 'chatting', 'laptop', 'relaxing'];
+const SHIRT_COLORS = [
+  '#d97706',
+  '#059669',
+  '#2563eb',
+  '#9333ea',
+  '#e11d48',
+  '#0d9488',
+  '#b45309',
+  '#4f46e5',
+];
+const AVATAR_COLORS = ['#f5d0b5', '#e2a983', '#c6865c', '#8d5524', '#f1c27d', '#d2996c'];
+const SOCIAL_BEHAVIORS: CustomerSocialBehavior[] = [
+  'car_selfie',
+  'selfie',
+  'chatting',
+  'laptop',
+  'relaxing',
+];
 
 export function createEmptyCup(): CupBuildState {
   return {
@@ -249,7 +288,7 @@ export function createInitialGameState(): KlasikGameState {
       'Morning! Could I get a hot Garage Velvet Latte with extra silky 65°C microfoam?',
     customAddons: ['+Extra Shot', '+Velvet Foam'],
     customBonusTip: 2,
-    socialBehavior: 'selfie',
+    socialBehavior: 'car_selfie',
   };
 
   const secondCustomer: CustomerOrder = {
@@ -264,7 +303,7 @@ export function createInitialGameState(): KlasikGameState {
     seatIndex: null,
     seatedTimer: 0,
     dialogueLine:
-      'Long session at the studio... Hit me with an Iced Caramel Garden Macchiato—iced, with Caramel drizzle!',
+      'That 1990 Miata MX-5 is clean! Hit me with an Iced Caramel Garden Macchiato—iced, with Caramel drizzle!',
     customAddons: ['+Iced', '+Caramel'],
     customBonusTip: 3,
     customNeedsIce: true,
@@ -272,23 +311,45 @@ export function createInitialGameState(): KlasikGameState {
     socialBehavior: 'laptop',
   };
 
+  const thirdCustomer: CustomerOrder = {
+    id: 'cust-initial-3',
+    customerName: 'Sora',
+    avatarColor: '#f1c27d',
+    shirtColor: '#2563eb',
+    recipeId: 'vanilla-oat-latte',
+    patience: 100,
+    maxPatience: 100,
+    state: 'ordering',
+    seatIndex: null,
+    seatedTimer: 0,
+    dialogueLine:
+      'Love the vinyl spinning today! Can I order a Madagascar Vanilla Latte with Madagascar bean syrup?',
+    customAddons: ['+Vanilla', '+Velvet Foam'],
+    customBonusTip: 3,
+    customSyrup: 'vanilla',
+    socialBehavior: 'selfie',
+  };
+
+  const day = 1;
   return {
     phase: 'title',
     mode: 'career',
     weather: 'morning',
     activeStation: 2,
     graphicsQuality: 'auto',
-    day: 1,
+    day,
     cash: 32,
     dailyRevenue: 0,
-    dailyGoal: 36,
+    dailyGoal: getDailyRevenueGoal(day),
+    dailyOrderQuota: getDailyOrderQuota(day),
+    quotaBonusAwarded: false,
     cupsServedToday: 0,
     totalCupsServed: 0,
     satisfactionScore: 100,
-    shiftTimeRemaining: 150,
+    shiftTimeRemaining: SHIFT_SECONDS,
     pinnedOrderId: firstCustomer.id,
     currentCup: createEmptyCup(),
-    customers: [firstCustomer, secondCustomer],
+    customers: [firstCustomer, secondCustomer, thirdCustomer],
     upgrades: INITIAL_UPGRADES.map((u) => ({ ...u })),
     decor: {
       counterWood: 'walnut',
@@ -296,7 +357,8 @@ export function createInitialGameState(): KlasikGameState {
       neonSignColor: 'amber',
       plantDensity: 'lush-jungle',
     },
-    lastActionFeedback: 'Welcome to Klasik 3D! Dose & tamp beans at Station 2 to begin.',
+    lastActionFeedback:
+      'Welcome to Klasik 3D! Dose & tamp beans at Station 2 to begin your 30-order shift.',
   };
 }
 
@@ -320,7 +382,7 @@ export function getEffectiveRecipeForOrder(
   };
 }
 
-// Determines the next recommended action & station for the smart ingredient highlighter
+// Determines the next recommended action & station for the smart diegetic halo highlighter
 export function getNextRecommendedStep(
   cup: CupBuildState,
   targetRecipe: DrinkRecipe | null,
@@ -376,7 +438,7 @@ export function getNextRecommendedStep(
     return {
       station: 3,
       toolKey: 'milk',
-      instruction: 'Steam silky microfoam milk & pour latte art (Station 3)',
+      instruction: 'Steam silky microfoam milk & pour Rosetta latte art (Station 3)',
     };
   }
 
@@ -490,6 +552,7 @@ export function performCupAction(
   if (action === 'rinse_cup') {
     return {
       ...state,
+      activeStation: 2,
       currentCup: createEmptyCup(),
       lastActionFeedback: 'Rinsed ceramic cup & knocked spent puck into the Knock Box.',
     };
@@ -512,7 +575,11 @@ export function performCupAction(
       feedback = 'Tamped coffee puck evenly at 30 lbs of pressure.';
     } else if (step.toolKey === 'espresso') {
       cup.hasEspresso = true;
-      feedback = 'Extracted rich 9-bar double espresso with golden tiger-stripe crema!';
+      // Automatically transition to Station 3 (or next recommended station) as the cup glides to the Assembly Coaster
+      const postShotStep = getNextRecommendedStep(cup, targetRecipe, pinnedOrder);
+      activeStation = postShotStep.station;
+      feedback =
+        'Extracted 9-bar double espresso with golden crema! Cup gliding to Station 3 Assembly Coaster.';
     } else if (step.toolKey === 'syrup') {
       cup.syrup = effectiveRecipe.syrup;
       feedback = `Added aromatic ${effectiveRecipe.syrup} infusion on the Station 3 Assembly Coaster.`;
@@ -550,8 +617,9 @@ export function performCupAction(
     cup.hasGrounds = true;
     cup.isTamped = true;
     cup.hasEspresso = true;
-    activeStation = 2;
-    feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 3 Assembly Mat.';
+    // Automatically transition camera to Station 3 Assembly Coaster as shot finishes!
+    activeStation = 3;
+    feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 3 Assembly Coaster.';
   } else if (action === 'steam_milk') {
     cup.hasSteamedMilk = true;
     activeStation = 3;
@@ -604,14 +672,14 @@ export function serveCurrentCupToCustomer(
     targetCustomer.customBonusTip
   );
 
-  // Find available garden table seat (0, 1, 2)
+  // Find available garden / showroom table seat (0..5)
   const occupiedSeats = new Set(
     state.customers
       .filter((c) => c.state === 'seated' && c.seatIndex !== null)
       .map((c) => c.seatIndex)
   );
   let assignedSeat: number | null = null;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < MAX_GARDEN_SEATS; i++) {
     if (!occupiedSeats.has(i)) {
       assignedSeat = i;
       break;
@@ -624,33 +692,45 @@ export function serveCurrentCupToCustomer(
       ...c,
       state: (assignedSeat !== null ? 'seated' : 'departing') as CustomerOrder['state'],
       seatIndex: assignedSeat,
-      seatedTimer: assignedSeat !== null ? 26 : 4,
+      seatedTimer: assignedSeat !== null ? 24 : 4,
     };
   });
 
   const remainingOrdering = updatedCustomers.filter((c) => c.state === 'ordering');
-  if (remainingOrdering.length < 2) {
+  if (remainingOrdering.length < 3) {
     updatedCustomers.push(spawnCustomerOrder(state.day, updatedCustomers.length));
   }
 
   const nextOrdering = updatedCustomers.find((c) => c.state === 'ordering');
-  const newCash = state.cash + payout.totalPayout;
-  const newDailyRevenue = state.dailyRevenue + payout.totalPayout;
   const newCupsToday = state.cupsServedToday + 1;
   const newTotalCups = state.totalCupsServed + 1;
+
+  // Check if Daily Order Quota (30-50 orders) was just completed!
+  const justCompletedQuota =
+    !state.quotaBonusAwarded && newCupsToday >= state.dailyOrderQuota;
+  const quotaBonus = justCompletedQuota ? DAILY_QUOTA_COMPLETION_BONUS : 0;
+
+  const newCash = state.cash + payout.totalPayout + quotaBonus;
+  const newDailyRevenue = state.dailyRevenue + payout.totalPayout + quotaBonus;
   const newSatisfaction = Math.min(
     100,
     Math.max(0, Math.round(state.satisfactionScore * 0.85 + evaluation.accuracy * 0.15))
   );
 
+  const quotaSuffix = justCompletedQuota
+    ? ` · 🎉 DAILY QUOTA (${state.dailyOrderQuota} ORDERS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
+    : '';
+
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}! +$${payout.totalPayout} (incl. $${payout.tip} tip ❤️)`
-    : `Served ${recipe.name} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}.`;
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}! +$${payout.totalPayout} (incl. $${payout.tip} tip ❤️)${quotaSuffix}`
+    : `Served ${recipe.name} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}.${quotaSuffix}`;
 
   return {
     ...state,
+    activeStation: 4, // Smoothly transition camera to Station 4 Pickup Coaster for the 2-stage handoff
     cash: newCash,
     dailyRevenue: newDailyRevenue,
+    quotaBonusAwarded: state.quotaBonusAwarded || justCompletedQuota,
     cupsServedToday: newCupsToday,
     totalCupsServed: newTotalCups,
     satisfactionScore: newSatisfaction,
@@ -718,7 +798,7 @@ export function spawnCustomerOrder(day: number, seedOffset = 0): CustomerOrder {
 
   const greetings = [
     `Morning! Could I get a ${recipe.name}—${addonPhrase}?`,
-    `Hey barista! Long day at the studio... Hit me with a ${recipe.name}, ${addonPhrase}!`,
+    `That 1990 Miata MX-5 in the garage bay is iconic! Hit me with a ${recipe.name}, ${addonPhrase}!`,
     `Love the vinyl spinning today! Can I order a ${recipe.name}, ${addonPhrase}?`,
     `Hi there! One ${recipe.name} please—${addonPhrase}.`,
   ];
@@ -768,7 +848,7 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
   const dt = Math.min(dtSeconds, 0.1);
 
   const hasPidBoiler = state.upgrades.some((u) => u.id === 'dual-pid-boiler' && u.purchased);
-  const patienceDecayRate = state.mode === 'zen' ? 0 : hasPidBoiler ? 0.85 : 1.25;
+  const patienceDecayRate = state.mode === 'zen' ? 0 : hasPidBoiler ? 0.55 : 0.85;
 
   let bonusTableTip = 0;
   let tipMessage: string | null = null;
@@ -776,7 +856,7 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
   const nextCustomers: CustomerOrder[] = [];
   for (const cust of state.customers) {
     if (cust.state === 'ordering') {
-      const nextPatience = Math.max(10, cust.patience - patienceDecayRate * dt);
+      const nextPatience = Math.max(12, cust.patience - patienceDecayRate * dt);
       nextCustomers.push({
         ...cust,
         patience: nextPatience,
@@ -784,8 +864,11 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     } else if (cust.state === 'seated') {
       const remaining = cust.seatedTimer - dt;
       if (remaining <= 0) {
-        bonusTableTip += 2;
-        tipMessage = `${cust.customerName} loved the Garage Garden vibe and left a +$2 table tip!`;
+        bonusTableTip += 3;
+        tipMessage =
+          cust.socialBehavior === 'car_selfie'
+            ? `${cust.customerName} snapped a selfie with the 1990 Miata MX-5 and left a +$3 tip!`
+            : `${cust.customerName} loved the Garage Garden vibe and left a +$3 table tip!`;
       } else {
         nextCustomers.push({
           ...cust,
@@ -796,7 +879,7 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
   }
 
   const orderingCount = nextCustomers.filter((c) => c.state === 'ordering').length;
-  if (orderingCount < 2) {
+  if (orderingCount < MAX_QUEUE) {
     nextCustomers.push(spawnCustomerOrder(state.day, nextCustomers.length + 1));
   }
 
@@ -828,23 +911,30 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
 }
 
 export function startNextDayShift(state: KlasikGameState): KlasikGameState {
-  const nextDay = state.day + 1;
-  const nextGoal = Math.round(state.dailyGoal * 1.25 + 10);
+  const isSuccess =
+    state.dailyRevenue >= state.dailyGoal || state.cupsServedToday >= state.dailyOrderQuota;
+  const nextDay = isSuccess ? state.day + 1 : state.day;
+  const nextQuota = getDailyOrderQuota(nextDay);
+  const nextGoal = getDailyRevenueGoal(nextDay);
   const c1 = spawnCustomerOrder(nextDay, 1);
   const c2 = spawnCustomerOrder(nextDay, 2);
+  const c3 = spawnCustomerOrder(nextDay, 3);
 
   return {
     ...state,
     phase: 'playing',
+    activeStation: 2,
     day: nextDay,
     dailyRevenue: 0,
     dailyGoal: nextGoal,
+    dailyOrderQuota: nextQuota,
+    quotaBonusAwarded: false,
     cupsServedToday: 0,
-    shiftTimeRemaining: 150,
+    shiftTimeRemaining: SHIFT_SECONDS,
     currentCup: createEmptyCup(),
-    customers: [c1, c2],
+    customers: [c1, c2, c3],
     pinnedOrderId: c1.id,
-    lastActionFeedback: `Day ${nextDay} Shift started! Daily Goal: $${nextGoal}`,
+    lastActionFeedback: `Day ${nextDay} Shift started! Quota: ${nextQuota} Orders · Target: $${nextGoal}`,
   };
 }
 
@@ -874,13 +964,14 @@ export function loadGameFromStorage(): KlasikGameState | null {
 export function exportSaveJson(state: KlasikGameState): string {
   return JSON.stringify(
     {
-      version: '1.4.0',
+      version: '1.5.0',
       studio: 'BoostedByCaffeine Studios',
       timestamp: new Date().toISOString(),
       data: {
         day: state.day,
         cash: state.cash,
         dailyGoal: state.dailyGoal,
+        dailyOrderQuota: state.dailyOrderQuota,
         totalCupsServed: state.totalCupsServed,
         satisfactionScore: state.satisfactionScore,
         weather: state.weather,
@@ -902,11 +993,16 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
     if (typeof d.day !== 'number' || typeof d.cash !== 'number') return null;
 
     const base = createInitialGameState();
+    const restoredDay = Math.max(1, Math.floor(d.day));
     return {
       ...base,
-      day: Math.max(1, Math.floor(d.day)),
+      day: restoredDay,
       cash: Math.max(0, Math.floor(d.cash)),
-      dailyGoal: typeof d.dailyGoal === 'number' ? d.dailyGoal : base.dailyGoal,
+      dailyGoal: typeof d.dailyGoal === 'number' ? d.dailyGoal : getDailyRevenueGoal(restoredDay),
+      dailyOrderQuota:
+        typeof d.dailyOrderQuota === 'number'
+          ? d.dailyOrderQuota
+          : getDailyOrderQuota(restoredDay),
       totalCupsServed: typeof d.totalCupsServed === 'number' ? d.totalCupsServed : 0,
       satisfactionScore: typeof d.satisfactionScore === 'number' ? d.satisfactionScore : 100,
       weather: d.weather || base.weather,

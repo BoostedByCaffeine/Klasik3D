@@ -186,6 +186,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             cash={gameState.cash}
             dailyRevenue={gameState.dailyRevenue}
             dailyGoal={gameState.dailyGoal}
+            dailyOrderQuota={gameState.dailyOrderQuota}
             cupsServedToday={gameState.cupsServedToday}
             satisfactionScore={gameState.satisfactionScore}
             shiftTimeRemaining={gameState.shiftTimeRemaining}

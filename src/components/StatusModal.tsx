@@ -1,5 +1,5 @@
 import React from 'react';
-import { KlasikGameState } from '../game/rules';
+import { DAILY_QUOTA_COMPLETION_BONUS, KlasikGameState } from '../game/rules';
 
 interface StatusModalProps {
   gameState: KlasikGameState;
@@ -17,7 +17,8 @@ export const StatusModal: React.FC<StatusModalProps> = ({
   onOpenSaveExport,
 }) => {
   const isPaused = gameState.phase === 'paused';
-  const goalMet = gameState.dailyRevenue >= gameState.dailyGoal;
+  const quotaMet = gameState.cupsServedToday >= gameState.dailyOrderQuota;
+  const goalMet = gameState.dailyRevenue >= gameState.dailyGoal || quotaMet;
 
   return (
     <div
@@ -26,7 +27,7 @@ export const StatusModal: React.FC<StatusModalProps> = ({
       aria-modal="true"
       aria-labelledby="status-modal-title"
     >
-      <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto bg-[#1b120d] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3.5 text-center">
+      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto bg-[#1b120d] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3.5 text-center">
         <div className="space-y-1">
           <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400">
             {isPaused
@@ -44,12 +45,12 @@ export const StatusModal: React.FC<StatusModalProps> = ({
           </h2>
           <p className="text-xs text-stone-400">
             {isPaused
-              ? 'Your espresso boilers and vinyl record player are holding steady.'
-              : goalMet
-              ? 'You exceeded the daily revenue target and kept the Garage Garden thriving.'
-              : `You reached $${Math.round(gameState.dailyRevenue)} of the $${Math.round(
-                  gameState.dailyGoal
-                )} target.`}
+              ? `Daily Quota: ${gameState.cupsServedToday} / ${gameState.dailyOrderQuota} Orders (+$${DAILY_QUOTA_COMPLETION_BONUS} Quota Completion Bonus).`
+              : quotaMet
+              ? `You crushed the ${gameState.dailyOrderQuota}-Order Daily Quota and earned the +$${DAILY_QUOTA_COMPLETION_BONUS} Completion Bonus!`
+              : `You served ${gameState.cupsServedToday} / ${gameState.dailyOrderQuota} orders and reached $${Math.round(
+                  gameState.dailyRevenue
+                )} of the $${Math.round(gameState.dailyGoal)} target.`}
           </p>
         </div>
 
@@ -63,9 +64,9 @@ export const StatusModal: React.FC<StatusModalProps> = ({
           </div>
 
           <div className="p-2.5 rounded-xl bg-[#241811] border border-stone-800">
-            <div className="text-[10px] font-bold uppercase text-stone-400">CUPS SERVED</div>
+            <div className="text-[10px] font-bold uppercase text-stone-400">DAILY QUOTA</div>
             <div className="text-base font-bold font-mono tabular-nums text-amber-200 mt-0.5">
-              {Math.round(gameState.cupsServedToday)}
+              {Math.round(gameState.cupsServedToday)} / {gameState.dailyOrderQuota}
             </div>
           </div>
 
@@ -76,6 +77,13 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             </div>
           </div>
         </div>
+
+        {quotaMet && (
+          <div className="p-2 rounded-xl bg-emerald-950/75 border border-emerald-500/40 text-xs font-semibold text-emerald-300">
+            🎉 Daily Order Quota ({gameState.dailyOrderQuota} Orders) Completed — +$
+            {DAILY_QUOTA_COMPLETION_BONUS} Bonus Awarded!
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="space-y-2">

@@ -7,6 +7,7 @@ interface DailyGoalProgressBarProps {
   cash: number;
   dailyRevenue: number;
   dailyGoal: number;
+  dailyOrderQuota: number;
   cupsServedToday: number;
   satisfactionScore: number;
   shiftTimeRemaining: number;
@@ -18,18 +19,20 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
   cash,
   dailyRevenue,
   dailyGoal,
+  dailyOrderQuota,
   cupsServedToday,
   satisfactionScore,
   shiftTimeRemaining,
 }) => {
   const goalPct = Math.min(100, Math.round((dailyRevenue / Math.max(1, dailyGoal)) * 100));
+  const quotaMet = cupsServedToday >= dailyOrderQuota;
   const mins = Math.floor(shiftTimeRemaining / 60);
   const secs = Math.floor(shiftTimeRemaining % 60);
   const formattedTime =
     mode === 'zen' ? 'ZEN' : `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 
   return (
-    <div className="flex items-center gap-2 sm:gap-3 text-xs font-mono tabular-nums whitespace-nowrap shrink-0">
+    <div className="flex items-center gap-2 sm:gap-2.5 text-xs font-mono tabular-nums whitespace-nowrap shrink-0">
       {/* Cash Readout */}
       <div className="flex items-center gap-1 font-bold text-emerald-400" data-testid="hud-cash">
         <span aria-hidden="true">💵</span>
@@ -45,7 +48,7 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
         <span className="text-[11px] font-sans font-semibold text-stone-300 hidden md:inline">
           D{day}
         </span>
-        <div className="w-14 sm:w-20 h-2 rounded-full bg-stone-900 border border-stone-700 overflow-hidden">
+        <div className="w-12 sm:w-16 h-2 rounded-full bg-stone-900 border border-stone-700 overflow-hidden">
           <div
             className="h-full bg-amber-500 transition-all duration-200"
             style={{ width: `${goalPct}%` }}
@@ -60,14 +63,18 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
         |
       </span>
 
-      {/* Cups Served */}
+      {/* Daily Order Quota (30-50 Orders) */}
       <div
-        className="flex items-center gap-1 text-stone-200 font-semibold"
-        title="Cups Served Today"
+        className={`flex items-center gap-1 font-semibold ${
+          quotaMet ? 'text-emerald-300' : 'text-stone-200'
+        }`}
+        title={`Daily Order Quota: ${cupsServedToday} / ${dailyOrderQuota} Orders (+$50 Bonus)`}
         data-testid="hud-cups-served"
       >
         <span aria-hidden="true">☕</span>
-        <span>{Math.round(cupsServedToday)}</span>
+        <span>
+          {Math.round(cupsServedToday)} / {dailyOrderQuota} Orders
+        </span>
       </div>
 
       <span className="text-stone-700 hidden sm:inline" aria-hidden="true">
