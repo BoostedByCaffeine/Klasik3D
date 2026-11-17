@@ -89,13 +89,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     orderingCustomers[0] ||
     null;
   const targetRecipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : null;
-  const nextStep = getNextRecommendedStep(gameState.currentCup, targetRecipe);
+  const nextStep = getNextRecommendedStep(gameState.currentCup, targetRecipe, pinnedOrder);
 
   const cup = gameState.currentCup;
   const isDrinkReadyToServe =
-    targetRecipe && evaluateDrinkMatch(cup, targetRecipe).accuracy >= 75;
+    targetRecipe && evaluateDrinkMatch(cup, targetRecipe, pinnedOrder).accuracy >= 75;
 
-  // Compact Cup Progression Status Badges
   const cupStatusText = (() => {
     if (
       !cup.hasGrounds &&
@@ -119,178 +118,209 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
   return (
     <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between overflow-hidden">
-      {/* 1. SINGLE ULTRA-THIN TOP TELEMETRY RIBBON (36px mobile / 44px desktop, zero StudioLogo) */}
-      <div className="pointer-events-auto h-9 sm:h-11 w-full bg-stone-950/85 border-b border-amber-500/20 px-2.5 sm:px-3.5 flex items-center justify-between gap-2 shrink-0">
-        {/* Left Cluster: Compact Station Pill + Collapsible Mini Order Tickets */}
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setTicketsCollapsed((prev) => !prev)}
-            className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/35 text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
-            title="Toggle Mini Order Tickets"
-          >
-            {STATION_TABS.find((s) => s.id === gameState.activeStation)?.badge}
-          </button>
+      {/* 1. SINGLE ULTRA-THIN TOP TELEMETRY RIBBON + COMPACT DIEGETIC DIALOGUE BUBBLE */}
+      <div className="flex flex-col w-full pointer-events-none">
+        <div className="pointer-events-auto h-9 sm:h-11 w-full bg-stone-950/85 border-b border-amber-500/20 px-2.5 sm:px-3.5 flex items-center justify-between gap-2 shrink-0">
+          {/* Left Cluster: Compact Station Pill + Collapsible Mini Order Tickets */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setTicketsCollapsed((prev) => !prev)}
+              className="px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/35 text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
+              title="Toggle Mini Order Tickets & Customer Speech Bubble"
+            >
+              {STATION_TABS.find((s) => s.id === gameState.activeStation)?.badge}
+            </button>
 
-          {!ticketsCollapsed && (
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-              {orderingCustomers.map((cust) => {
-                const recipe = getRecipeById(cust.recipeId);
-                const isPinned = pinnedOrder?.id === cust.id;
-                return (
-                  <button
-                    key={cust.id}
-                    type="button"
-                    onClick={() => onPinOrder(cust.id)}
-                    className={`relative flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] transition-colors cursor-pointer shrink-0 max-w-[130px] overflow-hidden ${
-                      isPinned
-                        ? 'bg-amber-950/90 border-amber-400 text-amber-100'
-                        : 'bg-stone-900/90 border-stone-800 text-stone-300 hover:border-stone-600'
-                    }`}
-                    title={`${cust.customerName}: ${recipe.name} ($${recipe.price})`}
-                  >
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: recipe.colorHex }}
-                    />
-                    <span className="font-semibold truncate">{cust.customerName}</span>
-                    <span className="font-mono tabular-nums text-emerald-400 font-bold shrink-0">
-                      ${recipe.price}
-                    </span>
-                    {/* Thin bottom patience bar */}
-                    <span
-                      className={`absolute bottom-0 left-0 h-[2px] transition-all ${
-                        cust.patience > 50
-                          ? 'bg-emerald-400'
-                          : cust.patience > 25
-                          ? 'bg-amber-400'
-                          : 'bg-rose-500'
+            {!ticketsCollapsed && (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                {orderingCustomers.map((cust) => {
+                  const recipe = getRecipeById(cust.recipeId);
+                  const isPinned = pinnedOrder?.id === cust.id;
+                  return (
+                    <button
+                      key={cust.id}
+                      type="button"
+                      onClick={() => onPinOrder(cust.id)}
+                      className={`relative flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-colors cursor-pointer shrink-0 max-w-[165px] overflow-hidden ${
+                        isPinned
+                          ? 'bg-amber-950/90 border-amber-400 text-amber-100'
+                          : 'bg-stone-900/90 border-stone-800 text-stone-300 hover:border-stone-600'
                       }`}
-                      style={{ width: `${Math.round(cust.patience)}%` }}
-                    />
-                  </button>
-                );
-              })}
+                      title={`${cust.customerName}: ${cust.dialogueLine}`}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: recipe.colorHex }}
+                      />
+                      <span className="font-semibold truncate">{cust.customerName}</span>
+                      {cust.customAddons?.[0] && (
+                        <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-200 font-mono shrink-0">
+                          {cust.customAddons[0]}
+                        </span>
+                      )}
+                      <span className="font-mono tabular-nums text-emerald-400 font-bold shrink-0">
+                        ${recipe.price}
+                      </span>
+                      <span
+                        className={`absolute bottom-0 left-0 h-[2px] transition-all ${
+                          cust.patience > 50
+                            ? 'bg-emerald-400'
+                            : cust.patience > 25
+                            ? 'bg-amber-400'
+                            : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${Math.round(cust.patience)}%` }}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Center Cluster: Inline Telemetry Stats in One Single Row */}
+          <DailyGoalProgressBar
+            day={gameState.day}
+            mode={gameState.mode}
+            cash={gameState.cash}
+            dailyRevenue={gameState.dailyRevenue}
+            dailyGoal={gameState.dailyGoal}
+            cupsServedToday={gameState.cupsServedToday}
+            satisfactionScore={gameState.satisfactionScore}
+            shiftTimeRemaining={gameState.shiftTimeRemaining}
+          />
+
+          {/* Right Cluster: Compact 28x28 Icon-Only Utility Buttons */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Fullscreen Landscape"
+              title="Tap for Fullscreen Landscape"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onRequestFullscreenLandscape();
+              }}
+              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
+            >
+              ⛶
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={isMuted ? 'Unmute Audio [M]' : 'Mute Audio [M]'}
+              title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onToggleMute();
+              }}
+              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
+            >
+              {isMuted ? '🔇' : '🔊'}
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Spotify Vinyl Modal"
+              title="Spotify Vinyl Player"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenModal('spotify');
+              }}
+              className={`w-7 h-7 rounded-md border flex items-center justify-center text-xs cursor-pointer ${
+                spotifyState.isPlaying
+                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                  : 'bg-stone-900 border-stone-700/80 text-stone-300'
+              }`}
+            >
+              🎵
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Recipes"
+              title="Recipe Codex"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenModal('recipes');
+              }}
+              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-100 cursor-pointer"
+            >
+              📖
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Upgrades"
+              title="Equipment Upgrades"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenModal('upgrades');
+              }}
+              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-300 cursor-pointer"
+            >
+              ⚡
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Decor"
+              title="Cafe Decor & Lighting"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenModal('customize');
+              }}
+              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-emerald-300 cursor-pointer"
+            >
+              🪴
+            </button>
+
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Pause Shift [P]"
+              title="Pause / Settings [Esc / P]"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onTogglePause();
+              }}
+              className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-stone-200 cursor-pointer"
+            >
+              ⚙️
+            </button>
+          </div>
+        </div>
+
+        {/* Diegetic Customer Ordering Dialogue Pill (Compact top-left speech bubble with Custom Add-on Badges) */}
+        {!ticketsCollapsed && pinnedOrder && targetRecipe && (
+          <div className="pointer-events-auto self-start mt-1.5 ml-2.5 max-w-md bg-stone-950/88 border border-amber-500/35 rounded-xl px-3 py-1.5 shadow-lg flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-amber-300 shrink-0">
+              💬 {pinnedOrder.customerName}:
+            </span>
+            <span className="text-[11px] italic text-stone-200 truncate max-w-[260px] sm:max-w-[330px]">
+              &ldquo;{pinnedOrder.dialogueLine}&rdquo;
+            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              {pinnedOrder.customAddons?.map((addon) => (
+                <span
+                  key={addon}
+                  className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-[10px] font-mono font-semibold text-amber-200"
+                >
+                  {addon}
+                </span>
+              ))}
+              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[10px] font-mono font-bold text-emerald-300">
+                +${pinnedOrder.customBonusTip} Tip
+              </span>
             </div>
-          )}
-        </div>
-
-        {/* Center Cluster: Inline Telemetry Stats in One Single Row */}
-        <DailyGoalProgressBar
-          day={gameState.day}
-          mode={gameState.mode}
-          cash={gameState.cash}
-          dailyRevenue={gameState.dailyRevenue}
-          dailyGoal={gameState.dailyGoal}
-          cupsServedToday={gameState.cupsServedToday}
-          satisfactionScore={gameState.satisfactionScore}
-          shiftTimeRemaining={gameState.shiftTimeRemaining}
-        />
-
-        {/* Right Cluster: Compact 28x28 Icon-Only Utility Buttons */}
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Fullscreen Landscape"
-            title="Tap for Fullscreen Landscape"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onRequestFullscreenLandscape();
-            }}
-            className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
-          >
-            ⛶
-          </button>
-
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label={isMuted ? 'Unmute Audio [M]' : 'Mute Audio [M]'}
-            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onToggleMute();
-            }}
-            className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-200 cursor-pointer"
-          >
-            {isMuted ? '🔇' : '🔊'}
-          </button>
-
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Spotify Vinyl Modal"
-            title="Spotify Vinyl Player"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onOpenModal('spotify');
-            }}
-            className={`w-7 h-7 rounded-md border flex items-center justify-center text-xs cursor-pointer ${
-              spotifyState.isPlaying
-                ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                : 'bg-stone-900 border-stone-700/80 text-stone-300'
-            }`}
-          >
-            🎵
-          </button>
-
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Recipes"
-            title="Recipe Codex"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onOpenModal('recipes');
-            }}
-            className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-100 cursor-pointer"
-          >
-            📖
-          </button>
-
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Upgrades"
-            title="Equipment Upgrades"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onOpenModal('upgrades');
-            }}
-            className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-amber-300 cursor-pointer"
-          >
-            ⚡
-          </button>
-
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Decor"
-            title="Cafe Decor & Lighting"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onOpenModal('customize');
-            }}
-            className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-emerald-300 cursor-pointer"
-          >
-            🪴
-          </button>
-
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Pause Shift [P]"
-            title="Pause / Settings [Esc / P]"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onTogglePause();
-            }}
-            className="w-7 h-7 rounded-md bg-stone-900 hover:bg-stone-800 border border-stone-700/80 flex items-center justify-center text-xs text-stone-200 cursor-pointer"
-          >
-            ⚙️
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* 2. UNOBSTRUCTED 80%+ 3D VIEWPORT CENTER (Only subtle hover/animation micro-badge) */}

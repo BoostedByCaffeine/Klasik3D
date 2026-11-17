@@ -10,6 +10,7 @@ import {
   purchaseUpgrade,
   exportSaveJson,
   importSaveJson,
+  spawnCustomerOrder,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching recipe ingredients', () => {
@@ -30,7 +31,6 @@ test('evaluateDrinkMatch scores perfect 100% for matching recipe ingredients', (
 
 test('performCupAction quick_brew_step advances through espresso, milk, and serving', () => {
   let state = createInitialGameState();
-  // First customer orders 'velvet-latte' (needs espresso + steamed milk)
   assert.equal(state.currentCup.hasGrounds, false);
 
   state = performCupAction(state, 'quick_brew_step'); // grind
@@ -66,6 +66,14 @@ test('serveCurrentCupToCustomer seats the served customer at a Garage Garden tab
   const seatedCustomers = nextState.customers.filter((c) => c.state === 'seated');
   assert.equal(seatedCustomers.length, 1);
   assert.equal(seatedCustomers[0].seatIndex, 0);
+});
+
+test('spawnCustomerOrder generates natural dialogue, custom add-on badges, and social behavior', () => {
+  const order = spawnCustomerOrder(2, 3);
+  assert.ok(order.dialogueLine.length > 10);
+  assert.ok(order.customAddons.length >= 1);
+  assert.ok(order.customBonusTip >= 2);
+  assert.ok(['selfie', 'chatting', 'laptop', 'relaxing'].includes(order.socialBehavior));
 });
 
 test('purchaseUpgrade deducts cash and marks upgrade as purchased', () => {

@@ -41,16 +41,21 @@ class PwaManager {
       this.notify();
     });
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('./sw.js')
-        .then(() => {
-          this.swRegistered = true;
-          this.notify();
-        })
-        .catch(() => {
-          this.swRegistered = false;
-        });
+    try {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker
+          .register('./sw.js')
+          .then((reg) => {
+            this.swRegistered = true;
+            reg.update().catch(() => {});
+            this.notify();
+          })
+          .catch(() => {
+            this.swRegistered = false;
+          });
+      }
+    } catch {
+      this.swRegistered = false;
     }
   }
 

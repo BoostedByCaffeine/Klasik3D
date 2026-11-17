@@ -15,11 +15,12 @@ import {
   GameMode,
   GraphicsQuality,
   KlasikGameState,
-   RECIPES,
+  RECIPES,
   SyrupFlavor,
   WeatherMode,
   advanceSimulationTick,
   createInitialGameState,
+  getEffectiveRecipeForOrder,
   getNextRecommendedStep,
   getRecipeById,
   loadGameFromStorage,
@@ -49,6 +50,7 @@ export default function App() {
     new URLSearchParams(window.location.search).get('autostart') === '1';
 
   const [isLoading, setIsLoading] = useState<boolean>(!isAutostart);
+  const [webglError, setWebglError] = useState<string | null>(null);
   const [isPortraitRotated, setIsPortraitRotated] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false
   );
@@ -141,13 +143,16 @@ export default function App() {
       const prev = gameStateRef.current;
       const next = serveCurrentCupToCustomer(prev, customerId);
       const earned = Math.max(0, Math.round(next.cash - prev.cash));
+      setGameState(next);
+
+      // Update scene state immediately so the served customer walks to the Pickup Counter
+      sceneRef.current?.updateGameState(next);
       sceneRef.current?.triggerStepAnimation(
         'serve_drink',
         undefined,
         earned > 0 ? `+$${earned} SERVED!` : 'SERVED!'
       );
-      flashAnimBanner(next.lastActionFeedback, 1350);
-      setGameState(next);
+      flashAnimBanner(next.lastActionFeedback, 1550);
     },
     [flashAnimBanner]
   );
@@ -179,7 +184,12 @@ export default function App() {
         const targetRecipe = pinnedOrder
           ? getRecipeById(pinnedOrder.recipeId)
           : RECIPES[1];
-        const step = getNextRecommendedStep(curState.currentCup, targetRecipe);
+        const effectiveRecipe = getEffectiveRecipeForOrder(pinnedOrder, targetRecipe);
+        const step = getNextRecommendedStep(
+          curState.currentCup,
+          targetRecipe,
+          pinnedOrder
+        );
         if (step.toolKey === 'serve') {
           handleServeCustomer();
           return;
@@ -191,7 +201,7 @@ export default function App() {
         else if (step.toolKey === 'ice') resolvedStep = 'add_ice';
         else if (step.toolKey === 'syrup') {
           resolvedStep = 'add_syrup';
-          resolvedFlavor = targetRecipe.syrup;
+          resolvedFlavor = effectiveRecipe.syrup;
         }
       } else {
         resolvedStep = action;
@@ -222,7 +232,7 @@ export default function App() {
         );
       } else {
         soundEngine.playCeramicClink(1.0);
-        flashAnimBanner('Rinsed Cup & Portafilter Clean', 750);
+        flashAnimBanner('Rinsed Cup & Knocked Spent Puck into Knock Box', 750);
       }
 
       sceneRef.current?.triggerStepAnimation(resolvedStep, resolvedFlavor);
@@ -238,7 +248,6 @@ export default function App() {
     sceneRef.current?.resetCameraOffsets();
     document.body.dataset.state = 'playing';
 
-    // Attempt hardware orientation lock on shift start
     try {
       const orientation = screen.orientation as ScreenOrientation & {
         lock?: (mode: string) => Promise<void>;
@@ -261,43 +270,52 @@ export default function App() {
     pwaManager.lockLandscape();
   }, []);
 
-  // Mount Three.js WebGLRenderer once in isolated container
+  // Mount Three.js WebGLRenderer once in isolated container (wrapped in safe try/catch)
   useEffect(() => {
     const container = canvasMountRef.current;
     if (!container) return;
 
-    const scene = new KlasikCafeScene3D(
-      container,
-      gameStateRef.current,
-      spotifyManager.getState(),
-      {
-        onSelectStation: (st) => handleSelectStation(st),
-        onToolAction: (action, syrupFlavor) => {
-          if (action === 'serve_drink') {
-            handleServeCustomer();
-          } else if (action === 'toggle_vinyl') {
-            spotifyManager.togglePlayPause();
-          } else if (action === 'next_vinyl') {
-            spotifyManager.nextTrack();
-          } else if (action === 'open_spotify_modal') {
-            setActiveModal('spotify');
-          } else if (action === 'open_upgrades_modal') {
-            setActiveModal('upgrades');
-          } else if (action === 'open_recipes_modal') {
-            setActiveModal('recipes');
-          } else {
-            handleCupAction(action, syrupFlavor);
-          }
-        },
-        onHoverToolChange: (label) => setHoveredToolLabel(label),
-        onFpsUpdate: (measuredFps) => setFps(measuredFps),
-      }
-    );
-
-    sceneRef.current = scene;
+    let scene: KlasikCafeScene3D | null = null;
+    try {
+      scene = new KlasikCafeScene3D(
+        container,
+        gameStateRef.current,
+        spotifyManager.getState(),
+        {
+          onSelectStation: (st) => handleSelectStation(st),
+          onToolAction: (action, syrupFlavor) => {
+            if (action === 'serve_drink') {
+              handleServeCustomer();
+            } else if (action === 'toggle_vinyl') {
+              spotifyManager.togglePlayPause();
+            } else if (action === 'next_vinyl') {
+              spotifyManager.nextTrack();
+            } else if (action === 'open_spotify_modal') {
+              setActiveModal('spotify');
+            } else if (action === 'open_upgrades_modal') {
+              setActiveModal('upgrades');
+            } else if (action === 'open_recipes_modal') {
+              setActiveModal('recipes');
+            } else {
+              handleCupAction(action, syrupFlavor);
+            }
+          },
+          onHoverToolChange: (label) => setHoveredToolLabel(label),
+          onFpsUpdate: (measuredFps) => setFps(measuredFps),
+        }
+      );
+      sceneRef.current = scene;
+      setWebglError(null);
+    } catch (err) {
+      setWebglError(
+        err instanceof Error
+          ? err.message
+          : 'WebGL 3D context could not be initialized on this device.'
+      );
+    }
 
     return () => {
-      scene.dispose();
+      scene?.dispose();
       sceneRef.current = null;
     };
   }, [handleCupAction, handleSelectStation, handleServeCustomer]);
@@ -310,7 +328,7 @@ export default function App() {
     );
   }, [gameState]);
 
-  // 4 Hz Gameplay Simulation Timer (Customer Patience, Seated Table Tips, Shift Clock)
+  // 4 Hz Gameplay Simulation Timer
   useEffect(() => {
     if (gameState.phase !== 'playing') return;
     const interval = window.setInterval(() => {
@@ -319,7 +337,7 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gameState.phase]);
 
-  // Global Keyboard Shortcuts (Title Start, 1-5 / A-D Stations, Space Brew, R Rinse, M Vinyl, Esc/P Pause)
+  // Global Keyboard Shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -366,6 +384,21 @@ export default function App() {
       } else if (e.code === 'Space') {
         e.preventDefault();
         handleCupAction('quick_brew_step');
+      } else if (e.code === 'KeyG') {
+        e.preventDefault();
+        handleCupAction('grind');
+      } else if (e.code === 'KeyT') {
+        e.preventDefault();
+        handleCupAction('tamp');
+      } else if (e.code === 'KeyE') {
+        e.preventDefault();
+        handleCupAction('pull_espresso');
+      } else if (e.code === 'KeyS') {
+        e.preventDefault();
+        handleCupAction('steam_milk');
+      } else if (e.code === 'KeyI') {
+        e.preventDefault();
+        handleCupAction('add_ice');
       } else if (e.code === 'KeyR') {
         e.preventDefault();
         handleCupAction('rinse_cup');
@@ -398,6 +431,22 @@ export default function App() {
     setIsMuted(nextMuted);
   };
 
+  const handleClearSwCacheAndReload = async () => {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch {
+      // ignore
+    }
+    window.location.reload();
+  };
+
   return (
     <main
       data-landscape-enforced={isPortraitRotated ? 'rotated-90' : 'native-landscape'}
@@ -411,6 +460,25 @@ export default function App() {
         data-testid="klasik-3d-canvas-container"
         className="absolute inset-0 w-full h-full z-0"
       />
+
+      {/* Safe On-Screen Recovery Fallback if WebGL or Service Worker Encounters an Error */}
+      {webglError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/90 p-4">
+          <div className="max-w-md w-full bg-[#1b120d] border border-amber-500/40 rounded-2xl p-5 text-center space-y-3 shadow-2xl">
+            <h2 className="text-lg font-bold font-display text-amber-100">
+              3D Graphics Recovery Mode
+            </h2>
+            <p className="text-xs text-stone-300">{webglError}</p>
+            <button
+              type="button"
+              onClick={handleClearSwCacheAndReload}
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs cursor-pointer"
+            >
+              Reset Cache &amp; Reload Cafe
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Cozy Studio Preloader Splash */}
       {isLoading && <LoadingScreen onFinished={() => setIsLoading(false)} />}
@@ -431,7 +499,7 @@ export default function App() {
         />
       )}
 
-      {/* Active Barista POV HUD Overlay (Ultra-compact peripheral layout, 80%+ unobstructed 3D view) */}
+      {/* Active Barista POV HUD Overlay */}
       {!isLoading && gameState.phase !== 'title' && (
         <HudOverlay
           gameState={gameState}

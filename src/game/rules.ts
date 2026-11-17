@@ -1,5 +1,5 @@
-// Complete Game Rules, Recipes, Customer Queue & Table Seating State Machine,
-// Business Upgrades, Decor Customization, and Save/Export/Import System for Klasik 3D.
+// Complete Game Rules, Recipes, Customer Ordering Dialogue, Dynamic Add-On Modifiers,
+// Table Seating State Machine, Business Upgrades, Decor Customization, and Save/Export/Import System for Klasik 3D.
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
@@ -7,6 +7,7 @@ export type WeatherMode = 'morning' | 'golden' | 'rainy';
 export type BaristaStationId = 1 | 2 | 3 | 4 | 5;
 export type GraphicsQuality = 'low' | 'high' | 'auto';
 export type SyrupFlavor = 'none' | 'vanilla' | 'caramel' | 'chocolate' | 'matcha';
+export type CustomerSocialBehavior = 'selfie' | 'chatting' | 'laptop' | 'relaxing';
 
 export interface DrinkRecipe {
   id: string;
@@ -123,6 +124,12 @@ export interface CustomerOrder {
   state: 'ordering' | 'seated' | 'departing';
   seatIndex: number | null; // 0, 1, 2 for the 3 garden tables
   seatedTimer: number;
+  dialogueLine: string;
+  customAddons: string[];
+  customBonusTip: number;
+  customNeedsIce?: boolean;
+  customSyrup?: SyrupFlavor;
+  socialBehavior: CustomerSocialBehavior;
 }
 
 export interface BizUpgradeItem {
@@ -213,6 +220,7 @@ const CUSTOMER_NAMES = [
 
 const SHIRT_COLORS = ['#d97706', '#059669', '#2563eb', '#9333ea', '#e11d48', '#0d9488'];
 const AVATAR_COLORS = ['#f5d0b5', '#e2a983', '#c6865c', '#8d5524', '#f1c27d'];
+const SOCIAL_BEHAVIORS: CustomerSocialBehavior[] = ['selfie', 'chatting', 'laptop', 'relaxing'];
 
 export function createEmptyCup(): CupBuildState {
   return {
@@ -237,6 +245,11 @@ export function createInitialGameState(): KlasikGameState {
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
+    dialogueLine:
+      'Morning! Could I get a hot Garage Velvet Latte with extra silky 65°C microfoam?',
+    customAddons: ['+Extra Shot', '+Velvet Foam'],
+    customBonusTip: 2,
+    socialBehavior: 'selfie',
   };
 
   const secondCustomer: CustomerOrder = {
@@ -244,12 +257,19 @@ export function createInitialGameState(): KlasikGameState {
     customerName: 'Kenji',
     avatarColor: '#e2a983',
     shirtColor: '#059669',
-    recipeId: 'vanilla-oat-latte',
+    recipeId: 'iced-caramel-macchiato',
     patience: 100,
     maxPatience: 100,
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
+    dialogueLine:
+      'Long session at the studio... Hit me with an Iced Caramel Garden Macchiato—iced, with Caramel drizzle!',
+    customAddons: ['+Iced', '+Caramel'],
+    customBonusTip: 3,
+    customNeedsIce: true,
+    customSyrup: 'caramel',
+    socialBehavior: 'laptop',
   };
 
   return {
@@ -284,16 +304,33 @@ export function getRecipeById(recipeId: string): DrinkRecipe {
   return RECIPES.find((r) => r.id === recipeId) || RECIPES[0];
 }
 
+// Merges a customer's custom add-on requests with the base recipe
+export function getEffectiveRecipeForOrder(
+  order?: CustomerOrder | null,
+  fallbackRecipe?: DrinkRecipe | null
+): DrinkRecipe {
+  const base = order
+    ? getRecipeById(order.recipeId)
+    : fallbackRecipe || RECIPES[1];
+  if (!order) return base;
+  return {
+    ...base,
+    needsIce: order.customNeedsIce !== undefined ? order.customNeedsIce : base.needsIce,
+    syrup: order.customSyrup !== undefined ? order.customSyrup : base.syrup,
+  };
+}
+
 // Determines the next recommended action & station for the smart ingredient highlighter
 export function getNextRecommendedStep(
   cup: CupBuildState,
-  targetRecipe: DrinkRecipe | null
+  targetRecipe: DrinkRecipe | null,
+  targetOrder?: CustomerOrder | null
 ): {
   station: BaristaStationId;
   toolKey: 'grinder' | 'tamper' | 'espresso' | 'milk' | 'ice' | 'syrup' | 'serve';
   instruction: string;
 } {
-  const recipe = targetRecipe || RECIPES[1];
+  const recipe = getEffectiveRecipeForOrder(targetOrder, targetRecipe);
 
   if (recipe.needsEspresso) {
     if (!cup.hasGrounds) {
@@ -323,7 +360,7 @@ export function getNextRecommendedStep(
     return {
       station: 3,
       toolKey: 'syrup',
-      instruction: `Pump ${recipe.syrup.toUpperCase()} flavor into the cup (Station 3)`,
+      instruction: `Pump ${recipe.syrup.toUpperCase()} flavor into the cup on Assembly Coaster (Station 3)`,
     };
   }
 
@@ -331,7 +368,7 @@ export function getNextRecommendedStep(
     return {
       station: 3,
       toolKey: 'ice',
-      instruction: 'Scoop crystal ice cubes into the cup (Station 3)',
+      instruction: 'Scoop crystal ice cubes into the cup on Assembly Coaster (Station 3)',
     };
   }
 
@@ -346,45 +383,54 @@ export function getNextRecommendedStep(
   return {
     station: 4,
     toolKey: 'serve',
-    instruction: `Serve finished ${recipe.name} on the walnut tray (Station 4)`,
+    instruction: `Ring bell & serve finished ${recipe.name} at Pickup Counter (Station 4)`,
   };
 }
 
-// Evaluates how accurately the brewed cup matches the customer's ordered recipe (0..100%)
-export function evaluateDrinkMatch(cup: CupBuildState, recipe: DrinkRecipe): {
+// Evaluates how accurately the brewed cup matches the customer's ordered recipe + custom add-ons (0..100%)
+export function evaluateDrinkMatch(
+  cup: CupBuildState,
+  recipe: DrinkRecipe,
+  order?: CustomerOrder | null
+): {
   accuracy: number;
   isPerfect: boolean;
   notes: string[];
 } {
+  const effective = getEffectiveRecipeForOrder(order, recipe);
   let score = 0;
-  let totalChecks = 4;
+  const totalChecks = 4;
   const notes: string[] = [];
 
-  if (cup.hasEspresso === recipe.needsEspresso) {
-    score++;
-  } else {
-    notes.push(recipe.needsEspresso ? 'Missing espresso shot' : 'Unexpected espresso shot');
-  }
-
-  if (cup.hasSteamedMilk === recipe.needsSteamedMilk) {
-    score++;
-  } else {
-    notes.push(recipe.needsSteamedMilk ? 'Missing steamed milk' : 'Unwanted milk added');
-  }
-
-  if (cup.hasIce === recipe.needsIce) {
-    score++;
-  } else {
-    notes.push(recipe.needsIce ? 'Should be iced' : 'Should be served hot');
-  }
-
-  if (cup.syrup === recipe.syrup) {
+  if (cup.hasEspresso === effective.needsEspresso) {
     score++;
   } else {
     notes.push(
-      recipe.syrup === 'none'
+      effective.needsEspresso ? 'Missing espresso shot' : 'Unexpected espresso shot'
+    );
+  }
+
+  if (cup.hasSteamedMilk === effective.needsSteamedMilk) {
+    score++;
+  } else {
+    notes.push(
+      effective.needsSteamedMilk ? 'Missing steamed milk' : 'Unwanted milk added'
+    );
+  }
+
+  if (cup.hasIce === effective.needsIce) {
+    score++;
+  } else {
+    notes.push(effective.needsIce ? 'Should be iced' : 'Should be served hot');
+  }
+
+  if (cup.syrup === effective.syrup) {
+    score++;
+  } else {
+    notes.push(
+      effective.syrup === 'none'
         ? `Unwanted ${cup.syrup} syrup`
-        : `Needed ${recipe.syrup} syrup`
+        : `Needed ${effective.syrup} syrup`
     );
   }
 
@@ -400,8 +446,9 @@ export function calculateDrinkPayout(
   state: KlasikGameState,
   recipe: DrinkRecipe,
   accuracy: number,
-  customerPatience: number
-): { totalPayout: number; basePrice: number; tip: number } {
+  customerPatience: number,
+  customBonusTip = 0
+): { totalPayout: number; basePrice: number; tip: number; customTip: number } {
   const basePrice = Math.max(1, Math.round(recipe.price * (accuracy / 100)));
   let upgradeBonus = 0;
   for (const upg of state.upgrades) {
@@ -411,12 +458,15 @@ export function calculateDrinkPayout(
     if (upg.id === 'monstera-greenhouse-canopy') upgradeBonus += 4;
   }
 
-  const speedTip = accuracy === 100 ? Math.max(1, Math.round((customerPatience / 100) * 4)) : 0;
-  const tip = accuracy >= 75 ? speedTip + upgradeBonus : 0;
+  const speedTip =
+    accuracy === 100 ? Math.max(1, Math.round((customerPatience / 100) * 4)) : 0;
+  const earnedCustomTip = accuracy === 100 ? customBonusTip : 0;
+  const tip = accuracy >= 75 ? speedTip + upgradeBonus + earnedCustomTip : 0;
   return {
     totalPayout: basePrice + tip,
     basePrice,
     tip,
+    customTip: earnedCustomTip,
   };
 }
 
@@ -441,7 +491,7 @@ export function performCupAction(
     return {
       ...state,
       currentCup: createEmptyCup(),
-      lastActionFeedback: 'Rinsed ceramic cup & portafilter in the stainless sink.',
+      lastActionFeedback: 'Rinsed ceramic cup & knocked spent puck into the Knock Box.',
     };
   }
 
@@ -450,7 +500,8 @@ export function performCupAction(
       state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
       state.customers.find((c) => c.state === 'ordering');
     const targetRecipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : RECIPES[1];
-    const step = getNextRecommendedStep(cup, targetRecipe);
+    const effectiveRecipe = getEffectiveRecipeForOrder(pinnedOrder, targetRecipe);
+    const step = getNextRecommendedStep(cup, targetRecipe, pinnedOrder);
     activeStation = step.station;
 
     if (step.toolKey === 'grinder') {
@@ -461,16 +512,16 @@ export function performCupAction(
       feedback = 'Tamped coffee puck evenly at 30 lbs of pressure.';
     } else if (step.toolKey === 'espresso') {
       cup.hasEspresso = true;
-      feedback = 'Extracted rich 9-bar double espresso with golden crema!';
+      feedback = 'Extracted rich 9-bar double espresso with golden tiger-stripe crema!';
     } else if (step.toolKey === 'syrup') {
-      cup.syrup = targetRecipe.syrup;
-      feedback = `Added aromatic ${targetRecipe.syrup} infusion to the cup.`;
+      cup.syrup = effectiveRecipe.syrup;
+      feedback = `Added aromatic ${effectiveRecipe.syrup} infusion on the Station 3 Assembly Coaster.`;
     } else if (step.toolKey === 'ice') {
       cup.hasIce = true;
-      feedback = 'Scooped crystal-clear ice cubes into the glass.';
+      feedback = 'Scooped crystal-clear ice cubes into the cup on Station 3.';
     } else if (step.toolKey === 'milk') {
       cup.hasSteamedMilk = true;
-      feedback = 'Steamed 65°C velvety microfoam & poured rosette latte art!';
+      feedback = 'Steamed 65°C velvety microfoam & poured Rosetta latte art!';
     } else if (step.toolKey === 'serve') {
       return serveCurrentCupToCustomer({ ...state, activeStation: 4 });
     }
@@ -494,17 +545,17 @@ export function performCupAction(
     }
     cup.isTamped = true;
     activeStation = 2;
-    feedback = 'Tamped grounds level & polished puck surface.';
+    feedback = 'Tamped grounds level & polished espresso puck surface.';
   } else if (action === 'pull_espresso') {
     cup.hasGrounds = true;
     cup.isTamped = true;
     cup.hasEspresso = true;
     activeStation = 2;
-    feedback = 'Pulled 9-bar double espresso shot into ceramic mug!';
+    feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 3 Assembly Mat.';
   } else if (action === 'steam_milk') {
     cup.hasSteamedMilk = true;
     activeStation = 3;
-    feedback = 'Steamed silky 65°C microfoam milk & poured latte art.';
+    feedback = 'Steamed silky 65°C microfoam milk & poured Rosetta latte art.';
   } else if (action === 'add_ice') {
     cup.hasIce = !cup.hasIce;
     activeStation = 3;
@@ -544,17 +595,20 @@ export function serveCurrentCupToCustomer(
     orderingCustomers[0];
 
   const recipe = getRecipeById(targetCustomer.recipeId);
-  const evaluation = evaluateDrinkMatch(state.currentCup, recipe);
+  const evaluation = evaluateDrinkMatch(state.currentCup, recipe, targetCustomer);
   const payout = calculateDrinkPayout(
     state,
     recipe,
     evaluation.accuracy,
-    targetCustomer.patience
+    targetCustomer.patience,
+    targetCustomer.customBonusTip
   );
 
   // Find available garden table seat (0, 1, 2)
   const occupiedSeats = new Set(
-    state.customers.filter((c) => c.state === 'seated' && c.seatIndex !== null).map((c) => c.seatIndex)
+    state.customers
+      .filter((c) => c.state === 'seated' && c.seatIndex !== null)
+      .map((c) => c.seatIndex)
   );
   let assignedSeat: number | null = null;
   for (let i = 0; i < 3; i++) {
@@ -570,11 +624,10 @@ export function serveCurrentCupToCustomer(
       ...c,
       state: (assignedSeat !== null ? 'seated' : 'departing') as CustomerOrder['state'],
       seatIndex: assignedSeat,
-      seatedTimer: assignedSeat !== null ? 24 : 4,
+      seatedTimer: assignedSeat !== null ? 26 : 4,
     };
   });
 
-  // Spawn a replacement customer if fewer than 3 ordering
   const remainingOrdering = updatedCustomers.filter((c) => c.state === 'ordering');
   if (remainingOrdering.length < 2) {
     updatedCustomers.push(spawnCustomerOrder(state.day, updatedCustomers.length));
@@ -591,7 +644,7 @@ export function serveCurrentCupToCustomer(
   );
 
   const feedbackMsg = evaluation.isPerfect
-    ? `Served Perfect ${recipe.name} to ${targetCustomer.customerName}! Earned +$${payout.totalPayout} ($${payout.tip} tip)`
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}! +$${payout.totalPayout} (incl. $${payout.tip} tip ❤️)`
     : `Served ${recipe.name} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}.`;
 
   return {
@@ -612,11 +665,69 @@ export function spawnCustomerOrder(day: number, seedOffset = 0): CustomerOrder {
   const unlockedRecipes = RECIPES.filter((r) => r.unlockDay <= Math.max(1, day));
   const idx = (day * 7 + seedOffset * 3 + Math.floor(Math.random() * 100)) % unlockedRecipes.length;
   const recipe = unlockedRecipes[idx] || RECIPES[0];
-  const nameIdx = (day * 3 + seedOffset * 5 + Math.floor(Math.random() * 100)) % CUSTOMER_NAMES.length;
+  const nameIdx =
+    (day * 3 + seedOffset * 5 + Math.floor(Math.random() * 100)) % CUSTOMER_NAMES.length;
+  const customerName = CUSTOMER_NAMES[nameIdx];
+
+  // Dynamic Custom Add-On Modifiers & Natural Barista-Customer Ordering Dialogue
+  let customNeedsIce: boolean | undefined = undefined;
+  let customSyrup: SyrupFlavor | undefined = undefined;
+  const customAddons: string[] = [];
+  let customBonusTip = 2;
+
+  const modRoll = (day + seedOffset + nameIdx) % 4;
+  if (modRoll === 0 && !recipe.needsIce && recipe.id !== 'klasik-espresso') {
+    customNeedsIce = true;
+    customAddons.push('+Iced');
+    customBonusTip = 3;
+  } else if (modRoll === 1 && recipe.syrup === 'none') {
+    customSyrup = 'vanilla';
+    customAddons.push('+Vanilla');
+    customBonusTip = 3;
+  } else if (modRoll === 2 && recipe.syrup === 'none') {
+    customSyrup = 'caramel';
+    customAddons.push('+Caramel');
+    customBonusTip = 3;
+  }
+
+  if (recipe.needsIce && !customAddons.includes('+Iced')) {
+    customAddons.push('+Iced');
+  }
+  if (recipe.syrup !== 'none') {
+    const sLabel =
+      recipe.syrup === 'matcha'
+        ? '+Matcha Foam'
+        : `+${recipe.syrup.charAt(0).toUpperCase() + recipe.syrup.slice(1)}`;
+    if (!customAddons.includes(sLabel)) customAddons.push(sLabel);
+  }
+  if (customAddons.length === 0) {
+    customAddons.push('+Extra Shot');
+    customBonusTip = 2;
+  }
+
+  const addonPhrase =
+    customNeedsIce && customSyrup
+      ? `iced, with an extra pump of ${customSyrup}`
+      : customNeedsIce
+      ? 'served over crystal ice'
+      : customSyrup
+      ? `with a splash of ${customSyrup} syrup`
+      : recipe.needsIce
+      ? 'extra cold with fresh ice'
+      : 'with silky 65°C microfoam';
+
+  const greetings = [
+    `Morning! Could I get a ${recipe.name}—${addonPhrase}?`,
+    `Hey barista! Long day at the studio... Hit me with a ${recipe.name}, ${addonPhrase}!`,
+    `Love the vinyl spinning today! Can I order a ${recipe.name}, ${addonPhrase}?`,
+    `Hi there! One ${recipe.name} please—${addonPhrase}.`,
+  ];
+  const dialogueLine = greetings[(nameIdx + seedOffset) % greetings.length];
+  const socialBehavior = SOCIAL_BEHAVIORS[(nameIdx + seedOffset) % SOCIAL_BEHAVIORS.length];
 
   return {
     id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    customerName: CUSTOMER_NAMES[nameIdx],
+    customerName,
     avatarColor: AVATAR_COLORS[nameIdx % AVATAR_COLORS.length],
     shirtColor: SHIRT_COLORS[(nameIdx + seedOffset) % SHIRT_COLORS.length],
     recipeId: recipe.id,
@@ -625,6 +736,12 @@ export function spawnCustomerOrder(day: number, seedOffset = 0): CustomerOrder {
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
+    dialogueLine,
+    customAddons,
+    customBonusTip,
+    customNeedsIce,
+    customSyrup,
+    socialBehavior,
   };
 }
 
@@ -678,7 +795,6 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     }
   }
 
-  // Keep at least 2 ordering customers in queue
   const orderingCount = nextCustomers.filter((c) => c.state === 'ordering').length;
   if (orderingCount < 2) {
     nextCustomers.push(spawnCustomerOrder(state.day, nextCustomers.length + 1));
@@ -758,7 +874,7 @@ export function loadGameFromStorage(): KlasikGameState | null {
 export function exportSaveJson(state: KlasikGameState): string {
   return JSON.stringify(
     {
-      version: '1.2.0',
+      version: '1.4.0',
       studio: 'BoostedByCaffeine Studios',
       timestamp: new Date().toISOString(),
       data: {

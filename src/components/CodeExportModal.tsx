@@ -95,11 +95,11 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
         {/* GitHub Pages Deployment Commands */}
         <div className="p-3 rounded-xl bg-[#140d09] border border-stone-800 space-y-1 text-[11px] font-mono text-stone-300">
           <div className="text-amber-300 font-sans font-semibold">
-            GitHub Pages (`boostedbycaffeine/klasik`) Pipeline:
+            GitHub Pages (`boostedbycaffeine/klasik`) Auto-Deploy Pipeline (`.github/workflows/deploy.yml`):
           </div>
-          <div>git init &amp;&amp; git add . &amp;&amp; git commit -m &quot;feat: Klasik 3D&quot;</div>
+          <div>git init &amp;&amp; git add . &amp;&amp; git commit -m &quot;feat: Klasik 3D Garage Garden Cafe&quot;</div>
           <div>git remote add origin https://github.com/boostedbycaffeine/klasik.git</div>
-          <div>git push -u origin main &amp;&amp; npm run build</div>
+          <div>git push -u origin main # Triggers GitHub Actions Vite build &amp; deploy-pages</div>
         </div>
 
         {feedback && (
