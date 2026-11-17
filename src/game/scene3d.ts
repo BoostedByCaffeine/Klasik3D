@@ -704,7 +704,7 @@ export class KlasikCafeScene3D {
     speechCanvas.height = 112;
     this.pickupSpeechTexture = new THREE.CanvasTexture(speechCanvas);
     this.pickupSpeechTexture.colorSpace = THREE.SRGBColorSpace;
-    this.drawPickupSpeechBubble('Looks amazing, thank you! ❤️');
+    this.drawPickupSpeechBubble('Looks amazing, thank you!');
   }
 
   private drawFloatingBadgeText(text: string, accentColor = '#10b981') {
@@ -3509,18 +3509,48 @@ export class KlasikCafeScene3D {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, 128, 64);
-    ctx.fillStyle = 'rgba(28, 20, 16, 0.86)';
+    ctx.fillStyle = 'rgba(28, 20, 16, 0.92)';
     ctx.beginPath();
-    ctx.roundRect(8, 8, 112, 48, 24);
+    ctx.roundRect(6, 8, 116, 48, 24);
     ctx.fill();
     ctx.strokeStyle = '#f59e0b';
     ctx.lineWidth = 3;
     ctx.stroke();
+
+    // Draw crisp offline vector icon on left side of badge
+    ctx.save();
+    ctx.strokeStyle = '#fbbf24';
+    ctx.fillStyle = '#fbbf24';
+    ctx.lineWidth = 2.2;
+    if (text.includes('PHOTO')) {
+      // Vector Camera Icon
+      ctx.strokeRect(18, 23, 20, 15);
+      ctx.beginPath();
+      ctx.arc(28, 30.5, 4.2, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (text.includes('WORK')) {
+      // Vector Laptop Icon
+      ctx.strokeRect(19, 22, 18, 12);
+      ctx.fillRect(16, 35, 24, 2.5);
+    } else if (text.includes('CHAT')) {
+      // Vector Speech Bubble Icon
+      ctx.beginPath();
+      ctx.roundRect(18, 22, 20, 14, 5);
+      ctx.stroke();
+    } else {
+      // Vector Coffee Cup Icon
+      ctx.strokeRect(19, 24, 15, 13);
+      ctx.beginPath();
+      ctx.arc(34, 30, 3.5, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
     ctx.fillStyle = '#fef3c7';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, 64, 33);
+    ctx.fillText(text, 76, 33);
     tex.needsUpdate = true;
   }
 
@@ -3855,7 +3885,7 @@ export class KlasikCafeScene3D {
     heldCup.visible = false;
     rightArm.elbowJoint.add(heldCup);
 
-    // Overhead Social Activity Badge Sprite (📸, 💬 ☕, 💻, ❤️, 🏎️)
+    // Overhead Social Activity Badge Sprite (Offline Vector Canvas Icon)
     const actCanvas = document.createElement('canvas');
     actCanvas.width = 128;
     actCanvas.height = 64;
@@ -5088,7 +5118,7 @@ export class KlasikCafeScene3D {
         actor.rightShoulderJoint.rotation.x = -0.65;
         actor.rightElbowJoint.rotation.x = -0.85;
         actor.neckJoint.rotation.y = 0.25 * Math.sin(this.elapsed * 1.5);
-        const carIcon = Math.sin(this.elapsed * 3.0) > 0.5 ? '🏎️ 📸' : '✨ 🏎️';
+        const carIcon = Math.sin(this.elapsed * 3.0) > 0.5 ? 'PHOTO MX5' : 'GARAGE LP';
         if (actor.lastActivityLabel !== carIcon) {
           actor.lastActivityLabel = carIcon;
           this.drawCustomerActivityBadge(actor.activityTexture, carIcon);
@@ -5116,7 +5146,7 @@ export class KlasikCafeScene3D {
           actor.rightElbowJoint.rotation.x = -0.85;
           actor.neckJoint.rotation.z = 0.16 * Math.sin(this.elapsed * 1.4);
           actor.neckJoint.rotation.y = -0.22;
-          const flashIcon = Math.sin(this.elapsed * 3.2) > 0.65 ? '📸 ✨' : '📸 ❤️';
+          const flashIcon = Math.sin(this.elapsed * 3.2) > 0.65 ? 'PHOTO SNAP' : 'PHOTO CAFE';
           if (actor.lastActivityLabel !== flashIcon) {
             actor.lastActivityLabel = flashIcon;
             this.drawCustomerActivityBadge(actor.activityTexture, flashIcon);
@@ -5130,7 +5160,7 @@ export class KlasikCafeScene3D {
           actor.leftElbowJoint.rotation.x = -0.75 + Math.cos(this.elapsed * 4.5) * 0.2;
           actor.rightShoulderJoint.rotation.x = -0.55 - sipWave * 0.4;
           actor.rightElbowJoint.rotation.x = -0.85 - sipWave * 0.45;
-          const chatIcon = wave > 0 ? '💬 ☕' : '✨ 💬';
+          const chatIcon = wave > 0 ? 'CHAT CAFE' : 'CHAT VIBE';
           if (actor.lastActivityLabel !== chatIcon) {
             actor.lastActivityLabel = chatIcon;
             this.drawCustomerActivityBadge(actor.activityTexture, chatIcon);
@@ -5151,7 +5181,7 @@ export class KlasikCafeScene3D {
             actor.rightElbowJoint.rotation.x = -0.85 - sipWave * 0.52;
             actor.neckJoint.rotation.x = -sipWave * 0.2;
           }
-          const workIcon = isTyping ? '💻 ⚡' : '☕ 💻';
+          const workIcon = isTyping ? 'WORK CODE' : 'WORK BREW';
           if (actor.lastActivityLabel !== workIcon) {
             actor.lastActivityLabel = workIcon;
             this.drawCustomerActivityBadge(actor.activityTexture, workIcon);
@@ -5164,7 +5194,7 @@ export class KlasikCafeScene3D {
           actor.rightElbowJoint.rotation.x = -0.85 - sipWave * 0.55;
           actor.neckJoint.rotation.x = -sipWave * 0.22;
           actor.neckJoint.rotation.y = Math.sin(this.elapsed * 0.9 + actor.seed) * 0.25;
-          const relaxIcon = sipWave > 0.4 ? '☕ ❤️' : '🌿 ✨';
+          const relaxIcon = sipWave > 0.4 ? 'WARM SIP' : 'GARDEN ZEN';
           if (actor.lastActivityLabel !== relaxIcon) {
             actor.lastActivityLabel = relaxIcon;
             this.drawCustomerActivityBadge(actor.activityTexture, relaxIcon);

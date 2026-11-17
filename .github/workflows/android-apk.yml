@@ -31,6 +31,8 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install web dependencies & build production bundle
+        env:
+          VITE_APP_PLATFORM: apk
         run: |
           npm install --legacy-peer-deps --no-audit --no-fund
           npx vite build --base=./

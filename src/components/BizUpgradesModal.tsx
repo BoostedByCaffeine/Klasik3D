@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Check, Clock, Coffee, Crown, Gift, Shirt, Trophy, X, Zap } from 'lucide-react';
 import {
   CustomerSkinPackId,
   GOLDEN_MACHINE_GROSS_THRESHOLD,
@@ -70,8 +71,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               Cafe Upgrades, Golden 100K Skins &amp; Login Unlockables
             </h2>
             <p className="text-[11px] text-stone-400">
-              60+ Unlockables · Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} / $100,000
-              {isGoldenEquipped ? ' · 🏆 2x GOLDEN SALE INCOME ACTIVE!' : ''}
+              60+ Unlockables · Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} /
+              $100,000
+              {isGoldenEquipped ? ' · 2x GOLDEN SALE INCOME ACTIVE!' : ''}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -81,36 +83,45 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
             >
-              Close
+              <X className="w-3.5 h-3.5" />
+              <span>Close</span>
             </button>
           </div>
         </div>
 
-        {/* Navigation Tabs */}
+        {/* Navigation Tabs (Offline Lucide Icons) */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
           {(
             [
-              { id: 'upgrades', label: `⚡ Upgrades (${upgrades.length})` },
-              { id: 'equipment_skins', label: '👑 Golden 100K & Equipment Skins' },
-              { id: 'customer_skins', label: `🧥 Customer Skins (${customerSkinPacks.length})` },
-              { id: 'login_rewards', label: '🎁 Daily Login Rewards (7)' },
+              { id: 'upgrades', label: `Upgrades (${upgrades.length})`, Icon: Zap },
+              { id: 'equipment_skins', label: 'Golden 100K & Equipment Skins', Icon: Crown },
+              {
+                id: 'customer_skins',
+                label: `Customer Skins (${customerSkinPacks.length})`,
+                Icon: Shirt,
+              },
+              { id: 'login_rewards', label: 'Daily Login Rewards (7)', Icon: Gift },
             ] as const
-          ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTab(t.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${
-                activeTab === t.id
-                  ? 'bg-amber-500 text-stone-950 font-bold'
-                  : 'bg-[#241811] text-stone-300 border border-stone-800 hover:border-stone-600'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          ).map((t) => {
+            const Icon = t.Icon;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1.5 ${
+                  activeTab === t.id
+                    ? 'bg-amber-500 text-stone-950 font-bold'
+                    : 'bg-[#241811] text-stone-300 border border-stone-800 hover:border-stone-600'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab 1: 14 Shop Upgrades */}
@@ -162,8 +173,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
             <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/90 via-[#2b1d0e] to-amber-950/90 border-2 border-amber-400/70 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 block">
-                    🏆 GRAND MILESTONE SKIN · 2X SALE INCOME MULTIPLIER
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                    <Trophy className="w-3 h-3 shrink-0" />
+                    <span>GRAND MILESTONE SKIN · 2X SALE INCOME MULTIPLIER</span>
                   </span>
                   <h3 className="text-sm font-bold text-amber-100">
                     Golden Espresso Machine (24K Solid Gold Dual-Boiler)
@@ -370,11 +382,17 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     {/* Verifiable Playtime & Orders Progress Bar */}
                     <div className="space-y-1 pt-1">
                       <div className="flex items-center justify-between text-[10px] font-mono text-stone-300">
-                        <span>
-                          ⏱ {fmtTime(activeSecs)} / {fmtTime(reqSecs)} Shift Time
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-300 shrink-0" />
+                          <span>
+                            {fmtTime(activeSecs)} / {fmtTime(reqSecs)} Shift Time
+                          </span>
                         </span>
-                        <span>
-                          ☕ {servedOrders} / {reqOrders} Orders
+                        <span className="flex items-center gap-1">
+                          <Coffee className="w-3 h-3 text-amber-300 shrink-0" />
+                          <span>
+                            {servedOrders} / {reqOrders} Orders
+                          </span>
                         </span>
                       </div>
                       <div className="w-full h-1.5 rounded-full bg-stone-950 overflow-hidden border border-stone-700/70">
@@ -390,7 +408,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     type="button"
                     disabled={item.claimed || !isUnlockedToClaim}
                     onClick={() => onClaimLoginReward(item.day)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors ${
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
                       item.claimed
                         ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 cursor-default'
                         : isUnlockedToClaim
@@ -398,11 +416,16 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
                     }`}
                   >
-                    {item.claimed
-                      ? 'Claimed ✓'
-                      : isUnlockedToClaim
-                      ? `Claim Tier ${item.day} Unlockable`
-                      : `Locked (${overallPct}% Complete)`}
+                    {item.claimed ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span>Claimed</span>
+                      </>
+                    ) : isUnlockedToClaim ? (
+                      <span>Claim Tier {item.day} Unlockable</span>
+                    ) : (
+                      <span>Locked ({overallPct}% Complete)</span>
+                    )}
                   </button>
                 </div>
               );

@@ -1,8 +1,10 @@
-// Dual-Mode Spotify Integration & 3D Vinyl Turntable Controller
-// Mode A: Zero-Config Spotify URI / Playlist Bridge + Procedural Lo-Fi Vinyl Synth
-// Mode B: Full Spotify OAuth 2.0 PKCE + Web API Now-Playing & Album Art Sync
+// Platform-Aware Spotify Integration & 3D Vinyl Turntable Controller
+// - Live Web & PWA Versions: Connect via Spotify Web (Embed Deck + OAuth 2.0 PKCE Web Playback SDK)
+// - Android APK Version: Redirects to the native Spotify app on the user's phone (spotify: / intent://)
+//   so the user can play music from their phone's Spotify while the game runs its Internal Vinyl Music Player (100% Offline Ready).
 
 import { soundEngine } from './sound';
+import { pwaManager } from '../pwa/pwaManager';
 
 export interface VinylTrackPreset {
   id: string;
@@ -22,7 +24,8 @@ export const COZY_VINYL_PRESETS: VinylTrackPreset[] = [
     title: 'Garage Garden Morning Roast',
     artist: 'BoostedByCaffeine Sessions',
     spotifyUri: 'spotify:playlist:0vvXsWCC9xrXsKd4FyS8kM',
-    embedUrl: 'https://open.spotify.com/embed/playlist/0vvXsWCC9xrXsKd4FyS8kM?utm_source=generator&theme=0',
+    embedUrl:
+      'https://open.spotify.com/embed/playlist/0vvXsWCC9xrXsKd4FyS8kM?utm_source=generator&theme=0',
     sleeveColor: '#242B2E',
     accentColor: '#f59e0b',
     rpm: 33,
@@ -33,7 +36,8 @@ export const COZY_VINYL_PRESETS: VinylTrackPreset[] = [
     title: 'Rainy Window Espresso Jazz',
     artist: 'Tokyo & Manila Roasters',
     spotifyUri: 'spotify:playlist:37i9dQZF1DXbITWG1ZJKYt',
-    embedUrl: 'https://open.spotify.com/embed/playlist/37i9dQZF1DXbITWG1ZJKYt?utm_source=generator&theme=0',
+    embedUrl:
+      'https://open.spotify.com/embed/playlist/37i9dQZF1DXbITWG1ZJKYt?utm_source=generator&theme=0',
     sleeveColor: '#1e293b',
     accentColor: '#38bdf8',
     rpm: 33,
@@ -44,7 +48,8 @@ export const COZY_VINYL_PRESETS: VinylTrackPreset[] = [
     title: 'Golden Hour Monstera Acoustic',
     artist: 'Klasik Vinyl Collective',
     spotifyUri: 'spotify:playlist:37i9dQZF1DX4E3UdUs7fUx',
-    embedUrl: 'https://open.spotify.com/embed/playlist/37i9dQZF1DX4E3UdUs7fUx?utm_source=generator&theme=0',
+    embedUrl:
+      'https://open.spotify.com/embed/playlist/37i9dQZF1DX4E3UdUs7fUx?utm_source=generator&theme=0',
     sleeveColor: '#451a03',
     accentColor: '#fbbf24',
     rpm: 45,
@@ -64,6 +69,8 @@ export interface SpotifyVinylState {
   liveAlbumArtUrl: string | null;
   showMiniEmbed: boolean;
   sdkDeviceReady?: boolean;
+  internalSynthEnabled: boolean;
+  phoneSpotifySynced: boolean;
 }
 
 interface SpotifyWebPlayerInstance {
@@ -91,31 +98,57 @@ declare global {
 
 const STORAGE_KEY = 'klasik3d_spotify_vinyl_v1';
 
-export function parseSpotifyInputToEmbed(input: string): { uri: string; embedUrl: string } | null {
+export function parseSpotifyInputToEmbed(
+  input: string
+): { uri: string; embedUrl: string; type: string; id: string } | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // Match open.spotify.com/{type}/{id}
   const urlMatch = trimmed.match(/open\.spotify\.com\/(playlist|album|track)\/([a-zA-Z0-9]+)/);
   if (urlMatch) {
     const [, type, id] = urlMatch;
     return {
       uri: `spotify:${type}:${id}`,
       embedUrl: `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`,
+      type,
+      id,
     };
   }
 
-  // Match spotify:{type}:{id}
   const uriMatch = trimmed.match(/^spotify:(playlist|album|track):([a-zA-Z0-9]+)$/);
   if (uriMatch) {
     const [, type, id] = uriMatch;
     return {
       uri: trimmed,
       embedUrl: `https://open.spotify.com/embed/${type}/${id}?utm_source=generator&theme=0`,
+      type,
+      id,
     };
   }
 
   return null;
+}
+
+// Builds deep link & Android intent URLs to open the native Spotify app installed on an Android phone
+export function buildNativePhoneSpotifyLinks(spotifyUri: string): {
+  spotifyDeepLink: string;
+  androidIntentUrl: string;
+  webFallbackUrl: string;
+} {
+  const parsed = parseSpotifyInputToEmbed(spotifyUri);
+  const type = parsed?.type || 'playlist';
+  const id = parsed?.id || '0vvXsWCC9xrXsKd4FyS8kM';
+  const spotifyDeepLink = `spotify:${type}:${id}`;
+  const webFallbackUrl = `https://open.spotify.com/${type}/${id}`;
+  const androidIntentUrl = `intent://${type}/${id}#Intent;scheme=spotify;package=com.spotify.music;S.browser_fallback_url=${encodeURIComponent(
+    webFallbackUrl
+  )};end`;
+
+  return {
+    spotifyDeepLink,
+    androidIntentUrl,
+    webFallbackUrl,
+  };
 }
 
 class SpotifyVinylManager {
@@ -127,24 +160,33 @@ class SpotifyVinylManager {
 
   constructor() {
     const saved = this.loadSaved();
+    const initialTrack = saved?.currentTrack || COZY_VINYL_PRESETS[0];
     this.state = {
       isPlaying: true,
-      rpm: 33,
-      currentTrack: saved?.currentTrack || COZY_VINYL_PRESETS[0],
+      rpm: initialTrack.rpm || 33,
+      currentTrack: initialTrack,
       customUriInput: saved?.customUriInput || '',
       mode: saved?.mode || 'bridge',
-      clientId: saved?.clientId || (import.meta.env.VITE_SPOTIFY_CLIENT_ID as string) || '',
+      clientId: saved?.clientId || (import.meta.env?.VITE_SPOTIFY_CLIENT_ID as string) || '',
       accessToken: saved?.accessToken || null,
       spotifyUserDisplayName: saved?.spotifyUserDisplayName || null,
       liveAlbumArtUrl: null,
       showMiniEmbed: false,
       sdkDeviceReady: false,
+      internalSynthEnabled: saved?.internalSynthEnabled ?? true,
+      phoneSpotifySynced: saved?.phoneSpotifySynced ?? false,
     };
 
+    soundEngine.setVinylTrackProfile(this.state.currentTrack.id, this.state.rpm);
+
     if (typeof window !== 'undefined') {
-      this.handlePkceRedirectCallback();
-      if (this.state.accessToken) {
-        this.initWebPlaybackSdk(this.state.accessToken);
+      const pwaStatus = pwaManager.getStatus();
+      // Only initialize Spotify Web PKCE / Web SDK on Live Web & PWA when online (never in APK mode)
+      if (pwaStatus.appVersion !== 'apk' && !pwaStatus.isOffline) {
+        this.handlePkceRedirectCallback();
+        if (this.state.accessToken) {
+          this.initWebPlaybackSdk(this.state.accessToken);
+        }
       }
     }
   }
@@ -171,6 +213,8 @@ class SpotifyVinylManager {
           clientId: this.state.clientId,
           accessToken: this.state.accessToken,
           spotifyUserDisplayName: this.state.spotifyUserDisplayName,
+          internalSynthEnabled: this.state.internalSynthEnabled,
+          phoneSpotifySynced: this.state.phoneSpotifySynced,
         })
       );
     } catch {
@@ -195,10 +239,56 @@ class SpotifyVinylManager {
     this.listeners.forEach((cb) => cb({ ...this.state }));
   }
 
-  // Initializes the official Spotify Web Playback SDK (https://sdk.scdn.co/spotify-player.js)
-  // for full-length song streaming when authenticated via OAuth 2.0 PKCE
+  // Launches the native Spotify app on the user's Android phone (for APK version)
+  // and syncs the internal vinyl music player to the chosen track
+  public redirectToPhoneSpotifyApp(customTitle?: string): string {
+    const links = buildNativePhoneSpotifyLinks(this.state.currentTrack.spotifyUri);
+    this.state.phoneSpotifySynced = true;
+    this.state.isPlaying = true;
+    if (customTitle && customTitle.trim()) {
+      this.state.currentTrack = {
+        ...this.state.currentTrack,
+        title: customTitle.trim(),
+        coverText: customTitle.trim().slice(0, 18).toUpperCase(),
+      };
+    }
+
+    soundEngine.playVinylNeedleDrop(true);
+    soundEngine.setVinylTrackProfile(this.state.currentTrack.id, this.state.rpm);
+    soundEngine.setSpotifyDucking(!this.state.internalSynthEnabled);
+    soundEngine.setLofiSynthActive(this.state.internalSynthEnabled);
+    this.notify();
+
+    if (typeof window !== 'undefined') {
+      try {
+        const a = document.createElement('a');
+        a.href = links.spotifyDeepLink;
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch {
+        // Fallback handled by UI link
+      }
+    }
+
+    return links.spotifyDeepLink;
+  }
+
+  public setInternalSynthEnabled(enabled: boolean) {
+    this.state.internalSynthEnabled = enabled;
+    soundEngine.setSpotifyDucking(!enabled);
+    if (this.state.isPlaying) {
+      soundEngine.setLofiSynthActive(enabled);
+    }
+    this.notify();
+  }
+
   public initWebPlaybackSdk(token: string) {
     if (typeof window === 'undefined' || !token) return;
+    const pwaStatus = pwaManager.getStatus();
+    if (pwaStatus.appVersion === 'apk' || pwaStatus.isOffline) return;
+
     this.state.accessToken = token;
 
     const createPlayer = () => {
@@ -215,7 +305,6 @@ class SpotifyVinylManager {
         soundEngine.setSpotifyDucking(true);
         this.notify();
 
-        // Transfer active playback to Klasik 3D Vinyl Turntable
         fetch('https://api.spotify.com/v1/me/player', {
           method: 'PUT',
           headers: {
@@ -264,6 +353,7 @@ class SpotifyVinylManager {
 
   private async playUriOnSdk(spotifyUri: string) {
     if (!this.state.accessToken || !this.sdkDeviceId) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     try {
       const isTrack = spotifyUri.includes(':track:');
       const payload = isTrack ? { uris: [spotifyUri] } : { context_uri: spotifyUri };
@@ -286,10 +376,11 @@ class SpotifyVinylManager {
   public togglePlayPause(): boolean {
     this.state.isPlaying = !this.state.isPlaying;
     soundEngine.playVinylNeedleDrop(this.state.isPlaying);
+    soundEngine.setVinylTrackProfile(this.state.currentTrack.id, this.state.rpm);
     if (this.webPlayer && this.state.sdkDeviceReady) {
       this.webPlayer.togglePlay().catch(() => {});
     } else {
-      soundEngine.setLofiSynthActive(this.state.isPlaying);
+      soundEngine.setLofiSynthActive(this.state.isPlaying && this.state.internalSynthEnabled);
     }
     this.notify();
     return this.state.isPlaying;
@@ -299,6 +390,7 @@ class SpotifyVinylManager {
     if (this.state.isPlaying === playing) return;
     this.state.isPlaying = playing;
     soundEngine.playVinylNeedleDrop(playing);
+    soundEngine.setVinylTrackProfile(this.state.currentTrack.id, this.state.rpm);
     if (this.webPlayer && this.state.sdkDeviceReady) {
       if (playing) {
         this.webPlayer.resume().catch(() => {});
@@ -306,14 +398,19 @@ class SpotifyVinylManager {
         this.webPlayer.pause().catch(() => {});
       }
     } else {
-      soundEngine.setLofiSynthActive(playing);
+      soundEngine.setLofiSynthActive(playing && this.state.internalSynthEnabled);
     }
     this.notify();
   }
 
   public toggleRpm(): 33 | 45 {
     this.state.rpm = this.state.rpm === 33 ? 45 : 33;
+    soundEngine.setVinylTrackProfile(this.state.currentTrack.id, this.state.rpm);
     soundEngine.playCeramicClink(this.state.rpm === 45 ? 1.2 : 0.95);
+    if (this.state.isPlaying && this.state.internalSynthEnabled) {
+      soundEngine.setLofiSynthActive(false);
+      soundEngine.setLofiSynthActive(true);
+    }
     this.notify();
     return this.state.rpm;
   }
@@ -334,45 +431,57 @@ class SpotifyVinylManager {
     this.state.rpm = found.rpm;
     this.state.isPlaying = true;
     soundEngine.playVinylNeedleDrop(true);
+    soundEngine.setVinylTrackProfile(found.id, found.rpm);
     if (this.state.sdkDeviceReady && this.state.accessToken) {
       this.playUriOnSdk(found.spotifyUri);
     } else {
-      soundEngine.setLofiSynthActive(true);
+      soundEngine.setLofiSynthActive(this.state.internalSynthEnabled);
     }
     this.notify();
   }
 
   public applyCustomSpotifyLink(input: string): boolean {
     const parsed = parseSpotifyInputToEmbed(input);
-    if (!parsed) return false;
+    const isApk = pwaManager.getStatus().appVersion === 'apk';
+
+    if (!parsed && !isApk) return false;
+
+    const resolvedUri = parsed ? parsed.uri : `spotify:track:custom`;
+    const resolvedEmbed = parsed
+      ? parsed.embedUrl
+      : COZY_VINYL_PRESETS[0].embedUrl;
 
     const customPreset: VinylTrackPreset = {
       id: `custom-${Date.now()}`,
-      title: 'Custom Spotify Vinyl Selection',
-      artist: parsed.uri,
-      spotifyUri: parsed.uri,
-      embedUrl: parsed.embedUrl,
+      title: parsed ? 'Custom Spotify Vinyl Selection' : input.trim() || 'Phone Spotify Track',
+      artist: parsed ? parsed.uri : 'Phone Spotify App + Internal Player',
+      spotifyUri: resolvedUri,
+      embedUrl: resolvedEmbed,
       sleeveColor: '#14532d',
       accentColor: '#22c55e',
       rpm: 33,
-      coverText: 'SPOTIFY CUSTOM LP',
+      coverText: (parsed ? 'SPOTIFY CUSTOM LP' : input.trim().slice(0, 18).toUpperCase()) || 'SPOTIFY LP',
     };
 
     this.state.customUriInput = input.trim();
     this.state.currentTrack = customPreset;
     this.state.isPlaying = true;
-    this.state.showMiniEmbed = true;
+    this.state.showMiniEmbed = !isApk;
     soundEngine.playVinylNeedleDrop(true);
-    if (this.state.sdkDeviceReady && this.state.accessToken) {
-      this.playUriOnSdk(parsed.uri);
+    soundEngine.setVinylTrackProfile(customPreset.id, customPreset.rpm);
+    if (!isApk && this.state.sdkDeviceReady && this.state.accessToken) {
+      this.playUriOnSdk(resolvedUri);
+    } else if (isApk) {
+      soundEngine.setLofiSynthActive(this.state.internalSynthEnabled);
     }
     this.notify();
     return true;
   }
 
   public setShowMiniEmbed(show: boolean) {
-    this.state.showMiniEmbed = show;
-    soundEngine.setSpotifyDucking(show || Boolean(this.state.sdkDeviceReady));
+    const isApk = pwaManager.getStatus().appVersion === 'apk';
+    this.state.showMiniEmbed = isApk ? false : show;
+    soundEngine.setSpotifyDucking(this.state.showMiniEmbed || Boolean(this.state.sdkDeviceReady));
     this.notify();
   }
 
@@ -399,7 +508,6 @@ class SpotifyVinylManager {
     this.notify();
   }
 
-  // OAuth 2.0 PKCE Helper for personal Spotify account connection & Web Playback SDK Full-Length Streaming
   public async startPkceAuth(): Promise<string | null> {
     if (!this.state.clientId) return null;
     const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
@@ -429,9 +537,9 @@ class SpotifyVinylManager {
     return authUrl.toString();
   }
 
-  // Exchanges ?code=... on OAuth 2.0 PKCE callback for an access_token and boots the Web Playback SDK
   private async handlePkceRedirectCallback(): Promise<void> {
     if (typeof window === 'undefined') return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     if (!code) return;
@@ -472,6 +580,7 @@ class SpotifyVinylManager {
 
   public async fetchNowPlayingFromToken(): Promise<boolean> {
     if (!this.state.accessToken) return false;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
     try {
       const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
         headers: { Authorization: `Bearer ${this.state.accessToken}` },
@@ -484,7 +593,8 @@ class SpotifyVinylManager {
         this.state.currentTrack = {
           id: data.item.id || 'live-spotify',
           title: data.item.name || 'Spotify Live Track',
-          artist: data.item.artists?.map((a: { name: string }) => a.name).join(', ') || 'Spotify Artist',
+          artist:
+            data.item.artists?.map((a: { name: string }) => a.name).join(', ') || 'Spotify Artist',
           spotifyUri: data.item.uri || 'spotify:track:live',
           embedUrl: this.state.currentTrack.embedUrl,
           sleeveColor: '#1db954',

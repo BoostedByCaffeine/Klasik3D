@@ -288,3 +288,92 @@ test('exportSaveJson and importSaveJson round-trip game state, lifetimeGrossInco
   assert.equal(restored.dailyOrderQuota, 45);
   assert.equal(restored.decor.counterWood, 'white-oak');
 });
+
+import { computeGranularWeatherParams } from './sound';
+import { resolveRuntimeVersionFromHints } from '../pwa/pwaManager';
+import { buildNativePhoneSpotifyLinks } from './spotifyManager';
+
+test('computeGranularWeatherParams generates rhythmic roof raindrops for rainy mode and distant birds/wind chimes for sunny modes', () => {
+  // Rainy mode: rhythmic roof raindrops across all steps
+  for (let i = 0; i < 8; i++) {
+    const p = computeGranularWeatherParams('rainy', i);
+    assert.ok(['roof_raindrop', 'skylight_patter', 'gutter_drip'].includes(p.grainType));
+    assert.ok(p.carrierFreqHz >= 300 && p.carrierFreqHz <= 1600);
+    assert.ok(p.durationSec >= 0.02 && p.durationSec <= 0.12);
+    assert.ok(p.pan >= -1 && p.pan <= 1);
+  }
+
+  // Sunny (morning & golden) modes: alternates distant bird chirps and pentatonic wind chimes
+  const morningBird = computeGranularWeatherParams('morning', 0);
+  const morningChime = computeGranularWeatherParams('morning', 1);
+  assert.equal(morningBird.grainType, 'distant_bird');
+  assert.equal(morningChime.grainType, 'wind_chime');
+  assert.ok(morningBird.carrierFreqHz > 2000);
+
+  const goldenChime = computeGranularWeatherParams('golden', 2);
+  const goldenBird = computeGranularWeatherParams('golden', 3);
+  assert.equal(goldenChime.grainType, 'wind_chime');
+  assert.equal(goldenBird.grainType, 'distant_bird');
+});
+
+test('resolveRuntimeVersionFromHints distinguishes web, pwa, and apk runtime versions accurately', () => {
+  assert.equal(
+    resolveRuntimeVersionFromHints({
+      queryPlatform: null,
+      envPlatform: undefined,
+      protocol: 'https:',
+      userAgent: 'Mozilla/5.0 Chrome/125.0',
+      isStandaloneDisplay: false,
+      isCapacitorNative: false,
+    }),
+    'web'
+  );
+
+  assert.equal(
+    resolveRuntimeVersionFromHints({
+      queryPlatform: null,
+      envPlatform: undefined,
+      protocol: 'https:',
+      userAgent: 'Mozilla/5.0 Chrome/125.0',
+      isStandaloneDisplay: true,
+      isCapacitorNative: false,
+    }),
+    'pwa'
+  );
+
+  assert.equal(
+    resolveRuntimeVersionFromHints({
+      queryPlatform: null,
+      envPlatform: 'apk',
+      protocol: 'https:',
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UQ1A; wv)',
+      isStandaloneDisplay: false,
+      isCapacitorNative: true,
+    }),
+    'apk'
+  );
+
+  assert.equal(
+    resolveRuntimeVersionFromHints({
+      queryPlatform: 'apk',
+      envPlatform: undefined,
+      protocol: 'http:',
+      userAgent: 'Mozilla/5.0',
+      isStandaloneDisplay: false,
+      isCapacitorNative: false,
+    }),
+    'apk'
+  );
+});
+
+test('buildNativePhoneSpotifyLinks generates native spotify: URI and Android intent:// fallback for APK Spotify redirect', () => {
+  const links = buildNativePhoneSpotifyLinks('spotify:playlist:37i9dQZF1DX4WYpdgoIcn6');
+  assert.equal(links.spotifyDeepLink, 'spotify:playlist:37i9dQZF1DX4WYpdgoIcn6');
+  assert.ok(
+    links.androidIntentUrl.startsWith(
+      'intent://playlist/37i9dQZF1DX4WYpdgoIcn6#Intent;scheme=spotify;package=com.spotify.music;'
+    )
+  );
+  assert.equal(links.webFallbackUrl, 'https://open.spotify.com/playlist/37i9dQZF1DX4WYpdgoIcn6');
+});
+

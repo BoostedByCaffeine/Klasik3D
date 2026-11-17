@@ -1,4 +1,5 @@
 import React from 'react';
+import { Banknote, Clock, Coffee, Sparkles } from 'lucide-react';
 import { GameMode } from '../game/rules';
 
 interface DailyGoalProgressBarProps {
@@ -35,7 +36,7 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
     <div className="flex items-center gap-2 sm:gap-2.5 text-xs font-mono tabular-nums whitespace-nowrap shrink-0">
       {/* Cash Readout */}
       <div className="flex items-center gap-1 font-bold text-emerald-400" data-testid="hud-cash">
-        <span aria-hidden="true">💵</span>
+        <Banknote className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
         <span>${Math.round(cash)}</span>
       </div>
 
@@ -71,7 +72,7 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
         title={`Daily Order Quota: ${cupsServedToday} / ${dailyOrderQuota} Orders (+$50 Bonus)`}
         data-testid="hud-cups-served"
       >
-        <span aria-hidden="true">☕</span>
+        <Coffee className="w-3.5 h-3.5 text-amber-300 shrink-0" aria-hidden="true" />
         <span>
           {Math.round(cupsServedToday)} / {dailyOrderQuota} Orders
         </span>
@@ -86,7 +87,7 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
         className="hidden sm:flex items-center gap-1 text-amber-300 font-semibold"
         title="Cafe Satisfaction Vibe"
       >
-        <span aria-hidden="true">✨</span>
+        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" aria-hidden="true" />
         <span>{Math.round(satisfactionScore)}%</span>
       </div>
 
@@ -96,7 +97,7 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
 
       {/* Shift Timer */}
       <div className="flex items-center gap-1 text-amber-100 font-bold" title="Shift Timer">
-        <span aria-hidden="true">⏱</span>
+        <Clock className="w-3.5 h-3.5 text-amber-200 shrink-0" aria-hidden="true" />
         <span>{formattedTime}</span>
       </div>
     </div>

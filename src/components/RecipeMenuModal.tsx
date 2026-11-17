@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { BookOpen, CupSoda, Flame, Layers, Leaf, Snowflake, X } from 'lucide-react';
 import { DrinkCategory, RECIPES } from '../game/rules';
 
 interface RecipeMenuModalProps {
@@ -6,12 +7,16 @@ interface RecipeMenuModalProps {
   onClose: () => void;
 }
 
-const CATEGORY_TABS: Array<{ id: 'all' | DrinkCategory; label: string }> = [
-  { id: 'all', label: `All (${RECIPES.length})` },
-  { id: 'hot_coffee', label: '🔥 Hot Coffee' },
-  { id: 'iced_coffee', label: '🧊 Iced Coffee' },
-  { id: 'tea', label: '🍵 Artisanal Tea' },
-  { id: 'cold_drink', label: '🥤 Cold Refreshers' },
+const CATEGORY_TABS: Array<{
+  id: 'all' | DrinkCategory;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'all', label: `All (${RECIPES.length})`, Icon: Layers },
+  { id: 'hot_coffee', label: 'Hot Coffee', Icon: Flame },
+  { id: 'iced_coffee', label: 'Iced Coffee', Icon: Snowflake },
+  { id: 'tea', label: 'Artisanal Tea', Icon: Leaf },
+  { id: 'cold_drink', label: 'Cold Refreshers', Icon: CupSoda },
 ];
 
 export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, onClose }) => {
@@ -42,7 +47,7 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, on
       steps.push(`${steps.length + 1}. Steam Milk`);
     }
     steps.push(`${steps.length + 1}. Serve`);
-    return steps.join(' ➔ ');
+    return steps.join(' -> ');
   };
 
   return (
@@ -54,39 +59,52 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, on
     >
       <div className="w-full max-w-2xl bg-[#1b120d] border border-[#5c3a21] rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3 max-h-[84vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-stone-800 pb-2.5 shrink-0">
-          <div>
-            <h2 id="recipe-modal-title" className="text-base font-bold font-display text-amber-100">
-              Barista Recipe Codex (Hot Coffee, Iced Coffee, Tea &amp; Cold Drinks)
-            </h2>
-            <p className="text-[11px] text-stone-400">
-              Follow the step-by-step brewing or tea-steeping sequence for 100% accuracy tips.
-            </p>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300 shrink-0">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <h2
+                id="recipe-modal-title"
+                className="text-base font-bold font-display text-amber-100"
+              >
+                Barista Recipe Codex (Hot Coffee, Iced Coffee, Tea &amp; Cold Drinks)
+              </h2>
+              <p className="text-[11px] text-stone-400">
+                Follow the step-by-step brewing or tea-steeping sequence for 100% accuracy tips.
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer"
+            className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
           >
-            Close
+            <X className="w-3.5 h-3.5" />
+            <span>Close</span>
           </button>
         </div>
 
-        {/* Category Filter Ribbon */}
+        {/* Category Filter Ribbon (Offline Lucide Icons) */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
-          {CATEGORY_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSelectedCategory(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${
-                selectedCategory === tab.id
-                  ? 'bg-amber-500 text-stone-950 font-bold'
-                  : 'bg-[#241811] text-stone-300 border border-stone-800 hover:border-stone-600'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {CATEGORY_TABS.map((tab) => {
+            const Icon = tab.Icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSelectedCategory(tab.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1.5 ${
+                  selectedCategory === tab.id
+                    ? 'bg-amber-500 text-stone-950 font-bold'
+                    : 'bg-[#241811] text-stone-300 border border-stone-800 hover:border-stone-600'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 overflow-y-auto pr-1">

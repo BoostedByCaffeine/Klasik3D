@@ -1,16 +1,129 @@
-// Offline-Ready Realistic Multi-Layered Audio Sample & Physical Modeling Engine for Klasik 3D
-// Pre-bakes high-definition PCM AudioBuffers (100% offline PWA compatible, zero network 404s)
-// for Environmental Ambiences (Rain on Skylight, Garden Birdsong, Cafe Chatter, Vinyl Crackle),
-// Customer Sounds (Door Chime, Greeting Murmur, Happy Sip, Camera Shutter),
-// and Step-by-Step Barista Brewing (Burr Bean Crunch, 30lb Tamp, 9-Bar Pump + Dripping,
-// Kettle Tea Pour, Steam Vortex Hiss, Crystal Ice Clinks, Bamboo Matcha Whisk & Syrup Pump).
+// Offline-Ready Realistic Multi-Layered Audio Sample, Granular Synthesis Weather Engine
+// & Internal Vinyl Music Synthesizer for Klasik 3D
+// Pre-bakes high-definition PCM AudioBuffers (100% offline PWA & Android APK compatible)
+// for Granular Weather Textures (Rhythmic Raindrops on Roof for 'rainy', Distant Birds & Wind Chimes for 'morning'/'golden'),
+// Customer Sounds, Step-by-Step Barista Brewing, and Multi-Preset Internal Vinyl Music.
 
 import { WeatherMode } from './rules';
+
+export type GranularGrainType =
+  | 'roof_raindrop'
+  | 'skylight_patter'
+  | 'gutter_drip'
+  | 'distant_bird'
+  | 'wind_chime';
+
+export interface GranularWeatherParams {
+  grainType: GranularGrainType;
+  intervalMs: number;
+  durationSec: number;
+  carrierFreqHz: number;
+  filterFreqHz: number;
+  filterQ: number;
+  pan: number;
+  gain: number;
+  pitchEndRatio: number;
+}
+
+// Pure deterministic helper for unit-testing and driving real-time granular weather synthesis
+export function computeGranularWeatherParams(
+  weather: WeatherMode,
+  stepIndex: number
+): GranularWeatherParams {
+  const idx = Math.abs(Math.floor(stepIndex));
+  // Golden-ratio pseudo-random sequence in [0, 1) for organic non-repeating grain placement
+  const hash1 = (idx * 0.618033988749895) % 1;
+  const hash2 = (idx * 0.381966011250105 + 0.23) % 1;
+  const pan = Number(((hash1 * 2 - 1) * 0.78).toFixed(3));
+
+  if (weather === 'rainy') {
+    // Polyrhythmic 8-step roof raindrop pattern (rhythmic drops on corrugated polycarbonate/timber pergola roof)
+    const rhythmPattern = [85, 115, 70, 145, 90, 110, 65, 160];
+    const baseInterval = rhythmPattern[idx % rhythmPattern.length];
+    const isGutterDrip = idx % 7 === 0;
+    const isSkylight = idx % 3 === 1;
+
+    if (isGutterDrip) {
+      return {
+        grainType: 'gutter_drip',
+        intervalMs: baseInterval + Math.round(hash2 * 35),
+        durationSec: Number((0.065 + hash1 * 0.035).toFixed(3)),
+        carrierFreqHz: Math.round(620 + hash2 * 540),
+        filterFreqHz: Math.round(980 + hash1 * 620),
+        filterQ: 4.2,
+        pan,
+        gain: 0.022,
+        pitchEndRatio: 1.42, // Classic rising water-drop bubble inflection
+      };
+    }
+
+    if (isSkylight) {
+      return {
+        grainType: 'skylight_patter',
+        intervalMs: baseInterval + Math.round(hash1 * 25),
+        durationSec: Number((0.028 + hash2 * 0.024).toFixed(3)),
+        carrierFreqHz: Math.round(880 + hash1 * 640),
+        filterFreqHz: Math.round(1350 + hash2 * 700),
+        filterQ: 2.6,
+        pan,
+        gain: 0.016,
+        pitchEndRatio: 0.82,
+      };
+    }
+
+    return {
+      grainType: 'roof_raindrop',
+      intervalMs: baseInterval + Math.round(hash2 * 20),
+      durationSec: Number((0.038 + hash1 * 0.032).toFixed(3)),
+      carrierFreqHz: Math.round(310 + hash2 * 290),
+      filterFreqHz: Math.round(480 + hash1 * 420),
+      filterQ: 3.1,
+      pan,
+      gain: 0.024,
+      pitchEndRatio: 0.68, // Woody/metallic roof thud decay
+    };
+  }
+
+  // Sunny modes ('morning' or 'golden'): Distant garden birds & pentatonic bamboo/brass wind chimes
+  const pentatonicChimes = [1046.5, 1174.66, 1318.51, 1567.98, 1760.0, 2093.0]; // C6, D6, E6, G6, A6, C7
+  const isBirdGrain = idx % 3 === 0;
+
+  if (isBirdGrain) {
+    const baseBirdFreq = (weather === 'morning' ? 2450 : 2180) + Math.round(hash1 * 880);
+    return {
+      grainType: 'distant_bird',
+      intervalMs: (weather === 'morning' ? 260 : 320) + Math.round(hash2 * 220),
+      durationSec: Number((0.075 + hash1 * 0.045).toFixed(3)),
+      carrierFreqHz: baseBirdFreq,
+      filterFreqHz: Math.round(baseBirdFreq * 1.15),
+      filterQ: 3.8,
+      pan,
+      gain: 0.014,
+      pitchEndRatio: hash2 > 0.45 ? 1.24 : 0.88,
+    };
+  }
+
+  const chimeFreq = pentatonicChimes[idx % pentatonicChimes.length];
+  return {
+    grainType: 'wind_chime',
+    intervalMs: (weather === 'golden' ? 210 : 250) + Math.round(hash1 * 180),
+    durationSec: Number((0.22 + hash2 * 0.16).toFixed(3)),
+    carrierFreqHz: chimeFreq,
+    filterFreqHz: Math.round(chimeFreq * 1.35),
+    filterQ: 5.5,
+    pan,
+    gain: 0.013,
+    pitchEndRatio: 0.995,
+  };
+}
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted = false;
   private isSpotifyDucking = false;
+  private currentWeather: WeatherMode = 'morning';
+  private activePresetId = 'garage-lofi-morning';
+  private activeRpm: 33 | 45 = 33;
 
   // Pre-baked offline PCM sample buffers
   private buffersPrepared = false;
@@ -20,12 +133,20 @@ class SoundEngine {
   private rainLoopBuffer: AudioBuffer | null = null;
   private cafeMurmurBuffer: AudioBuffer | null = null;
 
-  // Active environmental loops
+  // Pre-baked Hann-windowed micro-grain buffers for Granular Weather Synthesis
+  private roofDropGrainBuffer: AudioBuffer | null = null;
+  private chimeShimmerGrainBuffer: AudioBuffer | null = null;
+
+  // Active environmental & granular synthesis loops
   private rainGain: GainNode | null = null;
   private rainSource: AudioBufferSourceNode | null = null;
   private ambienceGain: GainNode | null = null;
   private ambienceSource: AudioBufferSourceNode | null = null;
-  private birdInterval: number | null = null;
+  private granularMasterGain: GainNode | null = null;
+  private granularTimer: number | null = null;
+  private granularStepIndex = 0;
+  private granularActive = false;
+
   private lofiInterval: number | null = null;
   private chordIndex = 0;
 
@@ -48,7 +169,7 @@ class SoundEngine {
     return this.ctx;
   }
 
-  // Generates realistic multi-layered PCM AudioBuffers in memory for 100% offline PWA reliability
+  // Generates realistic multi-layered PCM AudioBuffers & Hann-windowed Granular Synthesis buffers in memory
   private prepareOfflineSampleLibrary(ctx: AudioContext) {
     this.buffersPrepared = true;
     const sr = ctx.sampleRate;
@@ -114,6 +235,38 @@ class SoundEngine {
       m1 = 0.96 * m1 + m0 * 0.04;
       murmurData[i] = m1 * mod * 2.2;
     }
+
+    // 6. Hann-Windowed Roof Raindrop Micro-Grain Buffer (0.09s)
+    const dropLen = Math.floor(sr * 0.09);
+    this.roofDropGrainBuffer = ctx.createBuffer(1, dropLen, sr);
+    const dropData = this.roofDropGrainBuffer.getChannelData(0);
+    for (let i = 0; i < dropLen; i++) {
+      const norm = i / dropLen;
+      // Raised-cosine Hann window with fast impact transient
+      const hann = 0.5 * (1 - Math.cos(2 * Math.PI * norm));
+      const decay = Math.exp(-norm * 7.5);
+      const modalResonance =
+        Math.sin(2 * Math.PI * 380 * (i / sr)) * 0.6 +
+        Math.sin(2 * Math.PI * 820 * (i / sr)) * 0.3;
+      const noiseBurst = (Math.random() * 2 - 1) * 0.5;
+      dropData[i] = (modalResonance + noiseBurst) * hann * decay;
+    }
+
+    // 7. Hann-Windowed Metallic/Bamboo Wind Chime Grain Buffer (0.35s)
+    const chimeLen = Math.floor(sr * 0.35);
+    this.chimeShimmerGrainBuffer = ctx.createBuffer(1, chimeLen, sr);
+    const chimeData = this.chimeShimmerGrainBuffer.getChannelData(0);
+    for (let i = 0; i < chimeLen; i++) {
+      const norm = i / chimeLen;
+      const hann = 0.5 * (1 - Math.cos(2 * Math.PI * norm));
+      const decay = Math.exp(-norm * 4.2);
+      // Inharmonic overtone ratios of a hollow brass/bamboo wind chime tube (1 : 2.76 : 5.40)
+      const t = i / sr;
+      const partial1 = Math.sin(2 * Math.PI * 1046.5 * t);
+      const partial2 = Math.sin(2 * Math.PI * 2888.3 * t) * 0.35;
+      const partial3 = Math.sin(2 * Math.PI * 5651.1 * t) * 0.15;
+      chimeData[i] = (partial1 + partial2 + partial3) * hann * decay * 0.7;
+    }
   }
 
   public init() {
@@ -125,10 +278,13 @@ class SoundEngine {
     if (this.ctx) {
       const now = this.ctx.currentTime;
       if (this.rainGain) {
-        this.rainGain.gain.setTargetAtTime(muted ? 0 : 0.05, now, 0.1);
+        this.rainGain.gain.setTargetAtTime(muted ? 0 : 0.045, now, 0.1);
       }
       if (this.ambienceGain) {
-        this.ambienceGain.gain.setTargetAtTime(muted ? 0 : 0.035, now, 0.1);
+        this.ambienceGain.gain.setTargetAtTime(muted ? 0 : 0.032, now, 0.1);
+      }
+      if (this.granularMasterGain) {
+        this.granularMasterGain.gain.setTargetAtTime(muted ? 0 : 0.9, now, 0.08);
       }
     }
   }
@@ -144,6 +300,11 @@ class SoundEngine {
 
   public setSpotifyDucking(active: boolean) {
     this.isSpotifyDucking = active;
+  }
+
+  public setVinylTrackProfile(presetId: string, rpm: 33 | 45) {
+    this.activePresetId = presetId;
+    this.activeRpm = rpm;
   }
 
   // 1. BURR GRINDER: Tactile motor torque + roasted coffee bean crunch sample layer
@@ -185,7 +346,6 @@ class SoundEngine {
     osc.stop(now + durationSec);
     subOsc.stop(now + durationSec);
 
-    // Layer pre-baked roasted bean crunch sample
     if (this.beanCrunchBuffer) {
       const crunchSrc = ctx.createBufferSource();
       crunchSrc.buffer = this.beanCrunchBuffer;
@@ -282,7 +442,6 @@ class SoundEngine {
     osc.stop(now + durationSec);
     lfo.stop(now + durationSec);
 
-    // Layer liquid espresso stream dripping into porcelain
     if (this.waterPourBuffer) {
       const pourSrc = ctx.createBufferSource();
       pourSrc.buffer = this.waterPourBuffer;
@@ -297,7 +456,7 @@ class SoundEngine {
     }
   }
 
-  // 4. TEA STEEPING & BOTANICAL INFUSION: Soothing hot water kettle pour + glass teapot chime
+  // 4. TEA STEEPING & BOTANICAL INFUSION
   public playTeaSteep(durationSec = 1.25) {
     if (this.isMuted) return;
     const ctx = this.ensureContext();
@@ -326,11 +485,10 @@ class SoundEngine {
       pourSrc.stop(now + durationSec);
     }
 
-    // Subtle Kyoto glass teapot harmonic ping
     this.playCeramicClink(1.32);
   }
 
-  // 5. STEAM WAND & MICROFOAM VORTEX: High-pressure hiss + aerating paper-tearing microfoam
+  // 5. STEAM WAND & MICROFOAM VORTEX
   public playSteamHiss(durationSec = 1.25) {
     if (this.isMuted) return;
     const ctx = this.ensureContext();
@@ -360,7 +518,7 @@ class SoundEngine {
     source.stop(now + durationSec);
   }
 
-  // 6. CRYSTAL ICE CUBES CLINKING: Multi-cube glass/ceramic cascade
+  // 6. CRYSTAL ICE CUBES CLINKING
   public playIceClink() {
     if (this.isMuted) return;
     const ctx = this.ensureContext();
@@ -382,7 +540,6 @@ class SoundEngine {
 
     const now = ctx.currentTime;
     if (isMatcha && this.waterPourBuffer) {
-      // Rapid bamboo chasen whisking swish
       const src = ctx.createBufferSource();
       src.buffer = this.waterPourBuffer;
       src.playbackRate.setValueAtTime(1.6, now);
@@ -450,14 +607,14 @@ class SoundEngine {
     });
   }
 
-  // Warm brass cash register chime + customer delight inflection
+  // Warm brass cash register chime
   public playCashRegister() {
     if (this.isMuted) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const notes = [1046.5, 1318.5, 1567.98, 2093.0]; // C6, E6, G6, C7
+    const notes = [1046.5, 1318.5, 1567.98, 2093.0];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -531,13 +688,19 @@ class SoundEngine {
     osc2.stop(now + 0.25);
   }
 
-  // Environmental Ambience Controller (Rain on Skylight, Garden Birdsong, Cozy Cafe Chatter)
+  // GRANULAR SYNTHESIS WEATHER TEXTURE ENGINE + ENVIRONMENTAL AMBIENCE CONTROLLER
+  // Spawns overlapping Hann-windowed micro-grains:
+  // - 'rainy' mode: rhythmic rain drops on the garage pergola roof, skylight patter, and gutter drips
+  // - 'morning' / 'golden' ('sunny') modes: distant garden birdsong & harmonic pentatonic wind chimes
   public setRainAmbience(enabled: boolean, weather: WeatherMode = 'morning') {
+    this.currentWeather = weather;
     const ctx = this.ensureContext();
     if (!ctx) return;
 
-    // 1. Handle Rain Loop
-    if (!enabled) {
+    const shouldPlayRainLoop = enabled && weather === 'rainy';
+
+    // 1. Handle Continuous Skylight Rain Bed
+    if (!shouldPlayRainLoop) {
       if (this.rainSource) {
         try {
           this.rainSource.stop();
@@ -556,7 +719,7 @@ class SoundEngine {
       filter.frequency.setValueAtTime(980, ctx.currentTime);
 
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime(this.isMuted ? 0 : 0.045, ctx.currentTime);
+      gain.gain.setValueAtTime(this.isMuted ? 0 : 0.04, ctx.currentTime);
 
       source.connect(filter);
       filter.connect(gain);
@@ -567,8 +730,8 @@ class SoundEngine {
       this.rainGain = gain;
     }
 
-    // 2. Handle Cozy Cafe Chatter + Garden Birdsong in Morning/Golden Weather
-    if (!this.ambienceSource && this.cafeMurmurBuffer) {
+    // 2. Handle Cozy Cafe Chatter Bed
+    if (enabled && !this.ambienceSource && this.cafeMurmurBuffer) {
       const ambSrc = ctx.createBufferSource();
       ambSrc.buffer = this.cafeMurmurBuffer;
       ambSrc.loop = true;
@@ -579,7 +742,7 @@ class SoundEngine {
       ambFilter.Q.setValueAtTime(0.9, ctx.currentTime);
 
       const ambGain = ctx.createGain();
-      ambGain.gain.setValueAtTime(this.isMuted ? 0 : 0.032, ctx.currentTime);
+      ambGain.gain.setValueAtTime(this.isMuted ? 0 : 0.028, ctx.currentTime);
 
       ambSrc.connect(ambFilter);
       ambFilter.connect(ambGain);
@@ -590,43 +753,135 @@ class SoundEngine {
       this.ambienceGain = ambGain;
     }
 
-    if (weather !== 'rainy' && this.birdInterval === null) {
-      this.birdInterval = window.setInterval(() => {
-        if (!this.isMuted && Math.random() < 0.45) {
-          this.playGardenBirdChirp();
-        }
-      }, 6500);
-    } else if (weather === 'rainy' && this.birdInterval !== null) {
-      window.clearInterval(this.birdInterval);
-      this.birdInterval = null;
+    // 3. Start or stop the Real-Time Granular Synthesis Weather Layer
+    if (enabled) {
+      this.startGranularWeatherScheduler();
+    } else {
+      this.stopGranularWeatherScheduler();
     }
   }
 
-  private playGardenBirdChirp() {
-    if (this.isMuted) return;
-    const ctx = this.ensureContext();
-    if (!ctx) return;
+  private startGranularWeatherScheduler() {
+    if (this.granularActive) return;
+    this.granularActive = true;
 
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    const base = 2400 + Math.random() * 600;
-    osc.frequency.setValueAtTime(base, now);
-    osc.frequency.exponentialRampToValueAtTime(base * 1.28, now + 0.07);
-    osc.frequency.exponentialRampToValueAtTime(base * 0.95, now + 0.14);
+    const scheduleNextGrain = () => {
+      if (!this.granularActive) return;
+      const params = computeGranularWeatherParams(this.currentWeather, this.granularStepIndex++);
+      if (!this.isMuted) {
+        this.triggerWeatherGrain(params);
+      }
+      this.granularTimer = window.setTimeout(scheduleNextGrain, params.intervalMs);
+    };
 
-    gain.gain.setValueAtTime(0.0005, now);
-    gain.gain.exponentialRampToValueAtTime(0.018, now + 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.0005, now + 0.16);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.17);
+    scheduleNextGrain();
   }
 
-  // Fallback procedural cozy lo-fi electric piano chord progression when vinyl is spinning
+  private stopGranularWeatherScheduler() {
+    this.granularActive = false;
+    if (this.granularTimer !== null) {
+      window.clearTimeout(this.granularTimer);
+      this.granularTimer = null;
+    }
+  }
+
+  // Synthesizes a single Hann-windowed acoustic grain with stereo panning & resonant filtering
+  private triggerWeatherGrain(params: GranularWeatherParams) {
+    const ctx = this.ensureContext();
+    if (!ctx || this.isMuted) return;
+
+    if (!this.granularMasterGain) {
+      this.granularMasterGain = ctx.createGain();
+      this.granularMasterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.9, ctx.currentTime);
+      this.granularMasterGain.connect(ctx.destination);
+    }
+
+    const now = ctx.currentTime;
+    const dur = params.durationSec;
+
+    // Create stereo placement node if supported
+    const panner =
+      typeof ctx.createStereoPanner === 'function' ? ctx.createStereoPanner() : null;
+    if (panner) {
+      panner.pan.setValueAtTime(params.pan, now);
+    }
+
+    const filter = ctx.createBiquadFilter();
+    filter.type =
+      params.grainType === 'roof_raindrop'
+        ? 'bandpass'
+        : params.grainType === 'wind_chime'
+        ? 'highpass'
+        : 'bandpass';
+    filter.frequency.setValueAtTime(params.filterFreqHz, now);
+    filter.Q.setValueAtTime(params.filterQ, now);
+
+    // Hann-like grain envelope (smooth attack -> peak -> smooth release, zero clicks)
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0002, now);
+    env.gain.linearRampToValueAtTime(params.gain, now + dur * 0.28);
+    env.gain.exponentialRampToValueAtTime(0.0002, now + dur);
+
+    if (panner) {
+      filter.connect(env);
+      env.connect(panner);
+      panner.connect(this.granularMasterGain);
+    } else {
+      filter.connect(env);
+      env.connect(this.granularMasterGain);
+    }
+
+    if (
+      (params.grainType === 'roof_raindrop' || params.grainType === 'skylight_patter') &&
+      this.roofDropGrainBuffer
+    ) {
+      // Granular buffer playback combined with pitched wooden/roof modal impulse
+      const bufSrc = ctx.createBufferSource();
+      bufSrc.buffer = this.roofDropGrainBuffer;
+      const rate = Math.max(0.5, Math.min(2.4, params.carrierFreqHz / 440));
+      bufSrc.playbackRate.setValueAtTime(rate, now);
+      bufSrc.connect(filter);
+      bufSrc.start(now);
+      bufSrc.stop(now + dur);
+    } else if (params.grainType === 'wind_chime' && this.chimeShimmerGrainBuffer) {
+      // Harmonic pentatonic wind-chime grain
+      const bufSrc = ctx.createBufferSource();
+      bufSrc.buffer = this.chimeShimmerGrainBuffer;
+      const rate = params.carrierFreqHz / 1046.5;
+      bufSrc.playbackRate.setValueAtTime(rate, now);
+      bufSrc.connect(filter);
+      bufSrc.start(now);
+      bufSrc.stop(now + dur);
+
+      const chimeOsc = ctx.createOscillator();
+      chimeOsc.type = 'sine';
+      chimeOsc.frequency.setValueAtTime(params.carrierFreqHz, now);
+      chimeOsc.frequency.exponentialRampToValueAtTime(
+        params.carrierFreqHz * params.pitchEndRatio,
+        now + dur
+      );
+      chimeOsc.connect(filter);
+      chimeOsc.start(now);
+      chimeOsc.stop(now + dur);
+    } else {
+      // Distant birdsong syrinx FM grain or resonant gutter water droplet grain
+      const osc = ctx.createOscillator();
+      osc.type = params.grainType === 'distant_bird' ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(params.carrierFreqHz, now);
+      osc.frequency.exponentialRampToValueAtTime(
+        params.carrierFreqHz * params.pitchEndRatio,
+        now + dur * 0.72
+      );
+      if (params.grainType === 'distant_bird') {
+        osc.frequency.exponentialRampToValueAtTime(params.carrierFreqHz * 0.96, now + dur);
+      }
+      osc.connect(filter);
+      osc.start(now);
+      osc.stop(now + dur);
+    }
+  }
+
+  // Built-in Internal Vinyl Music Synthesizer (100% Offline & Synced to Selected Spotify Track/RPM)
   public setLofiSynthActive(active: boolean) {
     if (!active) {
       if (this.lofiInterval !== null) {
@@ -638,9 +893,10 @@ class SoundEngine {
 
     if (this.lofiInterval !== null) return;
     this.playNextLofiChord();
+    const stepMs = this.activeRpm === 45 ? 2450 : 3100;
     this.lofiInterval = window.setInterval(() => {
       this.playNextLofiChord();
-    }, 3200);
+    }, stepMs);
   }
 
   private playNextLofiChord() {
@@ -648,38 +904,63 @@ class SoundEngine {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
-    // Warm jazz 7th chords: Fmaj7 -> Em7 -> Dm7 -> Cmaj7
-    const chords = [
-      [174.61, 220.0, 261.63, 329.63],
-      [164.81, 196.0, 246.94, 293.66],
-      [146.83, 174.61, 220.0, 261.63],
-      [130.81, 164.81, 196.0, 246.94],
+    // Distinct chord voicings based on the selected Spotify Vinyl Track Preset
+    const morningChords = [
+      [174.61, 220.0, 261.63, 329.63], // Fmaj7
+      [164.81, 196.0, 246.94, 293.66], // Em7
+      [146.83, 174.61, 220.0, 261.63], // Dm7
+      [130.81, 164.81, 196.0, 246.94], // Cmaj7
     ];
-    const chord = chords[this.chordIndex % chords.length];
+    const rainyJazzChords = [
+      [146.83, 174.61, 220.0, 261.63, 329.63], // Dm9
+      [196.0, 246.94, 293.66, 349.23, 440.0], // G13
+      [130.81, 164.81, 196.0, 246.94, 293.66], // Cmaj9
+      [220.0, 261.63, 329.63, 392.0, 493.88], // Am9
+    ];
+    const goldenAcousticChords = [
+      [196.0, 246.94, 293.66, 369.99], // Gmaj7
+      [164.81, 196.0, 246.94, 293.66], // Em7
+      [130.81, 164.81, 196.0, 246.94], // Cmaj7
+      [146.83, 185.0, 220.0, 293.66], // Dadd9
+    ];
+
+    const bank =
+      this.activePresetId === 'rainy-espresso-jazz'
+        ? rainyJazzChords
+        : this.activePresetId === 'golden-hour-acoustic'
+        ? goldenAcousticChords
+        : morningChords;
+
+    const pitchScale = this.activeRpm === 45 ? 1.06 : 1.0;
+    const chord = bank[this.chordIndex % bank.length];
     this.chordIndex++;
 
     const now = ctx.currentTime;
-    chord.forEach((freq, i) => {
+    chord.forEach((rawFreq, i) => {
+      const freq = rawFreq * pitchScale;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       const filter = ctx.createBiquadFilter();
 
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now + i * 0.04);
+      osc.type = this.activePresetId === 'golden-hour-acoustic' ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.045);
 
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(650, now);
+      filter.frequency.setValueAtTime(
+        this.activePresetId === 'golden-hour-acoustic' ? 920 : 680,
+        now
+      );
 
-      gain.gain.setValueAtTime(0.0001, now + i * 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.025, now + i * 0.04 + 0.25);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.9);
+      gain.gain.setValueAtTime(0.0001, now + i * 0.045);
+      gain.gain.exponentialRampToValueAtTime(0.024, now + i * 0.045 + 0.22);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.8);
 
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(ctx.destination);
 
-      osc.start(now + i * 0.04);
-      osc.stop(now + 3.0);
+      osc.start(now + i * 0.045);
+      osc.stop(now + 2.9);
     });
   }
 }

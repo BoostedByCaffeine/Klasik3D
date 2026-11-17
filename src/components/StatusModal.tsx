@@ -1,4 +1,5 @@
 import React from 'react';
+import { Award } from 'lucide-react';
 import { DAILY_QUOTA_COMPLETION_BONUS, KlasikGameState } from '../game/rules';
 
 interface StatusModalProps {
@@ -79,9 +80,12 @@ export const StatusModal: React.FC<StatusModalProps> = ({
         </div>
 
         {quotaMet && (
-          <div className="p-2 rounded-xl bg-emerald-950/75 border border-emerald-500/40 text-xs font-semibold text-emerald-300">
-            🎉 Daily Order Quota ({gameState.dailyOrderQuota} Orders) Completed — +$
-            {DAILY_QUOTA_COMPLETION_BONUS} Bonus Awarded!
+          <div className="p-2 rounded-xl bg-emerald-950/75 border border-emerald-500/40 text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1.5">
+            <Award className="w-4 h-4 shrink-0" />
+            <span>
+              Daily Order Quota ({gameState.dailyOrderQuota} Orders) Completed — +$
+              {DAILY_QUOTA_COMPLETION_BONUS} Bonus Awarded!
+            </span>
           </div>
         )}
 
@@ -102,7 +106,9 @@ export const StatusModal: React.FC<StatusModalProps> = ({
               onClick={onNextDayOrRetry}
               className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow"
             >
-              {goalMet ? `Start Day ${gameState.day + 1} Shift` : `Retry Day ${gameState.day} Shift`}
+              {goalMet
+                ? `Start Day ${gameState.day + 1} Shift`
+                : `Retry Day ${gameState.day} Shift`}
             </button>
           )}
 

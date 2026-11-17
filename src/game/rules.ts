@@ -1580,14 +1580,14 @@ export function serveCurrentCupToCustomer(
 
   const goldenBadge = payout.multiplier === 2 ? ' [2x GOLDEN MACHINE!]' : '';
   const unlockSuffix = justUnlockedGolden
-    ? ' · 🏆 $100K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
+    ? ' · $100K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
     : '';
   const quotaSuffix = justCompletedQuota
-    ? ` · 🎉 DAILY QUOTA (${state.dailyOrderQuota} ORDERS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
+    ? ` · DAILY QUOTA (${state.dailyOrderQuota} ORDERS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
     : '';
 
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}! +$${payout.totalPayout}${goldenBadge} (incl. $${payout.tip} tip ❤️)${quotaSuffix}${unlockSuffix}`
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}! +$${payout.totalPayout}${goldenBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
     : `Served ${recipe.name} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}.${quotaSuffix}${unlockSuffix}`;
 
   return {
@@ -1771,7 +1771,7 @@ export function unlockOrEquipEquipmentSkin(
     equippedPitcherSkin: nextPitcher,
     lastActionFeedback:
       skin.id === 'golden-espresso-machine'
-        ? '🏆 Equipped 24K GOLDEN ESPRESSO MACHINE! All drink sale income is now DOUBLED (2x)!'
+        ? 'Equipped 24K GOLDEN ESPRESSO MACHINE! All drink sale income is now DOUBLED (2x)!'
         : `Equipped ${skin.name} on your 3D counter!`,
   };
 }
@@ -1874,7 +1874,7 @@ export function reachGoldenMachineMilestone(state: KlasikGameState): KlasikGameS
     equipmentSkins: updatedSkins,
     equippedMachineSkin: 'golden-espresso-machine',
     lastActionFeedback:
-      '🏆 $100,000 Gross Income Milestone Reached! 24K Golden Espresso Machine Equipped (2x Sale Income)!',
+      '$100,000 Gross Income Milestone Reached! 24K Golden Espresso Machine Equipped (2x Sale Income)!',
   };
 }
 

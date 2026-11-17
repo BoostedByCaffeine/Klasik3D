@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Disc3 } from 'lucide-react';
 import { BizUpgradesModal } from './components/BizUpgradesModal';
 import { CodeExportModal } from './components/CodeExportModal';
 import { CustomizeModal } from './components/CustomizeModal';
@@ -114,11 +115,12 @@ export default function App() {
     };
   }, []);
 
-  // Mirror phase to document.body.dataset.state
+  // Mirror phase & appVersion to document.body.dataset
   useEffect(() => {
     document.body.dataset.state = gameState.phase;
+    document.body.dataset.version = pwaStatus.appVersion;
     saveGameToStorage(gameState);
-  }, [gameState]);
+  }, [gameState, pwaStatus.appVersion]);
 
   // Subscribe to Spotify & PWA managers
   useEffect(() => {
@@ -190,7 +192,7 @@ export default function App() {
     (customerId?: string) => {
       soundEngine.init();
       if (activeStepActionRef.current === 'serve_drink') {
-        return; // Prevent duplicate spam-clicks while serve handoff is animating
+        return;
       }
 
       const prev = gameStateRef.current;
@@ -205,17 +207,18 @@ export default function App() {
       if (wasBlocked) {
         soundEngine.playErrorThud();
         setGameState(next);
-        flashAnimBanner(`⚠️ ${next.lastActionFeedback}`, 1600, null);
+        flashAnimBanner(next.lastActionFeedback, 1600, null);
         return;
       }
 
       // 2. Check if Serve resulted in a Customer Complaint due to wrong ingredient
-      const wasComplaint = next.satisfactionScore < prev.satisfactionScore && next.cash === prev.cash;
+      const wasComplaint =
+        next.satisfactionScore < prev.satisfactionScore && next.cash === prev.cash;
       if (wasComplaint) {
         soundEngine.playErrorThud();
         setGameState(next);
         sceneRef.current?.updateGameState(next);
-        flashAnimBanner(`😠 ${next.lastActionFeedback}`, 2200, null);
+        flashAnimBanner(next.lastActionFeedback, 2200, null);
         return;
       }
 
@@ -225,7 +228,6 @@ export default function App() {
       const serveDuration = getStepDurationMs(prev, 'serve_drink');
       setGameState(next);
 
-      // Update scene state immediately so the served customer walks to the Pickup Counter
       sceneRef.current?.updateGameState(next);
       sceneRef.current?.triggerStepAnimation(
         'serve_drink',
@@ -291,7 +293,6 @@ export default function App() {
         resolvedStep = action;
       }
 
-      // Anti-spam guard: ignore duplicate clicks on the exact same step while its timed progress is active
       const stepKey = `${resolvedStep}:${resolvedFlavor || ''}`;
       if (activeStepActionRef.current === stepKey && action !== 'quick_brew_step') {
         return;
@@ -299,7 +300,6 @@ export default function App() {
 
       const nextState = performCupAction(curState, action, syrupFlavor);
 
-      // Check if performCupAction locked/rejected an out-of-order step (cup state did not change)
       const cupUnchanged =
         JSON.stringify(nextState.currentCup) === JSON.stringify(curState.currentCup) &&
         resolvedStep !== 'rinse_cup';
@@ -307,7 +307,7 @@ export default function App() {
       if (cupUnchanged) {
         soundEngine.playErrorThud();
         setGameState(nextState);
-        flashAnimBanner(`🔒 ${nextState.lastActionFeedback}`, 1400, null);
+        flashAnimBanner(`Locked: ${nextState.lastActionFeedback}`, 1400, null);
         return;
       }
 
@@ -355,7 +355,9 @@ export default function App() {
   const handleStartShift = useCallback((mode: GameMode) => {
     soundEngine.init();
     soundEngine.playCustomerBell();
-    soundEngine.setLofiSynthActive(spotifyManager.getState().isPlaying);
+    const spState = spotifyManager.getState();
+    soundEngine.setLofiSynthActive(spState.isPlaying && spState.internalSynthEnabled);
+    soundEngine.setRainAmbience(true, gameStateRef.current.weather);
     sceneRef.current?.resetCameraOffsets();
     document.body.dataset.state = 'playing';
 
@@ -381,7 +383,7 @@ export default function App() {
     pwaManager.lockLandscape();
   }, []);
 
-  // Mount Three.js WebGLRenderer once in isolated container (wrapped in safe try/catch)
+  // Mount Three.js WebGLRenderer once in isolated container
   useEffect(() => {
     const container = canvasMountRef.current;
     if (!container) return;
@@ -431,13 +433,10 @@ export default function App() {
     };
   }, [handleCupAction, handleSelectStation, handleServeCustomer]);
 
-  // Sync gameState changes to Three.js scene
+  // Sync gameState changes to Three.js scene & Granular Synthesis Weather Audio Engine
   useEffect(() => {
     sceneRef.current?.updateGameState(gameState);
-    soundEngine.setRainAmbience(
-      gameState.weather === 'rainy' && gameState.phase === 'playing',
-      gameState.weather
-    );
+    soundEngine.setRainAmbience(gameState.phase === 'playing', gameState.weather);
   }, [gameState]);
 
   // 4 Hz Gameplay Simulation Timer
@@ -528,7 +527,9 @@ export default function App() {
   }, [activeModal, handleCupAction, handleSelectStation, handleStartShift]);
 
   const handleChangeWeather = (weather: WeatherMode) => {
+    soundEngine.init();
     soundEngine.playCeramicClink(1.05);
+    soundEngine.setRainAmbience(true, weather);
     setGameState((prev) => ({ ...prev, weather }));
   };
 
@@ -561,6 +562,9 @@ export default function App() {
     }
     window.location.reload();
   };
+
+  const shouldRenderWebSpotifyEmbed =
+    pwaStatus.appVersion !== 'apk' && !pwaStatus.isOffline;
 
   return (
     <main
@@ -621,6 +625,7 @@ export default function App() {
         <HudOverlay
           gameState={gameState}
           spotifyState={spotifyState}
+          appVersion={pwaStatus.appVersion}
           isMuted={isMuted}
           hoveredToolLabel={hoveredToolLabel}
           fps={fps}
@@ -706,11 +711,12 @@ export default function App() {
       {activeModal === 'spotify' && (
         <SpotifyVinylModal
           spotifyState={spotifyState}
+          appVersion={pwaStatus.appVersion}
           onClose={() => setActiveModal(null)}
         />
       )}
 
-      {activeModal === 'pwa' && (
+      {activeModal === 'pwa' && pwaStatus.appVersion !== 'apk' && (
         <PwaApkModal
           pwaStatus={pwaStatus}
           graphicsQuality={gameState.graphicsQuality}
@@ -727,38 +733,43 @@ export default function App() {
         />
       )}
 
-      {/* PERSISTENT SPOTIFY VINYL EMBED PLAYER (Never unmounts when modal closes so Spotify BGM keeps playing!) */}
-      <div
-        data-testid="persistent-spotify-embed-dock"
-        className={
-          activeModal === 'spotify' && spotifyState.mode === 'bridge'
-            ? 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md rounded-xl overflow-hidden border border-emerald-500/50 bg-black shadow-2xl'
-            : spotifyState.showMiniEmbed && gameState.phase !== 'title'
-            ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden border border-emerald-500/45 bg-stone-950/95 shadow-xl'
-            : 'fixed -bottom-96 left-0 w-72 h-20 opacity-0 pointer-events-none overflow-hidden'
-        }
-      >
-        {spotifyState.showMiniEmbed && activeModal !== 'spotify' && (
-          <div className="flex items-center justify-between px-2.5 py-1 bg-stone-950 border-b border-stone-800 text-[10px] text-emerald-300 font-semibold">
-            <span className="truncate">🎵 {spotifyState.currentTrack.title}</span>
-            <button
-              type="button"
-              onClick={() => spotifyManager.setShowMiniEmbed(false)}
-              className="text-stone-400 hover:text-white cursor-pointer ml-2"
-              title="Hide Mini Window (Audio Keeps Playing!)"
-            >
-              Minimize ▾
-            </button>
-          </div>
-        )}
-        <iframe
-          title="Spotify Vinyl Player"
-          src={spotifyState.currentTrack.embedUrl}
-          width="100%"
-          height="80"
-          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-        />
-      </div>
+      {/* PERSISTENT SPOTIFY WEB EMBED PLAYER (Mounted ONLY for Live Web & PWA when online; APK uses Phone Spotify App + Internal Player) */}
+      {shouldRenderWebSpotifyEmbed && (
+        <div
+          data-testid="persistent-spotify-embed-dock"
+          className={
+            activeModal === 'spotify' && spotifyState.mode === 'bridge'
+              ? 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md rounded-xl overflow-hidden border border-emerald-500/50 bg-black shadow-2xl'
+              : spotifyState.showMiniEmbed && gameState.phase !== 'title'
+              ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden border border-emerald-500/45 bg-stone-950/95 shadow-xl'
+              : 'fixed -bottom-96 left-0 w-72 h-20 opacity-0 pointer-events-none overflow-hidden'
+          }
+        >
+          {spotifyState.showMiniEmbed && activeModal !== 'spotify' && (
+            <div className="flex items-center justify-between px-2.5 py-1 bg-stone-950 border-b border-stone-800 text-[10px] text-emerald-300 font-semibold">
+              <span className="truncate flex items-center gap-1">
+                <Disc3 className="w-3 h-3 shrink-0" />
+                <span>{spotifyState.currentTrack.title}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => spotifyManager.setShowMiniEmbed(false)}
+                className="text-stone-400 hover:text-white cursor-pointer ml-2"
+                title="Hide Mini Window (Audio Keeps Playing!)"
+              >
+                Minimize
+              </button>
+            </div>
+          )}
+          <iframe
+            title="Spotify Vinyl Player"
+            src={spotifyState.currentTrack.embedUrl}
+            width="100%"
+            height="80"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          />
+        </div>
+      )}
     </main>
   );
 }
