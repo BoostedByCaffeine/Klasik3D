@@ -34,7 +34,7 @@ export type CustomerSkinPackId =
   | 'cyber-neon-night';
 
 export const SHIFT_SECONDS = 300;
-export const MAX_QUEUE = 4;
+export const MAX_QUEUE = 3;
 export const MAX_GARDEN_SEATS = 6;
 export const DAILY_QUOTA_COMPLETION_BONUS = 50;
 export const GOLDEN_MACHINE_GROSS_THRESHOLD = 100000;
@@ -385,6 +385,8 @@ export interface LoginRewardItem {
   cashBonus: number;
   grossIncomeBonus?: number;
   unlockSkinId?: string;
+  requiredShiftSeconds: number;
+  requiredOrdersServed: number;
   claimed: boolean;
 }
 
@@ -412,6 +414,9 @@ export interface KlasikGameState {
   totalCupsServed: number;
   satisfactionScore: number; // 0..100
   shiftTimeRemaining: number; // seconds (300s per shift)
+  activeShiftSeconds: number; // verifiable active shift playtime in seconds
+  waveCustomersRemaining: number; // remaining customers in current 2-3 customer wave
+  nextCustomerSpawnTimer: number; // seconds until next 1-by-1 customer walks in or wave cooldown ends
   pinnedOrderId: string | null;
   currentCup: CupBuildState;
   customers: CustomerOrder[];
@@ -724,76 +729,90 @@ export const INITIAL_LOGIN_REWARDS: LoginRewardItem[] = [
   {
     day: 1,
     id: 'login-day-1',
-    title: 'Day 1: Ethiopian Bean Reserve Grant',
-    description: 'Welcome login bonus to kickstart your Garage Garden espresso bar!',
+    title: 'Tier 1: Barista Starter Pack',
+    description: 'Requires 10m active shift play & 15 orders served. Grants Ethiopian Bean Reserve bonus!',
     rewardLabel: '+$120 Cash & +$2,000 Gross Progress',
     cashBonus: 120,
     grossIncomeBonus: 2000,
+    requiredShiftSeconds: 600,
+    requiredOrdersServed: 15,
     claimed: false,
   },
   {
     day: 2,
     id: 'login-day-2',
-    title: 'Day 2: Shibuya Streetwear Patron Pack',
-    description: 'Unlocks the Harajuku & Shibuya Streetwear Customer Skin Pack + $200 Cash.',
+    title: 'Tier 2: Midnight Roast & Streetwear Pack',
+    description: 'Requires 25m active shift play & 45 orders served. Unlocks Shibuya Streetwear Pack + $200.',
     rewardLabel: 'Tokyo Streetwear Pack + $200',
     cashBonus: 200,
     grossIncomeBonus: 5000,
     unlockSkinId: 'tokyo-streetwear',
+    requiredShiftSeconds: 1500,
+    requiredOrdersServed: 45,
     claimed: false,
   },
   {
     day: 3,
     id: 'login-day-3',
-    title: 'Day 3: Kyoto Tea Master Reserve',
-    description: 'Celebrates your Artisanal Tea & Cold Drink bar with a $350 grant.',
-    rewardLabel: '+$350 Cash & +$10,000 Gross Progress',
+    title: 'Tier 3: Golden Miata Keychain & Espresso Chrome',
+    description: 'Requires 45m active shift play & 90 orders served. Unlocks Cyber-Chrome Grinder + $350.',
+    rewardLabel: 'Cyber-Chrome Grinder + $350',
     cashBonus: 350,
     grossIncomeBonus: 10000,
+    unlockSkinId: 'cyber-chrome',
+    requiredShiftSeconds: 2700,
+    requiredOrdersServed: 90,
     claimed: false,
   },
   {
     day: 4,
     id: 'login-day-4',
-    title: 'Day 4: Stealth Matte Obsidian Machine Skin',
-    description: 'Unlocks the competition Matte Obsidian Pro espresso machine skin!',
+    title: 'Tier 4: Stealth Matte Obsidian Machine Skin',
+    description: 'Requires 60m active shift play & 120 orders served. Unlocks Matte Obsidian Pro machine skin!',
     rewardLabel: 'Obsidian Machine Skin + $400',
     cashBonus: 400,
     grossIncomeBonus: 15000,
     unlockSkinId: 'matte-obsidian',
+    requiredShiftSeconds: 3600,
+    requiredOrdersServed: 120,
     claimed: false,
   },
   {
     day: 5,
     id: 'login-day-5',
-    title: 'Day 5: Mirror Cyber-Chrome Burr Grinder',
-    description: 'Unlocks the gleaming Cyber-Chrome Grinder Skin + $500 Cash.',
-    rewardLabel: 'Cyber-Chrome Grinder + $500',
+    title: 'Tier 5: Kyoto Tea Master Reserve',
+    description: 'Requires 75m active shift play & 150 orders served. Celebrates your Artisanal Tea bar!',
+    rewardLabel: '+$500 Cash & +$20,000 Gross Progress',
     cashBonus: 500,
     grossIncomeBonus: 20000,
-    unlockSkinId: 'cyber-chrome',
+    requiredShiftSeconds: 4500,
+    requiredOrdersServed: 150,
     claimed: false,
   },
   {
     day: 6,
     id: 'login-day-6',
-    title: 'Day 6: Kyoto Rose-Gold Frothing Pitcher',
-    description: 'Unlocks the Rose-Gold Copper Pitcher Skin + $750 Cash.',
+    title: 'Tier 6: Kyoto Rose-Gold Frothing Pitcher',
+    description: 'Requires 90m active shift play & 180 orders served. Unlocks Rose-Gold Pitcher Skin + $750.',
     rewardLabel: 'Rose-Gold Pitcher + $750',
     cashBonus: 750,
     grossIncomeBonus: 20000,
     unlockSkinId: 'rose-gold',
+    requiredShiftSeconds: 5400,
+    requiredOrdersServed: 180,
     claimed: false,
   },
   {
     day: 7,
     id: 'login-day-7',
-    title: 'Day 7: Grand Roaster $100K Milestone Boost!',
-    description: 'Massive Gross Income surge that unlocks the 24K Golden Espresso Machine (2x Sales)!',
+    title: 'Tier 7: Grand Roaster $100K Milestone Boost!',
+    description: 'Requires 120m active shift play & 220 orders served. Unlocks 24K Golden Machine (2x Sales)!',
     rewardLabel: '+$1,500 Cash & Unlocks 100K Golden Machine!',
     cashBonus: 1500,
     grossIncomeBonus: 30000,
     unlockSkinId: 'golden-espresso-machine',
+    requiredShiftSeconds: 7200,
+    requiredOrdersServed: 220,
     claimed: false,
   },
 ];
@@ -914,6 +933,9 @@ export function createInitialGameState(): KlasikGameState {
     totalCupsServed: 0,
     satisfactionScore: 100,
     shiftTimeRemaining: SHIFT_SECONDS,
+    activeShiftSeconds: 0,
+    waveCustomersRemaining: 2,
+    nextCustomerSpawnTimer: 5,
     pinnedOrderId: firstCustomer.id,
     currentCup: createEmptyCup(),
     customers: [firstCustomer, secondCustomer, thirdCustomer],
@@ -957,6 +979,124 @@ export function getEffectiveRecipeForOrder(
   };
 }
 
+// Strict Recipe & Wrong-Ingredient Validator to prevent Premature Serving & Cash Exploits
+export function validateDrinkForServe(
+  cup: CupBuildState,
+  recipe: DrinkRecipe,
+  order?: CustomerOrder | null
+): {
+  isComplete: boolean;
+  missingSteps: string[];
+  wrongIngredients: string[];
+  hasWrongIngredient: boolean;
+} {
+  const effective = getEffectiveRecipeForOrder(order, recipe);
+  const missingSteps: string[] = [];
+  const wrongIngredients: string[] = [];
+
+  if (effective.needsEspresso) {
+    if (!cup.hasGrounds) missingSteps.push('Grind Beans');
+    if (!cup.isTamped) missingSteps.push('Tamp Puck');
+    if (!cup.hasEspresso) missingSteps.push('Espresso Shot');
+  } else if (cup.hasEspresso) {
+    wrongIngredients.push('Espresso in Tea Drink');
+  }
+
+  const needsTea = Boolean(effective.needsTeaSteep);
+  const hasTea =
+    Boolean(cup.hasSteepedTea) ||
+    (effective.id === 'uji-matcha-latte' && cup.syrup === 'matcha');
+  if (needsTea && !hasTea) {
+    missingSteps.push('Steeped Tea');
+  } else if (!needsTea && cup.hasSteepedTea && effective.syrup !== 'matcha') {
+    wrongIngredients.push('Tea in Coffee Drink');
+  }
+
+  if (effective.needsSteamedMilk && !cup.hasSteamedMilk) {
+    missingSteps.push('Steamed Milk');
+  } else if (!effective.needsSteamedMilk && cup.hasSteamedMilk) {
+    wrongIngredients.push('Unrequested Steamed Milk');
+  }
+
+  if (effective.needsIce && !cup.hasIce) {
+    missingSteps.push('Ice Cubes');
+  } else if (!effective.needsIce && cup.hasIce) {
+    wrongIngredients.push('Unrequested Ice');
+  }
+
+  if (effective.syrup !== 'none' && cup.syrup === 'none') {
+    const label =
+      effective.syrup.charAt(0).toUpperCase() + effective.syrup.slice(1);
+    missingSteps.push(`+${label}`);
+  } else if (cup.syrup !== 'none' && cup.syrup !== effective.syrup) {
+    const wrongLabel =
+      cup.syrup.charAt(0).toUpperCase() + cup.syrup.slice(1);
+    wrongIngredients.push(`Wrong Syrup (+${wrongLabel})`);
+  }
+
+  return {
+    isComplete: missingSteps.length === 0,
+    missingSteps,
+    wrongIngredients,
+    hasWrongIngredient: wrongIngredients.length > 0,
+  };
+}
+
+// Calculates timed execution duration (ms) for each barista step, scaled by purchased equipment upgrades
+export function getStepDurationMs(
+  state: KlasikGameState,
+  action:
+    | 'grind'
+    | 'tamp'
+    | 'pull_espresso'
+    | 'steep_tea'
+    | 'steam_milk'
+    | 'add_ice'
+    | 'add_syrup'
+    | 'serve_drink'
+    | 'rinse_cup'
+): number {
+  const hasUpgrade = (id: string) =>
+    state.upgrades.some((u) => u.id === id && u.purchased);
+
+  if (action === 'grind') {
+    const mult = hasUpgrade('precision-burr-grinder') ? 0.82 : 1.0; // -18% Grind duration
+    return Math.round(1800 * mult);
+  }
+  if (action === 'tamp') {
+    const mult =
+      hasUpgrade('precision-burr-grinder') || hasUpgrade('dual-pid-boiler') ? 0.8 : 1.0; // -20% Tamp duration
+    return Math.round(1200 * mult);
+  }
+  if (action === 'pull_espresso') {
+    let mult = 1.0;
+    if (hasUpgrade('dual-pid-boiler')) mult *= 0.82; // -18% Shot duration
+    if (hasUpgrade('custom-rotary-pressure-vane')) mult *= 0.82; // -18% Shot duration
+    return Math.round(2600 * mult);
+  }
+  if (action === 'steam_milk') {
+    const mult =
+      hasUpgrade('dual-pid-boiler') || hasUpgrade('custom-rotary-pressure-vane') ? 0.8 : 1.0; // -20% Steam duration
+    return Math.round(2200 * mult);
+  }
+  if (action === 'steep_tea') {
+    const mult = hasUpgrade('kyoto-glass-tea-siphon') ? 0.8 : 1.0; // -20% Steep duration
+    return Math.round(2200 * mult);
+  }
+  if (action === 'add_ice') {
+    const mult = hasUpgrade('hoshizaki-crystal-ice-forge') ? 0.82 : 1.0;
+    return Math.round(1100 * mult);
+  }
+  if (action === 'add_syrup') {
+    const mult = hasUpgrade('kyoto-glass-tea-siphon') ? 0.85 : 1.0;
+    return Math.round(1100 * mult);
+  }
+  if (action === 'serve_drink') {
+    return 1500;
+  }
+  return 450;
+}
+
 // Determines the next recommended action & station for the smart diegetic halo highlighter
 export function getNextRecommendedStep(
   cup: CupBuildState,
@@ -964,10 +1104,21 @@ export function getNextRecommendedStep(
   targetOrder?: CustomerOrder | null
 ): {
   station: BaristaStationId;
-  toolKey: 'grinder' | 'tamper' | 'espresso' | 'tea' | 'milk' | 'ice' | 'syrup' | 'serve';
+  toolKey: 'grinder' | 'tamper' | 'espresso' | 'tea' | 'milk' | 'ice' | 'syrup' | 'serve' | 'rinse';
   instruction: string;
+  isError?: boolean;
 } {
   const recipe = getEffectiveRecipeForOrder(targetOrder, targetRecipe);
+  const validation = validateDrinkForServe(cup, recipe, targetOrder);
+
+  if (validation.hasWrongIngredient) {
+    return {
+      station: 2,
+      toolKey: 'rinse',
+      instruction: `Wrong addition (${validation.wrongIngredients[0]})! Rinse cup [R] at Sink to restart`,
+      isError: true,
+    };
+  }
 
   if (recipe.needsEspresso) {
     if (!cup.hasGrounds) {
@@ -1169,7 +1320,14 @@ export function performCupAction(
     const step = getNextRecommendedStep(cup, targetRecipe, pinnedOrder);
     activeStation = step.station;
 
-    if (step.toolKey === 'grinder') {
+    if (step.toolKey === 'rinse') {
+      return {
+        ...state,
+        activeStation: 2,
+        currentCup: createEmptyCup(),
+        lastActionFeedback: 'Rinsed cup at Stainless Sink [R] after wrong ingredient.',
+      };
+    } else if (step.toolKey === 'grinder') {
       cup.hasGrounds = true;
       feedback = 'Ground 18g of fresh Arabica beans into the portafilter.';
     } else if (step.toolKey === 'tamper') {
@@ -1213,15 +1371,26 @@ export function performCupAction(
     activeStation = 2;
     feedback = 'Ground 18g of fresh dark-roast beans into portafilter.';
   } else if (action === 'tamp') {
+    // Enforce strict sequential order: cannot tamp without grinding first!
     if (!cup.hasGrounds) {
-      cup.hasGrounds = true;
+      return {
+        ...state,
+        lastActionFeedback: 'Locked! Grind fresh coffee beans at the Burr Grinder [G] before tamping.',
+      };
     }
     cup.isTamped = true;
     activeStation = 2;
-    feedback = 'Tamped grounds level & polished espresso puck surface.';
+    feedback = 'Tamped grounds level & polished espresso puck surface at 30 lbs.';
   } else if (action === 'pull_espresso') {
-    cup.hasGrounds = true;
-    cup.isTamped = true;
+    // Enforce strict sequential order: cannot pull shot without grinding & tamping first!
+    if (!cup.hasGrounds || !cup.isTamped) {
+      return {
+        ...state,
+        lastActionFeedback: !cup.hasGrounds
+          ? 'Locked! Grind fresh beans [G] and tamp the puck [T] before pulling an espresso shot.'
+          : 'Locked! Tamp the coffee grounds [T] on the tamping mat before pulling a shot.',
+      };
+    }
     cup.hasEspresso = true;
     activeStation = 3;
     feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 3 Assembly Coaster.';
@@ -1230,6 +1399,12 @@ export function performCupAction(
     activeStation = 3;
     feedback = 'Steeped artisanal tea leaves & botanical infusion at 80°C on Station 3.';
   } else if (action === 'steam_milk') {
+    if (!cup.hasEspresso && !cup.hasSteepedTea) {
+      return {
+        ...state,
+        lastActionFeedback: 'Locked! Pull an espresso shot [E] or steep tea [B] before steaming milk.',
+      };
+    }
     cup.hasSteamedMilk = true;
     activeStation = 3;
     feedback = 'Steamed silky 65°C microfoam milk & poured Rosetta latte art.';
@@ -1247,6 +1422,17 @@ export function performCupAction(
       syrupFlavor === 'none'
         ? 'Cleared syrup selection.'
         : `Pumped rich ${syrupFlavor} flavor into the cup.`;
+  }
+
+  // Check if the action introduced an unrequested ingredient for the active order
+  const activeOrder =
+    state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
+    state.customers.find((c) => c.state === 'ordering');
+  if (activeOrder) {
+    const check = validateDrinkForServe(cup, getRecipeById(activeOrder.recipeId), activeOrder);
+    if (check.hasWrongIngredient) {
+      feedback = `Wrong addition (${check.wrongIngredients[0]})! Press [R] at the Rinse Sink to restart cup.`;
+    }
   }
 
   return {
@@ -1291,6 +1477,37 @@ export function serveCurrentCupToCustomer(
     orderingCustomers[0];
 
   const recipe = getRecipeById(targetCustomer.recipeId);
+  const validation = validateDrinkForServe(state.currentCup, recipe, targetCustomer);
+
+  // 1. STRICT ANTI-EXPLOIT GUARD: Block premature serving when required steps are missing!
+  if (!validation.isComplete) {
+    return {
+      ...state,
+      lastActionFeedback: `Drink incomplete! Missing: ${validation.missingSteps.join(' & ')}`,
+    };
+  }
+
+  // 2. WRONG INGREDIENT COMPLAINT SYSTEM: If all base steps are done but wrong ingredients were added,
+  // customer complains, refuses to tip ($0), deducts -8% Cafe Vibe/Satisfaction, and leaves upset!
+  if (validation.hasWrongIngredient) {
+    const updatedAfterComplaint = state.customers.map((c) =>
+      c.id === targetCustomer.id
+        ? { ...c, state: 'departing' as CustomerOrder['state'], seatedTimer: 4 }
+        : c
+    );
+    const nextOrderingAfterComplaint = updatedAfterComplaint.find((c) => c.state === 'ordering');
+    const penalizedSatisfaction = Math.max(0, state.satisfactionScore - 8);
+    return {
+      ...state,
+      activeStation: 4,
+      satisfactionScore: penalizedSatisfaction,
+      currentCup: createEmptyCup(),
+      customers: updatedAfterComplaint,
+      pinnedOrderId: nextOrderingAfterComplaint ? nextOrderingAfterComplaint.id : null,
+      lastActionFeedback: `${targetCustomer.customerName}: "Wait—I didn't ask for ${validation.wrongIngredients[0]} in this! Not cool..." (-8% Vibe · $0 Tip)`,
+    };
+  }
+
   const evaluation = evaluateDrinkMatch(state.currentCup, recipe, targetCustomer);
   const payout = calculateDrinkPayout(
     state,
@@ -1324,15 +1541,14 @@ export function serveCurrentCupToCustomer(
     };
   });
 
-  const activePack =
-    state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
-    INITIAL_CUSTOMER_SKIN_PACKS[0];
-
   const remainingOrdering = updatedCustomers.filter((c) => c.state === 'ordering');
-  if (remainingOrdering.length < 3) {
-    updatedCustomers.push(
-      spawnCustomerOrder(state.day, updatedCustomers.length, activePack.paletteColors)
-    );
+  let nextWaveRemaining = state.waveCustomersRemaining ?? 0;
+  let nextSpawnTimer = state.nextCustomerSpawnTimer ?? 5;
+
+  // When a mini-wave of 2-3 customers is completely served, activate a 15-second Wave Breathing Cooldown!
+  if (remainingOrdering.length === 0 && nextWaveRemaining <= 0) {
+    nextWaveRemaining = 3;
+    nextSpawnTimer = 15;
   }
 
   const nextOrdering = updatedCustomers.find((c) => c.state === 'ordering');
@@ -1380,6 +1596,8 @@ export function serveCurrentCupToCustomer(
     cupsServedToday: newCupsToday,
     totalCupsServed: newTotalCups,
     satisfactionScore: newSatisfaction,
+    waveCustomersRemaining: nextWaveRemaining,
+    nextCustomerSpawnTimer: nextSpawnTimer,
     currentCup: createEmptyCup(),
     customers: updatedCustomers,
     equipmentSkins: updatedSkins,
@@ -1592,6 +1810,19 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
   const reward = state.loginRewards.find((r) => r.day === rewardDay);
   if (!reward || reward.claimed) return state;
 
+  // Gate loyalty/login rewards behind verifiable active shift playtime & completed orders!
+  const activeSecs = state.activeShiftSeconds ?? 0;
+  const reqSecs = reward.requiredShiftSeconds ?? 600;
+  const reqOrders = reward.requiredOrdersServed ?? 15;
+  if (activeSecs < reqSecs || state.totalCupsServed < reqOrders) {
+    const minsLeft = Math.max(0, Math.ceil((reqSecs - activeSecs) / 60));
+    const ordersLeft = Math.max(0, reqOrders - state.totalCupsServed);
+    return {
+      ...state,
+      lastActionFeedback: `Locked! Need ${minsLeft}m more active shift play & ${ordersLeft} more served orders to claim ${reward.title}.`,
+    };
+  }
+
   const updatedRewards = state.loginRewards.map((r) =>
     r.day === rewardDay ? { ...r, claimed: true } : r
   );
@@ -1654,15 +1885,27 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
 
   let bonusTableTip = 0;
   let tipMessage: string | null = null;
+  let nextSatisfaction = state.satisfactionScore;
 
   const nextCustomers: CustomerOrder[] = [];
   for (const cust of state.customers) {
     if (cust.state === 'ordering') {
-      const nextPatience = Math.max(12, cust.patience - patienceDecayRate * dt);
-      nextCustomers.push({
-        ...cust,
-        patience: nextPatience,
-      });
+      const nextPatience = Math.max(0, cust.patience - patienceDecayRate * dt);
+      if (nextPatience <= 0 && state.mode !== 'zen') {
+        nextSatisfaction = Math.max(0, nextSatisfaction - 8);
+        tipMessage = `${cust.customerName}: "Took way too long... I have to run!" (-8% Vibe · $0 Tip)`;
+        nextCustomers.push({
+          ...cust,
+          patience: 0,
+          state: 'departing',
+          seatedTimer: 3,
+        });
+      } else {
+        nextCustomers.push({
+          ...cust,
+          patience: nextPatience,
+        });
+      }
     } else if (cust.state === 'seated') {
       const remaining = cust.seatedTimer - dt;
       if (remaining <= 0) {
@@ -1679,6 +1922,14 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
           seatedTimer: remaining,
         });
       }
+    } else if (cust.state === 'departing') {
+      const remaining = cust.seatedTimer - dt;
+      if (remaining > 0) {
+        nextCustomers.push({
+          ...cust,
+          seatedTimer: remaining,
+        });
+      }
     }
   }
 
@@ -1686,11 +1937,38 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
     INITIAL_CUSTOMER_SKIN_PACKS[0];
 
+  // Natural 1-by-1 Customer Arrival & Wave Breathing Cooldown Pacing
   const orderingCount = nextCustomers.filter((c) => c.state === 'ordering').length;
-  if (orderingCount < MAX_QUEUE) {
-    nextCustomers.push(
-      spawnCustomerOrder(state.day, nextCustomers.length + 1, activePack.paletteColors)
+  let waveRemaining = state.waveCustomersRemaining ?? 2;
+  let spawnTimer = (state.nextCustomerSpawnTimer ?? 5) - dt;
+
+  if (orderingCount < MAX_QUEUE && waveRemaining > 0 && spawnTimer <= 0) {
+    const newlyArrived = spawnCustomerOrder(
+      state.day,
+      nextCustomers.length + Math.floor(state.activeShiftSeconds || 0),
+      activePack.paletteColors
     );
+    nextCustomers.push(newlyArrived);
+    waveRemaining -= 1;
+    // 5-second stagger between individual customers in the same wave;
+    // once wave is exhausted, wait until current wave is served for 15s breathing cooldown
+    spawnTimer = waveRemaining > 0 ? 5.5 : 15;
+    if (!tipMessage) {
+      tipMessage = `${newlyArrived.customerName} walked in through the Garage Garden door!`;
+    }
+  } else if (orderingCount === 0 && waveRemaining <= 0 && spawnTimer <= 0) {
+    // Wave breathing cooldown completed -> start a fresh 2-3 customer wave!
+    const firstOfNewWave = spawnCustomerOrder(
+      state.day,
+      nextCustomers.length + 1,
+      activePack.paletteColors
+    );
+    nextCustomers.push(firstOfNewWave);
+    waveRemaining = 2;
+    spawnTimer = 5.5;
+    if (!tipMessage) {
+      tipMessage = `New wave arriving: ${firstOfNewWave.customerName} stepped up to the counter!`;
+    }
   }
 
   let nextShiftTime = state.shiftTimeRemaining;
@@ -1720,8 +1998,12 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     cash: state.cash + bonusTableTip,
     lifetimeGrossIncome: newLifetimeGross,
     dailyRevenue: state.dailyRevenue + bonusTableTip,
+    satisfactionScore: nextSatisfaction,
     equipmentSkins: updatedSkins,
     shiftTimeRemaining: nextShiftTime,
+    activeShiftSeconds: (state.activeShiftSeconds ?? 0) + dt,
+    waveCustomersRemaining: waveRemaining,
+    nextCustomerSpawnTimer: Math.max(0, spawnTimer),
     customers: nextCustomers,
     pinnedOrderId: pinnedExists ? state.pinnedOrderId : fallbackOrder ? fallbackOrder.id : null,
     lastActionFeedback: tipMessage || state.lastActionFeedback,
@@ -1739,8 +2021,6 @@ export function startNextDayShift(state: KlasikGameState): KlasikGameState {
     INITIAL_CUSTOMER_SKIN_PACKS[0];
 
   const c1 = spawnCustomerOrder(nextDay, 1, activePack.paletteColors);
-  const c2 = spawnCustomerOrder(nextDay, 2, activePack.paletteColors);
-  const c3 = spawnCustomerOrder(nextDay, 3, activePack.paletteColors);
 
   return {
     ...state,
@@ -1754,8 +2034,10 @@ export function startNextDayShift(state: KlasikGameState): KlasikGameState {
     quotaBonusAwarded: false,
     cupsServedToday: 0,
     shiftTimeRemaining: SHIFT_SECONDS,
+    waveCustomersRemaining: 2,
+    nextCustomerSpawnTimer: 5,
     currentCup: createEmptyCup(),
-    customers: [c1, c2, c3],
+    customers: [c1],
     pinnedOrderId: c1.id,
     lastActionFeedback: `Day ${nextDay} Shift started! Quota: ${nextQuota} Orders · Target: $${nextGoal}`,
   };
@@ -1787,7 +2069,7 @@ export function loadGameFromStorage(): KlasikGameState | null {
 export function exportSaveJson(state: KlasikGameState): string {
   return JSON.stringify(
     {
-      version: '2.0.0',
+      version: '2.1.0',
       studio: 'BoostedByCaffeine Studios',
       timestamp: new Date().toISOString(),
       data: {
@@ -1797,6 +2079,7 @@ export function exportSaveJson(state: KlasikGameState): string {
         dailyGoal: state.dailyGoal,
         dailyOrderQuota: state.dailyOrderQuota,
         totalCupsServed: state.totalCupsServed,
+        activeShiftSeconds: state.activeShiftSeconds ?? 0,
         satisfactionScore: state.satisfactionScore,
         weather: state.weather,
         graphicsQuality: state.graphicsQuality,
@@ -1874,6 +2157,7 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
           ? d.dailyOrderQuota
           : getDailyOrderQuota(restoredDay),
       totalCupsServed: typeof d.totalCupsServed === 'number' ? d.totalCupsServed : 0,
+      activeShiftSeconds: typeof d.activeShiftSeconds === 'number' ? d.activeShiftSeconds : 0,
       satisfactionScore: typeof d.satisfactionScore === 'number' ? d.satisfactionScore : 100,
       weather: d.weather || base.weather,
       graphicsQuality: d.graphicsQuality || base.graphicsQuality,

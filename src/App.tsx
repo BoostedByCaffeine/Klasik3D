@@ -24,6 +24,7 @@ import {
   getEffectiveRecipeForOrder,
   getNextRecommendedStep,
   getRecipeById,
+  getStepDurationMs,
   loadGameFromStorage,
   performCupAction,
   purchaseUpgrade,
@@ -77,11 +78,15 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [hoveredToolLabel, setHoveredToolLabel] = useState<string | null>(null);
   const [activeAnimLabel, setActiveAnimLabel] = useState<string | null>(null);
+  const [stepProgress, setStepProgress] = useState<number | null>(null);
+  const [stepDurationMs, setStepDurationMs] = useState<number | null>(null);
   const [fps, setFps] = useState<number>(60);
 
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<KlasikCafeScene3D | null>(null);
   const animTimerRef = useRef<number | null>(null);
+  const progressIntervalRef = useRef<number | null>(null);
+  const activeStepActionRef = useRef<string | null>(null);
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
 
@@ -119,15 +124,46 @@ export default function App() {
     };
   }, []);
 
-  const flashAnimBanner = useCallback((label: string, durationMs = 1100) => {
-    setActiveAnimLabel(label);
-    if (animTimerRef.current) {
-      window.clearTimeout(animTimerRef.current);
-    }
-    animTimerRef.current = window.setTimeout(() => {
-      setActiveAnimLabel(null);
-    }, durationMs);
-  }, []);
+  const flashAnimBanner = useCallback(
+    (label: string, durationMs = 1100, actionId: string | null = null) => {
+      setActiveAnimLabel(label);
+      if (animTimerRef.current) {
+        window.clearTimeout(animTimerRef.current);
+      }
+      if (progressIntervalRef.current) {
+        window.clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+
+      if (actionId) {
+        activeStepActionRef.current = actionId;
+        setStepDurationMs(durationMs);
+        setStepProgress(8);
+        const start = performance.now();
+        progressIntervalRef.current = window.setInterval(() => {
+          const elapsed = performance.now() - start;
+          const pct = Math.min(100, Math.round((elapsed / durationMs) * 100));
+          setStepProgress(pct);
+          if (pct >= 100 && progressIntervalRef.current) {
+            window.clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+        }, 60);
+      } else {
+        activeStepActionRef.current = null;
+        setStepProgress(null);
+        setStepDurationMs(null);
+      }
+
+      animTimerRef.current = window.setTimeout(() => {
+        setActiveAnimLabel(null);
+        setStepProgress(null);
+        setStepDurationMs(null);
+        activeStepActionRef.current = null;
+      }, durationMs);
+    },
+    []
+  );
 
   // Handlers stored in refs/callbacks so Three.js scene never re-initializes
   const handleSelectStation = useCallback((station: BaristaStationId) => {
@@ -142,11 +178,40 @@ export default function App() {
   const handleServeCustomer = useCallback(
     (customerId?: string) => {
       soundEngine.init();
-      soundEngine.playCashRegister();
+      if (activeStepActionRef.current === 'serve_drink') {
+        return; // Prevent duplicate spam-clicks while serve handoff is animating
+      }
 
       const prev = gameStateRef.current;
       const next = serveCurrentCupToCustomer(prev, customerId);
+
+      // 1. Check if Serve was BLOCKED due to incomplete drink
+      const wasBlocked =
+        next.cupsServedToday === prev.cupsServedToday &&
+        next.cash === prev.cash &&
+        next.satisfactionScore === prev.satisfactionScore;
+
+      if (wasBlocked) {
+        soundEngine.playErrorThud();
+        setGameState(next);
+        flashAnimBanner(`⚠️ ${next.lastActionFeedback}`, 1600, null);
+        return;
+      }
+
+      // 2. Check if Serve resulted in a Customer Complaint due to wrong ingredient
+      const wasComplaint = next.satisfactionScore < prev.satisfactionScore && next.cash === prev.cash;
+      if (wasComplaint) {
+        soundEngine.playErrorThud();
+        setGameState(next);
+        sceneRef.current?.updateGameState(next);
+        flashAnimBanner(`😠 ${next.lastActionFeedback}`, 2200, null);
+        return;
+      }
+
+      // 3. Valid Completed Drink Served!
+      soundEngine.playCashRegister();
       const earned = Math.max(0, Math.round(next.cash - prev.cash));
+      const serveDuration = getStepDurationMs(prev, 'serve_drink');
       setGameState(next);
 
       // Update scene state immediately so the served customer walks to the Pickup Counter
@@ -156,7 +221,7 @@ export default function App() {
         undefined,
         earned > 0 ? `+$${earned} SERVED!` : 'SERVED!'
       );
-      flashAnimBanner(next.lastActionFeedback, 1550);
+      flashAnimBanner(next.lastActionFeedback, serveDuration, 'serve_drink');
     },
     [flashAnimBanner]
   );
@@ -199,7 +264,9 @@ export default function App() {
           handleServeCustomer();
           return;
         }
-        if (step.toolKey === 'grinder') resolvedStep = 'grind';
+        if (step.toolKey === 'rinse') {
+          resolvedStep = 'rinse_cup';
+        } else if (step.toolKey === 'grinder') resolvedStep = 'grind';
         else if (step.toolKey === 'tamper') resolvedStep = 'tamp';
         else if (step.toolKey === 'espresso') resolvedStep = 'pull_espresso';
         else if (step.toolKey === 'tea') resolvedStep = 'steep_tea';
@@ -213,38 +280,60 @@ export default function App() {
         resolvedStep = action;
       }
 
+      // Anti-spam guard: ignore duplicate clicks on the exact same step while its timed progress is active
+      const stepKey = `${resolvedStep}:${resolvedFlavor || ''}`;
+      if (activeStepActionRef.current === stepKey && action !== 'quick_brew_step') {
+        return;
+      }
+
+      const nextState = performCupAction(curState, action, syrupFlavor);
+
+      // Check if performCupAction locked/rejected an out-of-order step (cup state did not change)
+      const cupUnchanged =
+        JSON.stringify(nextState.currentCup) === JSON.stringify(curState.currentCup) &&
+        resolvedStep !== 'rinse_cup';
+
+      if (cupUnchanged) {
+        soundEngine.playErrorThud();
+        setGameState(nextState);
+        flashAnimBanner(`🔒 ${nextState.lastActionFeedback}`, 1400, null);
+        return;
+      }
+
+      const stepDur = getStepDurationMs(curState, resolvedStep);
+
       if (resolvedStep === 'grind') {
-        soundEngine.playGrind(0.95);
-        flashAnimBanner('Grinding 18g Fresh Dark-Roast Beans...', 1150);
+        soundEngine.playGrind(stepDur / 1000);
+        flashAnimBanner('Grinding 18g Fresh Dark-Roast Beans...', stepDur, stepKey);
       } else if (resolvedStep === 'tamp') {
         soundEngine.playTamp();
-        flashAnimBanner('Tamping Coffee Puck at 30 lbs...', 1050);
+        flashAnimBanner('Tamping Coffee Puck at 30 lbs...', stepDur, stepKey);
       } else if (resolvedStep === 'pull_espresso') {
-        soundEngine.playEspressoPump(1.25);
-        flashAnimBanner('Extracting 9-Bar Double Espresso Shot...', 1400);
+        soundEngine.playEspressoPump(stepDur / 1000);
+        flashAnimBanner('Extracting 9-Bar Double Espresso Shot...', stepDur, stepKey);
       } else if (resolvedStep === 'steep_tea') {
-        soundEngine.playTeaSteep(1.25);
-        flashAnimBanner('Steeping Artisanal Tea & Botanicals at 80°C...', 1300);
+        soundEngine.playTeaSteep(stepDur / 1000);
+        flashAnimBanner('Steeping Artisanal Tea & Botanicals at 80°C...', stepDur, stepKey);
       } else if (resolvedStep === 'steam_milk') {
-        soundEngine.playSteamHiss(1.1);
-        flashAnimBanner('Steaming 65°C Microfoam & Pouring Rosetta Latte Art...', 1400);
+        soundEngine.playSteamHiss(stepDur / 1000);
+        flashAnimBanner('Steaming 65°C Microfoam & Pouring Rosetta Latte Art...', stepDur, stepKey);
       } else if (resolvedStep === 'add_ice') {
         soundEngine.playIceClink();
-        flashAnimBanner('Scooping Crystal Ice Cubes into Cup...', 950);
+        flashAnimBanner('Scooping Crystal Ice Cubes into Cup...', stepDur, stepKey);
       } else if (resolvedStep === 'add_syrup') {
         soundEngine.playSyrupOrWhisk(resolvedFlavor === 'matcha');
         flashAnimBanner(
           resolvedFlavor === 'matcha'
             ? 'Whisking Ceremonial Uji Matcha in Chawan...'
             : `Pumping ${resolvedFlavor || 'Artisan'} Syrup Infusion...`,
-          1050
+          stepDur,
+          stepKey
         );
       } else {
         soundEngine.playCeramicClink(1.0);
-        flashAnimBanner('Rinsed Cup & Knocked Spent Puck into Knock Box', 750);
+        flashAnimBanner('Rinsed Cup & Knocked Spent Puck into Knock Box', stepDur, null);
       }
 
-      const nextState = performCupAction(curState, action, syrupFlavor);
       sceneRef.current?.updateGameState(nextState);
       sceneRef.current?.triggerStepAnimation(resolvedStep, resolvedFlavor);
       setGameState(nextState);
@@ -523,6 +612,8 @@ export default function App() {
           hoveredToolLabel={hoveredToolLabel}
           fps={fps}
           activeAnimLabel={activeAnimLabel}
+          stepProgress={stepProgress}
+          stepDurationMs={stepDurationMs}
           onSelectStation={handleSelectStation}
           onPinOrder={(orderId) =>
             setGameState((prev) => ({ ...prev, pinnedOrderId: orderId }))

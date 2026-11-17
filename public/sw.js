@@ -1,9 +1,17 @@
-const CACHE_NAME = 'klasik-3d-v2.0.0';
+const CACHE_NAME = 'klasik-3d-v2.1.0';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './studiologo.svg'
+  './studiologo.svg',
+  './favicon.ico',
+  './favicon.svg',
+  './favicon-16x16.png',
+  './favicon-32x32.png',
+  './apple-touch-icon.png',
+  './pwa-192x192.png',
+  './pwa-512x512.png',
+  './pwa-maskable-512x512.png'
 ];
 
 self.addEventListener('install', (event) => {

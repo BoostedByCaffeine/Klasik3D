@@ -12,6 +12,8 @@ import {
   getRecipeById,
   getDailyOrderQuota,
   evaluateDrinkMatch,
+  validateDrinkForServe,
+  getStepDurationMs,
   calculateDrinkPayout,
   performCupAction,
   serveCurrentCupToCustomer,
@@ -65,10 +67,23 @@ test('getDailyOrderQuota scales from 30 orders on Day 1 to 50 orders on Day 5+',
   assert.equal(getDailyOrderQuota(8), 50);
 });
 
-test('performCupAction quick_brew_step advances through espresso, milk, and serving with station sync', () => {
+test('performCupAction enforces strict sequential step order and blocks premature serve cash exploit', () => {
   let state = createInitialGameState();
-  assert.equal(state.currentCup.hasGrounds, false);
+  const initialCash = state.cash;
 
+  // 1. Attempting to serve an empty/incomplete cup MUST be blocked with $0 cash awarded!
+  state = serveCurrentCupToCustomer(state);
+  assert.equal(state.cash, initialCash);
+  assert.equal(state.cupsServedToday, 0);
+  assert.ok(state.lastActionFeedback.includes('Drink incomplete!'));
+
+  // 2. Attempting to Tamp or Pull Espresso before Grinding MUST be locked!
+  state = performCupAction(state, 'tamp');
+  assert.equal(state.currentCup.isTamped, false);
+  state = performCupAction(state, 'pull_espresso');
+  assert.equal(state.currentCup.hasEspresso, false);
+
+  // 3. Valid sequential steps via quick_brew_step
   state = performCupAction(state, 'quick_brew_step'); // grind
   assert.equal(state.currentCup.hasGrounds, true);
   assert.equal(state.activeStation, 2);
@@ -83,12 +98,63 @@ test('performCupAction quick_brew_step advances through espresso, milk, and serv
   state = performCupAction(state, 'quick_brew_step'); // steam milk
   assert.equal(state.currentCup.hasSteamedMilk, true);
 
-  const initialCash = state.cash;
   state = performCupAction(state, 'quick_brew_step'); // serve drink -> auto-syncs to Station 4
   assert.equal(state.cupsServedToday, 1);
   assert.equal(state.activeStation, 4);
   assert.ok(state.cash > initialCash);
   assert.deepEqual(state.currentCup, createEmptyCup());
+});
+
+test('validateDrinkForServe and serveCurrentCupToCustomer penalize wrong ingredients with customer complaint, $0 tip, and -8% Vibe', () => {
+  let state = createInitialGameState();
+  const initialCash = state.cash;
+  const initialSatisfaction = state.satisfactionScore;
+
+  // Maya ordered a hot Garage Velvet Latte (no syrup, no ice). Add all base steps + unrequested Chocolate syrup!
+  state.currentCup = {
+    hasGrounds: true,
+    isTamped: true,
+    hasEspresso: true,
+    hasSteepedTea: false,
+    hasSteamedMilk: true,
+    hasIce: false,
+    syrup: 'chocolate',
+  };
+
+  const validation = validateDrinkForServe(
+    state.currentCup,
+    getRecipeById('velvet-latte'),
+    state.customers[0]
+  );
+  assert.equal(validation.isComplete, true);
+  assert.equal(validation.hasWrongIngredient, true);
+
+  // Forcing Serve with a wrong ingredient causes customer complaint, $0 payout, and -8% satisfaction
+  state = serveCurrentCupToCustomer(state);
+  assert.equal(state.cash, initialCash);
+  assert.equal(state.cupsServedToday, 0);
+  assert.equal(state.satisfactionScore, initialSatisfaction - 8);
+  assert.ok(state.lastActionFeedback.includes("Wait—I didn't ask for"));
+});
+
+test('getStepDurationMs scales barista step durations with purchased equipment upgrades', () => {
+  let state = createInitialGameState();
+  assert.equal(getStepDurationMs(state, 'grind'), 1800);
+  assert.equal(getStepDurationMs(state, 'tamp'), 1200);
+  assert.equal(getStepDurationMs(state, 'pull_espresso'), 2600);
+  assert.equal(getStepDurationMs(state, 'steam_milk'), 2200);
+  assert.equal(getStepDurationMs(state, 'steep_tea'), 2200);
+
+  state.cash = 500;
+  state = purchaseUpgrade(state, 'precision-burr-grinder');
+  state = purchaseUpgrade(state, 'dual-pid-boiler');
+  state = purchaseUpgrade(state, 'kyoto-glass-tea-siphon');
+
+  assert.ok(getStepDurationMs(state, 'grind') < 1800);
+  assert.ok(getStepDurationMs(state, 'tamp') < 1200);
+  assert.ok(getStepDurationMs(state, 'pull_espresso') < 2600);
+  assert.ok(getStepDurationMs(state, 'steam_milk') < 2200);
+  assert.ok(getStepDurationMs(state, 'steep_tea') < 2200);
 });
 
 test('performCupAction steep_tea brews Artisanal Tea & Cold Refreshers step-by-step', () => {
@@ -132,10 +198,19 @@ test('Golden Espresso Machine unlocks at 100k gross income and doubles (2x) all 
   assert.equal(goldenPayout.totalPayout, normalPayout.totalPayout * 2);
 });
 
-test('claimLoginReward grants cash, gross income progress, and unlocks special skins', () => {
+test('claimLoginReward blocks premature claiming and grants cash & skins once active shift time and order milestones are met', () => {
   let state = createInitialGameState();
   const initialCash = state.cash;
-  state = claimLoginReward(state, 2); // Day 2 unlocks tokyo-streetwear + $200
+
+  // Attempt to claim Tier 2 before meeting 25m (1500s) active shift play & 45 orders served -> blocked!
+  state = claimLoginReward(state, 2);
+  assert.equal(state.cash, initialCash);
+  assert.ok(state.lastActionFeedback.includes('Locked!'));
+
+  // Meet verifiable playtime & orders milestone
+  state.activeShiftSeconds = 1600;
+  state.totalCupsServed = 50;
+  state = claimLoginReward(state, 2); // Tier 2 unlocks tokyo-streetwear + $200
   assert.equal(state.cash, initialCash + 200);
   const pack = state.customerSkinPacks.find((p) => p.id === 'tokyo-streetwear');
   assert.equal(pack?.unlocked, true);
@@ -193,11 +268,12 @@ test('purchaseUpgrade deducts cash and marks upgrade as purchased', () => {
   assert.equal(nextState.cash, 65);
 });
 
-test('exportSaveJson and importSaveJson round-trip game state, lifetimeGrossIncome, and equipped skins accurately', () => {
+test('exportSaveJson and importSaveJson round-trip game state, lifetimeGrossIncome, activeShiftSeconds, and equipped skins accurately', () => {
   let state = createInitialGameState();
   state.day = 4;
   state.cash = 148;
   state.lifetimeGrossIncome = 105000;
+  state.activeShiftSeconds = 1850;
   state.equippedMachineSkin = 'golden-espresso-machine';
   state.dailyOrderQuota = 45;
   state.decor.counterWood = 'white-oak';
@@ -207,6 +283,7 @@ test('exportSaveJson and importSaveJson round-trip game state, lifetimeGrossInco
   assert.equal(restored.day, 4);
   assert.equal(restored.cash, 148);
   assert.equal(restored.lifetimeGrossIncome, 105000);
+  assert.equal(restored.activeShiftSeconds, 1850);
   assert.equal(restored.equippedMachineSkin, 'golden-espresso-machine');
   assert.equal(restored.dailyOrderQuota, 45);
   assert.equal(restored.decor.counterWood, 'white-oak');

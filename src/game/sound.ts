@@ -499,6 +499,38 @@ class SoundEngine {
     osc.stop(now + 0.11);
   }
 
+  // Gentle wooden/ceramic error thud when a serve is blocked or step is out-of-order
+  public playErrorThud() {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc1.type = 'triangle';
+    osc2.type = 'sine';
+    osc1.frequency.setValueAtTime(160, now);
+    osc1.frequency.exponentialRampToValueAtTime(72, now + 0.19);
+    osc2.frequency.setValueAtTime(115, now + 0.06);
+    osc2.frequency.exponentialRampToValueAtTime(58, now + 0.22);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc1.start(now);
+    osc2.start(now + 0.06);
+    osc1.stop(now + 0.24);
+    osc2.stop(now + 0.25);
+  }
+
   // Environmental Ambience Controller (Rain on Skylight, Garden Birdsong, Cozy Cafe Chatter)
   public setRainAmbience(enabled: boolean, weather: WeatherMode = 'morning') {
     const ctx = this.ensureContext();

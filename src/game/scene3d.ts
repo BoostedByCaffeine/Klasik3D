@@ -63,27 +63,27 @@ interface StationCameraPreset {
   look: THREE.Vector3;
 }
 
-// Re-spaced camera presets matching the non-overlapping X-zones (-2.20 to +2.35)
+// Re-spaced camera presets matching the non-overlapping X-zones (-2.35 to +2.52)
 const STATION_CAMERAS: Record<BaristaStationId, StationCameraPreset> = {
   1: {
-    pos: new THREE.Vector3(-1.82, 1.64, 1.92),
-    look: new THREE.Vector3(-1.72, 1.24, -0.75),
+    pos: new THREE.Vector3(-1.92, 1.64, 1.92),
+    look: new THREE.Vector3(-1.85, 1.24, -0.75),
   },
   2: {
-    pos: new THREE.Vector3(-0.42, 1.6, 1.82),
-    look: new THREE.Vector3(-0.42, 1.16, 0.05),
+    pos: new THREE.Vector3(-0.36, 1.6, 1.82),
+    look: new THREE.Vector3(-0.36, 1.16, 0.05),
   },
   3: {
-    pos: new THREE.Vector3(0.95, 1.6, 1.82),
-    look: new THREE.Vector3(0.95, 1.16, 0.08),
+    pos: new THREE.Vector3(1.04, 1.6, 1.82),
+    look: new THREE.Vector3(1.04, 1.16, 0.08),
   },
   4: {
-    pos: new THREE.Vector3(-1.15, 1.66, 1.88),
-    look: new THREE.Vector3(-1.05, 1.14, -1.65),
+    pos: new THREE.Vector3(-1.25, 1.66, 1.88),
+    look: new THREE.Vector3(-1.25, 1.14, -1.65),
   },
   5: {
-    pos: new THREE.Vector3(1.98, 1.56, 1.62),
-    look: new THREE.Vector3(2.05, 1.15, 0.12),
+    pos: new THREE.Vector3(2.04, 1.56, 1.62),
+    look: new THREE.Vector3(2.1, 1.15, 0.12),
   },
 };
 
@@ -211,6 +211,8 @@ export class KlasikCafeScene3D {
   private container: HTMLElement;
   private callbacks: SceneInteractionCallbacks;
   private isSoftwareGl: boolean;
+  private isMobileDevice: boolean;
+  private resizeObserver: ResizeObserver | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -282,8 +284,8 @@ export class KlasikCafeScene3D {
   private currentLiquidMilk = 0;
   private currentLiquidColor = new THREE.Color(0x3b1d0e);
   private currentCremaColor = new THREE.Color(0xd98a3c);
-  private cupCurrentPos = new THREE.Vector3(-0.19, 1.055, 0.34);
-  private cupTargetPos = new THREE.Vector3(-0.19, 1.055, 0.34);
+  private cupCurrentPos = new THREE.Vector3(-0.16, 1.055, 0.30);
+  private cupTargetPos = new THREE.Vector3(-0.16, 1.055, 0.30);
 
   private activeCupDrizzleRing!: THREE.Mesh;
   private activeCupIceGroup!: THREE.Group;
@@ -358,7 +360,11 @@ export class KlasikCafeScene3D {
     this.spotifyState = initialSpotifyState;
     this.callbacks = callbacks;
 
-    // 1. Software-WebGL Guard detection
+    // 1. Software-WebGL & Mobile GPU detection (for locked 60 FPS on Android)
+    this.isMobileDevice =
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+      window.innerWidth <= 960;
+
     this.isSoftwareGl = (() => {
       try {
         const probeCanvas = document.createElement('canvas');
@@ -374,19 +380,14 @@ export class KlasikCafeScene3D {
       }
     })();
 
-    // 2. WebGLRenderer Initialization
+    // 2. WebGLRenderer Initialization (Optimized for Mobile & Desktop)
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !this.isSoftwareGl,
+      antialias: !this.isSoftwareGl && !this.isMobileDevice,
       powerPreference: 'high-performance',
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.setPixelRatio(
-      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio || 1, 2)
-    );
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const { width, height } = this.getEffectiveLandscapeDimensions();
     this.renderer.setSize(width, height);
@@ -398,8 +399,8 @@ export class KlasikCafeScene3D {
     this.scene.fog = new THREE.FogExp2(0x1a120e, 0.042);
 
     this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 60);
-    this.camera.position.set(0.15, 1.42, 1.45);
-    this.camera.lookAt(0.05, 1.12, 0.15);
+    this.camera.position.set(2.02, 1.32, 1.18);
+    this.camera.lookAt(-0.85, 0.82, -1.35);
 
     // 4. Studio Environment Map Reflection (RoomEnvironment + PMREMGenerator)
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -423,7 +424,8 @@ export class KlasikCafeScene3D {
     this.buildPooledParticles();
     this.scene.add(this.customersRoot);
 
-    // Sync initial state
+    // Sync initial state & graphics quality
+    this.updateGraphicsQuality();
     this.applyWeatherLighting(this.gameState.weather);
     this.updateDecorMaterials();
     this.updateActiveCupVisuals();
@@ -437,6 +439,43 @@ export class KlasikCafeScene3D {
 
     this.bindEvents();
     this.startLoop();
+  }
+
+  private shouldUsePhysicalTransmission(): boolean {
+    return (
+      !this.isSoftwareGl &&
+      !this.isMobileDevice &&
+      this.gameState.graphicsQuality === 'high'
+    );
+  }
+
+  private updateGraphicsQuality() {
+    const quality = this.gameState.graphicsQuality || 'auto';
+    const dpr = window.devicePixelRatio || 1;
+    let targetRatio = 1.0;
+
+    if (this.isSoftwareGl || quality === 'low') {
+      targetRatio = 1.0;
+    } else if (quality === 'auto') {
+      targetRatio = this.isMobileDevice ? 1.0 : Math.min(dpr, 1.35);
+    } else {
+      targetRatio = Math.min(dpr, this.isMobileDevice ? 1.25 : 1.5);
+    }
+
+    this.renderer.setPixelRatio(targetRatio);
+    const enableShadows = !this.isSoftwareGl && quality !== 'low' && (!this.isMobileDevice || quality === 'high');
+    this.renderer.shadowMap.enabled = enableShadows;
+    this.renderer.shadowMap.type =
+      quality === 'high' && !this.isMobileDevice
+        ? THREE.PCFSoftShadowMap
+        : THREE.PCFShadowMap;
+
+    if (this.sunLight) {
+      this.sunLight.castShadow = enableShadows;
+    }
+
+    const { width, height } = this.getEffectiveLandscapeDimensions();
+    this.renderer.setSize(width, height);
   }
 
   private getEffectiveLandscapeDimensions(): {
@@ -1296,9 +1335,9 @@ export class KlasikCafeScene3D {
   // Detailed Procedural 1990 Mazda Miata MX-5 (NA Generation) parked in the Garage Showroom Bay
   private buildMazdaMiata1990(parentGroup: THREE.Group) {
     this.miataGroup = new THREE.Group();
-    // Parked at a 3/4 heroic showroom angle in the center-right Garage Showroom Bay
-    this.miataGroup.position.set(0.75, 0.0, -3.35);
-    this.miataGroup.rotation.y = -0.48;
+    // Parked at a 3/4 heroic showroom angle in the Left Garage Showroom Bay (-3.4, 0.0, -3.6)
+    this.miataGroup.position.set(-3.4, 0.0, -3.6);
+    this.miataGroup.rotation.y = 0.52;
 
 
 
@@ -1667,14 +1706,15 @@ export class KlasikCafeScene3D {
     this.miataGroup.add(rollBarMain);
 
     // Raked Glass Windshield with Chrome/Black A-Pillars
+    const useTrans = this.shouldUsePhysicalTransmission();
     const windshieldGlass = new THREE.Mesh(
       new THREE.PlaneGeometry(1.26, 0.48),
       new THREE.MeshPhysicalMaterial({
         color: 0xe0f2fe,
         roughness: 0.08,
-        transmission: this.isSoftwareGl ? 0 : 0.82,
+        transmission: useTrans ? 0.82 : 0,
         transparent: true,
-        opacity: this.isSoftwareGl ? 0.36 : 0.88,
+        opacity: useTrans ? 0.88 : 0.36,
         side: THREE.DoubleSide,
       })
     );
@@ -1951,7 +1991,7 @@ export class KlasikCafeScene3D {
     posDisplay.rotation.x = -0.35;
     registerGroup.add(posDisplay);
 
-    registerGroup.position.set(-2.24, 1.0, 0.28);
+    registerGroup.position.set(-2.35, 1.0, 0.26);
     this.registerInteractiveTool(
       'register',
       registerGroup,
@@ -1961,7 +2001,7 @@ export class KlasikCafeScene3D {
     );
     st1Group.add(registerGroup);
 
-    // 2. Glass Pastry Display Case at x = -1.78, z = 0.24 (Spans -1.95..-1.61, zero collision with Station 4 Bell at -1.32!)
+    // 2. Artisan Glass Pastry Display Case at x = -1.86, y = 1.0, z = 0.22 (width 0.34m, spans -2.03..-1.69, zero collision with Pickup Bell at -1.48!)
     const pastryCaseGroup = new THREE.Group();
     const caseBase = new THREE.Mesh(
       new THREE.BoxGeometry(0.34, 0.06, 0.3),
@@ -1970,12 +2010,13 @@ export class KlasikCafeScene3D {
     caseBase.position.y = 0.03;
     pastryCaseGroup.add(caseBase);
 
+    const useTrans = this.shouldUsePhysicalTransmission();
     const glassCaseMat = new THREE.MeshPhysicalMaterial({
       color: 0xfffbeb,
       roughness: 0.08,
-      transmission: this.isSoftwareGl ? 0 : 0.8,
+      transmission: useTrans ? 0.8 : 0,
       transparent: true,
-      opacity: this.isSoftwareGl ? 0.32 : 0.88,
+      opacity: useTrans ? 0.88 : 0.34,
     });
     const glassHood = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.28), glassCaseMat);
     glassHood.position.y = 0.17;
@@ -2004,7 +2045,7 @@ export class KlasikCafeScene3D {
       pastryCaseGroup.add(matchaTart);
     });
 
-    pastryCaseGroup.position.set(-1.78, 1.0, 0.24);
+    pastryCaseGroup.position.set(-1.86, 1.0, 0.22);
     st1Group.add(pastryCaseGroup);
 
     // 3. Overhead Hanging Order Tickets (x = -2.28 to -1.68, y = 1.82) with Dynamic CanvasTextures
@@ -2133,13 +2174,14 @@ export class KlasikCafeScene3D {
     chute.position.set(0, 0.27, 0.12);
     this.grinderGroup.add(chute);
 
+    const useTrans = this.shouldUsePhysicalTransmission();
     const hopperGlassMat = new THREE.MeshPhysicalMaterial({
       color: 0xfffbeb,
       roughness: 0.08,
       metalness: 0,
-      transmission: this.isSoftwareGl ? 0 : 0.78,
+      transmission: useTrans ? 0.78 : 0,
       transparent: true,
-      opacity: this.isSoftwareGl ? 0.38 : 0.92,
+      opacity: useTrans ? 0.92 : 0.38,
     });
     const hopper = new THREE.Mesh(
       new THREE.CylinderGeometry(0.155, 0.095, 0.24, 24),
@@ -2187,7 +2229,7 @@ export class KlasikCafeScene3D {
     this.groundStreamGroup.visible = false;
     this.grinderGroup.add(this.groundStreamGroup);
 
-    this.grinderGroup.position.set(-0.82, 1.0, 0.22);
+    this.grinderGroup.position.set(-0.78, 1.0, 0.22);
     this.registerInteractiveTool(
       'grinder',
       this.grinderGroup,
@@ -2197,7 +2239,7 @@ export class KlasikCafeScene3D {
     );
     st2Group.add(this.grinderGroup);
 
-    // 3. Silicone Tamping Mat & Calibrated Tamper at x = -0.52, z = 0.36
+    // 3. Silicone Tamping Mat & Calibrated Tamper at x = -0.48, y = 1.0, z = 0.36
     const tampStationGroup = new THREE.Group();
     const siliconeMat = new THREE.Mesh(
       new THREE.BoxGeometry(0.28, 0.02, 0.24),
@@ -2237,7 +2279,7 @@ export class KlasikCafeScene3D {
     this.tampPressureRingMesh.visible = false;
     tampStationGroup.add(this.tampPressureRingMesh);
 
-    tampStationGroup.position.set(-0.52, 1.0, 0.36);
+    tampStationGroup.position.set(-0.48, 1.0, 0.36);
     this.registerInteractiveTool(
       'tamper',
       tampStationGroup,
@@ -2305,10 +2347,10 @@ export class KlasikCafeScene3D {
     this.tampedPuckMesh.visible = false;
     this.portafilterGroup.add(this.tampedPuckMesh);
 
-    this.portafilterGroup.position.set(-0.47, 1.05, 0.37);
+    this.portafilterGroup.position.set(-0.43, 1.05, 0.37);
     st2Group.add(this.portafilterGroup);
 
-    // 5. Commercial Dual-Boiler Espresso Machine at x = -0.05, z = 0.18 with Open Front Brewing Bay
+    // 5. Commercial Dual-Boiler Espresso Machine at x = -0.02, y = 1.0, z = 0.16 (drip tray grate at z = 0.30)
     const espressoGroup = new THREE.Group();
     // Rear Boiler Cabinet (leaves z = +0.02..+0.26 open above the drip tray for cups!)
     const mainChassis = new THREE.Mesh(
@@ -2476,7 +2518,7 @@ export class KlasikCafeScene3D {
     this.espressoStreamsGroup.visible = false;
     espressoGroup.add(this.espressoStreamsGroup);
 
-    espressoGroup.position.set(-0.05, 1.0, 0.18);
+    espressoGroup.position.set(-0.02, 1.0, 0.16);
     this.registerInteractiveTool(
       'espresso',
       espressoGroup,
@@ -2486,7 +2528,7 @@ export class KlasikCafeScene3D {
     );
     st2Group.add(espressoGroup);
 
-    // 6. Stainless Rinse Sink at x = 0.32, z = 0.28
+    // 6. Stainless Rinse Sink at x = 0.36, y = 1.0, z = 0.26
     const sinkGroup = new THREE.Group();
     const sinkRim = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.24), brushedSteelMat);
     sinkRim.position.y = 0.012;
@@ -2503,7 +2545,7 @@ export class KlasikCafeScene3D {
     faucetArch.position.set(0, 0.09, -0.07);
     sinkGroup.add(faucetArch);
 
-    sinkGroup.position.set(0.32, 1.0, 0.28);
+    sinkGroup.position.set(0.36, 1.0, 0.26);
     this.registerInteractiveTool(
       'sink',
       sinkGroup,
@@ -2511,6 +2553,7 @@ export class KlasikCafeScene3D {
       2,
       () => this.callbacks.onToolAction('rinse_cup')
     );
+    this.toolGroups.set('rinse', sinkGroup);
     st2Group.add(sinkGroup);
 
     // 7. Active Barista Cup with Dynamic Custom ShaderMaterial Liquid + Procedural Crema
@@ -2550,7 +2593,7 @@ export class KlasikCafeScene3D {
     const iceMat = new THREE.MeshPhysicalMaterial({
       color: 0xe0f2fe,
       roughness: 0.08,
-      transmission: this.isSoftwareGl ? 0 : 0.88,
+      transmission: useTrans ? 0.88 : 0,
       transparent: true,
       opacity: 0.8,
     });
@@ -2588,7 +2631,7 @@ export class KlasikCafeScene3D {
       metalness: 0.88,
     });
 
-    // 1. Dedicated Drink Assembly Mat / Coaster at x = 0.62, z = 0.38 (Completely clear of Ice Bin & Teapot!)
+    // 1. Dedicated Drink Assembly Mat / Coaster at x = 0.78, y = 1.0, z = 0.38
     const assemblyCoasterGroup = new THREE.Group();
     const coasterDisc = new THREE.Mesh(
       new THREE.CylinderGeometry(0.11, 0.115, 0.016, 24),
@@ -2605,10 +2648,10 @@ export class KlasikCafeScene3D {
     coasterBrassInlay.position.y = 0.017;
     assemblyCoasterGroup.add(coasterBrassInlay);
 
-    assemblyCoasterGroup.position.set(0.62, 1.0, 0.38);
+    assemblyCoasterGroup.position.set(0.78, 1.0, 0.38);
     st3Group.add(assemblyCoasterGroup);
 
-    // 1b. Kyoto Borosilicate Glass Teapot & Botanical Infuser at x = 0.62, z = 0.14
+    // 1b. Kyoto Borosilicate Glass Teapot & Botanical Infuser at x = 0.78, y = 1.0, z = 0.14
     this.teaPotGroup = new THREE.Group();
     const teapotWarmerBase = new THREE.Mesh(
       new THREE.CylinderGeometry(0.075, 0.082, 0.025, 20),
@@ -2617,12 +2660,13 @@ export class KlasikCafeScene3D {
     teapotWarmerBase.position.y = 0.0125;
     this.teaPotGroup.add(teapotWarmerBase);
 
+    const useTrans = this.shouldUsePhysicalTransmission();
     const teapotGlassMat = new THREE.MeshPhysicalMaterial({
       color: 0xecfccb,
       roughness: 0.1,
-      transmission: this.isSoftwareGl ? 0 : 0.78,
+      transmission: useTrans ? 0.78 : 0,
       transparent: true,
-      opacity: this.isSoftwareGl ? 0.45 : 0.88,
+      opacity: useTrans ? 0.88 : 0.45,
     });
     const teapotBelly = new THREE.Mesh(
       new THREE.SphereGeometry(0.078, 20, 16),
@@ -2667,7 +2711,7 @@ export class KlasikCafeScene3D {
     teapotHandle.position.set(0, 0.088, -0.072);
     this.teaPotGroup.add(teapotHandle);
 
-    this.teaPotGroup.position.set(0.62, 1.0, 0.14);
+    this.teaPotGroup.position.set(0.78, 1.0, 0.14);
     this.registerInteractiveTool(
       'tea',
       this.teaPotGroup,
@@ -2688,7 +2732,7 @@ export class KlasikCafeScene3D {
     this.teaPourStreamMesh.visible = false;
     st3Group.add(this.teaPourStreamMesh);
 
-    // 2. Stainless Milk Pitcher at x = 0.44, z = 0.36
+    // 2. Stainless Milk Pitcher at x = 0.56, y = 1.0, z = 0.36
     this.milkPitcherGroup = new THREE.Group();
     const pitcherBody = new THREE.Mesh(
       new THREE.CylinderGeometry(0.064, 0.076, 0.175, 24, 1, true),
@@ -2736,7 +2780,7 @@ export class KlasikCafeScene3D {
     tempBand.position.y = 0.062;
     this.milkPitcherGroup.add(tempBand);
 
-    this.milkPitcherGroup.position.set(0.44, 1.0, 0.36);
+    this.milkPitcherGroup.position.set(0.56, 1.0, 0.36);
     this.registerInteractiveTool(
       'milk',
       this.milkPitcherGroup,
@@ -2757,7 +2801,7 @@ export class KlasikCafeScene3D {
     this.milkPourStreamMesh.visible = false;
     st3Group.add(this.milkPourStreamMesh);
 
-    // 3. Recessed Polycarbonate Ice Bin at x = 0.85, z = 0.16 (Flush with counter back, zero overlap with Coaster at z = 0.38!)
+    // 3. Recessed Polycarbonate Ice Bin at x = 0.98, y = 1.0, z = 0.16
     const iceBinGroup = new THREE.Group();
     const binRim = new THREE.Mesh(
       new THREE.BoxGeometry(0.28, 0.035, 0.22),
@@ -2806,7 +2850,7 @@ export class KlasikCafeScene3D {
     this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
     iceBinGroup.add(this.iceScoopGroup);
 
-    iceBinGroup.position.set(0.85, 1.0, 0.16);
+    iceBinGroup.position.set(0.98, 1.0, 0.16);
     this.registerInteractiveTool(
       'ice',
       iceBinGroup,
@@ -2816,12 +2860,12 @@ export class KlasikCafeScene3D {
     );
     st3Group.add(iceBinGroup);
 
-    // 4. Tiered Wooden Syrup Rack at x = 1.22, z = 0.18 (Vanilla, Caramel, Chocolate)
+    // 4. Tiered Wooden Syrup Rack at x = 1.32, y = 1.0, z = 0.18 (Vanilla, Caramel, Chocolate)
     const rackStep = new THREE.Mesh(
-      new THREE.BoxGeometry(0.46, 0.045, 0.18),
+      new THREE.BoxGeometry(0.42, 0.045, 0.18),
       this.counterWoodMat
     );
-    rackStep.position.set(1.22, 1.022, 0.18);
+    rackStep.position.set(1.32, 1.022, 0.18);
     st3Group.add(rackStep);
 
     const syrups: Array<{
@@ -2842,7 +2886,7 @@ export class KlasikCafeScene3D {
         color: 0xfde68a,
         bgHex: '#fef9c3',
         borderHex: '#d97706',
-        x: 1.08,
+        x: 1.20,
       },
       {
         flavor: 'caramel',
@@ -2852,7 +2896,7 @@ export class KlasikCafeScene3D {
         color: 0xd97706,
         bgHex: '#ffedd5',
         borderHex: '#b45309',
-        x: 1.22,
+        x: 1.32,
       },
       {
         flavor: 'chocolate',
@@ -2862,7 +2906,7 @@ export class KlasikCafeScene3D {
         color: 0x451a03,
         bgHex: '#f5f5f4',
         borderHex: '#78350f',
-        x: 1.36,
+        x: 1.44,
       },
     ];
 
@@ -2929,7 +2973,7 @@ export class KlasikCafeScene3D {
       st3Group.add(bottleGroup);
     });
 
-    // 5. Ceramic Matcha Chawan Bowl & Bamboo Whisk at x = 1.48, z = 0.34
+    // 5. Ceramic Matcha Chawan Bowl & Bamboo Whisk at x = 1.56, y = 1.0, z = 0.36
     const matchaGroup = new THREE.Group();
     const chawanMat = new THREE.MeshStandardMaterial({
       color: 0x292524,
@@ -2969,7 +3013,7 @@ export class KlasikCafeScene3D {
     this.matchaWhiskGroup.add(whiskTines);
 
     matchaGroup.add(this.matchaWhiskGroup);
-    matchaGroup.position.set(1.48, 1.0, 0.34);
+    matchaGroup.position.set(1.56, 1.0, 0.36);
     this.registerInteractiveTool(
       'syrup-matcha',
       matchaGroup,
@@ -2999,10 +3043,10 @@ export class KlasikCafeScene3D {
       metalness: 0.9,
     });
 
-    // 1. Elevated Walnut Pickup Coaster & Brass Service Bell at x = -1.35, z = 0.12 (Front Counter Edge)
+    // 1. Elevated Walnut Pickup Coaster at (-1.32, 1.0, 0.34) & Brass Service Bell at (-1.48, 1.0, 0.38)
     const serveTrayGroup = new THREE.Group();
     const trayBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.16, 0.03, 24),
+      new THREE.CylinderGeometry(0.14, 0.15, 0.03, 24),
       this.counterWoodMat
     );
     trayBase.position.y = 0.015;
@@ -3012,7 +3056,7 @@ export class KlasikCafeScene3D {
       new THREE.SphereGeometry(0.034, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
       brassMat
     );
-    bellDome.position.set(0.11, 0.03, 0.02);
+    bellDome.position.set(-0.16, 0.03, 0.04);
     serveTrayGroup.add(bellDome);
 
     // Expanding Golden Bell Ring Ripple Mesh
@@ -3026,7 +3070,7 @@ export class KlasikCafeScene3D {
       })
     );
     this.bellRippleRingMesh.rotation.x = -Math.PI / 2;
-    this.bellRippleRingMesh.position.set(0.11, 0.065, 0.02);
+    this.bellRippleRingMesh.position.set(-0.16, 0.065, 0.04);
     this.bellRippleRingMesh.visible = false;
     serveTrayGroup.add(this.bellRippleRingMesh);
 
@@ -3037,7 +3081,7 @@ export class KlasikCafeScene3D {
     this.ghostCupMesh.position.y = 0.095;
     serveTrayGroup.add(this.ghostCupMesh);
 
-    serveTrayGroup.position.set(-1.32, 1.0, 0.2);
+    serveTrayGroup.position.set(-1.32, 1.0, 0.34);
     this.registerInteractiveTool(
       'serve',
       serveTrayGroup,
@@ -3249,7 +3293,7 @@ export class KlasikCafeScene3D {
     tabletScreen.rotation.x = -0.45;
     tabletGroup.add(tabletScreen);
 
-    tabletGroup.position.set(1.78, 1.0, 0.32);
+    tabletGroup.position.set(1.84, 1.0, 0.32);
     this.registerInteractiveTool(
       'upgrade-tablet',
       tabletGroup,
@@ -3259,7 +3303,7 @@ export class KlasikCafeScene3D {
     );
     st5Group.add(tabletGroup);
 
-    // 2. 3D Vinyl Turntable + Album Sleeve Stand at x = 2.15, z = 0.24
+    // 2. 3D Vinyl Turntable + Album Sleeve Stand at x = 2.22, y = 1.0, z = 0.24
     const turntableGroup = new THREE.Group();
     const plinth = new THREE.Mesh(
       new THREE.BoxGeometry(0.46, 0.065, 0.38),
@@ -3344,7 +3388,7 @@ export class KlasikCafeScene3D {
 
     turntableGroup.add(this.vinylTonearmPivot);
 
-    turntableGroup.position.set(2.15, 1.0, 0.24);
+    turntableGroup.position.set(2.22, 1.0, 0.24);
     this.registerInteractiveTool(
       'vinyl-turntable',
       turntableGroup,
@@ -3367,7 +3411,7 @@ export class KlasikCafeScene3D {
     this.vinylSleeveMesh.rotation.x = -0.18;
     sleeveStandGroup.add(this.vinylSleeveMesh);
 
-    sleeveStandGroup.position.set(2.48, 1.0, 0.12);
+    sleeveStandGroup.position.set(2.52, 1.0, 0.12);
     sleeveStandGroup.rotation.y = -0.45;
     this.registerInteractiveTool(
       'vinyl-sleeve',
@@ -3851,14 +3895,14 @@ export class KlasikCafeScene3D {
       }
     }
 
-    let orderingSlot = 0;
     this.gameState.customers.forEach((cust, idx) => {
       let actor = this.customerActors.get(cust.id);
       if (!actor) {
         const seed =
           cust.customerName.charCodeAt(0) + cust.customerName.length * 7 + idx * 13;
         const built = this.createCustomerCharacter(seed, cust.avatarColor, cust.shirtColor);
-        const startPos = new THREE.Vector3(-1.95 + orderingSlot * 0.72, 0, -1.55);
+        // Spawn arriving customers at the cafe entrance door (-4.2, 0, -4.5) so they walk in 1-by-1
+        const startPos = new THREE.Vector3(-4.2, 0, -4.5);
         built.group.position.copy(startPos);
         this.customersRoot.add(built.group);
         actor = {
@@ -3871,7 +3915,6 @@ export class KlasikCafeScene3D {
       if (cust.state === 'ordering') {
         actor.heldCup.visible = false;
         actor.activitySprite.visible = false;
-        orderingSlot++;
       } else {
         const isPickingUpStage1 =
           this.stepAnim?.type === 'serve_drink' &&
@@ -3896,7 +3939,7 @@ export class KlasikCafeScene3D {
       add_ice: 1.15,
       add_syrup: 1.2,
       rinse_cup: 0.75,
-      serve_drink: 1.65,
+      serve_drink: 1.5,
     };
 
     let servedCustomerId: string | undefined;
@@ -3905,7 +3948,7 @@ export class KlasikCafeScene3D {
       const newestSeated = seatedList[seatedList.length - 1] || this.gameState.customers[0];
       servedCustomerId = newestSeated?.id;
       this.activePickupCustomerId = servedCustomerId || null;
-      this.serveReachTimer = 1.65;
+      this.serveReachTimer = 1.5;
     }
 
     this.stepAnim = {
@@ -3932,8 +3975,12 @@ export class KlasikCafeScene3D {
 
   public updateGameState(newState: KlasikGameState) {
     const prevWeather = this.gameState.weather;
+    const prevQuality = this.gameState.graphicsQuality;
     this.gameState = newState;
 
+    if (prevQuality !== newState.graphicsQuality) {
+      this.updateGraphicsQuality();
+    }
     if (prevWeather !== newState.weather) {
       this.applyWeatherLighting(newState.weather);
     }
@@ -4122,11 +4169,11 @@ export class KlasikCafeScene3D {
       this.gameState.activeStation === 3;
 
     if (this.gameState.activeStation === 4 && hasAnyLiquid) {
-      this.cupTargetPos.set(-1.32, 1.03, 0.2);
+      this.cupTargetPos.set(-1.32, 1.03, 0.34);
     } else if (isStageB) {
-      this.cupTargetPos.set(0.62, 1.01, 0.38);
+      this.cupTargetPos.set(0.78, 1.01, 0.38);
     } else {
-      this.cupTargetPos.set(-0.19, 1.055, 0.34);
+      this.cupTargetPos.set(-0.16, 1.055, 0.30);
     }
 
     this.ghostCupMesh.visible = hasAnyLiquid && this.gameState.phase === 'playing';
@@ -4219,6 +4266,10 @@ export class KlasikCafeScene3D {
     );
 
     window.addEventListener('resize', this.handleResize);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.handleResize());
+      this.resizeObserver.observe(this.container);
+    }
   }
 
   public resetCameraOffsets() {
@@ -4365,7 +4416,7 @@ export class KlasikCafeScene3D {
     const damp = 1 - Math.exp(-16.0 * dt);
 
     // Reset default rest transforms
-    this.grinderGroup.position.set(-0.82, 1.0, 0.22);
+    this.grinderGroup.position.set(-0.78, 1.0, 0.22);
     this.groundStreamGroup.visible = false;
     this.tampPressureRingMesh.visible = false;
     this.espressoStreamsGroup.visible = false;
@@ -4379,9 +4430,9 @@ export class KlasikCafeScene3D {
     this.tamperMeshGroup.position.set(-0.075, 0.02, -0.02);
     this.tamperMeshGroup.rotation.set(0, 0, 0);
 
-    this.milkPitcherGroup.position.set(0.44, 1.0, 0.36);
+    this.milkPitcherGroup.position.set(0.56, 1.0, 0.36);
     this.milkPitcherGroup.rotation.set(0, 0, 0);
-    this.teaPotGroup.position.set(0.62, 1.0, 0.14);
+    this.teaPotGroup.position.set(0.78, 1.0, 0.14);
     this.teaPotGroup.rotation.set(0, 0, 0);
     this.steamWandPivot.rotation.set(0, 0, 0);
     this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
@@ -4395,10 +4446,10 @@ export class KlasikCafeScene3D {
 
     const cup = this.gameState.currentCup;
     if (cup.hasEspresso) {
-      this.portafilterGroup.position.set(-0.19, 1.26, 0.34);
+      this.portafilterGroup.position.set(-0.16, 1.26, 0.32);
       this.portafilterGroup.rotation.set(0, 0, 0);
     } else {
-      this.portafilterGroup.position.set(-0.47, 1.05, 0.37);
+      this.portafilterGroup.position.set(-0.43, 1.05, 0.37);
       this.portafilterGroup.rotation.set(0, 0, 0);
     }
 
@@ -4420,7 +4471,7 @@ export class KlasikCafeScene3D {
     if (this.serveReachTimer > 0) {
       this.serveReachTimer = Math.max(0, this.serveReachTimer - dt);
       this.heartParticlesGroup.visible = true;
-      const hp = 1 - this.serveReachTimer / 1.65;
+      const hp = 1 - this.serveReachTimer / 1.5;
       this.heartParticlesGroup.position.set(-1.35, 1.75 + hp * 0.42, -0.55);
       this.heartParticlesGroup.rotation.y = this.elapsed * 2.5;
     } else {
@@ -4443,11 +4494,11 @@ export class KlasikCafeScene3D {
       if (p < 0.72) {
         const sub = easeInOutCubic(Math.min(1, p / 0.22));
         this.portafilterGroup.position.set(
-          evalQuadBezier(-0.47, -0.66, -0.82, sub),
+          evalQuadBezier(-0.43, -0.62, -0.78, sub),
           evalQuadBezier(1.05, 1.19, 1.15, sub),
           evalQuadBezier(0.37, 0.36, 0.35, sub)
         );
-        this.grinderGroup.position.x = -0.82 + Math.sin(this.elapsed * 55) * 0.004;
+        this.grinderGroup.position.x = -0.78 + Math.sin(this.elapsed * 55) * 0.004;
         this.hopperBeansGroup.rotation.y += dt * 9.5;
         this.groundStreamGroup.visible = p > 0.15;
         this.groundStreamGroup.children.forEach((speck, i) => {
@@ -4459,7 +4510,7 @@ export class KlasikCafeScene3D {
         const back = easeInOutCubic((p - 0.72) / 0.28);
         this.fluffyGroundsMesh.scale.setScalar(1);
         this.portafilterGroup.position.set(
-          evalQuadBezier(-0.82, -0.64, -0.47, back),
+          evalQuadBezier(-0.78, -0.6, -0.43, back),
           evalQuadBezier(1.15, 1.22, 1.05, back),
           evalQuadBezier(0.35, 0.38, 0.37, back)
         );
@@ -4477,38 +4528,38 @@ export class KlasikCafeScene3D {
         const ringScale = 0.85 + ((p - 0.32) / 0.54) * 0.55;
         this.tampPressureRingMesh.scale.setScalar(ringScale);
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(-0.47, 1.32 + p * 0.06, 0.37);
+        this.floatingBadgeSprite.position.set(-0.43, 1.32 + p * 0.06, 0.37);
       }
       if (p > 0.38) {
         this.fluffyGroundsMesh.visible = false;
         this.tampedPuckMesh.visible = true;
       }
     } else if (this.stepAnim.type === 'pull_espresso') {
-      // Phase 1 (0..0.24): Portafilter lifts along a quadratic curve from tamping mat (-0.47) into grouphead (-0.19) and twists 45 deg
+      // Phase 1 (0..0.24): Portafilter lifts along a quadratic curve from tamping mat (-0.43) into grouphead (-0.16) and twists 45 deg
       if (p < 0.24) {
         const lockT = easeInOutCubic(p / 0.24);
         this.portafilterGroup.position.set(
-          evalQuadBezier(-0.47, -0.32, -0.19, lockT),
+          evalQuadBezier(-0.43, -0.28, -0.16, lockT),
           evalQuadBezier(1.05, 1.28, 1.26, lockT),
-          evalQuadBezier(0.37, 0.39, 0.34, lockT)
+          evalQuadBezier(0.37, 0.36, 0.32, lockT)
         );
         this.portafilterGroup.rotation.y = THREE.MathUtils.lerp(-0.78, 0, lockT);
       } else {
-        this.portafilterGroup.position.set(-0.19, 1.26, 0.34);
+        this.portafilterGroup.position.set(-0.16, 1.26, 0.32);
         this.portafilterGroup.rotation.y = 0;
       }
       this.tampedPuckMesh.visible = true;
 
-      // Phase 2 (0.24..0.78): Dual espresso stream pours into cup on drip tray (-0.19, 1.055, 0.34)
-      // Phase 3 (0.78..1.0): Cup glides smoothly along a quadratic curve onto Station 3 Assembly Coaster (0.62, 1.01, 0.38)
+      // Phase 2 (0.24..0.78): Dual espresso stream pours into cup on drip tray (-0.16, 1.055, 0.30)
+      // Phase 3 (0.78..1.0): Cup glides smoothly along a quadratic curve onto Station 3 Assembly Coaster (0.78, 1.01, 0.38)
       if (p < 0.78) {
-        this.activeBaristaCupGroup.position.set(-0.19, 1.055, 0.34);
+        this.activeBaristaCupGroup.position.set(-0.16, 1.055, 0.30);
       } else {
         const glide = easeInOutCubic((p - 0.78) / 0.22);
         this.activeBaristaCupGroup.position.set(
-          evalQuadBezier(-0.19, 0.22, 0.62, glide),
+          evalQuadBezier(-0.16, 0.31, 0.78, glide),
           evalQuadBezier(1.055, 1.11, 1.01, glide),
-          evalQuadBezier(0.34, 0.42, 0.38, glide)
+          evalQuadBezier(0.30, 0.42, 0.38, glide)
         );
       }
 
@@ -4521,43 +4572,42 @@ export class KlasikCafeScene3D {
       if (p > 0.22 && p < 0.8) {
         this.espressoStreamsGroup.visible = true;
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(-0.19, 1.54, 0.34);
+        this.floatingBadgeSprite.position.set(-0.16, 1.54, 0.32);
       }
     } else if (this.stepAnim.type === 'steam_milk') {
       // 3-Phase Bezier Steamed Milk & Rosetta Latte Art Pour (1.55s)
-      this.activeBaristaCupGroup.position.set(0.62, 1.01, 0.38);
+      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
       if (p < 0.45) {
-        // Phase 1 (0.0 - 0.45): Pitcher slides smoothly under steam wand (x = 0.24, y = 1.12), wand pivots down, microfoam swirls
+        // Phase 1 (0.0 - 0.45): Pitcher slides smoothly under steam wand (x = 0.26, y = 1.12), wand pivots down, microfoam swirls
         const sub = Math.sin((p / 0.45) * Math.PI);
         this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.44, 0.34, 0.24, sub),
+          evalQuadBezier(0.56, 0.41, 0.26, sub),
           evalQuadBezier(1.0, 1.08, 1.12, sub),
           0.36
         );
         this.steamWandPivot.rotation.z = -0.36 * sub;
         this.pitcherMilkMesh.rotation.y += dt * 14;
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(0.24, 1.38, 0.36);
+        this.floatingBadgeSprite.position.set(0.26, 1.38, 0.36);
       } else if (p < 0.85) {
-        // Phase 2 (0.45 - 0.85): Pitcher lifts along a quadratic curve over the cup (0.51, 1.24, 0.38), tilts to 62 deg (1.08 rad),
-        // emits continuous tapered milk stream into the cup, and performs Rosetta wrist-wiggle!
+        // Phase 2 (0.45 - 0.85): Pitcher lifts along a quadratic curve over the cup (0.67, 1.24, 0.38), tilts to 62 deg (1.08 rad)
         const pourT = easeInOutCubic((p - 0.45) / 0.4);
         const hoverArc = Math.sin(pourT * Math.PI);
         const wiggleZ = Math.sin(this.elapsed * 28) * 0.015;
         this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.28, 0.48, 0.51, Math.min(1, pourT * 1.4)),
+          evalQuadBezier(0.32, 0.56, 0.67, Math.min(1, pourT * 1.4)),
           1.24 + hoverArc * 0.03,
           0.38 + wiggleZ
         );
         this.milkPitcherGroup.rotation.z = -1.08 * Math.min(1, Math.sin(pourT * Math.PI) * 1.35);
         this.milkPitcherGroup.rotation.x = wiggleZ * 2.5;
         this.milkPourStreamMesh.visible = true;
-        this.milkPourStreamMesh.position.set(0.6, 1.18, 0.38 + wiggleZ * 0.6);
+        this.milkPourStreamMesh.position.set(0.76, 1.18, 0.38 + wiggleZ * 0.6);
       } else {
-        // Phase 3 (0.85 - 1.0): Stream tapers off and pitcher arcs gracefully back to rest (0.44, 1.0, 0.36)
+        // Phase 3 (0.85 - 1.0): Stream tapers off and pitcher arcs gracefully back to rest (0.56, 1.0, 0.36)
         const restT = easeInOutCubic((p - 0.85) / 0.15);
         this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.51, 0.47, 0.44, restT),
+          evalQuadBezier(0.67, 0.61, 0.56, restT),
           evalQuadBezier(1.24, 1.12, 1.0, restT),
           THREE.MathUtils.lerp(0.38, 0.36, restT)
         );
@@ -4566,10 +4616,10 @@ export class KlasikCafeScene3D {
       }
     } else if (this.stepAnim.type === 'add_ice') {
       // Ice Scoop dips into bin, lifts along a quadratic arc over the cup, and tips translucent ice cubes in
-      this.activeBaristaCupGroup.position.set(0.62, 1.01, 0.38);
+      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
       const arc = Math.sin(p * Math.PI);
       this.iceScoopGroup.position.set(
-        evalQuadBezier(0.02, -0.14, -0.23, arc),
+        evalQuadBezier(0.02, -0.1, -0.2, arc),
         evalQuadBezier(0.065, 0.28, 0.24, arc),
         evalQuadBezier(0.01, 0.14, 0.22, arc)
       );
@@ -4580,12 +4630,11 @@ export class KlasikCafeScene3D {
         cube.position.y = 0.132 + dropH + idx * 0.018 * (1 - smoothP);
       });
     } else if (this.stepAnim.type === 'add_syrup') {
-      this.activeBaristaCupGroup.position.set(0.62, 1.01, 0.38);
+      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
       const fl = this.stepAnim.flavor || 'vanilla';
       const rMat = this.syrupRibbonMesh.material as THREE.MeshStandardMaterial;
 
       if (fl === 'matcha') {
-        // Ceremonial Matcha Bamboo Whisk figure-8 / W-motion inside Chawan bowl, then green ribbon pour
         rMat.color.setHex(0x65a30d);
         this.matchaWhiskGroup.position.x = Math.sin(p * Math.PI * 8) * 0.028;
         this.matchaWhiskGroup.position.z = Math.sin(p * Math.PI * 4) * 0.022;
@@ -4603,33 +4652,33 @@ export class KlasikCafeScene3D {
       }
 
       this.syrupRibbonMesh.visible = true;
-      this.syrupRibbonMesh.position.set(0.62, 1.2, 0.38);
+      this.syrupRibbonMesh.position.set(0.78, 1.2, 0.38);
       this.activeCupDrizzleRing.visible = true;
       this.activeCupDrizzleRing.rotation.z = p * Math.PI * 4;
     } else if (this.stepAnim.type === 'steep_tea') {
-      // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over the cup on Assembly Coaster (0.62, 1.01, 0.38)
-      this.activeBaristaCupGroup.position.set(0.62, 1.01, 0.38);
+      // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over the cup on Assembly Coaster (0.78, 1.01, 0.38)
+      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
       const arc = Math.sin(p * Math.PI);
       this.teaPotGroup.position.set(
-        0.62,
+        0.78,
         evalQuadBezier(1.0, 1.26, 1.22, arc),
         evalQuadBezier(0.14, 0.24, 0.26, arc)
       );
       this.teaPotGroup.rotation.x = arc * 0.85;
       if (p > 0.2 && p < 0.85) {
         this.teaPourStreamMesh.visible = true;
-        this.teaPourStreamMesh.position.set(0.62, 1.18, 0.36);
+        this.teaPourStreamMesh.position.set(0.78, 1.18, 0.36);
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(0.62, 1.44 + p * 0.05, 0.28);
+        this.floatingBadgeSprite.position.set(0.78, 1.44 + p * 0.05, 0.28);
       }
     } else if (this.stepAnim.type === 'serve_drink') {
-      // 2-Stage Physical Pickup Choreography at Station 4 Walnut Pickup Coaster (-1.32, 1.03, 0.20)
+      // 2-Stage Physical Pickup Choreography at Station 4 Walnut Pickup Coaster (-1.32, 1.03, 0.34)
       if (p < 0.48) {
         const s1 = easeInOutCubic(p / 0.48);
         this.activeBaristaCupGroup.position.set(
-          evalQuadBezier(0.62, -0.35, -1.32, s1),
+          evalQuadBezier(0.78, -0.25, -1.32, s1),
           evalQuadBezier(1.01, 1.14, 1.03, s1),
-          evalQuadBezier(0.38, 0.28, 0.2, s1)
+          evalQuadBezier(0.38, 0.36, 0.34, s1)
         );
         this.bellRippleRingMesh.visible = s1 > 0.5;
         this.bellRippleRingMesh.scale.setScalar(1 + (s1 - 0.5) * 3.5);
@@ -4639,13 +4688,13 @@ export class KlasikCafeScene3D {
         this.activeBaristaCupGroup.position.set(
           -1.32,
           1.03 + s2 * 0.14,
-          THREE.MathUtils.lerp(0.2, -0.25, Math.min(1, s2 * 2.5))
+          THREE.MathUtils.lerp(0.34, -0.25, Math.min(1, s2 * 2.5))
         );
         this.pickupSpeechSprite.visible = true;
         this.pickupSpeechSprite.position.set(-1.32, 1.68 + s2 * 0.08, -0.55);
       }
       this.floatingBadgeSprite.visible = true;
-      this.floatingBadgeSprite.position.set(-1.32, 1.38 + p * 0.22, 0.2);
+      this.floatingBadgeSprite.position.set(-1.32, 1.38 + p * 0.22, 0.34);
     }
   }
 
@@ -4656,17 +4705,17 @@ export class KlasikCafeScene3D {
     this.updateDynamicCupShaderLiquid(dt);
     this.updateBaristaStepChoreography(dt);
 
-    // 2. Camera Mode: "TITLE_ORBIT" (framing Hero Cup at 1.68, 1.01, 0.44 & 1990 Mazda Miata MX-5)
+    // 2. Camera Mode: "TITLE_ORBIT" (framing Hero Cup at 1.68, 1.01, 0.44 & 1990 Mazda Miata MX-5 at -3.4, 0, -3.6)
     // vs Smart Cup-Follow Camera during gameplay & step animations!
     const isTitle = this.gameState.phase === 'title';
     this.titleHeroCupGroup.visible = isTitle;
     this.titlePlaqueGroup.visible = isTitle;
 
     if (isTitle) {
-      const swayX = Math.sin(this.elapsed * 0.52) * 0.14;
-      const swayY = Math.cos(this.elapsed * 0.38) * 0.02;
-      _targetPos.set(1.62 + swayX, 1.38 + swayY, 1.48);
-      _targetLook.set(0.55, 0.96, -0.85);
+      const swayX = Math.sin(this.elapsed * 0.52) * 0.08;
+      const swayY = Math.cos(this.elapsed * 0.38) * 0.015;
+      _targetPos.set(1.86 + swayX, 1.28 + swayY, 0.96);
+      _targetLook.set(-1.35, 0.78, -1.85);
     } else {
       const preset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[2];
       _targetPos.copy(preset.pos);
@@ -4677,22 +4726,22 @@ export class KlasikCafeScene3D {
         const t = this.stepAnim.type;
         const cupPos = this.activeBaristaCupGroup.position;
         if (t === 'grind') {
-          _targetPos.set(-0.56, 1.48, 1.28);
-          _targetLook.set(-0.78, 1.1, 0.28);
+          _targetPos.set(-0.52, 1.48, 1.28);
+          _targetLook.set(-0.74, 1.1, 0.28);
         } else if (t === 'tamp') {
-          _targetPos.set(-0.42, 1.46, 1.26);
-          _targetLook.set(-0.47, 1.06, 0.36);
+          _targetPos.set(-0.38, 1.46, 1.26);
+          _targetLook.set(-0.43, 1.06, 0.36);
         } else if (t === 'pull_espresso') {
-          const trackX = THREE.MathUtils.lerp(-0.18, cupPos.x, 0.75);
+          const trackX = THREE.MathUtils.lerp(-0.16, cupPos.x, 0.75);
           _targetPos.set(trackX, 1.46, 1.28);
-          _targetLook.set(cupPos.x, 1.08, 0.34);
+          _targetLook.set(cupPos.x, 1.08, 0.32);
         } else if (
           t === 'steam_milk' ||
           t === 'steep_tea' ||
           t === 'add_ice' ||
           t === 'add_syrup'
         ) {
-          _targetPos.set(0.68, 1.46, 1.3);
+          _targetPos.set(0.82, 1.46, 1.3);
           _targetLook.set(cupPos.x, 1.1, 0.36);
         } else if (t === 'serve_drink') {
           _targetPos.set(-1.32, 1.54, 1.38);
@@ -4769,7 +4818,7 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 5. Subtle & Aesthetic Diegetic Step Halo Ring + Gentle Warm Rim Sheen
+    // 5. Subtle & Aesthetic Diegetic Step Halo Ring + Gentle Warm Rim Sheen (or Crimson Rinse Warning)
     const pinnedOrder =
       this.gameState.customers.find(
         (c) => c.id === this.gameState.pinnedOrderId && c.state === 'ordering'
@@ -4781,17 +4830,19 @@ export class KlasikCafeScene3D {
       nextStep.toolKey === 'syrup' ? `syrup-${effectiveSyrup}` : nextStep.toolKey;
 
     const haloCoords: Record<string, [number, number]> = {
-      grinder: [-0.82, 0.22],
-      tamper: [-0.52, 0.36],
-      espresso: [-0.19, 0.34],
-      tea: [0.62, 0.14],
-      milk: [0.44, 0.36],
-      ice: [0.85, 0.16],
-      'syrup-vanilla': [1.08, 0.14],
-      'syrup-caramel': [1.22, 0.14],
-      'syrup-chocolate': [1.36, 0.14],
-      'syrup-matcha': [1.48, 0.34],
-      serve: [-1.32, 0.2],
+      grinder: [-0.78, 0.22],
+      tamper: [-0.48, 0.36],
+      espresso: [-0.16, 0.30],
+      rinse: [0.36, 0.26],
+      sink: [0.36, 0.26],
+      tea: [0.78, 0.14],
+      milk: [0.56, 0.36],
+      ice: [0.98, 0.16],
+      'syrup-vanilla': [1.20, 0.18],
+      'syrup-caramel': [1.32, 0.18],
+      'syrup-chocolate': [1.44, 0.18],
+      'syrup-matcha': [1.56, 0.36],
+      serve: [-1.32, 0.34],
     };
 
     if (
@@ -4805,10 +4856,12 @@ export class KlasikCafeScene3D {
       const [hx, hz] = haloCoords[recommendedToolKey];
       this.stepHaloGroup.visible = true;
       this.stepHaloGroup.position.set(hx, 1.004, hz);
-      const breathe = 0.22 + (Math.sin(this.elapsed * 3.5) * 0.5 + 0.5) * 0.23;
+      const isRinseError = Boolean(nextStep.isError);
+      this.stepHaloRingMat.color.setHex(isRinseError ? 0xf43f5e : 0xfbbf24);
+      const breathe = 0.22 + (Math.sin(this.elapsed * (isRinseError ? 7.0 : 3.5)) * 0.5 + 0.5) * 0.32;
       this.stepHaloGlowMat.opacity = breathe;
-      this.stepHaloRingMat.opacity = breathe + 0.08;
-      const haloScale = 0.96 + Math.sin(this.elapsed * 3.5) * 0.05;
+      this.stepHaloRingMat.opacity = breathe + 0.12;
+      const haloScale = 0.96 + Math.sin(this.elapsed * (isRinseError ? 7.0 : 3.5)) * 0.06;
       this.stepHaloGroup.scale.setScalar(haloScale);
     } else if (this.stepHaloGroup) {
       this.stepHaloGroup.visible = false;
@@ -4835,9 +4888,13 @@ export class KlasikCafeScene3D {
               mat.emissive.setHex(0xd97706);
               mat.emissiveIntensity = 0.26;
             } else if (isRecommended) {
-              mat.emissive.setHex(0xd97706);
-              mat.emissiveIntensity = subtleRimIntensity;
-            } else if (mat.emissive.getHex() === 0xd97706 || mat.emissive.getHex() === 0xf59e0b) {
+              mat.emissive.setHex(nextStep.isError ? 0xf43f5e : 0xd97706);
+              mat.emissiveIntensity = nextStep.isError ? 0.38 : subtleRimIntensity;
+            } else if (
+              mat.emissive.getHex() === 0xd97706 ||
+              mat.emissive.getHex() === 0xf59e0b ||
+              mat.emissive.getHex() === 0xf43f5e
+            ) {
               mat.emissiveIntensity = 0;
             }
           }
@@ -4871,7 +4928,7 @@ export class KlasikCafeScene3D {
       for (let i = 0; i < 12; i++) {
         const t = (this.elapsed * 0.45 + i * 0.25) % 1;
         _dummyObj.position.set(
-          2.15 + Math.sin(t * 5 + i) * 0.16,
+          2.22 + Math.sin(t * 5 + i) * 0.16,
           1.18 + t * 0.5,
           0.24 + Math.cos(t * 4 + i) * 0.14
         );
@@ -4898,7 +4955,7 @@ export class KlasikCafeScene3D {
       this.rainDropsInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 9. Animate Articulated 3D Customers (2-Stage Pickup Handoff, 6 Garden Seats, Car Selfie by 1990 Miata, & Expressive Waiting Idles)
+    // 9. Animate Articulated 3D Customers (1-by-1 Queue Markers, 2-Stage Pickup Handoff, 6 Garden Seats, & Car Selfie by 1990 Miata)
     const seatCoords = [
       new THREE.Vector3(-1.95, 0, -2.23),
       new THREE.Vector3(-0.65, 0, -3.93),
@@ -4922,17 +4979,18 @@ export class KlasikCafeScene3D {
         _targetPos.set(-1.35, 0, -0.65);
         actor.heldCup.visible = (this.stepAnim?.progress || 0) >= 0.55;
       } else if (cust.state === 'ordering') {
-        _targetPos.set(-1.95 + orderQueueIdx * 0.68, 0, -0.95);
+        // Line ordering customers up 1-by-1 at z = -0.85, -1.55, -2.25 along x = -1.95
+        _targetPos.set(-1.95, 0, -0.85 - orderQueueIdx * 0.70);
         orderQueueIdx++;
       } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
-        // Walk over to the 1990 Mazda Miata MX-5 display bay to admire & take a selfie with the roadster!
-        _targetPos.set(-0.25, 0, -2.65);
+        // Walk over to the 1990 Mazda Miata MX-5 display bay (-3.4, 0, -3.6) to admire & take a selfie with the roadster!
+        _targetPos.set(-2.15, 0, -3.15);
         actor.heldCup.visible = true;
       } else if (cust.state === 'seated' && cust.seatIndex !== null) {
         _targetPos.copy(seatCoords[cust.seatIndex % seatCoords.length] || seatCoords[0]);
         actor.heldCup.visible = true;
       } else {
-        _targetPos.set(4.5, 0, -5.8);
+        _targetPos.set(-4.2, 0, -5.2);
       }
 
 
@@ -5141,6 +5199,7 @@ export class KlasikCafeScene3D {
     window.cancelAnimationFrame(this.frameId);
     window.clearTimeout(this.frameId);
     window.removeEventListener('resize', this.handleResize);
+    this.resizeObserver?.disconnect();
     this.studioLogoTexture?.dispose();
     this.woodBumpTexture?.dispose();
     this.herringboneFloorTexture?.dispose();

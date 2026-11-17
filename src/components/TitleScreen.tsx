@@ -29,25 +29,25 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onOpenCodeExportModal,
 }) => {
   return (
-    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-3 sm:p-6 overflow-hidden">
+    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between px-3 py-1.5 sm:p-5 overflow-hidden">
       {/* Top Bar: Studio Logo (Exclusive to Intro/Title) & Quick Utility Actions */}
       <div className="flex items-center justify-between gap-2 pointer-events-auto shrink-0">
-        <div className="flex items-center gap-2.5 bg-[#1c130e]/95 border border-amber-500/30 rounded-xl px-3 py-1.5 shadow-lg">
-          <StudioLogo className="w-24 sm:w-28 h-auto" />
+        <div className="flex items-center gap-2 bg-[#1c130e]/95 border border-amber-500/30 rounded-xl px-2.5 py-1 shadow-lg">
+          <StudioLogo className="w-20 sm:w-28 h-auto" />
           <span className="text-stone-500" aria-hidden="true">
             ·
           </span>
-          <span className="text-[11px] font-medium text-amber-200/90 whitespace-nowrap">
+          <span className="text-[10px] sm:text-[11px] font-medium text-amber-200/90 whitespace-nowrap">
             {pwaStatus.isStandalone ? 'Standalone PWA / APK' : 'Live Web Build v1.3'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {!pwaStatus.isStandalone && (
             <button
               type="button"
               onClick={onOpenPwaModal}
-              className="px-3 py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-amber-500/35 text-xs font-semibold text-amber-200 transition-colors cursor-pointer whitespace-nowrap"
+              className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-amber-500/35 text-[11px] sm:text-xs font-semibold text-amber-200 transition-colors cursor-pointer whitespace-nowrap"
             >
               Install PWA / APK
             </button>
@@ -55,7 +55,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <button
             type="button"
             onClick={onOpenCodeExportModal}
-            className="px-3 py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-stone-700 text-xs font-medium text-stone-200 transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-stone-700 text-[11px] sm:text-xs font-medium text-stone-200 transition-colors cursor-pointer whitespace-nowrap"
           >
             Save &amp; GitHub
           </button>
@@ -63,9 +63,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Left-Third Diegetic Wooden-Framed Title Card (Leaves right 65% of 3D Diorama unobstructed) */}
-      <div className="my-auto max-w-sm sm:max-w-md w-full pointer-events-auto bg-[#1b120d]/95 border-2 border-[#5c3a21] rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-[11px] text-amber-300/90 font-medium">
+      <div className="my-auto max-w-[340px] sm:max-w-md w-full max-h-[calc(100dvh-76px)] overflow-y-auto no-scrollbar pointer-events-auto bg-[#1b120d]/95 border-2 border-[#5c3a21] rounded-2xl px-3 py-2 sm:p-4 shadow-2xl space-y-1.5 sm:space-y-2.5">
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-amber-300/90 font-medium">
             <span>BoostedByCaffeine Studios</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono tabular-nums">Day {day}</span>
@@ -76,7 +76,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           {/* Custom Inline SVG Title Emblem Lockup */}
           <svg
             viewBox="0 0 420 84"
-            className="w-full h-auto max-h-16 sm:max-h-20"
+            className="w-full h-auto max-h-11 sm:max-h-16"
             role="img"
             aria-label="KLASIK 3D: Garage Garden Cafe"
           >
@@ -132,37 +132,39 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             </text>
           </svg>
 
-          <p className="text-xs text-stone-300 leading-snug">
+          <p className="hidden sm:block text-[11px] sm:text-xs text-stone-300 leading-tight line-clamp-2">
             Step behind the commercial walnut espresso bar. Grind fresh dark-roast beans, steam
             velvety microfoam, spin Spotify vinyl records, and serve the neighborhood.
           </p>
         </div>
 
         {/* Primary & Secondary Game Mode CTAs */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <button
             type="button"
             data-start="true"
+            data-testid="btn-play-career"
             onClick={(e) => {
               e.currentTarget.blur();
               onStartShift('career');
             }}
-            className="w-full py-2.5 sm:py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-stone-950 font-bold text-sm sm:text-base shadow-lg transition-transform active:scale-[0.99] cursor-pointer flex items-center justify-between"
+            className="w-full py-2 sm:py-2.5 px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-stone-950 font-bold text-xs sm:text-sm shadow-lg transition-transform active:scale-[0.99] cursor-pointer flex items-center justify-between"
           >
             <span>Start Shift (Day {day})</span>
-            <span className="text-[11px] font-mono bg-stone-950/15 px-2 py-0.5 rounded">
+            <span className="text-[10px] font-mono bg-stone-950/15 px-1.5 py-0.5 rounded">
               Enter / Space
             </span>
           </button>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
+              data-testid="btn-play-zen"
               onClick={(e) => {
                 e.currentTarget.blur();
                 onStartShift('zen');
               }}
-              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-amber-500/30 text-amber-100 font-semibold text-xs transition-colors cursor-pointer whitespace-nowrap"
+              className="py-1.5 px-2.5 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-amber-500/30 text-amber-100 font-semibold text-[11px] sm:text-xs transition-colors cursor-pointer whitespace-nowrap"
             >
               Zen Mode (Endless)
             </button>
@@ -170,7 +172,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <button
               type="button"
               onClick={onOpenSpotifyModal}
-              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-emerald-500/35 text-emerald-200 font-semibold text-xs transition-colors cursor-pointer truncate"
+              className="py-1.5 px-2.5 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-emerald-500/35 text-emerald-200 font-semibold text-[11px] sm:text-xs transition-colors cursor-pointer truncate"
               title={`Now Spinning: ${spotifyTrackTitle}`}
             >
               Spotify Vinyl Deck
@@ -179,15 +181,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </div>
 
         {/* Live 3D Weather & Ambience Preview Selector */}
-        <div className="pt-2 border-t border-stone-800 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] text-stone-400">
+        <div className="pt-1.5 border-t border-stone-800 space-y-1">
+          <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-stone-400">
             <span>Live 3D Cafe Lighting</span>
-            <span className="text-amber-300/90 font-mono truncate max-w-[160px]">
+            <span className="text-amber-300/90 font-mono truncate max-w-[150px]">
               {spotifyTrackTitle}
             </span>
           </div>
           <div
-            className="grid grid-cols-3 gap-1.5 p-1 bg-[#120c09] rounded-xl border border-stone-800"
+            className="grid grid-cols-3 gap-1 p-0.5 bg-[#120c09] rounded-xl border border-stone-800"
             role="group"
             aria-label="Weather and Ambience Preview"
           >
@@ -202,7 +204,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => onChangeWeather(item.id)}
-                className={`py-1 px-2 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`py-1 px-1.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   weather === item.id
                     ? 'bg-amber-500 text-stone-950 font-semibold shadow-sm'
                     : 'text-stone-300 hover:text-white'
@@ -216,7 +218,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Bottom Safe Margin: Single Flat Control-Hint Line */}
-      <div className="flex items-center justify-between gap-2 text-[11px] text-stone-300 bg-[#140e0b]/90 px-3 py-1.5 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0">
+      <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] text-stone-300 bg-[#140e0b]/90 px-3 py-1 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0">
         <span className="truncate">
           1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide Dock
         </span>

@@ -134,6 +134,28 @@ export const SpotifyVinylModal: React.FC<SpotifyVinylModalProps> = ({
 
         {spotifyState.mode === 'bridge' ? (
           <div className="space-y-3">
+            {/* Full-Length Track Playback Banner */}
+            <div className="p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-2">
+              <div className="space-y-0.5 flex-1 min-w-[200px]">
+                <div className="text-[11px] font-bold text-emerald-300">
+                  🎵 Want Full-Length Songs Instead of 30s Previews?
+                </div>
+                <p className="text-[10px] text-stone-300 leading-snug">
+                  Spotify embeds play 30-second previews if your browser isn&apos;t signed into{' '}
+                  <span className="font-mono text-emerald-200">open.spotify.com</span>. Sign in once
+                  in your browser (or connect Mode B Web Playback SDK) to unlock full-length tracks!
+                </p>
+              </div>
+              <a
+                href="https://accounts.spotify.com/en/login?continue=https%3A%2F%2Fopen.spotify.com%2F"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-[11px] whitespace-nowrap shadow"
+              >
+                Sign in to Spotify Web ↗
+              </a>
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               {COZY_VINYL_PRESETS.map((preset) => {
                 const active = spotifyState.currentTrack.id === preset.id;
@@ -200,6 +222,40 @@ export const SpotifyVinylModal: React.FC<SpotifyVinylModalProps> = ({
           </div>
         ) : (
           <div className="space-y-3 p-3 rounded-xl bg-[#211610] border border-stone-800">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-emerald-300">
+                Spotify Web Playback SDK (Full-Length Premium Streaming)
+              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-300">
+                {spotifyState.sdkDeviceReady
+                  ? 'SDK Ready · Full Tracks Active'
+                  : spotifyState.accessToken
+                  ? 'Token Linked · Connecting SDK...'
+                  : 'OAuth 2.0 PKCE'}
+              </span>
+            </div>
+            <p className="text-[11px] text-stone-300 leading-snug">
+              Connect your Spotify Developer Client ID via OAuth 2.0 PKCE to register{' '}
+              <span className="font-mono text-amber-200">Klasik 3D Vinyl Turntable</span> via{' '}
+              <span className="font-mono text-emerald-300">sdk.scdn.co/spotify-player.js</span> for
+              100% full-length track streaming.
+            </p>
+            <div className="p-2 rounded-lg bg-[#120c09] border border-stone-800 space-y-1 text-[10px] font-mono text-stone-400">
+              <div className="text-amber-300 font-semibold">
+                Add Redirect URIs in Spotify Developer Dashboard:
+              </div>
+              <div className="truncate select-all text-stone-200">
+                {typeof window !== 'undefined'
+                  ? `${window.location.origin}${window.location.pathname}`
+                  : 'https://ais-dev-565p5ulrktcn3ncbtc7cta-798346108881.asia-east1.run.app'}
+              </div>
+              <div className="truncate select-all text-stone-400">
+                https://ais-dev-565p5ulrktcn3ncbtc7cta-798346108881.asia-east1.run.app
+              </div>
+              <div className="truncate select-all text-stone-400">
+                https://ais-pre-565p5ulrktcn3ncbtc7cta-798346108881.asia-east1.run.app
+              </div>
+            </div>
             <input
               id="spotify-client-id"
               type="text"
@@ -208,13 +264,29 @@ export const SpotifyVinylModal: React.FC<SpotifyVinylModalProps> = ({
               placeholder="Enter Spotify Developer Client ID"
               className="w-full rounded-lg bg-[#120c09] border border-stone-700 px-3 py-1.5 text-xs text-stone-100 font-mono"
             />
-            <button
-              type="button"
-              onClick={handleConnectPkce}
-              className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs cursor-pointer"
-            >
-              Authorize with Spotify PKCE
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleConnectPkce}
+                className="flex-1 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs cursor-pointer"
+              >
+                {spotifyState.accessToken
+                  ? 'Re-Authorize Spotify PKCE & Web SDK'
+                  : 'Authorize with Spotify PKCE'}
+              </button>
+              {spotifyState.accessToken && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    spotifyManager.disconnectPkce();
+                    setStatusMsg('Disconnected Spotify OAuth session.');
+                  }}
+                  className="px-3 py-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold text-xs cursor-pointer"
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
           </div>
         )}
 

@@ -63,6 +63,30 @@ export interface SpotifyVinylState {
   spotifyUserDisplayName: string | null;
   liveAlbumArtUrl: string | null;
   showMiniEmbed: boolean;
+  sdkDeviceReady?: boolean;
+}
+
+interface SpotifyWebPlayerInstance {
+  connect: () => Promise<boolean>;
+  disconnect: () => void;
+  togglePlay: () => Promise<void>;
+  resume: () => Promise<void>;
+  pause: () => Promise<void>;
+  nextTrack: () => Promise<void>;
+  addListener: (event: string, cb: (payload: any) => void) => void;
+}
+
+declare global {
+  interface Window {
+    onSpotifyWebPlaybackSDKReady?: () => void;
+    Spotify?: {
+      Player: new (options: {
+        name: string;
+        getOAuthToken: (cb: (token: string) => void) => void;
+        volume?: number;
+      }) => SpotifyWebPlayerInstance;
+    };
+  }
 }
 
 const STORAGE_KEY = 'klasik3d_spotify_vinyl_v1';
@@ -97,6 +121,9 @@ export function parseSpotifyInputToEmbed(input: string): { uri: string; embedUrl
 class SpotifyVinylManager {
   private state: SpotifyVinylState;
   private listeners: Set<(state: SpotifyVinylState) => void> = new Set();
+  private sdkLoaded = false;
+  private webPlayer: SpotifyWebPlayerInstance | null = null;
+  private sdkDeviceId: string | null = null;
 
   constructor() {
     const saved = this.loadSaved();
@@ -111,7 +138,15 @@ class SpotifyVinylManager {
       spotifyUserDisplayName: saved?.spotifyUserDisplayName || null,
       liveAlbumArtUrl: null,
       showMiniEmbed: false,
+      sdkDeviceReady: false,
     };
+
+    if (typeof window !== 'undefined') {
+      this.handlePkceRedirectCallback();
+      if (this.state.accessToken) {
+        this.initWebPlaybackSdk(this.state.accessToken);
+      }
+    }
   }
 
   private loadSaved(): Partial<SpotifyVinylState> | null {
@@ -160,10 +195,102 @@ class SpotifyVinylManager {
     this.listeners.forEach((cb) => cb({ ...this.state }));
   }
 
+  // Initializes the official Spotify Web Playback SDK (https://sdk.scdn.co/spotify-player.js)
+  // for full-length song streaming when authenticated via OAuth 2.0 PKCE
+  public initWebPlaybackSdk(token: string) {
+    if (typeof window === 'undefined' || !token) return;
+    this.state.accessToken = token;
+
+    const createPlayer = () => {
+      if (!window.Spotify || this.webPlayer) return;
+      const player = new window.Spotify.Player({
+        name: 'Klasik 3D Vinyl Turntable',
+        getOAuthToken: (cb) => cb(this.state.accessToken || token),
+        volume: 0.75,
+      });
+
+      player.addListener('ready', ({ device_id }: { device_id: string }) => {
+        this.sdkDeviceId = device_id;
+        this.state.sdkDeviceReady = true;
+        soundEngine.setSpotifyDucking(true);
+        this.notify();
+
+        // Transfer active playback to Klasik 3D Vinyl Turntable
+        fetch('https://api.spotify.com/v1/me/player', {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${this.state.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ device_ids: [device_id], play: false }),
+        }).catch(() => {});
+      });
+
+      player.addListener('player_state_changed', (sdkState: any) => {
+        if (!sdkState) return;
+        const current = sdkState.track_window?.current_track;
+        if (current) {
+          this.state.isPlaying = !sdkState.paused;
+          this.state.liveAlbumArtUrl = current.album?.images?.[0]?.url || null;
+          this.state.currentTrack = {
+            ...this.state.currentTrack,
+            title: current.name || this.state.currentTrack.title,
+            artist:
+              current.artists?.map((a: { name: string }) => a.name).join(', ') ||
+              this.state.currentTrack.artist,
+            coverText: (current.name || 'SPOTIFY LP').slice(0, 18).toUpperCase(),
+          };
+          this.notify();
+        }
+      });
+
+      player.connect();
+      this.webPlayer = player;
+    };
+
+    if (window.Spotify) {
+      createPlayer();
+    } else if (!this.sdkLoaded) {
+      this.sdkLoaded = true;
+      window.onSpotifyWebPlaybackSDKReady = () => {
+        createPlayer();
+      };
+      const sdkScript = document.createElement('script');
+      sdkScript.src = 'https://sdk.scdn.co/spotify-player.js';
+      sdkScript.async = true;
+      document.body.appendChild(sdkScript);
+    }
+  }
+
+  private async playUriOnSdk(spotifyUri: string) {
+    if (!this.state.accessToken || !this.sdkDeviceId) return;
+    try {
+      const isTrack = spotifyUri.includes(':track:');
+      const payload = isTrack ? { uris: [spotifyUri] } : { context_uri: spotifyUri };
+      await fetch(
+        `https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(this.sdkDeviceId)}`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${this.state.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+    } catch {
+      // ignore network error
+    }
+  }
+
   public togglePlayPause(): boolean {
     this.state.isPlaying = !this.state.isPlaying;
     soundEngine.playVinylNeedleDrop(this.state.isPlaying);
-    soundEngine.setLofiSynthActive(this.state.isPlaying);
+    if (this.webPlayer && this.state.sdkDeviceReady) {
+      this.webPlayer.togglePlay().catch(() => {});
+    } else {
+      soundEngine.setLofiSynthActive(this.state.isPlaying);
+    }
     this.notify();
     return this.state.isPlaying;
   }
@@ -172,7 +299,15 @@ class SpotifyVinylManager {
     if (this.state.isPlaying === playing) return;
     this.state.isPlaying = playing;
     soundEngine.playVinylNeedleDrop(playing);
-    soundEngine.setLofiSynthActive(playing);
+    if (this.webPlayer && this.state.sdkDeviceReady) {
+      if (playing) {
+        this.webPlayer.resume().catch(() => {});
+      } else {
+        this.webPlayer.pause().catch(() => {});
+      }
+    } else {
+      soundEngine.setLofiSynthActive(playing);
+    }
     this.notify();
   }
 
@@ -184,6 +319,9 @@ class SpotifyVinylManager {
   }
 
   public nextTrack() {
+    if (this.webPlayer && this.state.sdkDeviceReady) {
+      this.webPlayer.nextTrack().catch(() => {});
+    }
     const idx = COZY_VINYL_PRESETS.findIndex((p) => p.id === this.state.currentTrack.id);
     const nextIdx = (idx + 1) % COZY_VINYL_PRESETS.length;
     this.selectPreset(COZY_VINYL_PRESETS[nextIdx].id);
@@ -196,7 +334,11 @@ class SpotifyVinylManager {
     this.state.rpm = found.rpm;
     this.state.isPlaying = true;
     soundEngine.playVinylNeedleDrop(true);
-    soundEngine.setLofiSynthActive(true);
+    if (this.state.sdkDeviceReady && this.state.accessToken) {
+      this.playUriOnSdk(found.spotifyUri);
+    } else {
+      soundEngine.setLofiSynthActive(true);
+    }
     this.notify();
   }
 
@@ -221,13 +363,16 @@ class SpotifyVinylManager {
     this.state.isPlaying = true;
     this.state.showMiniEmbed = true;
     soundEngine.playVinylNeedleDrop(true);
+    if (this.state.sdkDeviceReady && this.state.accessToken) {
+      this.playUriOnSdk(parsed.uri);
+    }
     this.notify();
     return true;
   }
 
   public setShowMiniEmbed(show: boolean) {
     this.state.showMiniEmbed = show;
-    soundEngine.setSpotifyDucking(show);
+    soundEngine.setSpotifyDucking(show || Boolean(this.state.sdkDeviceReady));
     this.notify();
   }
 
@@ -241,7 +386,20 @@ class SpotifyVinylManager {
     this.notify();
   }
 
-  // OAuth 2.0 PKCE Helper for personal Spotify account connection
+  public disconnectPkce() {
+    this.state.accessToken = null;
+    this.state.spotifyUserDisplayName = null;
+    this.state.sdkDeviceReady = false;
+    this.sdkDeviceId = null;
+    if (this.webPlayer) {
+      this.webPlayer.disconnect();
+      this.webPlayer = null;
+    }
+    soundEngine.setSpotifyDucking(this.state.showMiniEmbed);
+    this.notify();
+  }
+
+  // OAuth 2.0 PKCE Helper for personal Spotify account connection & Web Playback SDK Full-Length Streaming
   public async startPkceAuth(): Promise<string | null> {
     if (!this.state.clientId) return null;
     const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
@@ -258,7 +416,8 @@ class SpotifyVinylManager {
       .replace(/=+$/, '');
 
     const redirectUri = `${window.location.origin}${window.location.pathname}`;
-    const scope = 'user-read-currently-playing user-read-playback-state streaming';
+    const scope =
+      'streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private';
     const authUrl = new URL('https://accounts.spotify.com/authorize');
     authUrl.searchParams.set('client_id', this.state.clientId);
     authUrl.searchParams.set('response_type', 'code');
@@ -268,6 +427,47 @@ class SpotifyVinylManager {
     authUrl.searchParams.set('code_challenge', base64Digest);
 
     return authUrl.toString();
+  }
+
+  // Exchanges ?code=... on OAuth 2.0 PKCE callback for an access_token and boots the Web Playback SDK
+  private async handlePkceRedirectCallback(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (!code) return;
+
+    const verifier = window.localStorage.getItem('klasik3d_spotify_pkce_verifier');
+    if (!verifier || !this.state.clientId) return;
+
+    const redirectUri = `${window.location.origin}${window.location.pathname}`;
+    window.history.replaceState({}, document.title, redirectUri);
+
+    try {
+      const body = new URLSearchParams({
+        client_id: this.state.clientId,
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+      });
+
+      const res = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      if (!res.ok) return;
+      const tokenData = await res.json();
+      if (tokenData && tokenData.access_token) {
+        this.state.accessToken = tokenData.access_token;
+        this.state.mode = 'pkce';
+        this.notify();
+        this.initWebPlaybackSdk(tokenData.access_token);
+        this.fetchNowPlayingFromToken();
+      }
+    } catch {
+      // ignore network error
+    }
   }
 
   public async fetchNowPlayingFromToken(): Promise<boolean> {

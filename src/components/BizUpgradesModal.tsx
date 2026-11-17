@@ -333,38 +333,80 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           </div>
         )}
 
-        {/* Tab 4: 7-Day Login Unlockables */}
+        {/* Tab 4: Playtime & Milestone-Gated Loyalty / Login Unlockables */}
         {activeTab === 'login_rewards' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 overflow-y-auto pr-1">
-            {loginRewards.map((item) => (
-              <div
-                key={item.id}
-                className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-[#241811] border border-stone-800"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-xs font-bold text-amber-100">{item.title}</span>
-                    <span className="text-[10px] font-mono text-emerald-400 shrink-0">
-                      {item.rewardLabel}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-stone-400 leading-snug">{item.description}</p>
-                </div>
+            {loginRewards.map((item) => {
+              const activeSecs = gameState.activeShiftSeconds ?? 0;
+              const reqSecs = item.requiredShiftSeconds ?? 600;
+              const reqOrders = item.requiredOrdersServed ?? 15;
+              const servedOrders = gameState.totalCupsServed ?? 0;
 
-                <button
-                  type="button"
-                  disabled={item.claimed}
-                  onClick={() => onClaimLoginReward(item.day)}
-                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors ${
-                    item.claimed
-                      ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 cursor-default'
-                      : 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer shadow'
-                  }`}
+              const timePct = Math.min(100, Math.round((activeSecs / reqSecs) * 100));
+              const ordersPct = Math.min(100, Math.round((servedOrders / reqOrders) * 100));
+              const overallPct = Math.round((timePct + ordersPct) / 2);
+              const isUnlockedToClaim = activeSecs >= reqSecs && servedOrders >= reqOrders;
+
+              const fmtTime = (secs: number) => {
+                const m = Math.floor(secs / 60);
+                const s = Math.floor(secs % 60);
+                return `${m}:${s < 10 ? '0' : ''}${s}`;
+              };
+
+              return (
+                <div
+                  key={item.id}
+                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-[#241811] border border-stone-800"
                 >
-                  {item.claimed ? 'Claimed ✓' : `Claim Day ${item.day} Unlockable`}
-                </button>
-              </div>
-            ))}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-bold text-amber-100">{item.title}</span>
+                      <span className="text-[10px] font-mono text-emerald-400 shrink-0">
+                        {item.rewardLabel}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-stone-400 leading-snug">{item.description}</p>
+
+                    {/* Verifiable Playtime & Orders Progress Bar */}
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-stone-300">
+                        <span>
+                          ⏱ {fmtTime(activeSecs)} / {fmtTime(reqSecs)} Shift Time
+                        </span>
+                        <span>
+                          ☕ {servedOrders} / {reqOrders} Orders
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-stone-950 overflow-hidden border border-stone-700/70">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all"
+                          style={{ width: `${item.claimed ? 100 : overallPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={item.claimed || !isUnlockedToClaim}
+                    onClick={() => onClaimLoginReward(item.day)}
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors ${
+                      item.claimed
+                        ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 cursor-default'
+                        : isUnlockedToClaim
+                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer shadow'
+                        : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
+                    }`}
+                  >
+                    {item.claimed
+                      ? 'Claimed ✓'
+                      : isUnlockedToClaim
+                      ? `Claim Tier ${item.day} Unlockable`
+                      : `Locked (${overallPct}% Complete)`}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
