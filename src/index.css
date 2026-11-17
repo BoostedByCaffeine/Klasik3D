@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #140e0b;
+    color: #f5ebe1;
+    overflow: hidden;
+    touch-action: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1, h2, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono, .tabular-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Strict Landscape-Only Enforcement when device is physically in Portrait */
+.klasik-root-landscape {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.klasik-root-portrait-rotated {
+  width: 100vh;
+  height: 100vw;
+  transform: rotate(90deg);
+  transform-origin: top left;
+  position: fixed;
+  top: 0;
+  left: 100vw;
+  overflow: hidden;
+}
+
+@keyframes floatSteam {
+  0% {
+    transform: translateY(0px) scaleX(1);
+    opacity: 0.15;
+  }
+  50% {
+    transform: translateY(-10px) scaleX(1.08);
+    opacity: 0.65;
+  }
+  100% {
+    transform: translateY(-22px) scaleX(0.95);
+    opacity: 0;
+  }
+}
+
+.steam-wisp-1 {
+  animation: floatSteam 2.8s ease-in-out infinite;
+}
+.steam-wisp-2 {
+  animation: floatSteam 3.4s ease-in-out 0.9s infinite;
+}
+.steam-wisp-3 {
+  animation: floatSteam 3.1s ease-in-out 1.7s infinite;
+}
+
+/* Hide scrollbars on horizontal mini-ticket ribbon */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

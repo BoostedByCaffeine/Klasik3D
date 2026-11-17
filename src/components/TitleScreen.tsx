@@ -1,0 +1,229 @@
+import React from 'react';
+import { StudioLogo } from './StudioLogo';
+import { GameMode, WeatherMode } from '../game/rules';
+import { PwaEnvironmentStatus } from '../pwa/pwaManager';
+
+interface TitleScreenProps {
+  day: number;
+  cash: number;
+  weather: WeatherMode;
+  pwaStatus: PwaEnvironmentStatus;
+  spotifyTrackTitle: string;
+  onStartShift: (mode: GameMode) => void;
+  onChangeWeather: (weather: WeatherMode) => void;
+  onOpenSpotifyModal: () => void;
+  onOpenPwaModal: () => void;
+  onOpenCodeExportModal: () => void;
+}
+
+export const TitleScreen: React.FC<TitleScreenProps> = ({
+  day,
+  cash,
+  weather,
+  pwaStatus,
+  spotifyTrackTitle,
+  onStartShift,
+  onChangeWeather,
+  onOpenSpotifyModal,
+  onOpenPwaModal,
+  onOpenCodeExportModal,
+}) => {
+  return (
+    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-3 sm:p-6 overflow-hidden">
+      {/* Top Bar: Studio Logo (Exclusive to Intro/Title) & Quick Utility Actions */}
+      <div className="flex items-center justify-between gap-2 pointer-events-auto shrink-0">
+        <div className="flex items-center gap-2.5 bg-[#1c130e]/95 border border-amber-500/30 rounded-xl px-3 py-1.5 shadow-lg">
+          <StudioLogo className="w-24 sm:w-28 h-auto" />
+          <span className="text-stone-500" aria-hidden="true">
+            ·
+          </span>
+          <span className="text-[11px] font-medium text-amber-200/90 whitespace-nowrap">
+            {pwaStatus.isStandalone ? 'Standalone PWA / APK' : 'Live Web Build v1.3'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {!pwaStatus.isStandalone && (
+            <button
+              type="button"
+              onClick={onOpenPwaModal}
+              className="px-3 py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-amber-500/35 text-xs font-semibold text-amber-200 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Install PWA / APK
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpenCodeExportModal}
+            className="px-3 py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-stone-700 text-xs font-medium text-stone-200 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            Save &amp; GitHub
+          </button>
+        </div>
+      </div>
+
+      {/* Left-Third Diegetic Wooden-Framed Title Card (Leaves right 65% of 3D Diorama unobstructed) */}
+      <div className="my-auto max-w-sm sm:max-w-md w-full pointer-events-auto bg-[#1b120d]/95 border-2 border-[#5c3a21] rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-[11px] text-amber-300/90 font-medium">
+            <span>BoostedByCaffeine Studios</span>
+            <span aria-hidden="true">·</span>
+            <span className="font-mono tabular-nums">Day {day}</span>
+            <span aria-hidden="true">·</span>
+            <span className="font-mono tabular-nums">${Math.round(cash)} Reserve</span>
+          </div>
+
+          {/* Custom Inline SVG Title Emblem Lockup */}
+          <svg
+            viewBox="0 0 420 84"
+            className="w-full h-auto max-h-16 sm:max-h-20"
+            role="img"
+            aria-label="KLASIK 3D: Garage Garden Cafe"
+          >
+            <rect
+              x="2"
+              y="2"
+              width="416"
+              height="80"
+              rx="12"
+              fill="#271912"
+              stroke="#d97706"
+              strokeWidth="2.5"
+            />
+            <circle cx="46" cy="42" r="24" fill="#1c130e" stroke="#fbbf24" strokeWidth="2" />
+            <path
+              d="M34 39 H56 C56 50 50 57 45 57 C40 57 34 50 34 39 Z"
+              fill="#fef3c7"
+            />
+            <path
+              d="M56 41 H60 C63 41 63 48 60 48 H56"
+              stroke="#fef3c7"
+              strokeWidth="2.5"
+              fill="none"
+            />
+            <path
+              d="M41 32 Q39 25 44 21 M49 32 Q47 25 52 21"
+              stroke="#f59e0b"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <text
+              x="86"
+              y="46"
+              fill="#fef3c7"
+              fontFamily="Fraunces, Georgia, serif"
+              fontWeight="700"
+              fontSize="36"
+              letterSpacing="1"
+            >
+              KLASIK 3D
+            </text>
+            <text
+              x="88"
+              y="68"
+              fill="#f59e0b"
+              fontFamily="Plus Jakarta Sans, sans-serif"
+              fontWeight="600"
+              fontSize="12.5"
+              letterSpacing="2.4"
+            >
+              GARAGE GARDEN CAFE EDITION
+            </text>
+          </svg>
+
+          <p className="text-xs text-stone-300 leading-snug">
+            Step behind the commercial walnut espresso bar. Grind fresh dark-roast beans, steam
+            velvety microfoam, spin Spotify vinyl records, and serve the neighborhood.
+          </p>
+        </div>
+
+        {/* Primary & Secondary Game Mode CTAs */}
+        <div className="space-y-2">
+          <button
+            type="button"
+            data-start="true"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onStartShift('career');
+            }}
+            className="w-full py-2.5 sm:py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-stone-950 font-bold text-sm sm:text-base shadow-lg transition-transform active:scale-[0.99] cursor-pointer flex items-center justify-between"
+          >
+            <span>Start Shift (Day {day})</span>
+            <span className="text-[11px] font-mono bg-stone-950/15 px-2 py-0.5 rounded">
+              Enter / Space
+            </span>
+          </button>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onStartShift('zen');
+              }}
+              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-amber-500/30 text-amber-100 font-semibold text-xs transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Zen Mode (Endless)
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenSpotifyModal}
+              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-emerald-500/35 text-emerald-200 font-semibold text-xs transition-colors cursor-pointer truncate"
+              title={`Now Spinning: ${spotifyTrackTitle}`}
+            >
+              Spotify Vinyl Deck
+            </button>
+          </div>
+        </div>
+
+        {/* Live 3D Weather & Ambience Preview Selector */}
+        <div className="pt-2 border-t border-stone-800 space-y-1.5">
+          <div className="flex items-center justify-between text-[11px] text-stone-400">
+            <span>Live 3D Cafe Lighting</span>
+            <span className="text-amber-300/90 font-mono truncate max-w-[160px]">
+              {spotifyTrackTitle}
+            </span>
+          </div>
+          <div
+            className="grid grid-cols-3 gap-1.5 p-1 bg-[#120c09] rounded-xl border border-stone-800"
+            role="group"
+            aria-label="Weather and Ambience Preview"
+          >
+            {(
+              [
+                { id: 'morning', label: 'Morning Sun' },
+                { id: 'golden', label: 'Golden Hour' },
+                { id: 'rainy', label: 'Rainy Night' },
+              ] as const
+            ).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onChangeWeather(item.id)}
+                className={`py-1 px-2 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                  weather === item.id
+                    ? 'bg-amber-500 text-stone-950 font-semibold shadow-sm'
+                    : 'text-stone-300 hover:text-white'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Safe Margin: Single Flat Control-Hint Line */}
+      <div className="flex items-center justify-between gap-2 text-[11px] text-stone-300 bg-[#140e0b]/90 px-3 py-1.5 rounded-xl border border-stone-800/80 pointer-events-auto shrink-0">
+        <span className="truncate">
+          1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide Dock
+        </span>
+        <span className="font-mono text-amber-300/90 hidden sm:inline shrink-0">
+          Landscape 3D Barista Sim
+        </span>
+      </div>
+    </div>
+  );
+};

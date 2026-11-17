@@ -1,0 +1,6 @@
+{
+  "name": "Klasik 3D: Garage Garden Cafe",
+  "description": "A cozy, stylized low-poly first-person 3D barista simulation and coffee shop management game by BoostedByCaffeine Studios with interactive 3D vinyl Spotify integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

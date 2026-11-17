@@ -1,0 +1,38 @@
+{
+  "id": "./",
+  "name": "Klasik 3D: Garage Garden Cafe",
+  "short_name": "Klasik 3D",
+  "description": "Cozy first-person 3D barista simulation and coffee shop management game by BoostedByCaffeine Studios.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#140e0b",
+  "theme_color": "#1c1410",
+  "icons": [
+    {
+      "src": "./studiologo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
