@@ -4,6 +4,7 @@ import { STUDIO_ICON_SVG_RAW, STUDIO_LOGO_SVG_RAW } from '../components/StudioLo
 import {
   BaristaStationId,
   CustomerOrder,
+  CustomerSkinPackId,
   KlasikGameState,
   SyrupFlavor,
   WeatherMode,
@@ -177,8 +178,8 @@ interface ArticulatedCustomerActor {
   leftKneeJoint: THREE.Group;
   rightHipJoint: THREE.Group;
   rightKneeJoint: THREE.Group;
-  leftEyeMesh: THREE.Mesh;
-  rightEyeMesh: THREE.Mesh;
+  leftEyeMesh: THREE.Object3D;
+  rightEyeMesh: THREE.Object3D;
   heldCup: THREE.Group;
   phoneMesh: THREE.Mesh;
   activitySprite: THREE.Sprite;
@@ -186,6 +187,8 @@ interface ArticulatedCustomerActor {
   lastActivityLabel: string;
   currentPos: THREE.Vector3;
   seed: number;
+  appliedSkinPack: CustomerSkinPackId;
+  appliedShirtColor: string;
 }
 
 interface ActiveStepAnimation {
@@ -254,6 +257,8 @@ export class KlasikCafeScene3D {
   private counterWoodMat!: THREE.MeshStandardMaterial;
   private ceramicMugMat!: THREE.MeshStandardMaterial;
   private neonTubeMat!: THREE.MeshStandardMaterial;
+  private hangingSignFaceMat!: THREE.MeshStandardMaterial;
+  private lastNeonSignColor = '';
   private ghostSnapMat!: THREE.MeshStandardMaterial;
   private espressoChassisMat!: THREE.MeshStandardMaterial;
   private grinderBodyMat!: THREE.MeshStandardMaterial;
@@ -265,6 +270,14 @@ export class KlasikCafeScene3D {
   private hangingSignGroup!: THREE.Group;
   private titleHeroCupGroup!: THREE.Group;
   private titlePlaqueGroup!: THREE.Group;
+
+  // 3D Shop Upgrade Showroom & Counter Props
+  private upgradeTubePreampGroup!: THREE.Group;
+  private upgradeKlipschSpeakersGroup!: THREE.Group;
+  private upgradeBonsaiTerrariumGroup!: THREE.Group;
+  private upgradeGeishaVaultGroup!: THREE.Group;
+  private upgradeMiataStageGroup!: THREE.Group;
+  private upgradeGuildCharterGroup!: THREE.Group;
 
   // Subtle Diegetic Step Halo Ring
   private stepHaloGroup!: THREE.Group;
@@ -426,6 +439,7 @@ export class KlasikCafeScene3D {
     this.buildStation3MilkSyrupsAndIce();
     this.buildStation4ServeTrayAndGarden();
     this.buildStation5VinylTurntableCorner();
+    this.buildShopUpgradeProps();
     this.buildFloatingBadgeAndHearts();
     this.buildPooledParticles();
     this.scene.add(this.customersRoot);
@@ -554,26 +568,185 @@ export class KlasikCafeScene3D {
     cCtx.fillStyle = '#f8f4ec';
     cCtx.fillRect(0, 0, 1024, 512);
 
+    // Draw full high-detail Rocket-Coffee Emblem at u = 0.5 (x = 512, y = 256)
+    // Aspect-compensated (scaleX = 0.66) for cylinder circumference-to-height ratio
+    cCtx.save();
+    cCtx.translate(512, 256);
+    cCtx.scale(0.66, 1.0);
+
+    // 1. Circular Charcoal Badge (#242B2E) with Warm Brass Bezel
+    const badgeGrad = cCtx.createLinearGradient(0, -175, 0, 175);
+    badgeGrad.addColorStop(0, '#2C3539');
+    badgeGrad.addColorStop(1, '#1B2124');
+    cCtx.fillStyle = badgeGrad;
+    cCtx.strokeStyle = '#F59E0B';
+    cCtx.lineWidth = 10;
+    cCtx.beginPath();
+    cCtx.arc(0, 0, 172, 0, Math.PI * 2);
+    cCtx.fill();
+    cCtx.stroke();
+
+    // Dashed Orbital Telemetry Ring
+    cCtx.save();
+    cCtx.strokeStyle = 'rgba(245, 158, 11, 0.5)';
+    cCtx.lineWidth = 3.5;
+    cCtx.setLineDash([24, 14, 8, 14]);
+    cCtx.beginPath();
+    cCtx.arc(0, 0, 150, 0, Math.PI * 2);
+    cCtx.stroke();
+    cCtx.restore();
+
+    // 2. Swept Rocket Delta Fins (Left & Right) + Amber Stripes
+    cCtx.fillStyle = '#FFFFFF';
+    cCtx.beginPath();
+    cCtx.moveTo(-86, 10);
+    cCtx.lineTo(-136, 58);
+    cCtx.lineTo(-126, 86);
+    cCtx.lineTo(-66, 58);
+    cCtx.closePath();
+    cCtx.fill();
+    cCtx.fillStyle = '#F59E0B';
+    cCtx.beginPath();
+    cCtx.moveTo(-88, 26);
+    cCtx.lineTo(-122, 60);
+    cCtx.lineTo(-116, 74);
+    cCtx.lineTo(-74, 52);
+    cCtx.closePath();
+    cCtx.fill();
+
+    cCtx.fillStyle = '#FFFFFF';
+    cCtx.beginPath();
+    cCtx.moveTo(86, 10);
+    cCtx.lineTo(136, 58);
+    cCtx.lineTo(126, 86);
+    cCtx.lineTo(66, 58);
+    cCtx.closePath();
+    cCtx.fill();
+    cCtx.fillStyle = '#F59E0B';
+    cCtx.beginPath();
+    cCtx.moveTo(88, 26);
+    cCtx.lineTo(122, 60);
+    cCtx.lineTo(116, 74);
+    cCtx.lineTo(74, 52);
+    cCtx.closePath();
+    cCtx.fill();
+
+    // 3. Metallic Thruster Nozzle Bell
+    cCtx.fillStyle = '#334155';
+    cCtx.strokeStyle = '#FFFFFF';
+    cCtx.lineWidth = 4;
+    cCtx.beginPath();
+    cCtx.moveTo(-36, 66);
+    cCtx.lineTo(36, 66);
+    cCtx.lineTo(48, 92);
+    cCtx.lineTo(-48, 92);
+    cCtx.closePath();
+    cCtx.fill();
+    cCtx.stroke();
+
+    // 4. Multi-Stage Afterburner Flame Plume
+    const flameGrad = cCtx.createLinearGradient(0, 92, 0, 168);
+    flameGrad.addColorStop(0, '#FEF08A');
+    flameGrad.addColorStop(0.5, '#F59E0B');
+    flameGrad.addColorStop(1, '#EA580C');
+    cCtx.fillStyle = flameGrad;
+    cCtx.beginPath();
+    cCtx.moveTo(-38, 92);
+    cCtx.quadraticCurveTo(0, 174, 38, 92);
+    cCtx.closePath();
+    cCtx.fill();
+
+    cCtx.fillStyle = '#FEF9C3';
+    cCtx.beginPath();
+    cCtx.moveTo(-22, 92);
+    cCtx.quadraticCurveTo(0, 142, 22, 92);
+    cCtx.closePath();
+    cCtx.fill();
+
+    // 5. Porcelain Cup Handle (Right Side)
+    cCtx.strokeStyle = '#FFFFFF';
+    cCtx.lineWidth = 18;
+    cCtx.lineCap = 'round';
+    cCtx.beginPath();
+    cCtx.moveTo(72, -36);
+    cCtx.bezierCurveTo(128, -36, 132, 32, 64, 32);
+    cCtx.stroke();
+
+    // 6. Tapered Porcelain Rocket-Cup Body
+    cCtx.fillStyle = '#FFFFFF';
+    cCtx.beginPath();
+    cCtx.moveTo(-94, -56);
+    cCtx.lineTo(94, -56);
+    cCtx.lineTo(70, 52);
+    cCtx.quadraticCurveTo(64, 68, 42, 68);
+    cCtx.lineTo(-42, 68);
+    cCtx.quadraticCurveTo(-64, 68, -70, 52);
+    cCtx.closePath();
+    cCtx.fill();
+
+    // 7. Dark Charcoal Aerospace Band & Glowing Amber Porthole
+    cCtx.fillStyle = '#242B2E';
+    cCtx.beginPath();
+    cCtx.moveTo(-84, -10);
+    cCtx.lineTo(84, -10);
+    cCtx.lineTo(78, 16);
+    cCtx.lineTo(-78, 16);
+    cCtx.closePath();
+    cCtx.fill();
+
+    cCtx.fillStyle = '#F59E0B';
+    cCtx.strokeStyle = '#FFFFFF';
+    cCtx.lineWidth = 5;
+    cCtx.beginPath();
+    cCtx.arc(0, 3, 18, 0, Math.PI * 2);
+    cCtx.fill();
+    cCtx.stroke();
+
+    // 8. Espresso Rim & Golden Crema
+    cCtx.fillStyle = '#FFFFFF';
+    cCtx.strokeStyle = '#242B2E';
+    cCtx.lineWidth = 6;
+    cCtx.beginPath();
+    cCtx.ellipse(0, -56, 94, 22, 0, 0, Math.PI * 2);
+    cCtx.fill();
+    cCtx.stroke();
+
+    cCtx.fillStyle = '#78350F';
+    cCtx.beginPath();
+    cCtx.ellipse(0, -56, 80, 14, 0, 0, Math.PI * 2);
+    cCtx.fill();
+
+    cCtx.fillStyle = '#D97706';
+    cCtx.beginPath();
+    cCtx.ellipse(0, -56, 62, 9, 0, 0, Math.PI * 2);
+    cCtx.fill();
+
+    // 9. Three Rising Steam Plumes
+    cCtx.strokeStyle = '#FDE68A';
+    cCtx.lineWidth = 10;
+    cCtx.lineCap = 'round';
+    [-40, 0, 40].forEach((sx, idx) => {
+      cCtx.strokeStyle = idx === 1 ? '#F59E0B' : '#FDE68A';
+      cCtx.beginPath();
+      cCtx.moveTo(sx, -84);
+      cCtx.bezierCurveTo(sx - 16, -104, sx + 16, -124, sx, -146 - (idx === 1 ? 10 : 0));
+      cCtx.stroke();
+    });
+    cCtx.restore();
+
     this.studioCupEmblemTexture = new THREE.CanvasTexture(cupEmblemCanvas);
     this.studioCupEmblemTexture.colorSpace = THREE.SRGBColorSpace;
     this.studioCupEmblemTexture.anisotropy = maxAniso;
 
-    const iconBlob = new Blob([STUDIO_ICON_SVG_RAW], { type: 'image/svg+xml;charset=utf-8' });
-    const iconUrl = URL.createObjectURL(iconBlob);
+    const iconDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(STUDIO_ICON_SVG_RAW)}`;
     const iconImg = new Image();
     iconImg.onload = () => {
       cCtx.fillStyle = '#f8f4ec';
       cCtx.fillRect(0, 0, 1024, 512);
-      // Compensate for cylinder circumference-to-height aspect ratio (~3.5:1)
-      // so the Rocket-Coffee emblem renders circular and unclipped on the front face
-      cCtx.drawImage(iconImg, 392, 66, 240, 380);
+      cCtx.drawImage(iconImg, 386, 66, 252, 380);
       this.studioCupEmblemTexture.needsUpdate = true;
-      URL.revokeObjectURL(iconUrl);
     };
-    iconImg.onerror = () => {
-      URL.revokeObjectURL(iconUrl);
-    };
-    iconImg.src = iconUrl;
+    iconImg.src = iconDataUrl;
 
     // B. Procedural Walnut Wood Grain Bump Texture
     const woodCanvas = document.createElement('canvas');
@@ -703,23 +876,10 @@ export class KlasikCafeScene3D {
     const signCanvas = document.createElement('canvas');
     signCanvas.width = 512;
     signCanvas.height = 160;
-    const sCtx = signCanvas.getContext('2d')!;
-    sCtx.fillStyle = '#1d130d';
-    sCtx.fillRect(0, 0, 512, 160);
-    sCtx.strokeStyle = '#f59e0b';
-    sCtx.lineWidth = 6;
-    sCtx.strokeRect(10, 10, 492, 140);
-    sCtx.fillStyle = '#fef3c7';
-    sCtx.font = 'bold 54px Georgia, serif';
-    sCtx.textAlign = 'center';
-    sCtx.fillText('KLASIK 3D', 256, 82);
-    sCtx.fillStyle = '#f59e0b';
-    sCtx.font = '600 20px sans-serif';
-    sCtx.fillText('GARAGE GARDEN CAFE · EST. 2026', 256, 122);
-
     this.hangingSignTexture = new THREE.CanvasTexture(signCanvas);
     this.hangingSignTexture.colorSpace = THREE.SRGBColorSpace;
     this.hangingSignTexture.anisotropy = maxAniso;
+    this.redrawHangingSignTexture('#f59e0b');
 
     // I. Floating 3D Telemetry / Reward Badge Texture
     const badgeCanvas = document.createElement('canvas');
@@ -735,6 +895,26 @@ export class KlasikCafeScene3D {
     this.pickupSpeechTexture = new THREE.CanvasTexture(speechCanvas);
     this.pickupSpeechTexture.colorSpace = THREE.SRGBColorSpace;
     this.drawPickupSpeechBubble('Looks amazing, thank you!');
+  }
+
+  private redrawHangingSignTexture(accentHex: string) {
+    if (!this.hangingSignTexture) return;
+    const signCanvas = this.hangingSignTexture.image as HTMLCanvasElement;
+    const sCtx = signCanvas.getContext('2d');
+    if (!sCtx) return;
+    sCtx.fillStyle = '#1d130d';
+    sCtx.fillRect(0, 0, 512, 160);
+    sCtx.strokeStyle = accentHex;
+    sCtx.lineWidth = 6;
+    sCtx.strokeRect(10, 10, 492, 140);
+    sCtx.fillStyle = '#fef3c7';
+    sCtx.font = 'bold 54px Georgia, serif';
+    sCtx.textAlign = 'center';
+    sCtx.fillText('KLASIK 3D', 256, 82);
+    sCtx.fillStyle = accentHex;
+    sCtx.font = '600 20px sans-serif';
+    sCtx.fillText('GARAGE GARDEN CAFE · EST. 2026', 256, 122);
+    this.hangingSignTexture.needsUpdate = true;
   }
 
   private drawFloatingBadgeText(text: string, accentColor = '#10b981') {
@@ -1857,10 +2037,15 @@ export class KlasikCafeScene3D {
 
     // Open-top hollow ceramic cylinder so internal ShaderMaterial liquid & crema are 100% visible
     const cupBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.082, 0.065, 0.13, 28, 1, true),
+      new THREE.CylinderGeometry(0.082, 0.065, 0.13, 32, 1, true),
       wallMat
     );
     cupBody.position.y = 0.078;
+    if (useTitleBranding) {
+      // Rotate cylinder so UV u = 0.5 (x = 512) faces directly toward the Title Camera (1.86, 1.28, 0.96),
+      // just left of the +X handle, hiding the UV seam on the back of the mug!
+      cupBody.rotation.y = -Math.PI + 0.42;
+    }
     cupBody.castShadow = true;
     group.add(cupBody);
 
@@ -1924,16 +2109,17 @@ export class KlasikCafeScene3D {
     board.castShadow = true;
     this.hangingSignGroup.add(board);
 
+    this.hangingSignFaceMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: this.hangingSignTexture,
+      emissive: 0xf59e0b,
+      emissiveMap: this.hangingSignTexture,
+      emissiveIntensity: 0.65,
+      roughness: 0.25,
+    });
     const signFace = new THREE.Mesh(
       new THREE.PlaneGeometry(1.98, 0.52),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        map: this.hangingSignTexture,
-        emissive: 0xf59e0b,
-        emissiveMap: this.hangingSignTexture,
-        emissiveIntensity: 0.65,
-        roughness: 0.25,
-      })
+      this.hangingSignFaceMat
     );
     signFace.position.z = 0.05;
     this.hangingSignGroup.add(signFace);
@@ -2125,6 +2311,12 @@ export class KlasikCafeScene3D {
       metalness: 0.88,
     });
     this.espressoChassisMat = brushedSteelMat;
+    // Dedicated stainless material for Knock Box and Rinse Sink so Espresso Machine Skins only skin the Espresso Machine!
+    const counterStainlessMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.22,
+      metalness: 0.86,
+    });
     const chromeMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
       roughness: 0.1,
@@ -2153,7 +2345,7 @@ export class KlasikCafeScene3D {
 
     // 1. Knock Box at x = -1.08, z = 0.34
     const knockBoxGroup = new THREE.Group();
-    const kbOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), brushedSteelMat);
+    const kbOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), counterStainlessMat);
     kbOuter.position.y = 0.06;
     knockBoxGroup.add(kbOuter);
 
@@ -2181,7 +2373,7 @@ export class KlasikCafeScene3D {
     this.grinderGroup = new THREE.Group();
     const grinderBaseFoot = new THREE.Mesh(
       new THREE.CylinderGeometry(0.12, 0.135, 0.04, 24),
-      chromeMat
+      this.grinderBodyMat
     );
     grinderBaseFoot.position.y = 0.02;
     this.grinderGroup.add(grinderBaseFoot);
@@ -2196,7 +2388,7 @@ export class KlasikCafeScene3D {
 
     const grindCollar = new THREE.Mesh(
       new THREE.CylinderGeometry(0.115, 0.115, 0.045, 24),
-      brassMat
+      this.grinderBodyMat
     );
     grindCollar.position.y = 0.39;
     this.grinderGroup.add(grindCollar);
@@ -2208,7 +2400,10 @@ export class KlasikCafeScene3D {
     forkRight.position.x = 0.042;
     this.grinderGroup.add(forkRight);
 
-    const chute = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.026, 0.14, 16), chromeMat);
+    const chute = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.032, 0.026, 0.14, 16),
+      this.grinderBodyMat
+    );
     chute.rotation.x = 0.45;
     chute.position.set(0, 0.27, 0.12);
     this.grinderGroup.add(chute);
@@ -2475,7 +2670,7 @@ export class KlasikCafeScene3D {
 
       const gaugeBezel = new THREE.Mesh(
         new THREE.CylinderGeometry(0.044, 0.044, 0.022, 24),
-        brassMat
+        this.espressoChassisMat
       );
       gaugeBezel.rotation.x = Math.PI / 2;
       gaugeBezel.position.set(gx, 0.425, 0.215);
@@ -2509,7 +2704,7 @@ export class KlasikCafeScene3D {
     pidScreen.position.set(0, 0.425, 0.222);
     espressoGroup.add(pidScreen);
 
-    const warmerRail = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.03, 0.36), brassMat);
+    const warmerRail = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.03, 0.36), this.espressoChassisMat);
     warmerRail.position.set(0, 0.52, -0.01);
     espressoGroup.add(warmerRail);
 
@@ -2569,7 +2764,7 @@ export class KlasikCafeScene3D {
 
     // 6. Stainless Rinse Sink at x = 0.36, y = 1.0, z = 0.26
     const sinkGroup = new THREE.Group();
-    const sinkRim = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.24), brushedSteelMat);
+    const sinkRim = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.24), counterStainlessMat);
     sinkRim.position.y = 0.012;
     sinkGroup.add(sinkRim);
 
@@ -3464,6 +3659,183 @@ export class KlasikCafeScene3D {
     this.scene.add(st5Group);
   }
 
+  // Visible 3D Counter & Showroom Props for Installed Shop Upgrades
+  private buildShopUpgradeProps() {
+    const brassMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      roughness: 0.22,
+      metalness: 0.88,
+    });
+    const darkSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.35,
+      metalness: 0.78,
+    });
+    const glowingTubeMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xf97316,
+      emissiveIntensity: 1.8,
+      roughness: 0.15,
+    });
+
+    // 1. Audiophile Vacuum Tube Preamp (`audiophile-tube-preamp`) at Station 5 (x = 1.94, y = 1.0, z = 0.10)
+    this.upgradeTubePreampGroup = new THREE.Group();
+    const preampChassis = new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, 0.055, 0.16),
+      darkSteelMat
+    );
+    preampChassis.position.y = 0.028;
+    this.upgradeTubePreampGroup.add(preampChassis);
+    const preampFaceplate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.245, 0.048, 0.012),
+      brassMat
+    );
+    preampFaceplate.position.set(0, 0.028, 0.082);
+    this.upgradeTubePreampGroup.add(preampFaceplate);
+    [-0.075, -0.025, 0.025, 0.075].forEach((tx) => {
+      const tubeSocket = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.014, 0.016, 0.014, 12),
+        brassMat
+      );
+      tubeSocket.position.set(tx, 0.062, -0.01);
+      this.upgradeTubePreampGroup.add(tubeSocket);
+      const vacuumTube = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.011, 0.011, 0.045, 12),
+        glowingTubeMat
+      );
+      vacuumTube.position.set(tx, 0.09, -0.01);
+      this.upgradeTubePreampGroup.add(vacuumTube);
+    });
+    this.upgradeTubePreampGroup.position.set(1.94, 1.0, 0.1);
+    this.upgradeTubePreampGroup.visible = false;
+    this.scene.add(this.upgradeTubePreampGroup);
+
+    // 2. Klipschorn Corner Horn Speakers (`klipschorn-corner-speakers`) flanking the Garage Archway
+    this.upgradeKlipschSpeakersGroup = new THREE.Group();
+    [-2.75, 2.75].forEach((sx) => {
+      const spk = new THREE.Group();
+      const cabinet = new THREE.Mesh(
+        new THREE.BoxGeometry(0.56, 1.15, 0.46),
+        this.counterWoodMat
+      );
+      cabinet.position.y = 0.575;
+      cabinet.castShadow = true;
+      spk.add(cabinet);
+      const acousticHorn = new THREE.Mesh(
+        new THREE.BoxGeometry(0.48, 0.28, 0.06),
+        brassMat
+      );
+      acousticHorn.position.set(0, 0.92, 0.22);
+      spk.add(acousticHorn);
+      const grille = new THREE.Mesh(
+        new THREE.BoxGeometry(0.48, 0.56, 0.03),
+        darkSteelMat
+      );
+      grille.position.set(0, 0.42, 0.225);
+      spk.add(grille);
+      spk.position.set(sx, 0, -1.55);
+      spk.rotation.y = sx < 0 ? 0.35 : -0.35;
+      this.upgradeKlipschSpeakersGroup.add(spk);
+    });
+    this.upgradeKlipschSpeakersGroup.visible = false;
+    this.scene.add(this.upgradeKlipschSpeakersGroup);
+
+    // 3. Japanese Bonsai Counter Terrarium (`japanese-bonsai-terrarium`) at Counter Corner (x = 1.62, y = 1.0, z = 0.22)
+    this.upgradeBonsaiTerrariumGroup = new THREE.Group();
+    const bonsaiPot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.11, 0.085, 0.055, 18),
+      new THREE.MeshStandardMaterial({ color: 0x0f766e, roughness: 0.25, metalness: 0.15 })
+    );
+    bonsaiPot.position.y = 0.028;
+    this.upgradeBonsaiTerrariumGroup.add(bonsaiPot);
+    const bonsaiTrunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.016, 0.028, 0.18, 10),
+      new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.85 })
+    );
+    bonsaiTrunk.position.set(0, 0.11, 0);
+    bonsaiTrunk.rotation.z = 0.22;
+    this.upgradeBonsaiTerrariumGroup.add(bonsaiTrunk);
+    const foliageMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.65 });
+    [
+      [-0.04, 0.19, 0, 0.065],
+      [0.035, 0.22, 0.01, 0.072],
+      [-0.01, 0.25, -0.01, 0.058],
+    ].forEach(([fx, fy, fz, fr]) => {
+      const pad = new THREE.Mesh(new THREE.SphereGeometry(fr, 12, 10), foliageMat);
+      pad.scale.set(1.35, 0.55, 1.15);
+      pad.position.set(fx, fy, fz);
+      this.upgradeBonsaiTerrariumGroup.add(pad);
+    });
+    this.upgradeBonsaiTerrariumGroup.position.set(1.62, 1.0, 0.22);
+    this.upgradeBonsaiTerrariumGroup.visible = false;
+    this.scene.add(this.upgradeBonsaiTerrariumGroup);
+
+    // 4. Ethiopian Geisha Single-Origin Bean Vault (`ethiopian-geisha-bean-vault`) near Grinder (x = -1.16, y = 1.0, z = 0.14)
+    this.upgradeGeishaVaultGroup = new THREE.Group();
+    const vaultStand = new THREE.Mesh(
+      new THREE.BoxGeometry(0.26, 0.024, 0.11),
+      this.counterWoodMat
+    );
+    vaultStand.position.y = 0.012;
+    this.upgradeGeishaVaultGroup.add(vaultStand);
+    [-0.08, 0, 0.08].forEach((cx) => {
+      const jar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, 0.14, 16),
+        new THREE.MeshStandardMaterial({
+          color: 0x451a03,
+          roughness: 0.2,
+          metalness: 0.3,
+        })
+      );
+      jar.position.set(cx, 0.09, 0);
+      this.upgradeGeishaVaultGroup.add(jar);
+      const goldCap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.035, 0.022, 16),
+        brassMat
+      );
+      goldCap.position.set(cx, 0.168, 0);
+      this.upgradeGeishaVaultGroup.add(goldCap);
+    });
+    this.upgradeGeishaVaultGroup.position.set(-1.16, 1.0, 0.14);
+    this.upgradeGeishaVaultGroup.visible = false;
+    this.scene.add(this.upgradeGeishaVaultGroup);
+
+    // 5. 1990 Miata MX-5 Pop-Up Concours Stage (`miata-pop-up-concours-stage`)
+    this.upgradeMiataStageGroup = new THREE.Group();
+    const concoursRing = new THREE.Mesh(
+      new THREE.RingGeometry(1.95, 2.08, 36),
+      new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        emissive: 0xd97706,
+        emissiveIntensity: 0.9,
+        side: THREE.DoubleSide,
+      })
+    );
+    concoursRing.rotation.x = -Math.PI / 2;
+    concoursRing.position.set(-2.8, 0.025, -4.5);
+    this.upgradeMiataStageGroup.add(concoursRing);
+    this.upgradeMiataStageGroup.visible = false;
+    this.scene.add(this.upgradeMiataStageGroup);
+
+    // 6. Tokyo Specialty Roastery Guild Charter (`tokyo-roastery-guild-charter`)
+    this.upgradeGuildCharterGroup = new THREE.Group();
+    const crestPlaque = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.28, 0.03, 24),
+      brassMat
+    );
+    crestPlaque.rotation.x = Math.PI / 2;
+    this.upgradeGuildCharterGroup.add(crestPlaque);
+    const crestCore = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 0.036, 24),
+      darkSteelMat
+    );
+    crestCore.rotation.x = Math.PI / 2;
+    this.upgradeGuildCharterGroup.add(crestCore);
+    this.upgradeGuildCharterGroup.position.set(0.15, 2.68, -0.45);
+    this.upgradeGuildCharterGroup.visible = false;
+    this.scene.add(this.upgradeGuildCharterGroup);
+  }
+
   private buildFloatingBadgeAndHearts() {
     const spriteMat = new THREE.SpriteMaterial({
       map: this.floatingBadgeTexture,
@@ -3584,40 +3956,56 @@ export class KlasikCafeScene3D {
     tex.needsUpdate = true;
   }
 
-  // Articulated Multi-Part 3D Human Customer Rig with Outfits, Accessories, Smartphone & Activity Bubble
+  // Articulated Multi-Part 3D Human Customer Rig with Expressive Layered Eyes, Full 3D Hats & Reactive Skin Pack Silhouettes
   private createCustomerCharacter(
     seed: number,
     avatarColor: string,
-    shirtColor: string
+    shirtColor: string,
+    skinPackId: CustomerSkinPackId = 'casual-garden'
   ): Omit<ArticulatedCustomerActor, 'currentPos'> {
     const group = new THREE.Group();
 
     const skinMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(avatarColor),
-      roughness: 0.52,
+      roughness: 0.5,
       metalness: 0.02,
     });
     const jacketMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(shirtColor),
-      roughness: 0.62,
-      metalness: 0.05,
+      roughness: skinPackId === 'cyber-neon-night' ? 0.32 : 0.58,
+      metalness: skinPackId === 'cyber-neon-night' ? 0.45 : 0.06,
     });
     const innerShirtMat = new THREE.MeshStandardMaterial({
-      color: 0xf5f5f4,
-      roughness: 0.7,
+      color:
+        skinPackId === 'vinyl-jazz-collectors' || skinPackId === 'cyber-neon-night'
+          ? 0x18181b
+          : 0xfafaf9,
+      roughness: 0.68,
     });
+    const pantsColor =
+      skinPackId === 'tokyo-streetwear'
+        ? 0x3f3f46
+        : skinPackId === 'miata-track-club'
+        ? 0x111827
+        : skinPackId === 'botanical-artists'
+        ? 0x44403c
+        : skinPackId === 'cyber-neon-night'
+        ? 0x09090b
+        : seed % 2 === 0
+        ? 0x1e293b
+        : 0x334155;
     const denimMat = new THREE.MeshStandardMaterial({
-      color: seed % 2 === 0 ? 0x1e293b : 0x334155,
-      roughness: 0.78,
+      color: pantsColor,
+      roughness: 0.76,
     });
     const shoeMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: 0.45,
+      color: skinPackId === 'tokyo-streetwear' ? 0xf8fafc : 0x18181b,
+      roughness: 0.42,
     });
     const hairColors = [0x1c1917, 0x451a03, 0x78350f, 0x27272a, 0x92400e];
     const hairMat = new THREE.MeshStandardMaterial({
       color: hairColors[seed % hairColors.length],
-      roughness: 0.72,
+      roughness: 0.68,
     });
 
     const shadow = new THREE.Mesh(
@@ -3654,6 +4042,16 @@ export class KlasikCafeScene3D {
       thigh.position.y = -0.14;
       thigh.castShadow = true;
       hipJoint.add(thigh);
+
+      // Tokyo Streetwear Cargo Side Thigh Pockets
+      if (skinPackId === 'tokyo-streetwear') {
+        const cargoPocket = new THREE.Mesh(
+          new THREE.BoxGeometry(0.026, 0.095, 0.075),
+          denimMat
+        );
+        cargoPocket.position.set(sideX < 0 ? -0.058 : 0.058, -0.14, 0.01);
+        hipJoint.add(cargoPocket);
+      }
 
       const kneeJoint = new THREE.Group();
       kneeJoint.position.set(0, -0.28, 0);
@@ -3705,27 +4103,134 @@ export class KlasikCafeScene3D {
       torsoGroup.add(lapel);
     });
 
-    // Shoulder Tote Bag or Crossbody Strap Accessory (for even seeds)
-    if (seed % 2 === 0) {
-      const toteMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.85 });
-      const toteBag = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.24, 0.22), toteMat);
-      toteBag.position.set(0.22, 0.05, -0.02);
-      torsoGroup.add(toteBag);
-      const toteStrap = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.014, 8, 20), toteMat);
-      toteStrap.rotation.y = Math.PI / 2;
-      toteStrap.position.set(0.18, 0.28, 0);
-      torsoGroup.add(toteStrap);
-    } else if (seed % 3 === 0) {
-      // Neck Headphones Accessory
-      const hpMat = new THREE.MeshStandardMaterial({
-        color: 0x18181b,
-        metalness: 0.7,
-        roughness: 0.3,
+    // ================= SKIN-PACK SPECIFIC 3D OUTFIT SILHOUETTES =================
+    if (skinPackId === 'tokyo-streetwear') {
+      // Ribbed Varsity Bomber Waistband & Collar
+      const ribWaist = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.162, 0.16, 0.055, 18),
+        new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.6 })
+      );
+      ribWaist.scale.set(1.12, 1, 0.8);
+      ribWaist.position.y = 0.03;
+      torsoGroup.add(ribWaist);
+
+      // Crossbody Street Messenger Bag
+      const bagMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.4 });
+      const streetStrap = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.48, 0.3), bagMat);
+      streetStrap.rotation.z = 0.55;
+      streetStrap.position.set(0, 0.24, 0.01);
+      torsoGroup.add(streetStrap);
+    } else if (skinPackId === 'miata-track-club') {
+      // Twin Vertical Motorsport Racing Stripes down the front chest
+      const stripeMat = new THREE.MeshStandardMaterial({ color: 0xfefce8, roughness: 0.35 });
+      [-0.085, -0.055].forEach((sx) => {
+        const racingStripe = new THREE.Mesh(
+          new THREE.BoxGeometry(0.018, 0.45, 0.025),
+          stripeMat
+        );
+        racingStripe.position.set(sx, 0.24, 0.145);
+        torsoGroup.add(racingStripe);
       });
-      const neckBand = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.014, 10, 20), hpMat);
-      neckBand.rotation.x = Math.PI / 2 + 0.18;
-      neckBand.position.set(0, 0.47, 0.01);
-      torsoGroup.add(neckBand);
+      // Gold Miata Chest Emblem Patch on right chest
+      const chestBadge = new THREE.Mesh(
+        new THREE.CircleGeometry(0.026, 12),
+        new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.8, roughness: 0.2 })
+      );
+      chestBadge.position.set(0.08, 0.34, 0.152);
+      torsoGroup.add(chestBadge);
+    } else if (skinPackId === 'vinyl-jazz-collectors') {
+      // Tailored Long Coat Lower Skirt Extension + Ribbed Turtleneck Collar
+      const coatSkirt = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.165, 0.185, 0.18, 18),
+        jacketMat
+      );
+      coatSkirt.scale.set(1.12, 1, 0.8);
+      coatSkirt.position.y = -0.06;
+      torsoGroup.add(coatSkirt);
+
+      const turtleneck = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.068, 0.072, 0.065, 14),
+        innerShirtMat
+      );
+      turtleneck.position.set(0, 0.49, 0.01);
+      torsoGroup.add(turtleneck);
+    } else if (skinPackId === 'botanical-artists') {
+      // Wrap-Around Canvas Studio Apron + Front Tool Pocket
+      const apronMat = new THREE.MeshStandardMaterial({
+        color: seed % 2 === 0 ? 0xf5f5f4 : 0xd97706,
+        roughness: 0.82,
+      });
+      const apronBib = new THREE.Mesh(
+        new THREE.BoxGeometry(0.24, 0.38, 0.025),
+        apronMat
+      );
+      apronBib.position.set(0, 0.19, 0.148);
+      torsoGroup.add(apronBib);
+
+      const apronSkirt = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.165, 0.175, 0.22, 16, 1, false, -Math.PI * 0.45, Math.PI * 0.9),
+        apronMat
+      );
+      apronSkirt.scale.set(1.12, 1, 0.82);
+      apronSkirt.position.set(0, -0.05, 0.01);
+      torsoGroup.add(apronSkirt);
+
+      const apronPocket = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.11, 0.022),
+        new THREE.MeshStandardMaterial({
+          color: seed % 2 === 0 ? 0xd6d3d1 : 0xb45309,
+          roughness: 0.85,
+        })
+      );
+      apronPocket.position.set(0, 0.13, 0.162);
+      torsoGroup.add(apronPocket);
+    } else if (skinPackId === 'cyber-neon-night') {
+      // Glowing Emissive Neon Techwear Collar & Chest Conduits
+      const neonMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(shirtColor),
+        emissive: new THREE.Color(shirtColor),
+        emissiveIntensity: 1.4,
+        roughness: 0.2,
+      });
+      const cyberCollar = new THREE.Mesh(
+        new THREE.TorusGeometry(0.095, 0.018, 10, 20, Math.PI * 1.35),
+        neonMat
+      );
+      cyberCollar.rotation.x = Math.PI / 2 - 0.2;
+      cyberCollar.rotation.z = -Math.PI * 0.675;
+      cyberCollar.position.set(0, 0.48, 0.01);
+      torsoGroup.add(cyberCollar);
+
+      [-0.085, 0.085].forEach((cx) => {
+        const conduit = new THREE.Mesh(
+          new THREE.BoxGeometry(0.014, 0.38, 0.024),
+          neonMat
+        );
+        conduit.position.set(cx, 0.24, 0.148);
+        torsoGroup.add(conduit);
+      });
+    } else {
+      // Casual Garden Default: Canvas Tote Bag or Neck Headphones
+      if (seed % 2 === 0) {
+        const toteMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.85 });
+        const toteBag = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.24, 0.22), toteMat);
+        toteBag.position.set(0.22, 0.05, -0.02);
+        torsoGroup.add(toteBag);
+        const toteStrap = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.014, 8, 20), toteMat);
+        toteStrap.rotation.y = Math.PI / 2;
+        toteStrap.position.set(0.18, 0.28, 0);
+        torsoGroup.add(toteStrap);
+      } else if (seed % 3 === 0) {
+        const hpMat = new THREE.MeshStandardMaterial({
+          color: 0x18181b,
+          metalness: 0.7,
+          roughness: 0.3,
+        });
+        const neckBand = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.014, 10, 20), hpMat);
+        neckBand.rotation.x = Math.PI / 2 + 0.18;
+        neckBand.position.set(0, 0.47, 0.01);
+        torsoGroup.add(neckBand);
+      }
     }
 
     const neckJoint = new THREE.Group();
@@ -3752,104 +4257,345 @@ export class KlasikCafeScene3D {
       neckJoint.add(ear);
     });
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.052, 8), skinMat);
-    nose.rotation.x = Math.PI / 2 - 0.2;
-    nose.position.set(0, 0.185, 0.165);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.048, 10), skinMat);
+    nose.rotation.x = Math.PI / 2 - 0.18;
+    nose.position.set(0, 0.184, 0.166);
     neckJoint.add(nose);
 
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2 });
-    const leftEyeMesh = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 10), eyeMat);
-    leftEyeMesh.position.set(-0.056, 0.21, 0.148);
-    neckJoint.add(leftEyeMesh);
+    // Sculpted Warm Smile Mouth & Subtle Rosy Cheek Blush
+    const mouthMat = new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.45 });
+    const smileArc = new THREE.Mesh(
+      new THREE.TorusGeometry(0.022, 0.0036, 8, 14, Math.PI),
+      mouthMat
+    );
+    smileArc.rotation.z = Math.PI;
+    smileArc.rotation.x = -0.1;
+    smileArc.position.set(0, 0.152, 0.155);
+    neckJoint.add(smileArc);
 
-    const rightEyeMesh = leftEyeMesh.clone();
-    rightEyeMesh.position.x = 0.056;
-    neckJoint.add(rightEyeMesh);
+    const blushMat = new THREE.MeshStandardMaterial({
+      color: 0xf43f5e,
+      transparent: true,
+      opacity: 0.28,
+      roughness: 0.6,
+    });
+    [-0.088, 0.088].forEach((cx) => {
+      const cheekBlush = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), blushMat);
+      cheekBlush.scale.set(1.2, 0.75, 0.35);
+      cheekBlush.position.set(cx, 0.176, 0.14);
+       cheekBlush.rotation.y = cx < 0 ? -0.35 : 0.35;
+      neckJoint.add(cheekBlush);
+    });
 
-    [-0.056, 0.056].forEach((bx) => {
-      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.01, 0.012), hairMat);
-      brow.position.set(bx, 0.242, 0.148);
+    // Multi-Part Layered Expressive 3D Eyes (Sclera + Colored Iris + Dark Pupil + White Catchlight + Upper Lash Arch)
+    const scleraMat = new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.18 });
+    const irisColors = [0x451a03, 0x1e3a8a, 0x065f46, 0x78350f, 0x334155];
+    const irisMat = new THREE.MeshStandardMaterial({
+      color: irisColors[seed % irisColors.length],
+      roughness: 0.2,
+    });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x09090b });
+    const catchlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    const buildExpressiveEye = (sideX: number): THREE.Group => {
+      const eyeGroup = new THREE.Group();
+      eyeGroup.position.set(sideX, 0.206, 0.155);
+      eyeGroup.rotation.y = sideX < 0 ? -0.14 : 0.14;
+
+      const sclera = new THREE.Mesh(new THREE.SphereGeometry(0.021, 12, 10), scleraMat);
+      sclera.scale.set(1.12, 0.96, 0.55);
+      eyeGroup.add(sclera);
+
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0125, 10, 10), irisMat);
+      iris.scale.set(1, 1, 0.45);
+      iris.position.z = 0.0085;
+      eyeGroup.add(iris);
+
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.007, 8, 8), pupilMat);
+      pupil.scale.set(1, 1, 0.4);
+      pupil.position.z = 0.012;
+      eyeGroup.add(pupil);
+
+      const catchlight = new THREE.Mesh(
+        new THREE.SphereGeometry(0.0028, 6, 6),
+        catchlightMat
+      );
+      catchlight.position.set(-0.0035, 0.0038, 0.0145);
+      eyeGroup.add(catchlight);
+
+      const upperLash = new THREE.Mesh(
+        new THREE.TorusGeometry(0.02, 0.0032, 8, 14, Math.PI),
+        hairMat
+      );
+      upperLash.position.set(0, 0.003, 0.006);
+      eyeGroup.add(upperLash);
+
+      neckJoint.add(eyeGroup);
+      return eyeGroup;
+    };
+
+    const leftEyeMesh = buildExpressiveEye(-0.054);
+    const rightEyeMesh = buildExpressiveEye(0.054);
+
+    // Expressive Eyebrows positioned cleanly above the eyes at z = 0.156
+    [-0.054, 0.054].forEach((bx) => {
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.009, 0.014), hairMat);
+      brow.position.set(bx, 0.244, 0.154);
       brow.rotation.z = bx < 0 ? 0.08 : -0.08;
+      brow.rotation.y = bx < 0 ? -0.14 : 0.14;
       neckJoint.add(brow);
     });
 
+    // Base Hair Crown tilted back (-0.34 rad) so it NEVER clips through eyebrows or eyes!
     const hairCrown = new THREE.Mesh(
-      new THREE.SphereGeometry(0.174, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      new THREE.SphereGeometry(0.172, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.52),
       hairMat
     );
-    hairCrown.position.y = 0.205;
-    hairCrown.rotation.x = -0.18;
+    hairCrown.position.y = 0.215;
+    hairCrown.rotation.x = -0.34;
     neckJoint.add(hairCrown);
 
-    // 6 Diverse Hairstyle Variants (Top Bun, Knit Beanie, Wavy Bob + Glasses, Curly Afro, Ponytail, Baseball Cap)
-    const styleVariant = seed % 6;
-    if (styleVariant === 0) {
-      const topBun = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 14), hairMat);
-      topBun.position.set(0, 0.38, -0.04);
-      neckJoint.add(topBun);
-    } else if (styleVariant === 1) {
-      const beanieMat = new THREE.MeshStandardMaterial({
-        color: 0xb45309,
-        roughness: 0.85,
+    // Helper for Full 3D Baseball / Pit-Crew Cap (Crown Dome + Band + Top Button + Curved Visor)
+    const addFull3DCap = (crownHex: number, visorHex: number) => {
+      const crownMat = new THREE.MeshStandardMaterial({ color: crownHex, roughness: 0.62 });
+      const visorMat = new THREE.MeshStandardMaterial({ color: visorHex, roughness: 0.55 });
+      const capDome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.178, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+        crownMat
+      );
+      capDome.position.y = 0.222;
+      capDome.rotation.x = -0.08;
+      neckJoint.add(capDome);
+
+      const capBand = new THREE.Mesh(
+        new THREE.TorusGeometry(0.168, 0.012, 8, 24),
+        visorMat
+      );
+      capBand.rotation.x = Math.PI / 2 - 0.08;
+      capBand.position.y = 0.232;
+      neckJoint.add(capBand);
+
+      const topButton = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 8), visorMat);
+      topButton.position.set(0, 0.398, -0.01);
+      neckJoint.add(topButton);
+
+      const curvedVisor = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          0.165,
+          0.165,
+          0.014,
+          18,
+          1,
+          false,
+          -Math.PI * 0.34,
+          Math.PI * 0.68
+        ),
+        visorMat
+      );
+      curvedVisor.scale.set(1.0, 1.0, 1.32);
+      curvedVisor.rotation.x = 0.14;
+      curvedVisor.position.set(0, 0.242, 0.065);
+      neckJoint.add(curvedVisor);
+    };
+
+    // Pack-Specific & Seed-Specific Full 3D Headgear & Hairstyles
+    if (skinPackId === 'miata-track-club') {
+      // Every Miata Pit-Crew member wears a Full 3D Racing Cap (Red/Navy/British Green + Gold/White Visor)
+      const capColor = new THREE.Color(shirtColor).getHex();
+      addFull3DCap(capColor, 0xfefce8);
+    } else if (skinPackId === 'vinyl-jazz-collectors') {
+      // Full 3D Classic Jazz Fedora Hat + Gold-Rimmed Jazz Glasses
+      const fedoraMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.65 });
+      const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.4 });
+      const fedoraBrim = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.245, 0.245, 0.012, 24),
+        fedoraMat
+      );
+      fedoraBrim.position.set(0, 0.255, 0.01);
+      fedoraBrim.rotation.x = -0.06;
+      neckJoint.add(fedoraBrim);
+
+      const fedoraCrown = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.135, 0.162, 0.125, 20),
+        fedoraMat
+      );
+      fedoraCrown.position.set(0, 0.32, 0);
+      fedoraCrown.rotation.x = -0.06;
+      neckJoint.add(fedoraCrown);
+
+      const fedoraRibbon = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.158, 0.163, 0.025, 20),
+        ribbonMat
+      );
+      fedoraRibbon.position.set(0, 0.272, 0.004);
+      fedoraRibbon.rotation.x = -0.06;
+      neckJoint.add(fedoraRibbon);
+
+      const jazzGlassesMat = new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        metalness: 0.9,
+        roughness: 0.15,
       });
-      const beanieDome = new THREE.Mesh(
-        new THREE.SphereGeometry(0.18, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
-        beanieMat
-      );
-      beanieDome.position.y = 0.22;
-      neckJoint.add(beanieDome);
-      const beanieCuff = new THREE.Mesh(
-        new THREE.TorusGeometry(0.165, 0.025, 10, 20),
-        beanieMat
-      );
-      beanieCuff.rotation.x = Math.PI / 2 - 0.1;
-      beanieCuff.position.y = 0.255;
-      neckJoint.add(beanieCuff);
-    } else if (styleVariant === 2) {
-      [-0.145, 0.145].forEach((sx) => {
-        const lock = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.035, 0.025, 0.18, 10),
-          hairMat
+      [-0.054, 0.054].forEach((gx) => {
+        const rim = new THREE.Mesh(
+          new THREE.TorusGeometry(0.032, 0.004, 8, 16),
+          jazzGlassesMat
         );
-        lock.position.set(sx, 0.16, 0.02);
-        neckJoint.add(lock);
-      });
-      const glassesMat = new THREE.MeshStandardMaterial({
-        color: 0xd97706,
-        metalness: 0.85,
-        roughness: 0.2,
-      });
-      [-0.056, 0.056].forEach((gx) => {
-        const rim = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.004, 8, 16), glassesMat);
-        rim.position.set(gx, 0.21, 0.158);
+        rim.position.set(gx, 0.206, 0.164);
         neckJoint.add(rim);
       });
-    } else if (styleVariant === 3) {
-      // Curly Volumetric Afro
-      [
-        [0, 0.32, 0],
-        [-0.11, 0.28, 0.04],
-        [0.11, 0.28, 0.04],
-        [0, 0.26, -0.11],
-      ].forEach(([ax, ay, az]) => {
-        const puff = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 12), hairMat);
-        puff.position.set(ax, ay, az);
-        neckJoint.add(puff);
+    } else if (skinPackId === 'botanical-artists') {
+      // Full 3D French Painter Beret + Side Locks
+      const beretMat = new THREE.MeshStandardMaterial({
+        color: seed % 2 === 0 ? 0x991b1b : 0x15803d,
+        roughness: 0.78,
       });
-    } else if (styleVariant === 4) {
-      // Ponytail
-      const pony = new THREE.Mesh(new THREE.ConeGeometry(0.058, 0.22, 12), hairMat);
-      pony.position.set(0, 0.2, -0.2);
-      pony.rotation.x = -0.65;
-      neckJoint.add(pony);
+      const beretBand = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.164, 0.164, 0.028, 20),
+        beretMat
+      );
+      beretBand.position.set(0, 0.25, 0);
+      neckJoint.add(beretBand);
+
+      const beretDisc = new THREE.Mesh(new THREE.SphereGeometry(0.195, 18, 12), beretMat);
+      beretDisc.scale.set(1.08, 0.36, 1.05);
+      beretDisc.position.set(0.028, 0.295, -0.01);
+      beretDisc.rotation.z = -0.18;
+      neckJoint.add(beretDisc);
+
+      const beretStem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.008, 0.008, 0.032, 8),
+        beretMat
+      );
+      beretStem.position.set(0.035, 0.36, -0.01);
+      beretStem.rotation.z = -0.18;
+      neckJoint.add(beretStem);
+    } else if (skinPackId === 'cyber-neon-night') {
+      // Glowing Translucent Cyber LED Visor across the eyes + Spiky/Bun Tech Hair
+      const visorGlowMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(shirtColor),
+        emissive: new THREE.Color(shirtColor),
+        emissiveIntensity: 1.6,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.1,
+      });
+      const cyberVisor = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          0.172,
+          0.172,
+          0.048,
+          20,
+          1,
+          true,
+          -Math.PI * 0.32,
+          Math.PI * 0.64
+        ),
+        visorGlowMat
+      );
+      cyberVisor.position.set(0, 0.208, 0.012);
+      neckJoint.add(cyberVisor);
+
+      const topBun = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 14), hairMat);
+      topBun.position.set(0, 0.38, -0.05);
+      neckJoint.add(topBun);
+    } else if (skinPackId === 'tokyo-streetwear' && seed % 2 === 0) {
+      // Full 3D Harajuku Streetwear Bucket Hat
+      const bucketMat = new THREE.MeshStandardMaterial({
+        color: 0xf5f5f4,
+        roughness: 0.72,
+      });
+      const bucketCrown = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.148, 0.168, 0.11, 20),
+        bucketMat
+      );
+      bucketCrown.position.set(0, 0.31, 0);
+      neckJoint.add(bucketCrown);
+
+      const bucketBrim = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.168, 0.225, 0.042, 22, 1, true),
+        bucketMat
+      );
+      bucketBrim.position.set(0, 0.248, 0);
+      neckJoint.add(bucketBrim);
     } else {
-      // Baseball Cap + Fringe
-      const capMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.7 });
-      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.016, 0.14), capMat);
-      visor.position.set(0, 0.27, 0.16);
-      visor.rotation.x = 0.12;
-      neckJoint.add(visor);
+      // 6 Diverse Hairstyle & Full 3D Hat Variants
+      const styleVariant = seed % 6;
+      if (styleVariant === 0) {
+        const topBun = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 14), hairMat);
+        topBun.position.set(0, 0.38, -0.05);
+        neckJoint.add(topBun);
+      } else if (styleVariant === 1) {
+        // Full 3D Knit Beanie with Ribbed Dome, Thick Folded Cuff & Fluffy Top Pom-Pom
+        const beanieMat = new THREE.MeshStandardMaterial({
+          color: 0xd97706,
+          roughness: 0.85,
+        });
+        const beanieDome = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+          beanieMat
+        );
+        beanieDome.position.y = 0.225;
+        neckJoint.add(beanieDome);
+        const beanieCuff = new THREE.Mesh(
+          new THREE.TorusGeometry(0.166, 0.026, 10, 22),
+          beanieMat
+        );
+        beanieCuff.rotation.x = Math.PI / 2 - 0.08;
+        beanieCuff.position.y = 0.252;
+        neckJoint.add(beanieCuff);
+        const pomPom = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 10), beanieMat);
+        pomPom.position.set(0, 0.41, -0.01);
+        neckJoint.add(pomPom);
+      } else if (styleVariant === 2) {
+        [-0.145, 0.145].forEach((sx) => {
+          const lock = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.035, 0.025, 0.18, 10),
+            hairMat
+          );
+          lock.position.set(sx, 0.16, 0.01);
+          neckJoint.add(lock);
+        });
+        const glassesMat = new THREE.MeshStandardMaterial({
+          color: 0xd97706,
+          metalness: 0.85,
+          roughness: 0.2,
+        });
+        [-0.054, 0.054].forEach((gx) => {
+          const rim = new THREE.Mesh(
+            new THREE.TorusGeometry(0.032, 0.004, 8, 16),
+            glassesMat
+          );
+          rim.position.set(gx, 0.206, 0.164);
+          neckJoint.add(rim);
+        });
+      } else if (styleVariant === 3) {
+        // Curly Volumetric Afro (kept behind z = -0.01 so forehead & eyes are 100% unobstructed)
+        [
+          [0, 0.34, -0.02],
+          [-0.115, 0.29, -0.01],
+          [0.115, 0.29, -0.01],
+          [0, 0.27, -0.12],
+        ].forEach(([ax, ay, az]) => {
+          const puff = new THREE.Mesh(new THREE.SphereGeometry(0.092, 12, 12), hairMat);
+          puff.position.set(ax, ay, az);
+          neckJoint.add(puff);
+        });
+      } else if (styleVariant === 4) {
+        const pony = new THREE.Mesh(new THREE.ConeGeometry(0.058, 0.22, 12), hairMat);
+        pony.position.set(0, 0.2, -0.2);
+        pony.rotation.x = -0.65;
+        neckJoint.add(pony);
+      } else {
+        // Full 3D Baseball Cap (Crown Dome + Band + Top Button + Curved Visor)
+        addFull3DCap(0x1e3a8a, 0x172554);
+      }
     }
+
+    const sleeveMat =
+      skinPackId === 'tokyo-streetwear'
+        ? new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.55 })
+        : jacketMat;
 
     const buildArm = (sideX: number) => {
       const shoulderJoint = new THREE.Group();
@@ -3857,11 +4603,26 @@ export class KlasikCafeScene3D {
 
       const upperArm = new THREE.Mesh(
         new THREE.CylinderGeometry(0.052, 0.044, 0.23, 12),
-        jacketMat
+        sleeveMat
       );
       upperArm.position.y = -0.115;
       upperArm.castShadow = true;
       shoulderJoint.add(upperArm);
+
+      if (skinPackId === 'cyber-neon-night') {
+        const sleeveTrim = new THREE.Mesh(
+          new THREE.TorusGeometry(0.046, 0.007, 8, 16),
+          new THREE.MeshStandardMaterial({
+            color: new THREE.Color(shirtColor),
+            emissive: new THREE.Color(shirtColor),
+            emissiveIntensity: 1.4,
+            roughness: 0.2,
+          })
+        );
+        sleeveTrim.rotation.x = Math.PI / 2;
+        sleeveTrim.position.y = -0.222;
+        shoulderJoint.add(sleeveTrim);
+      }
 
       const elbowJoint = new THREE.Group();
       elbowJoint.position.set(0, -0.23, 0);
@@ -3950,11 +4711,15 @@ export class KlasikCafeScene3D {
       activityTexture,
       lastActivityLabel: '',
       seed,
+      appliedSkinPack: skinPackId,
+      appliedShirtColor: shirtColor,
     };
   }
 
   private syncCustomerActors() {
     const activeIds = new Set(this.gameState.customers.map((c) => c.id));
+    const activePackId: CustomerSkinPackId =
+      this.gameState.activeCustomerSkinPack || 'casual-garden';
 
     for (const [id, actor] of this.customerActors.entries()) {
       if (!activeIds.has(id)) {
@@ -3966,10 +4731,43 @@ export class KlasikCafeScene3D {
 
     this.gameState.customers.forEach((cust, idx) => {
       let actor = this.customerActors.get(cust.id);
+
+      // Rebuild existing customer actor in-place if the Customer Skin Pack or shirtColor changed!
+      if (
+        actor &&
+        (actor.appliedSkinPack !== activePackId || actor.appliedShirtColor !== cust.shirtColor)
+      ) {
+        const preservedPos = actor.currentPos.clone();
+        const preservedRotY = actor.group.rotation.y;
+        const preservedSeed = actor.seed;
+        this.customersRoot.remove(actor.group);
+        actor.activityTexture.dispose();
+
+        const rebuilt = this.createCustomerCharacter(
+          preservedSeed,
+          cust.avatarColor,
+          cust.shirtColor,
+          activePackId
+        );
+        rebuilt.group.position.copy(preservedPos);
+        rebuilt.group.rotation.y = preservedRotY;
+        this.customersRoot.add(rebuilt.group);
+        actor = {
+          ...rebuilt,
+          currentPos: preservedPos,
+        };
+        this.customerActors.set(cust.id, actor);
+      }
+
       if (!actor) {
         const seed =
           cust.customerName.charCodeAt(0) + cust.customerName.length * 7 + idx * 13;
-        const built = this.createCustomerCharacter(seed, cust.avatarColor, cust.shirtColor);
+        const built = this.createCustomerCharacter(
+          seed,
+          cust.avatarColor,
+          cust.shirtColor,
+          activePackId
+        );
         // Spawn arriving customers at the cafe entrance door (-4.2, 0, -4.5) so they walk in 1-by-1
         const startPos = new THREE.Vector3(-4.2, 0, -4.5);
         built.group.position.copy(startPos);
@@ -4130,24 +4928,36 @@ export class KlasikCafeScene3D {
       this.ceramicMugMat.metalness = 0.05;
     }
 
+    let neonHex = 0xf59e0b;
+    let neonCss = '#f59e0b';
     if (neonSignColor === 'amber') {
-      this.neonTubeMat.emissive.setHex(0xf59e0b);
-      this.neonSignLight.color.setHex(0xf59e0b);
+      neonHex = 0xf59e0b;
+      neonCss = '#f59e0b';
     } else if (neonSignColor === 'emerald') {
-      this.neonTubeMat.emissive.setHex(0x10b981);
-      this.neonSignLight.color.setHex(0x10b981);
+      neonHex = 0x10b981;
+      neonCss = '#10b981';
     } else if (neonSignColor === 'cyber-cyan') {
-      this.neonTubeMat.emissive.setHex(0x06b6d4);
-      this.neonSignLight.color.setHex(0x06b6d4);
+      neonHex = 0x06b6d4;
+      neonCss = '#06b6d4';
     } else if (neonSignColor === 'violet-dream') {
-      this.neonTubeMat.emissive.setHex(0xa855f7);
-      this.neonSignLight.color.setHex(0xa855f7);
+      neonHex = 0xa855f7;
+      neonCss = '#a855f7';
     } else {
-      this.neonTubeMat.emissive.setHex(0xf43f5e);
-      this.neonSignLight.color.setHex(0xf43f5e);
+      neonHex = 0xf43f5e;
+      neonCss = '#f43f5e';
+    }
+    this.neonTubeMat.color.setHex(neonHex);
+    this.neonTubeMat.emissive.setHex(neonHex);
+    this.neonSignLight.color.setHex(neonHex);
+    if (this.hangingSignFaceMat) {
+      this.hangingSignFaceMat.emissive.setHex(neonHex);
+    }
+    if (this.lastNeonSignColor !== neonSignColor) {
+      this.lastNeonSignColor = neonSignColor;
+      this.redrawHangingSignTexture(neonCss);
     }
 
-    // Apply Equipped Espresso Machine Skin (including 24K GOLDEN ESPRESSO MACHINE!)
+    // Apply Equipped Espresso Machine Skin (isolated exclusively to Espresso Machine)
     if (this.espressoChassisMat) {
       const mSkin = this.gameState.equippedMachineSkin || 'classic-steel';
       if (mSkin === 'golden-espresso-machine') {
@@ -4160,8 +4970,8 @@ export class KlasikCafeScene3D {
         this.espressoChassisMat.roughness = 0.35;
       } else if (mSkin === 'vintage-copper') {
         this.espressoChassisMat.color.setHex(0xd97706);
-        this.espressoChassisMat.metalness = 0.9;
-        this.espressoChassisMat.roughness = 0.2;
+        this.espressoChassisMat.metalness = 0.92;
+        this.espressoChassisMat.roughness = 0.18;
       } else {
         this.espressoChassisMat.color.setHex(0xe5e7eb);
         this.espressoChassisMat.metalness = 0.88;
@@ -4189,18 +4999,40 @@ export class KlasikCafeScene3D {
     if (this.pitcherBodyMat) {
       const pSkin = this.gameState.equippedPitcherSkin || 'stainless-steel';
       if (pSkin === 'rose-gold') {
-        this.pitcherBodyMat.color.setHex(0xfda4af);
+        this.pitcherBodyMat.color.setHex(0xf472b6);
         this.pitcherBodyMat.metalness = 0.92;
-        this.pitcherBodyMat.roughness = 0.16;
+        this.pitcherBodyMat.roughness = 0.15;
       } else if (pSkin === 'titanium-pearl') {
-        this.pitcherBodyMat.color.setHex(0xfef08a);
-        this.pitcherBodyMat.metalness = 0.88;
-        this.pitcherBodyMat.roughness = 0.14;
+        this.pitcherBodyMat.color.setHex(0x38bdf8);
+        this.pitcherBodyMat.metalness = 0.94;
+        this.pitcherBodyMat.roughness = 0.12;
       } else {
         this.pitcherBodyMat.color.setHex(0xe2e8f0);
         this.pitcherBodyMat.metalness = 0.92;
         this.pitcherBodyMat.roughness = 0.15;
       }
+    }
+
+    // Sync 3D Shop Upgrade Props Visibility
+    const hasUpgrade = (id: string) =>
+      this.gameState.upgrades.some((u) => u.id === id && u.purchased);
+    if (this.upgradeTubePreampGroup) {
+      this.upgradeTubePreampGroup.visible = hasUpgrade('audiophile-tube-preamp');
+    }
+    if (this.upgradeKlipschSpeakersGroup) {
+      this.upgradeKlipschSpeakersGroup.visible = hasUpgrade('klipschorn-corner-speakers');
+    }
+    if (this.upgradeBonsaiTerrariumGroup) {
+      this.upgradeBonsaiTerrariumGroup.visible = hasUpgrade('japanese-bonsai-terrarium');
+    }
+    if (this.upgradeGeishaVaultGroup) {
+      this.upgradeGeishaVaultGroup.visible = hasUpgrade('ethiopian-geisha-bean-vault');
+    }
+    if (this.upgradeMiataStageGroup) {
+      this.upgradeMiataStageGroup.visible = hasUpgrade('miata-pop-up-concours-stage');
+    }
+    if (this.upgradeGuildCharterGroup) {
+      this.upgradeGuildCharterGroup.visible = hasUpgrade('tokyo-roastery-guild-charter');
     }
 
     this.monsteraLeavesInstanced.count = plantDensity === 'lush-jungle' ? 36 : 18;

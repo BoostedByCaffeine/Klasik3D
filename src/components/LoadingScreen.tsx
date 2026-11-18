@@ -87,11 +87,11 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
       </div>
 
       <div className="relative z-10 flex flex-col items-center max-w-md w-full text-center gap-6">
-        <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-[#231812] to-[#160f0b] border border-amber-500/35 shadow-[0_0_45px_-10px_rgba(245,158,11,0.3)]">
+        <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-[#231812] to-[#140e0b] border border-amber-500/40 shadow-[0_0_50px_-12px_rgba(245,158,11,0.35)]">
           <StudioLogo
             variant="full"
             progress={progress}
-            className="w-64 sm:w-80 h-auto"
+            className="w-72 sm:w-96 h-auto"
           />
         </div>
 

@@ -1845,6 +1845,10 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
   let updatedSkins = syncGrossIncomeUnlocks(state.equipmentSkins, newGross);
   let updatedPacks = state.customerSkinPacks;
   let equippedMachine = state.equippedMachineSkin;
+  let equippedGrinder = state.equippedGrinderSkin;
+  let equippedPitcher = state.equippedPitcherSkin;
+  let activePackId = state.activeCustomerSkinPack;
+  let updatedCustomers = state.customers;
 
   if (reward.unlockSkinId) {
     updatedSkins = updatedSkins.map((s) =>
@@ -1853,8 +1857,25 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
     updatedPacks = updatedPacks.map((p) =>
       p.id === reward.unlockSkinId ? { ...p, unlocked: true } : p
     );
-    if (reward.unlockSkinId === 'golden-espresso-machine') {
-      equippedMachine = 'golden-espresso-machine';
+
+    const matchedEquipSkin = updatedSkins.find((s) => s.id === reward.unlockSkinId);
+    if (matchedEquipSkin) {
+      if (matchedEquipSkin.slot === 'machine') {
+        equippedMachine = matchedEquipSkin.id as MachineSkinId;
+      } else if (matchedEquipSkin.slot === 'grinder') {
+        equippedGrinder = matchedEquipSkin.id as GrinderSkinId;
+      } else if (matchedEquipSkin.slot === 'pitcher') {
+        equippedPitcher = matchedEquipSkin.id as PitcherSkinId;
+      }
+    }
+
+    const matchedCustPack = updatedPacks.find((p) => p.id === reward.unlockSkinId);
+    if (matchedCustPack) {
+      activePackId = matchedCustPack.id;
+      updatedCustomers = state.customers.map((c, idx) => ({
+        ...c,
+        shirtColor: matchedCustPack.paletteColors[idx % matchedCustPack.paletteColors.length],
+      }));
     }
   }
 
@@ -1867,6 +1888,10 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
     equipmentSkins: updatedSkins,
     customerSkinPacks: updatedPacks,
     equippedMachineSkin: equippedMachine,
+    equippedGrinderSkin: equippedGrinder,
+    equippedPitcherSkin: equippedPitcher,
+    activeCustomerSkinPack: activePackId,
+    customers: updatedCustomers,
     lastActionFeedback: `Claimed ${reward.title}! (${reward.rewardLabel})`,
   };
 }
@@ -2159,6 +2184,15 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       return savedR ? { ...r, claimed: Boolean(savedR.claimed) } : r;
     });
 
+    const restoredPackId: CustomerSkinPackId =
+      d.activeCustomerSkinPack || base.activeCustomerSkinPack;
+    const activePackObj =
+      mergedPacks.find((p) => p.id === restoredPackId) || mergedPacks[0];
+    const syncedCustomers = base.customers.map((c, idx) => ({
+      ...c,
+      shirtColor: activePackObj.paletteColors[idx % activePackObj.paletteColors.length],
+    }));
+
     return {
       ...base,
       day: restoredDay,
@@ -2185,7 +2219,8 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       equippedGrinderSkin: d.equippedGrinderSkin || base.equippedGrinderSkin,
       equippedPitcherSkin: d.equippedPitcherSkin || base.equippedPitcherSkin,
       customerSkinPacks: mergedPacks,
-      activeCustomerSkinPack: d.activeCustomerSkinPack || base.activeCustomerSkinPack,
+      activeCustomerSkinPack: restoredPackId,
+      customers: syncedCustomers,
       loginRewards: mergedLogin,
       loginStreakDays: typeof d.loginStreakDays === 'number' ? d.loginStreakDays : restoredDay,
       decor: d.decor ? { ...base.decor, ...d.decor } : base.decor,

@@ -56,7 +56,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     setIsLaunchingShift(true);
     window.setTimeout(() => {
       onStartShift(mode);
-    }, 320);
+    }, 340);
   };
 
   return (
@@ -70,7 +70,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <StudioLogo
             variant="icon"
             igniting={isLaunchingShift}
-            className="w-7 h-7 sm:w-8 sm:h-8 shrink-0"
+            className="w-8 h-8 sm:w-9 sm:h-9 shrink-0"
           />
           <span className="text-stone-500" aria-hidden="true">
             ·
@@ -155,7 +155,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <StudioLogo
               variant="icon"
               igniting={isLaunchingShift}
-              className="w-10 h-10 sm:w-12 sm:h-12 shrink-0"
+              className="w-11 h-11 sm:w-14 sm:h-14 shrink-0"
             />
             <div className="min-w-0 flex flex-col justify-center leading-none">
               <div className="font-display font-bold text-xl sm:text-[28px] text-[#fef3c7] tracking-wide truncate">

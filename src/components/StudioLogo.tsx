@@ -1,185 +1,88 @@
 import React, { useId } from 'react';
 
-export const STUDIO_ICON_SVG_RAW = `<svg width="256" height="256" viewBox="2 18 153 153" fill="none" xmlns="http://www.w3.org/2000/svg">
+export const STUDIO_ICON_SVG_RAW = `<svg width="512" height="512" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="icon_flame_grad" x1="77" y1="140" x2="77" y2="164" gradientUnits="userSpaceOnUse">
+    <linearGradient id="raw_badge_bg" x1="100" y1="10" x2="100" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2C3539" />
+      <stop offset="100%" stop-color="#1B2124" />
+    </linearGradient>
+    <linearGradient id="raw_flame_outer" x1="100" y1="142" x2="100" y2="186" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#FEF08A" />
-      <stop offset="55%" stop-color="#F59E0B" />
+      <stop offset="45%" stop-color="#F59E0B" />
       <stop offset="100%" stop-color="#EA580C" />
     </linearGradient>
-    <linearGradient id="icon_steam_grad" x1="77" y1="14" x2="77" y2="63" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.85" />
-      <stop offset="100%" stop-color="#FDE68A" />
+    <linearGradient id="raw_steam" x1="100" y1="22" x2="100" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#FEF3C7" />
     </linearGradient>
-    <clipPath id="icon_clip">
-      <rect x="6" y="22" width="145" height="145" rx="72.5" />
-    </clipPath>
   </defs>
-  <rect x="6" y="22" width="145" height="145" rx="72.5" fill="#242B2E" stroke="#F59E0B" stroke-width="3" stroke-opacity="0.55"/>
-  <g clip-path="url(#icon_clip)">
-    <path d="M120.575 80.7552H129.604C143.557 80.7552 151.764 86.965 150.944 95.7622C150.123 104.559 138.632 111.287 123.037 112.322H116.471L118.934 105.077H123.037C132.887 105.077 139.453 100.937 140.274 95.7622C141.094 90.5874 135.349 87.4825 127.141 87.4825H118.934L120.575 80.7552Z" fill="white"/>
-    <path d="M65.5832 61.6084C68.8663 55.9161 56.5547 51.2588 57.3755 43.4966C58.1962 36.7693 67.2247 33.1469 69.6871 28.4896C68.8663 34.6994 64.7624 37.8042 65.5832 42.4616C67.2247 48.6714 77.8948 52.8112 73.7909 59.5385C72.1494 62.1259 68.0455 63.1609 65.5832 61.6084Z" fill="url(#icon_steam_grad)"/>
-    <path d="M82.8196 60.056C89.3858 52.2937 70.508 43.4965 72.1495 32.6294C73.7911 23.8322 84.4611 19.1748 88.565 14C86.1027 21.7622 81.178 26.4196 82.8196 32.6294C84.4611 40.3916 99.235 46.0839 94.3104 55.3986C91.8481 59.021 86.1027 61.0909 82.8196 60.056Z" fill="url(#icon_steam_grad)"/>
-    <path d="M30.29 75.5803C30.29 64.7131 123.858 64.7131 123.858 75.5803C123.858 97.3145 117.292 120.084 100.877 133.021L98.4143 136.126C96.7727 138.713 92.6688 140.266 86.9234 140.266H67.2249C61.4794 140.266 57.3756 138.713 55.734 136.126L53.2717 133.021C36.8562 120.084 30.29 97.3145 30.29 75.5803ZM77.0741 70.4055C52.4509 70.4055 38.4978 72.9929 38.4978 76.3565C38.4978 79.7201 52.4509 82.3076 77.0741 82.3076C101.697 82.3076 115.65 79.7201 115.65 76.3565C115.65 72.9929 101.697 70.4055 77.0741 70.4055ZM39.3185 85.9299C39.3185 100.937 45.064 116.979 57.3756 128.881L59.0171 127.329C49.9886 115.944 46.7055 101.454 46.7055 87.9999L39.3185 85.9299Z" fill-rule="evenodd" clip-rule="evenodd" fill="white"/>
-    <path d="M30.29 112.839C15.5161 120.084 11.4122 131.468 13.8745 143.888H22.0823C26.1861 136.126 34.3939 129.916 45.8847 127.846C38.4977 123.706 33.5731 118.531 30.29 112.839Z" fill="white"/>
-    <path d="M123.858 112.839C138.632 120.084 142.736 131.468 140.274 143.888H132.066C127.962 136.126 119.754 129.916 108.264 127.846C115.651 123.706 120.575 118.531 123.858 112.839Z" fill="white"/>
-    <path d="M71.3286 142.336C64.7624 145.958 63.9416 152.168 68.8663 157.86L69.6871 155.273L77.074 162L84.461 155.273L85.2818 157.86C90.2064 152.168 89.3856 145.958 82.8194 142.336C84.461 146.475 81.9987 150.098 77.074 152.685C72.1494 150.098 69.6871 146.475 71.3286 142.336Z" fill="url(#icon_flame_grad)"/>
-  </g>
+  <!-- Circular Charcoal Badge with Warm Brass Rim -->
+  <circle cx="100" cy="100" r="88" fill="url(#raw_badge_bg)" stroke="#F59E0B" stroke-width="5" />
+  <circle cx="100" cy="100" r="78" stroke="#F59E0B" stroke-width="1.8" stroke-opacity="0.45" stroke-dasharray="14 8 4 8" />
+  <!-- Swept Rocket Delta Fins -->
+  <path d="M56 106 L32 130 L36 144 L66 130 Z" fill="#FFFFFF" />
+  <path d="M54 114 L37 131 L40 138 L62 127 Z" fill="#F59E0B" />
+  <path d="M144 106 L168 130 L164 144 L134 130 Z" fill="#FFFFFF" />
+  <path d="M146 114 L163 131 L160 138 L138 127 Z" fill="#F59E0B" />
+  <!-- Rocket Nozzle Bell -->
+  <path d="M82 134 H118 L124 147 H76 L82 134 Z" fill="#475569" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round" />
+  <!-- Afterburner Flame Plume -->
+  <path d="M82 147 Q100 192 118 147 Q109 162 100 184 Q91 162 82 147 Z" fill="url(#raw_flame_outer)" />
+  <path d="M89 147 Q100 174 111 147 Z" fill="#FEF9C3" />
+  <!-- Cup Handle -->
+  <path d="M138 82 H150 C161 82 167 90 165 101 C163 111 154 117 142 117 H132" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" fill="none" />
+  <!-- Tapered Rocket-Cup Porcelain Body -->
+  <path d="M52 72 H148 L136 124 C133 132 125 136 115 136 H85 C75 136 67 132 64 124 L52 72 Z" fill="#FFFFFF" />
+  <!-- Aerospace Band & Porthole on Cup -->
+  <path d="M57 96 H143 L140 108 H60 L57 96 Z" fill="#242B2E" />
+  <circle cx="100" cy="102" r="9" fill="#F59E0B" stroke="#FFFFFF" stroke-width="2.5" />
+  <!-- Espresso Rim & Golden Crema -->
+  <ellipse cx="100" cy="72" rx="48" ry="11" fill="#FFFFFF" stroke="#242B2E" stroke-width="3" />
+  <ellipse cx="100" cy="72" rx="41" ry="7.5" fill="#78350F" />
+  <ellipse cx="100" cy="72" rx="33" ry="5" fill="#D97706" />
+  <!-- Rising Steam Plumes -->
+  <path d="M80 58 C73 48 87 38 80 26" stroke="url(#raw_steam)" stroke-width="5.5" stroke-linecap="round" fill="none" />
+  <path d="M100 55 C92 43 108 31 100 18" stroke="url(#raw_steam)" stroke-width="6.5" stroke-linecap="round" fill="none" />
+  <path d="M120 58 C113 48 127 38 120 26" stroke="url(#raw_steam)" stroke-width="5.5" stroke-linecap="round" fill="none" />
 </svg>`;
 
-export const STUDIO_LOGO_SVG_RAW = `<svg width="644" height="188" viewBox="0 0 644 188" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs>
-  <clipPath id="clip0_2_103">
-    <rect width="644" height="188" rx="25" fill="white"/>
-  </clipPath>
-  <clipPath id="clip1_2_103">
-    <rect x="6" y="22" width="145" height="145" rx="72.5" fill="white"/>
-  </clipPath>
-  <linearGradient id="logo_flame_grad" x1="77" y1="140" x2="77" y2="164" gradientUnits="userSpaceOnUse">
-    <stop offset="0%" stop-color="#FEF08A" />
-    <stop offset="55%" stop-color="#F59E0B" />
-    <stop offset="100%" stop-color="#EA580C" />
-  </linearGradient>
-  <linearGradient id="logo_steam_grad" x1="77" y1="14" x2="77" y2="63" gradientUnits="userSpaceOnUse">
-    <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.88" />
-    <stop offset="100%" stop-color="#FDE68A" />
-  </linearGradient>
-</defs>
-<g clip-path="url(#clip0_2_103)">
-  <path d="M157 2H604C617.807 2 629 13.1929 629 27V126H157V2Z" fill="#242B2E" stroke="#F59E0B" stroke-opacity="0.28"/>
-  <path d="M171 20.6513H204.85C218.06 20.6513 225.491 27.2562 225.491 39.6404V46.2454C225.491 54.5015 221.363 59.4552 213.932 61.9321C222.188 64.4089 227.142 70.1882 227.142 80.0956V87.5261C227.142 100.736 218.886 108.166 204.85 108.166H171V20.6513ZM189.164 34.6868V56.1527H200.722C204.85 56.1527 207.327 53.6759 207.327 49.5478V41.2917C207.327 37.1636 204.85 34.6868 200.722 34.6868H189.164ZM189.164 70.1882V94.131H201.548C206.501 94.131 208.978 91.6542 208.978 86.7005V77.6187C208.978 72.665 206.501 70.1882 201.548 70.1882H189.164Z" fill-rule="evenodd" clip-rule="evenodd" fill="white"/>
-  <path d="M238.7 40.466C238.7 26.4305 247.782 19 265.946 19C284.109 19 293.191 26.4305 293.191 40.466V88.3517C293.191 102.387 284.109 109.818 265.946 109.818C247.782 109.818 238.7 102.387 238.7 88.3517V40.466ZM256.864 39.6404V89.1773C256.864 93.3053 260.166 95.7822 265.946 95.7822C271.725 95.7822 275.028 93.3053 275.028 89.1773V39.6404C275.028 35.5123 271.725 33.0355 265.946 33.0355C260.166 33.0355 256.864 35.5123 256.864 39.6404Z" fill-rule="evenodd" clip-rule="evenodd" fill="white"/>
-  <path d="M306.401 40.466C306.401 26.4305 315.483 19 333.646 19C351.81 19 360.891 26.4305 360.891 40.466V88.3517C360.891 102.387 351.81 109.818 333.646 109.818C315.483 109.818 306.401 102.387 306.401 88.3517V40.466ZM324.564 39.6404V89.1773C324.564 93.3053 327.867 95.7822 333.646 95.7822C339.425 95.7822 342.728 93.3053 342.728 89.1773V39.6404C342.728 35.5123 339.425 33.0355 333.646 33.0355C327.867 33.0355 324.564 35.5123 324.564 39.6404Z" fill-rule="evenodd" clip-rule="evenodd" fill="white"/>
-  <path d="M373.276 80.9211H391.439V89.1773C391.439 93.3053 394.742 95.7822 399.695 95.7822C404.649 95.7822 407.952 93.3053 407.952 89.1773V80.0955C407.952 75.1418 404.649 72.665 395.567 69.3625L387.311 66.0601C377.404 61.932 373.276 55.3271 373.276 43.7684V38.8148C373.276 25.6049 382.357 19 399.695 19C417.033 19 425.289 25.6049 425.289 39.6404V46.2453H407.126V38.8148C407.126 34.6867 404.649 33.0355 399.695 33.0355C394.742 33.0355 391.439 34.6867 391.439 38.8148V44.5941C391.439 48.7221 394.742 51.199 402.998 54.5014L411.254 57.8039C421.987 61.932 426.115 68.5369 426.115 80.0955V88.3517C426.115 102.387 417.033 109.818 399.695 109.818C381.532 109.818 373.276 102.387 373.276 87.526V80.9211Z" fill="white"/>
-  <path d="M434.371 20.6512H487.211V35.5123H469.873V108.166H451.709V35.5123H434.371V20.6512Z" fill="white"/>
-  <path d="M498.769 20.6512H545.829V35.5123H516.933V56.1526H540.05V71.0137H516.933V93.3053H545.829V108.166H498.769V20.6512Z" fill="white"/>
-  <path d="M558.213 20.6512H587.936C606.099 20.6512 615.181 28.0818 615.181 42.1172V86.7004C615.181 100.736 606.099 108.166 587.936 108.166H558.213V20.6512ZM576.377 35.5123V93.3054H587.11C593.715 93.3054 597.017 90.8285 597.017 85.8748V42.9428C597.017 37.9892 593.715 35.5123 587.11 35.5123H576.377Z" fill-rule="evenodd" clip-rule="evenodd" fill="white"/>
-  <path d="M149 126H629V163C629 176.807 617.807 188 604 188H149V126Z" fill="white" stroke="#F59E0B" stroke-opacity="0.28"/>
-  <path d="M164 133.659H182.111C187.874 133.659 191.99 136.128 191.99 141.068C191.99 144.361 189.52 146.83 186.227 148.065C190.343 149.3 192.813 152.181 192.813 156.297C192.813 161.648 188.697 164.941 182.111 164.941H164V133.659ZM170.586 139.01V146.419H180.465C183.346 146.419 184.992 144.772 184.992 142.714C184.992 140.656 183.346 139.01 180.465 139.01H170.586ZM170.586 151.358V159.59H181.288C184.169 159.59 185.816 157.944 185.816 155.474C185.816 153.005 184.169 151.358 181.288 151.358H170.586Z" fill-rule="evenodd" clip-rule="evenodd" fill="#242B2E"/>
-  <path d="M206.808 133.659H214.629L222.861 146.419L231.093 133.659H238.914L226.154 152.593V164.941H219.568V152.593L206.808 133.659Z" fill="#242B2E"/>
-  <path d="M306.831 143.126H299.422C297.775 140.244 294.894 139.01 291.189 139.01C285.427 139.01 281.722 143.126 281.722 149.3C281.722 155.474 285.427 159.59 291.189 159.59C294.894 159.59 297.775 158.356 299.422 155.474H306.831C304.773 161.648 299.01 165.6 291.189 165.6C281.311 165.6 274.725 159.014 274.725 149.3C274.725 139.586 281.311 133 291.189 133C299.01 133 304.773 136.952 306.831 143.126Z" fill="#242B2E"/>
-  <path d="M334.821 133.659H341.407L354.99 164.941H347.581L344.699 157.944H331.528L328.646 164.941H321.237L334.821 133.659ZM338.114 141.479L333.586 152.593H342.641L338.114 141.479Z" fill-rule="evenodd" clip-rule="evenodd" fill="#242B2E"/>
-  <path d="M371.455 133.659H396.151V139.421H378.04V146.83H393.682V152.593H378.04V164.941H371.455V133.659Z" fill="#242B2E"/>
-  <path d="M413.439 133.659H438.136V139.421H420.025V146.83H435.667V152.593H420.025V164.941H413.439V133.659Z" fill="#242B2E"/>
-  <path d="M455.424 133.659H480.944V139.421H462.01V146.419H478.475V152.181H462.01V159.179H480.944V164.941H455.424V133.659Z" fill="#242B2E"/>
-  <path d="M500.702 133.659H507.288V164.941H500.702V133.659Z" fill="#242B2E"/>
-  <path d="M528.692 133.659H535.278L551.742 154.239V133.659H558.328V164.941H551.742L535.278 144.361V164.941H528.692V133.659Z" fill="#242B2E"/>
-  <path d="M579.732 133.659H605.252V139.421H586.318V146.419H602.783V152.181H586.318V159.179H605.252V164.941H579.732V133.659Z" fill="#242B2E"/>
-  <rect x="6" y="22" width="145" height="145" rx="72.5" fill="#242B2E" stroke="#F59E0B" stroke-width="2.5" stroke-opacity="0.45"/>
-  <g clip-path="url(#clip1_2_103)">
-    <path d="M120.575 80.7552H129.604C143.557 80.7552 151.764 86.965 150.944 95.7622C150.123 104.559 138.632 111.287 123.037 112.322H116.471L118.934 105.077H123.037C132.887 105.077 139.453 100.937 140.274 95.7622C141.094 90.5874 135.349 87.4825 127.141 87.4825H118.934L120.575 80.7552Z" fill="white"/>
-    <path d="M65.5832 61.6084C68.8663 55.9161 56.5547 51.2588 57.3755 43.4966C58.1962 36.7693 67.2247 33.1469 69.6871 28.4896C68.8663 34.6994 64.7624 37.8042 65.5832 42.4616C67.2247 48.6714 77.8948 52.8112 73.7909 59.5385C72.1494 62.1259 68.0455 63.1609 65.5832 61.6084Z" fill="url(#logo_steam_grad)"/>
-    <path d="M82.8196 60.056C89.3858 52.2937 70.508 43.4965 72.1495 32.6294C73.7911 23.8322 84.4611 19.1748 88.565 14C86.1027 21.7622 81.178 26.4196 82.8196 32.6294C84.4611 40.3916 99.235 46.0839 94.3104 55.3986C91.8481 59.021 86.1027 61.0909 82.8196 60.056Z" fill="url(#logo_steam_grad)"/>
-    <path d="M30.29 75.5803C30.29 64.7131 123.858 64.7131 123.858 75.5803C123.858 97.3145 117.292 120.084 100.877 133.021L98.4143 136.126C96.7727 138.713 92.6688 140.266 86.9234 140.266H67.2249C61.4794 140.266 57.3756 138.713 55.734 136.126L53.2717 133.021C36.8562 120.084 30.29 97.3145 30.29 75.5803ZM77.0741 70.4055C52.4509 70.4055 38.4978 72.9929 38.4978 76.3565C38.4978 79.7201 52.4509 82.3076 77.0741 82.3076C101.697 82.3076 115.65 79.7201 115.65 76.3565C115.65 72.9929 101.697 70.4055 77.0741 70.4055ZM39.3185 85.9299C39.3185 100.937 45.064 116.979 57.3756 128.881L59.0171 127.329C49.9886 115.944 46.7055 101.454 46.7055 87.9999L39.3185 85.9299Z" fill-rule="evenodd" clip-rule="evenodd" fill="white"/>
-    <path d="M30.29 112.839C15.5161 120.084 11.4122 131.468 13.8745 143.888H22.0823C26.1861 136.126 34.3939 129.916 45.8847 127.846C38.4977 123.706 33.5731 118.531 30.29 112.839Z" fill="white"/>
-    <path d="M123.858 112.839C138.632 120.084 142.736 131.468 140.274 143.888H132.066C127.962 136.126 119.754 129.916 108.264 127.846C115.651 123.706 120.575 118.531 123.858 112.839Z" fill="white"/>
-    <path d="M71.3286 142.336C64.7624 145.958 63.9416 152.168 68.8663 157.86L69.6871 155.273L77.074 162L84.461 155.273L85.2818 157.86C90.2064 152.168 89.3856 145.958 82.8194 142.336C84.461 146.475 81.9987 150.098 77.074 152.685C72.1494 150.098 69.6871 146.475 71.3286 142.336Z" fill="url(#logo_flame_grad)"/>
+export const STUDIO_LOGO_SVG_RAW = `<svg width="680" height="200" viewBox="0 0 680 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="192" y="16" width="472" height="168" rx="24" fill="#242B2E" stroke="#F59E0B" stroke-width="3" stroke-opacity="0.65" />
+  <rect x="210" y="128" width="436" height="40" rx="12" fill="#FFFFFF" />
+  <text x="214" y="42" fill="#FBBF24" font-family="JetBrains Mono, monospace" font-weight="700" font-size="13" letter-spacing="3.5">ROASTERY LAB · WEBGL 3D ENGINE</text>
+  <text x="210" y="110" fill="#FFFFFF" font-family="Plus Jakarta Sans, Arial Black, sans-serif" font-weight="900" font-size="74" letter-spacing="3">BOOSTED</text>
+  <text x="228" y="155" fill="#242B2E" font-family="Plus Jakarta Sans, Arial, sans-serif" font-weight="800" font-size="24" letter-spacing="9.5">BY CAFFEINE</text>
+  <g transform="translate(0, 0)">
+    <circle cx="100" cy="100" r="86" fill="#242B2E" stroke="#F59E0B" stroke-width="4.5" />
+    <circle cx="100" cy="100" r="76" stroke="#F59E0B" stroke-width="1.5" stroke-opacity="0.45" stroke-dasharray="14 8 4 8" />
+    <path d="M56 106 L32 130 L36 144 L66 130 Z" fill="#FFFFFF" />
+    <path d="M54 114 L37 131 L40 138 L62 127 Z" fill="#F59E0B" />
+    <path d="M144 106 L168 130 L164 144 L134 130 Z" fill="#FFFFFF" />
+    <path d="M146 114 L163 131 L160 138 L138 127 Z" fill="#F59E0B" />
+    <path d="M82 134 H118 L124 147 H76 L82 134 Z" fill="#475569" stroke="#FFFFFF" stroke-width="2" />
+    <path d="M82 147 Q100 190 118 147 Q109 162 100 182 Q91 162 82 147 Z" fill="#F59E0B" />
+    <path d="M89 147 Q100 172 111 147 Z" fill="#FEF08A" />
+    <path d="M138 82 H150 C161 82 167 90 165 101 C163 111 154 117 142 117 H132" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" fill="none" />
+    <path d="M52 72 H148 L136 124 C133 132 125 136 115 136 H85 C75 136 67 132 64 124 L52 72 Z" fill="#FFFFFF" />
+    <path d="M57 96 H143 L140 108 H60 L57 96 Z" fill="#242B2E" />
+    <circle cx="100" cy="102" r="9" fill="#F59E0B" stroke="#FFFFFF" stroke-width="2.5" />
+    <ellipse cx="100" cy="72" rx="48" ry="11" fill="#FFFFFF" stroke="#242B2E" stroke-width="3" />
+    <ellipse cx="100" cy="72" rx="41" ry="7.5" fill="#78350F" />
+    <ellipse cx="100" cy="72" rx="33" ry="5" fill="#D97706" />
+    <path d="M80 58 C73 48 87 38 80 26" stroke="#FDE68A" stroke-width="5.5" stroke-linecap="round" fill="none" />
+    <path d="M100 55 C92 43 108 31 100 18" stroke="#F59E0B" stroke-width="6.5" stroke-linecap="round" fill="none" />
+    <path d="M120 58 C113 48 127 38 120 26" stroke="#FDE68A" stroke-width="5.5" stroke-linecap="round" fill="none" />
   </g>
-</g>
 </svg>`;
 
 interface StudioLogoProps {
   className?: string;
   variant?: 'full' | 'icon';
   withSteam?: boolean;
-  progress?: number; // 0-100 for Loading Screen extraction sync
-  igniting?: boolean; // True when clicking Start Shift for thruster flare
+  progress?: number;
+  igniting?: boolean;
   ariaLabel?: string;
 }
-
-const renderLockupPaths = (withAmberBorder = false) => (
-  <>
-    <path
-      d="M157 2H604C617.807 2 629 13.1929 629 27V126H157V2Z"
-      fill="#242B2E"
-      stroke={withAmberBorder ? '#f59e0b' : undefined}
-      strokeOpacity={withAmberBorder ? '0.28' : undefined}
-    />
-    <path
-      d="M171 20.6513H204.85C218.06 20.6513 225.491 27.2562 225.491 39.6404V46.2454C225.491 54.5015 221.363 59.4552 213.932 61.9321C222.188 64.4089 227.142 70.1882 227.142 80.0956V87.5261C227.142 100.736 218.886 108.166 204.85 108.166H171V20.6513ZM189.164 34.6868V56.1527H200.722C204.85 56.1527 207.327 53.6759 207.327 49.5478V41.2917C207.327 37.1636 204.85 34.6868 200.722 34.6868H189.164ZM189.164 70.1882V94.131H201.548C206.501 94.131 208.978 91.6542 208.978 86.7005V77.6187C208.978 72.665 206.501 70.1882 201.548 70.1882H189.164Z"
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="white"
-    />
-    <path
-      d="M238.7 40.466C238.7 26.4305 247.782 19 265.946 19C284.109 19 293.191 26.4305 293.191 40.466V88.3517C293.191 102.387 284.109 109.818 265.946 109.818C247.782 109.818 238.7 102.387 238.7 88.3517V40.466ZM256.864 39.6404V89.1773C256.864 93.3053 260.166 95.7822 265.946 95.7822C271.725 95.7822 275.028 93.3053 275.028 89.1773V39.6404C275.028 35.5123 271.725 33.0355 265.946 33.0355C260.166 33.0355 256.864 35.5123 256.864 39.6404Z"
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="white"
-    />
-    <path
-      d="M306.401 40.466C306.401 26.4305 315.483 19 333.646 19C351.81 19 360.891 26.4305 360.891 40.466V88.3517C360.891 102.387 351.81 109.818 333.646 109.818C315.483 109.818 306.401 102.387 306.401 88.3517V40.466ZM324.564 39.6404V89.1773C324.564 93.3053 327.867 95.7822 333.646 95.7822C339.425 95.7822 342.728 93.3053 342.728 89.1773V39.6404C342.728 35.5123 339.425 33.0355 333.646 33.0355C327.867 33.0355 324.564 35.5123 324.564 39.6404Z"
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="white"
-    />
-    <path
-      d="M373.276 80.9211H391.439V89.1773C391.439 93.3053 394.742 95.7822 399.695 95.7822C404.649 95.7822 407.952 93.3053 407.952 89.1773V80.0955C407.952 75.1418 404.649 72.665 395.567 69.3625L387.311 66.0601C377.404 61.932 373.276 55.3271 373.276 43.7684V38.8148C373.276 25.6049 382.357 19 399.695 19C417.033 19 425.289 25.6049 425.289 39.6404V46.2453H407.126V38.8148C407.126 34.6867 404.649 33.0355 399.695 33.0355C394.742 33.0355 391.439 34.6867 391.439 38.8148V44.5941C391.439 48.7221 394.742 51.199 402.998 54.5014L411.254 57.8039C421.987 61.932 426.115 68.5369 426.115 80.0955V88.3517C426.115 102.387 417.033 109.818 399.695 109.818C381.532 109.818 373.276 102.387 373.276 87.526V80.9211Z"
-      fill="white"
-    />
-    <path
-      d="M434.371 20.6512H487.211V35.5123H469.873V108.166H451.709V35.5123H434.371V20.6512Z"
-      fill="white"
-    />
-    <path
-      d="M498.769 20.6512H545.829V35.5123H516.933V56.1526H540.05V71.0137H516.933V93.3053H545.829V108.166H498.769V20.6512Z"
-      fill="white"
-    />
-    <path
-      d="M558.213 20.6512H587.936C606.099 20.6512 615.181 28.0818 615.181 42.1172V86.7004C615.181 100.736 606.099 108.166 587.936 108.166H558.213V20.6512ZM576.377 35.5123V93.3054H587.11C593.715 93.3054 597.017 90.8285 597.017 85.8748V42.9428C597.017 37.9892 593.715 35.5123 587.11 35.5123H576.377Z"
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="white"
-    />
-    <path
-      d="M149 126H629V163C629 176.807 617.807 188 604 188H149V126Z"
-      fill="white"
-      stroke={withAmberBorder ? '#f59e0b' : undefined}
-      strokeOpacity={withAmberBorder ? '0.28' : undefined}
-    />
-    <path
-      d="M164 133.659H182.111C187.874 133.659 191.99 136.128 191.99 141.068C191.99 144.361 189.52 146.83 186.227 148.065C190.343 149.3 192.813 152.181 192.813 156.297C192.813 161.648 188.697 164.941 182.111 164.941H164V133.659ZM170.586 139.01V146.419H180.465C183.346 146.419 184.992 144.772 184.992 142.714C184.992 140.656 183.346 139.01 180.465 139.01H170.586ZM170.586 151.358V159.59H181.288C184.169 159.59 185.816 157.944 185.816 155.474C185.816 153.005 184.169 151.358 181.288 151.358H170.586Z"
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="#242B2E"
-    />
-    <path
-      d="M206.808 133.659H214.629L222.861 146.419L231.093 133.659H238.914L226.154 152.593V164.941H219.568V152.593L206.808 133.659Z"
-      fill="#242B2E"
-    />
-    <path
-      d="M306.831 143.126H299.422C297.775 140.244 294.894 139.01 291.189 139.01C285.427 139.01 281.722 143.126 281.722 149.3C281.722 155.474 285.427 159.59 291.189 159.59C294.894 159.59 297.775 158.356 299.422 155.474H306.831C304.773 161.648 299.01 165.6 291.189 165.6C281.311 165.6 274.725 159.014 274.725 149.3C274.725 139.586 281.311 133 291.189 133C299.01 133 304.773 136.952 306.831 143.126Z"
-      fill="#242B2E"
-    />
-    <path
-      d="M334.821 133.659H341.407L354.99 164.941H347.581L344.699 157.944H331.528L328.646 164.941H321.237L334.821 133.659ZM338.114 141.479L333.586 152.593H342.641L338.114 141.479Z"
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="#242B2E"
-    />
-    <path
-      d="M371.455 133.659H396.151V139.421H378.04V146.83H393.682V152.593H378.04V164.941H371.455V133.659Z"
-      fill="#242B2E"
-    />
-    <path
-      d="M413.439 133.659H438.136V139.421H420.025V146.83H435.667V152.593H420.025V164.941H413.439V133.659Z"
-      fill="#242B2E"
-    />
-    <path
-      d="M455.424 133.659H480.944V139.421H462.01V146.419H478.475V152.181H462.01V159.179H480.944V164.941H455.424V133.659Z"
-      fill="#242B2E"
-    />
-    <path d="M500.702 133.659H507.288V164.941H500.702V133.659Z" fill="#242B2E" />
-    <path
-      d="M528.692 133.659H535.278L551.742 154.239V133.659H558.328V164.941H551.742L535.278 144.361V164.941H528.692V133.659Z"
-      fill="#242B2E"
-    />
-    <path
-      d="M579.732 133.659H605.252V139.421H586.318V146.419H602.783V152.181H586.318V159.179H605.252V164.941H579.732V133.659Z"
-      fill="#242B2E"
-    />
-  </>
-);
 
 export const StudioLogo: React.FC<StudioLogoProps> = ({
   className = 'w-44 h-auto',
@@ -190,15 +93,12 @@ export const StudioLogo: React.FC<StudioLogoProps> = ({
 }) => {
   const uid = useId().replace(/:/g, '');
   const isIconOnly = variant === 'icon';
-  const normalizedProgress =
-    typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : 100;
-  const textRevealRatio =
-    typeof progress === 'number' ? Math.max(0.2, normalizedProgress / 100) : 1;
+  const pct = typeof progress === 'number' ? Math.max(0, Math.min(100, progress)) : 100;
 
   return (
     <div className="relative inline-flex items-center justify-center select-none">
       <svg
-        viewBox={isIconOnly ? '2 18 153 153' : '0 0 644 188'}
+        viewBox={isIconOnly ? '6 6 188 188' : '0 0 680 200'}
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         className={`${className} overflow-visible`}
@@ -206,123 +106,348 @@ export const StudioLogo: React.FC<StudioLogoProps> = ({
         aria-label={ariaLabel}
       >
         <defs>
-          <clipPath id={`studio_clip0_${uid}`}>
-            <rect width="644" height="188" rx="25" fill="white" />
-          </clipPath>
-          <clipPath id={`studio_clip1_${uid}`}>
-            <rect x="6" y="22" width="145" height="145" rx="72.5" fill="white" />
-          </clipPath>
-          {/* Dynamic clipPath for syncing BOOSTED BY CAFFEINE text glow with 9.0 BAR EXTRACTION */}
-          <clipPath id={`studio_progress_clip_${uid}`}>
-            <rect x="148" y="0" width={485 * textRevealRatio} height="188" />
-          </clipPath>
-          <linearGradient
-            id={`thruster_grad_${uid}`}
-            x1="77"
-            y1="140"
-            x2="77"
-            y2="165"
-            gradientUnits="userSpaceOnUse"
-          >
+          <linearGradient id={`badge_bg_${uid}`} x1="100" y1="10" x2="100" y2="190" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#2C3539" />
+            <stop offset="100%" stopColor="#1B2124" />
+          </linearGradient>
+
+          <linearGradient id={`flame_outer_${uid}`} x1="100" y1="140" x2="100" y2="192" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#FEF08A" />
-            <stop offset="50%" stopColor="#F59E0B" />
+            <stop offset="45%" stopColor="#F59E0B" />
             <stop offset="100%" stopColor="#EA580C" />
           </linearGradient>
-          <linearGradient
-            id={`steam_grad_${uid}`}
-            x1="77"
-            y1="14"
-            x2="77"
-            y2="63"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#FDE68A" />
+
+          <linearGradient id={`steam_grad_${uid}`} x1="100" y1="16" x2="100" y2="64" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="#FEF3C7" />
           </linearGradient>
-          <filter id={`amber_glow_${uid}`} x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation={igniting ? '5' : '2.5'} result="blur" />
+
+          {/* Animated Metallic Shimmer across BOOSTED Wordmark (No ugly grey clip box!) */}
+          <linearGradient id={`wordmark_sheen_${uid}`} x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#FFFFFF" />
+            <stop offset="42%" stopColor="#FFFFFF" />
+            <stop offset="50%" stopColor="#FDE68A" />
+            <stop offset="58%" stopColor="#FFFFFF" />
+            <stop offset="100%" stopColor="#FFFFFF" />
+            <animate attributeName="x1" values="-100%;100%" dur="2.6s" repeatCount="indefinite" />
+            <animate attributeName="x2" values="0%;200%" dur="2.6s" repeatCount="indefinite" />
+          </linearGradient>
+
+          <filter id={`glow_${uid}`} x="-35%" y="-35%" width="170%" height="170%">
+            <feGaussianBlur stdDeviation={igniting ? '5.5' : '2.8'} result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+
+          <clipPath id={`emblem_clip_${uid}`}>
+            <circle cx="100" cy="100" r="85" />
+          </clipPath>
         </defs>
 
-        {/* Full Lockup Typography (BOOSTED BY CAFFEINE) — Rendered when variant="full" */}
+        {/* ================= RIGHT LOCKUP CHASSIS (WHEN variant="full") ================= */}
         {!isIconOnly && (
-          <g clipPath={`url(#studio_clip0_${uid})`}>
-            {/* Base dim layer at 28% opacity during preloader extraction */}
-            {typeof progress === 'number' && (
-              <g opacity={0.28}>{renderLockupPaths(false)}</g>
-            )}
-            {/* Synchronized extraction-reveal layer */}
-            <g
-              clipPath={
-                typeof progress === 'number' ? `url(#studio_progress_clip_${uid})` : undefined
-              }
-              className="transition-all duration-150"
+          <g>
+            {/* Dark Charcoal Studio Chassis Card */}
+            <rect
+              x="176"
+              y="16"
+              width="490"
+              height="168"
+              rx="24"
+              fill="#242B2E"
+              stroke="#F59E0B"
+              strokeWidth="2.8"
+              strokeOpacity="0.65"
+            />
+            {/* Inner Subtle Tech Grid Accent Line */}
+            <line x1="206" y1="50" x2="642" y2="50" stroke="#F59E0B" strokeOpacity="0.22" strokeWidth="1.5" />
+
+            {/* Top Telemetry Header + Live Pulsing LED */}
+            <circle cx="214" cy="34" r="4.5" fill="#F59E0B" filter={`url(#glow_${uid})`}>
+              <animate attributeName="opacity" values="0.4;1;0.4" dur="1.1s" repeatCount="indefinite" />
+            </circle>
+            <text
+              x="226"
+              y="38"
+              fill="#FDE68A"
+              fontFamily="JetBrains Mono, monospace"
+              fontWeight="700"
+              fontSize="12"
+              letterSpacing="3.2"
             >
-              {renderLockupPaths(true)}
-            </g>
+              ROASTERY LAB · {Math.round(pct)}% BOILER PRESSURE
+            </text>
+
+            {/* Animated Telemetry Equalizer Bars on Top-Right */}
+            {[0, 1, 2, 3, 4].map((barIdx) => (
+              <rect
+                key={barIdx}
+                x={608 + barIdx * 7}
+                y="26"
+                width="4"
+                height="14"
+                rx="2"
+                fill="#F59E0B"
+              >
+                <animate
+                  attributeName="height"
+                  values="5;15;7;14;5"
+                  dur={`${0.7 + barIdx * 0.15}s`}
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="y"
+                  values="35;25;33;26;35"
+                  dur={`${0.7 + barIdx * 0.15}s`}
+                  repeatCount="indefinite"
+                />
+              </rect>
+            ))}
+
+            {/* Main "BOOSTED" Wordmark — Always 100% Crisp with Live Golden Sheen */}
+            <text
+              x="204"
+              y="112"
+              fill={`url(#wordmark_sheen_${uid})`}
+              fontFamily="Plus Jakarta Sans, system-ui, sans-serif"
+              fontWeight="900"
+              fontSize="74"
+              letterSpacing="3.5"
+            >
+              BOOSTED
+            </text>
+
+            {/* Bottom Contrasting White/Crema "BY CAFFEINE" Sub-Banner Pill */}
+            <rect x="204" y="128" width="440" height="40" rx="12" fill="#FFFFFF" />
+            {/* Amber Progress Fill Underbar inside Pill */}
+            <rect
+              x="204"
+              y="163"
+              width={Math.max(24, (440 * pct) / 100)}
+              height="5"
+              rx="2.5"
+              fill="#F59E0B"
+            />
+            <text
+              x="424"
+              y="155"
+              textAnchor="middle"
+              fill="#242B2E"
+              fontFamily="Plus Jakarta Sans, system-ui, sans-serif"
+              fontWeight="800"
+              fontSize="23"
+              letterSpacing="9.5"
+            >
+              BY CAFFEINE
+            </text>
           </g>
         )}
 
-        {/* Circular Rocket-Coffee Emblem (No white background box behind circle) */}
+        {/* ================= ANIMATED ROCKET-COFFEE EMBLEM ================= */}
         <g>
-          <rect
-            x="6"
-            y="22"
-            width="145"
-            height="145"
-            rx="72.5"
-            fill="#242B2E"
-            stroke="#f59e0b"
-            strokeWidth={igniting ? '3.5' : '2.5'}
-            strokeOpacity={igniting ? '0.95' : '0.45'}
+          {/* Outer Ambient Thruster Halo */}
+          <circle
+            cx="100"
+            cy="100"
+            r="90"
+            fill="none"
+            stroke="#F59E0B"
+            strokeWidth={igniting ? '4' : '1.5'}
+            strokeOpacity={igniting ? '0.85' : '0.28'}
+          >
+            <animate attributeName="r" values="88;92;88" dur="2.2s" repeatCount="indefinite" />
+            <animate attributeName="stroke-opacity" values="0.2;0.55;0.2" dur="2.2s" repeatCount="indefinite" />
+          </circle>
+
+          {/* Main Circular Charcoal Badge (#242B2E) with Warm Brass Bezel */}
+          <circle
+            cx="100"
+            cy="100"
+            r="86"
+            fill={`url(#badge_bg_${uid})`}
+            stroke="#F59E0B"
+            strokeWidth={igniting ? '5' : '3.5'}
           />
-          <g clipPath={`url(#studio_clip1_${uid})`}>
+
+          {/* Continuously Rotating Dashed Orbital Telemetry Ring */}
+          <g>
+            <circle
+              cx="100"
+              cy="100"
+              r="76"
+              stroke="#F59E0B"
+              strokeWidth="1.8"
+              strokeOpacity="0.5"
+              strokeDasharray="16 10 4 10"
+            />
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from="0 100 100"
+              to="360 100 100"
+              dur={igniting ? '2.5s' : '14s'}
+              repeatCount="indefinite"
+            />
+          </g>
+
+          {/* Clipped Interior Containing the Floating Rocket-Cup Assembly */}
+          <g clipPath={`url(#emblem_clip_${uid})`}>
             <g className={igniting ? 'bbc-cup-launch' : 'bbc-cup-assembly'}>
-              {/* Internal Waving SVG Steam Wisps */}
-              <path
-                className="bbc-steam-svg-1 bbc-steam-left"
-                d="M65.5832 61.6084C68.8663 55.9161 56.5547 51.2588 57.3755 43.4966C58.1962 36.7693 67.2247 33.1469 69.6871 28.4896C68.8663 34.6994 64.7624 37.8042 65.5832 42.4616C67.2247 48.6714 77.8948 52.8112 73.7909 59.5385C72.1494 62.1259 68.0455 63.1609 65.5832 61.6084Z"
-                fill={`url(#steam_grad_${uid})`}
-                filter={`url(#amber_glow_${uid})`}
-              />
-              <path
-                className="bbc-steam-svg-2 bbc-steam-right"
-                d="M82.8196 60.056C89.3858 52.2937 70.508 43.4965 72.1495 32.6294C73.7911 23.8322 84.4611 19.1748 88.565 14C86.1027 21.7622 81.178 26.4196 82.8196 32.6294C84.4611 40.3916 99.235 46.0839 94.3104 55.3986C91.8481 59.021 86.1027 61.0909 82.8196 60.056Z"
-                fill={`url(#steam_grad_${uid})`}
-                filter={`url(#amber_glow_${uid})`}
+              {/* Native SVG Zero-G Vertical Hover + Gimbal Tilt */}
+              <animateTransform
+                attributeName="transform"
+                type="translate"
+                values={igniting ? '0 -14; 0 -10; 0 -14' : '0 3; 0 -7; 0 3'}
+                dur={igniting ? '0.35s' : '2.4s'}
+                repeatCount="indefinite"
               />
 
-              {/* Pure White Coffee Cup Handle, Cup Body & Rocket Fins */}
+              {/* 1. Multi-Stage Pulsing Rocket Thruster Plume & Exhaust Sparks */}
+              <g filter={`url(#glow_${uid})`}>
+                {/* Outer Orange-Amber Afterburner Cone */}
+                <path
+                  d="M80 144 Q100 194 120 144 Q110 162 100 186 Q90 162 80 144 Z"
+                  fill={`url(#flame_outer_${uid})`}
+                >
+                  <animateTransform
+                    attributeName="transform"
+                    type="scale"
+                    additive="sum"
+                    values="1 0.92; 1 1.18; 1 0.92"
+                    dur="0.32s"
+                    repeatCount="indefinite"
+                  />
+                </path>
+
+                {/* Inner White-Hot Plasma Core */}
+                <path d="M88 144 Q100 175 112 144 Z" fill="#FEF9C3">
+                  <animate
+                    attributeName="d"
+                    values="M88 144 Q100 170 112 144 Z; M86 144 Q100 184 114 144 Z; M88 144 Q100 170 112 144 Z"
+                    dur="0.26s"
+                    repeatCount="indefinite"
+                  />
+                </path>
+
+                {/* Shooting Exhaust Plasma Sparks */}
+                <circle cx="100" cy="160" r="3.2" fill="#FEF08A">
+                  <animate attributeName="cy" values="150;184" dur="0.55s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="1;0" dur="0.55s" repeatCount="indefinite" />
+                  <animate attributeName="r" values="3.5;1.2" dur="0.55s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="92" cy="156" r="2.4" fill="#F59E0B">
+                  <animate attributeName="cy" values="148;178" dur="0.65s" begin="0.2s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.95;0" dur="0.65s" begin="0.2s" repeatCount="indefinite" />
+                </circle>
+                <circle cx="108" cy="156" r="2.4" fill="#F59E0B">
+                  <animate attributeName="cy" values="148;178" dur="0.6s" begin="0.38s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.95;0" dur="0.6s" begin="0.38s" repeatCount="indefinite" />
+                </circle>
+              </g>
+
+              {/* 2. Swept Aerodynamic Rocket Delta Fins */}
+              <path d="M56 104 L30 129 L35 143 L66 128 Z" fill="#FFFFFF" />
+              <path d="M54 112 L36 130 L39 137 L62 125 Z" fill="#F59E0B" />
+              <path d="M144 104 L170 129 L165 143 L134 128 Z" fill="#FFFFFF" />
+              <path d="M146 112 L164 130 L161 137 L138 125 Z" fill="#F59E0B" />
+
+              {/* 3. Metallic Thruster Nozzle Bell */}
               <path
-                d="M120.575 80.7552H129.604C143.557 80.7552 151.764 86.965 150.944 95.7622C150.123 104.559 138.632 111.287 123.037 112.322H116.471L118.934 105.077H123.037C132.887 105.077 139.453 100.937 140.274 95.7622C141.094 90.5874 135.349 87.4825 127.141 87.4825H118.934L120.575 80.7552Z"
-                fill="white"
+                d="M82 132 H118 L124 145 H76 L82 132 Z"
+                fill="#334155"
+                stroke="#FFFFFF"
+                strokeWidth="2.2"
+                strokeLinejoin="round"
               />
+              <line x1="80" y1="139" x2="120" y2="139" stroke="#F59E0B" strokeWidth="2" />
+
+              {/* 4. Porcelain Barista Cup Handle */}
               <path
-                d="M30.29 75.5803C30.29 64.7131 123.858 64.7131 123.858 75.5803C123.858 97.3145 117.292 120.084 100.877 133.021L98.4143 136.126C96.7727 138.713 92.6688 140.266 86.9234 140.266H67.2249C61.4794 140.266 57.3756 138.713 55.734 136.126L53.2717 133.021C36.8562 120.084 30.29 97.3145 30.29 75.5803ZM77.0741 70.4055C52.4509 70.4055 38.4978 72.9929 38.4978 76.3565C38.4978 79.7201 52.4509 82.3076 77.0741 82.3076C101.697 82.3076 115.65 79.7201 115.65 76.3565C115.65 72.9929 101.697 70.4055 77.0741 70.4055ZM39.3185 85.9299C39.3185 100.937 45.064 116.979 57.3756 128.881L59.0171 127.329C49.9886 115.944 46.7055 101.454 46.7055 87.9999L39.3185 85.9299Z"
-                fillRule="evenodd"
-                clipRule="evenodd"
-                fill="white"
-              />
-              <path
-                d="M30.29 112.839C15.5161 120.084 11.4122 131.468 13.8745 143.888H22.0823C26.1861 136.126 34.3939 129.916 45.8847 127.846C38.4977 123.706 33.5731 118.531 30.29 112.839Z"
-                fill="white"
-              />
-              <path
-                d="M123.858 112.839C138.632 120.084 142.736 131.468 140.274 143.888H132.066C127.962 136.126 119.754 129.916 108.264 127.846C115.651 123.706 120.575 118.531 123.858 112.839Z"
-                fill="white"
+                d="M136 80 H149 C160 80 166 88 164 99 C162 109 153 115 141 115 H131"
+                stroke="#FFFFFF"
+                strokeWidth="9.5"
+                strokeLinecap="round"
+                fill="none"
               />
 
-              {/* Pulsing Warm Amber Rocket Thruster Flame */}
+              {/* 5. Tapered Porcelain Rocket-Cup Fuselage Body */}
               <path
-                className={igniting ? 'bbc-thruster-flare' : 'bbc-thruster-flame'}
-                d="M71.3286 142.336C64.7624 145.958 63.9416 152.168 68.8663 157.86L69.6871 155.273L77.074 162L84.461 155.273L85.2818 157.86C90.2064 152.168 89.3856 145.958 82.8194 142.336C84.461 146.475 81.9987 150.098 77.074 152.685C72.1494 150.098 69.6871 146.475 71.3286 142.336Z"
-                fill={`url(#thruster_grad_${uid})`}
-                filter={`url(#amber_glow_${uid})`}
+                d="M52 70 H148 L135 122 C132 130 124 134 114 134 H86 C76 134 68 130 65 122 L52 70 Z"
+                fill="#FFFFFF"
               />
+              {/* Subtle Left Porcelain Highlight & Right Shadow */}
+              <path d="M60 78 L69 120 C71 125 75 128 80 128" stroke="#E2E8F0" strokeWidth="4" strokeLinecap="round" />
+
+              {/* Dark Charcoal Fuselage Stripe & Glowing Center Porthole */}
+              <path d="M57 94 H143 L140 106 H60 L57 94 Z" fill="#242B2E" />
+              <circle cx="100" cy="100" r="8.5" fill="#F59E0B" stroke="#FFFFFF" strokeWidth="2.5">
+                <animate attributeName="r" values="8;9.5;8" dur="1.6s" repeatCount="indefinite" />
+              </circle>
+
+              {/* 6. Cup Rim & Swirling Golden Espresso Crema */}
+              <ellipse cx="100" cy="70" rx="48" ry="11" fill="#FFFFFF" stroke="#242B2E" strokeWidth="3" />
+              <ellipse cx="100" cy="70" rx="41" ry="7.5" fill="#451A03" />
+              <ellipse cx="100" cy="70" rx="32" ry="5" fill="#D97706">
+                <animate attributeName="rx" values="30;34;30" dur="2.0s" repeatCount="indefinite" />
+              </ellipse>
+
+              {/* 7. Three Animated Rising S-Curve Steam Plumes */}
+              <g filter={`url(#glow_${uid})`}>
+                <path
+                  d="M79 56 C72 46 86 36 79 24"
+                  stroke={`url(#steam_grad_${uid})`}
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  fill="none"
+                >
+                  <animateTransform
+                    attributeName="transform"
+                    type="translate"
+                    values="0 4; -2 -6; 0 4"
+                    dur="2.1s"
+                    repeatCount="indefinite"
+                  />
+                  <animate attributeName="opacity" values="0.45;1;0.45" dur="2.1s" repeatCount="indefinite" />
+                </path>
+
+                <path
+                  d="M100 53 C91 41 109 29 100 15"
+                  stroke={`url(#steam_grad_${uid})`}
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  fill="none"
+                >
+                  <animateTransform
+                    attributeName="transform"
+                    type="translate"
+                    values="0 5; 2 -7; 0 5"
+                    dur="1.8s"
+                    begin="0.4s"
+                    repeatCount="indefinite"
+                  />
+                  <animate attributeName="opacity" values="0.6;1;0.6" dur="1.8s" begin="0.4s" repeatCount="indefinite" />
+                </path>
+
+                <path
+                  d="M121 56 C114 46 128 36 121 24"
+                  stroke={`url(#steam_grad_${uid})`}
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  fill="none"
+                >
+                  <animateTransform
+                    attributeName="transform"
+                    type="translate"
+                    values="0 4; 2 -6; 0 4"
+                    dur="2.3s"
+                    begin="0.8s"
+                    repeatCount="indefinite"
+                  />
+                  <animate attributeName="opacity" values="0.45;0.95;0.45" dur="2.3s" begin="0.8s" repeatCount="indefinite" />
+                </path>
+              </g>
             </g>
           </g>
         </g>
