@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { STUDIO_LOGO_SVG_RAW } from '../components/StudioLogo';
+import { STUDIO_ICON_SVG_RAW, STUDIO_LOGO_SVG_RAW } from '../components/StudioLogo';
 import {
   BaristaStationId,
   CustomerOrder,
@@ -235,6 +235,7 @@ export class KlasikCafeScene3D {
 
   // Shared procedural textures
   private studioLogoTexture!: THREE.CanvasTexture;
+  private studioCupEmblemTexture!: THREE.CanvasTexture;
   private woodBumpTexture!: THREE.CanvasTexture;
   private herringboneFloorTexture!: THREE.CanvasTexture;
   private patioCobbleTexture!: THREE.CanvasTexture;
@@ -544,6 +545,35 @@ export class KlasikCafeScene3D {
       URL.revokeObjectURL(svgUrl);
     };
     svgImg.src = svgUrl;
+
+    // A2. Dedicated Circular Rocket-Coffee Emblem Texture for 3D Foreground Hero Mug
+    const cupEmblemCanvas = document.createElement('canvas');
+    cupEmblemCanvas.width = 1024;
+    cupEmblemCanvas.height = 512;
+    const cCtx = cupEmblemCanvas.getContext('2d')!;
+    cCtx.fillStyle = '#f8f4ec';
+    cCtx.fillRect(0, 0, 1024, 512);
+
+    this.studioCupEmblemTexture = new THREE.CanvasTexture(cupEmblemCanvas);
+    this.studioCupEmblemTexture.colorSpace = THREE.SRGBColorSpace;
+    this.studioCupEmblemTexture.anisotropy = maxAniso;
+
+    const iconBlob = new Blob([STUDIO_ICON_SVG_RAW], { type: 'image/svg+xml;charset=utf-8' });
+    const iconUrl = URL.createObjectURL(iconBlob);
+    const iconImg = new Image();
+    iconImg.onload = () => {
+      cCtx.fillStyle = '#f8f4ec';
+      cCtx.fillRect(0, 0, 1024, 512);
+      // Compensate for cylinder circumference-to-height aspect ratio (~3.5:1)
+      // so the Rocket-Coffee emblem renders circular and unclipped on the front face
+      cCtx.drawImage(iconImg, 392, 66, 240, 380);
+      this.studioCupEmblemTexture.needsUpdate = true;
+      URL.revokeObjectURL(iconUrl);
+    };
+    iconImg.onerror = () => {
+      URL.revokeObjectURL(iconUrl);
+    };
+    iconImg.src = iconUrl;
 
     // B. Procedural Walnut Wood Grain Bump Texture
     const woodCanvas = document.createElement('canvas');
@@ -1820,7 +1850,7 @@ export class KlasikCafeScene3D {
           color: 0xffffff,
           roughness: 0.18,
           metalness: 0.05,
-          map: this.studioLogoTexture,
+          map: this.studioCupEmblemTexture,
           side: THREE.DoubleSide,
         })
       : this.ceramicMugMat;
@@ -5259,6 +5289,7 @@ export class KlasikCafeScene3D {
     window.visualViewport?.removeEventListener('resize', this.handleResize);
     this.resizeObserver?.disconnect();
     this.studioLogoTexture?.dispose();
+    this.studioCupEmblemTexture?.dispose();
     this.woodBumpTexture?.dispose();
     this.herringboneFloorTexture?.dispose();
     this.patioCobbleTexture?.dispose();

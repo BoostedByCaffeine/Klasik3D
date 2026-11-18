@@ -68,29 +68,115 @@
   background-color: #0c0a09;
 }
 
-@keyframes floatSteam {
-  0% {
-    transform: translateY(0px) scaleX(1);
-    opacity: 0.15;
+/* Zero-gravity floating bob for the Rocket-Coffee cup assembly */
+@keyframes bbcZeroGFloat {
+  0%, 100% {
+    transform: translateY(0px);
   }
   50% {
-    transform: translateY(-10px) scaleX(1.08);
-    opacity: 0.65;
-  }
-  100% {
-    transform: translateY(-22px) scaleX(0.95);
-    opacity: 0;
+    transform: translateY(-3.5px);
   }
 }
 
-.steam-wisp-1 {
-  animation: floatSteam 2.8s ease-in-out infinite;
+/* Rapid jet thruster pulse at bottom of cup */
+@keyframes bbcThrusterPulse {
+  0%, 100% {
+    transform: scaleY(0.92) scaleX(0.96);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scaleY(1.18) scaleX(1.08);
+    opacity: 1;
+  }
 }
-.steam-wisp-2 {
-  animation: floatSteam 3.4s ease-in-out 0.9s infinite;
+
+/* High-thrust ignition flare when clicking Start Shift */
+@keyframes bbcThrusterFlare {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  40% {
+    transform: scaleY(1.65) scaleX(1.3);
+    filter: brightness(1.8) drop-shadow(0 0 10px #fbbf24);
+  }
+  100% {
+    transform: scaleY(1.35) scaleX(1.15);
+    filter: brightness(1.5);
+  }
 }
-.steam-wisp-3 {
-  animation: floatSteam 3.1s ease-in-out 1.7s infinite;
+
+@keyframes bbcCupLaunch {
+  0% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-7px) scale(1.03);
+  }
+  100% {
+    transform: translateY(-4px) scale(1.01);
+  }
+}
+
+/* Internal SVG Steam Wave */
+@keyframes bbcSteamWaveLeft {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px) scaleY(0.95);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translateY(-4.5px) translateX(-1.5px) scaleY(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes bbcSteamWaveRight {
+  0%, 100% {
+    transform: translateY(-1px) translateX(0px) scaleY(1.04);
+    opacity: 0.95;
+  }
+  50% {
+    transform: translateY(-5.5px) translateX(1.5px) scaleY(0.92);
+    opacity: 0.6;
+  }
+}
+
+.bbc-cup-assembly {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bbcZeroGFloat 3.2s ease-in-out infinite;
+}
+
+.bbc-cup-launch {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bbcCupLaunch 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.bbc-thruster-flame {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: bbcThrusterPulse 0.45s ease-in-out infinite;
+}
+
+.bbc-thruster-flare {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: bbcThrusterFlare 0.42s ease-out forwards;
+}
+
+.bbc-steam-svg-1,
+.bbc-steam-left {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: bbcSteamWaveLeft 2.4s ease-in-out infinite;
+}
+
+.bbc-steam-svg-2,
+.bbc-steam-right {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: bbcSteamWaveRight 2.8s ease-in-out 0.6s infinite;
 }
 
 /* Hide scrollbars on horizontal mini-ticket ribbon */

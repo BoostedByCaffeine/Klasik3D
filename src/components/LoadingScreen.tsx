@@ -33,7 +33,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   appVersion = 'web',
   onFinished,
 }) => {
-  const [progress, setProgress] = useState(18);
+  const [progress, setProgress] = useState(12);
   const [tipIndex, setTipIndex] = useState(0);
   const [fadingOut, setFadingOut] = useState(false);
 
@@ -49,12 +49,12 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         if (prev >= 100) {
           window.clearInterval(progTimer);
           setFadingOut(true);
-          window.setTimeout(onFinished, 320);
+          window.setTimeout(onFinished, 350);
           return 100;
         }
-        return Math.min(100, prev + 28);
+        return Math.min(100, prev + 4.5);
       });
-    }, 180);
+    }, 115);
 
     return () => {
       window.clearInterval(tipTimer);
@@ -69,20 +69,30 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-between bg-[#140e0b] px-6 py-10 text-[#f5ebe1] transition-opacity duration-300 ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-between bg-[#140e0b] px-6 py-10 text-[#f5ebe1] transition-opacity duration-300 overflow-hidden ${
         fadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
       role="status"
       aria-label="Loading Klasik 3D Garage Garden Cafe"
     >
-      <div className="text-xs tracking-widest text-amber-300/80 font-mono flex items-center gap-1.5">
+      {/* Ambient radial espresso-gold spotlight behind centerpiece */}
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.14)_0%,rgba(20,14,11,0)_68%)]"
+        aria-hidden="true"
+      />
+
+      <div className="relative z-10 text-xs tracking-widest text-amber-300/80 font-mono flex items-center gap-1.5">
         <Coffee className="w-3.5 h-3.5 text-amber-400 shrink-0" />
         <span>BOOSTED BY CAFFEINE STUDIOS · WEBGL 3D ENGINE</span>
       </div>
 
-      <div className="flex flex-col items-center max-w-md w-full text-center gap-6">
-        <div className="p-5 rounded-2xl bg-[#1e1510] border border-amber-500/25 shadow-2xl">
-          <StudioLogo className="w-64 sm:w-72 h-auto" withSteam={true} />
+      <div className="relative z-10 flex flex-col items-center max-w-md w-full text-center gap-6">
+        <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-[#231812] to-[#160f0b] border border-amber-500/35 shadow-[0_0_45px_-10px_rgba(245,158,11,0.3)]">
+          <StudioLogo
+            variant="full"
+            progress={progress}
+            className="w-64 sm:w-80 h-auto"
+          />
         </div>
 
         <div className="space-y-1.5">

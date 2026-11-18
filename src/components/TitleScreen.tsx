@@ -49,15 +49,29 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   const isApkVersion = pwaStatus.appVersion === 'apk';
   const isPwaVersion = pwaStatus.appVersion === 'pwa';
 
+  const [isLaunchingShift, setIsLaunchingShift] = React.useState(false);
+
+  const handleTriggerShift = (mode: GameMode) => {
+    if (isLaunchingShift) return;
+    setIsLaunchingShift(true);
+    window.setTimeout(() => {
+      onStartShift(mode);
+    }, 320);
+  };
+
   return (
     <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between px-3 py-1.5 sm:p-5 overflow-hidden">
-      {/* Top Bar: Studio Logo (Exclusive to Intro/Title) & Version-Specific Utility Actions */}
+      {/* Top Bar: Rocket-Coffee Emblem Badge & Version-Specific Utility Actions */}
       <div className="flex items-center justify-between gap-2 pointer-events-auto shrink-0">
         <div
           data-testid="title-version-badge"
           className="flex items-center gap-2 bg-[#1c130e]/95 border border-amber-500/30 rounded-xl px-2.5 py-1 shadow-lg"
         >
-          <StudioLogo className="w-20 sm:w-28 h-auto" />
+          <StudioLogo
+            variant="icon"
+            igniting={isLaunchingShift}
+            className="w-7 h-7 sm:w-8 sm:h-8 shrink-0"
+          />
           <span className="text-stone-500" aria-hidden="true">
             ·
           </span>
@@ -112,7 +126,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <button
             type="button"
             onClick={onOpenCodeExportModal}
-            className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-stone-700 text-[11px] sm:text-xs font-medium text-stone-200 transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5"
+            className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-[#261a13]/95 hover:bg-[#322219] border border-stone-700 text-[11px] sm:text-xs font-medium text-stone-200 transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5"
           >
             <Save className="w-3.5 h-3.5 text-amber-300 shrink-0" />
             <span>Save &amp; GitHub</span>
@@ -131,64 +145,27 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             <span className="font-mono tabular-nums">${Math.round(cash)} Reserve</span>
           </div>
 
-          {/* Custom Inline SVG Title Emblem Lockup */}
-          <svg
-            viewBox="0 0 420 84"
-            className="w-full h-auto max-h-11 sm:max-h-16"
+          {/* KLASIK 3D Framed Header Box with Live Animated Rocket-Coffee Emblem */}
+          <div
+            data-testid="title-header-emblem-box"
             role="img"
             aria-label="KLASIK 3D: Garage Garden Cafe"
+            className="w-full rounded-xl bg-[#271912] border-2 border-[#d97706] px-2.5 py-1.5 sm:px-3.5 sm:py-2 flex items-center gap-2.5 sm:gap-3.5 shadow-inner"
           >
-            <rect
-              x="2"
-              y="2"
-              width="416"
-              height="80"
-              rx="12"
-              fill="#271912"
-              stroke="#d97706"
-              strokeWidth="2.5"
+            <StudioLogo
+              variant="icon"
+              igniting={isLaunchingShift}
+              className="w-10 h-10 sm:w-12 sm:h-12 shrink-0"
             />
-            <circle cx="46" cy="42" r="24" fill="#1c130e" stroke="#fbbf24" strokeWidth="2" />
-            <path
-              d="M34 39 H56 C56 50 50 57 45 57 C40 57 34 50 34 39 Z"
-              fill="#fef3c7"
-            />
-            <path
-              d="M56 41 H60 C63 41 63 48 60 48 H56"
-              stroke="#fef3c7"
-              strokeWidth="2.5"
-              fill="none"
-            />
-            <path
-              d="M41 32 Q39 25 44 21 M49 32 Q47 25 52 21"
-              stroke="#f59e0b"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              fill="none"
-            />
-            <text
-              x="86"
-              y="46"
-              fill="#fef3c7"
-              fontFamily="Fraunces, Georgia, serif"
-              fontWeight="700"
-              fontSize="36"
-              letterSpacing="1"
-            >
-              KLASIK 3D
-            </text>
-            <text
-              x="88"
-              y="68"
-              fill="#f59e0b"
-              fontFamily="Plus Jakarta Sans, sans-serif"
-              fontWeight="600"
-              fontSize="12.5"
-              letterSpacing="2.4"
-            >
-              GARAGE GARDEN CAFE EDITION
-            </text>
-          </svg>
+            <div className="min-w-0 flex flex-col justify-center leading-none">
+              <div className="font-display font-bold text-xl sm:text-[28px] text-[#fef3c7] tracking-wide truncate">
+                KLASIK 3D
+              </div>
+              <div className="text-[9px] sm:text-[11px] font-semibold text-[#f59e0b] tracking-[0.18em] uppercase truncate mt-0.5">
+                GARAGE GARDEN CAFE EDITION
+              </div>
+            </div>
+          </div>
 
           <p className="hidden sm:block text-[11px] sm:text-xs text-stone-300 leading-tight line-clamp-2">
             Step behind the commercial walnut espresso bar. Grind fresh dark-roast beans, steam
@@ -201,10 +178,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           <button
             type="button"
             data-start="true"
-            data-testid="btn-play-career"
+            data-testid="btn-enter-garage"
             onClick={(e) => {
               e.currentTarget.blur();
-              onStartShift('career');
+              handleTriggerShift('career');
             }}
             className="w-full py-2 sm:py-2.5 px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-stone-950 font-bold text-xs sm:text-sm shadow-lg transition-transform active:scale-[0.99] cursor-pointer flex items-center justify-between"
           >
@@ -225,7 +202,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               data-testid="btn-play-zen"
               onClick={(e) => {
                 e.currentTarget.blur();
-                onStartShift('zen');
+                handleTriggerShift('zen');
               }}
               className="py-1.5 px-2.5 rounded-xl bg-[#291c14] hover:bg-[#36251b] border border-amber-500/30 text-amber-100 font-semibold text-[11px] sm:text-xs transition-colors cursor-pointer whitespace-nowrap"
             >
