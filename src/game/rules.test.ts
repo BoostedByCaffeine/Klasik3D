@@ -33,6 +33,11 @@ import {
   STORAGE_GFX_KEY,
   isStepLockActive,
   createActiveStepLock,
+  getOrderVesselType,
+  isColdOrIcedOrder,
+  isRainyWeather,
+  isNightWeather,
+  normalizeWeatherMode,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -643,6 +648,97 @@ test('Phase 2 Anti-Exploit: fully upgraded equipment durations always remain str
     assert.ok(dur >= 380, `Action ${act} duration ${dur}ms fell below minimum realistic floor`);
   }
 });
+
+test('Phase 2: getOrderVesselType selects all 4 authentic vessels (hot-mug, iced-glass, hot-takeout, iced-takeout)', () => {
+  const initial = createInitialGameState();
+  // Maya: Hot Velvet Latte (dine-in) -> hot-mug
+  assert.equal(getOrderVesselType(initial.customers[0]), 'hot-mug');
+  assert.equal(isColdOrIcedOrder(initial.customers[0]), false);
+
+  // Kenji: Iced Caramel Macchiato (takeout) -> iced-takeout
+  assert.equal(getOrderVesselType(initial.customers[1]), 'iced-takeout');
+  assert.equal(isColdOrIcedOrder(initial.customers[1]), true);
+
+  // Iced Dine-In -> iced-glass
+  assert.equal(
+    getOrderVesselType({
+      ...initial.customers[0],
+      recipeId: 'iced-caramel-macchiato',
+      orderType: 'dine-in',
+      customNeedsIce: true,
+    }),
+    'iced-glass'
+  );
+
+  // Hot Takeout -> hot-takeout
+  assert.equal(
+    getOrderVesselType({
+      ...initial.customers[0],
+      recipeId: 'velvet-latte',
+      orderType: 'takeout',
+      customNeedsIce: false,
+    }),
+    'hot-takeout'
+  );
+});
+
+test('Phase 2: serving a Takeout order routes the customer straight to departing without occupying an indoor lounge chair', () => {
+  let state = createInitialGameState();
+  // Pin Kenji (takeout Iced Caramel Macchiato)
+  state.pinnedOrderId = 'cust-initial-2';
+  state.currentCup = {
+    hasGrounds: true,
+    isTamped: true,
+    hasEspresso: true,
+    hasSteepedTea: false,
+    hasSteamedMilk: true,
+    hasIce: true,
+    syrup: 'caramel',
+  };
+
+  const next = serveCurrentCupToCustomer(state);
+  const kenji = next.customers.find((c) => c.id === 'cust-initial-2');
+  assert.ok(kenji);
+  assert.equal(kenji.orderType, 'takeout');
+  assert.equal(kenji.state, 'departing');
+  assert.equal(kenji.seatIndex, null);
+  assert.ok(next.lastActionFeedback.includes('(Takeout)'));
+});
+
+test('Phase 7: Night Shift & Rainy Night weather modes round-trip through save import, helpers, and granular audio params', () => {
+  assert.equal(isRainyWeather('rainy'), true);
+  assert.equal(isRainyWeather('rainy-night'), true);
+  assert.equal(isRainyWeather('night'), false);
+  assert.equal(isRainyWeather('morning'), false);
+
+  assert.equal(isNightWeather('night'), true);
+  assert.equal(isNightWeather('rainy-night'), true);
+  assert.equal(isNightWeather('golden'), false);
+  assert.equal(isNightWeather('rainy'), false);
+
+  assert.equal(normalizeWeatherMode('night'), 'night');
+  assert.equal(normalizeWeatherMode('rainy-night'), 'rainy-night');
+  assert.equal(normalizeWeatherMode('unknown-mode'), 'morning');
+
+  // Granular weather audio for night & rainy-night
+  const nightGrain = computeGranularWeatherParams('night', 0);
+  assert.equal(nightGrain.grainType, 'wind_chime');
+  const rainyNightGrain = computeGranularWeatherParams('rainy-night', 1);
+  assert.ok(['roof_raindrop', 'skylight_patter', 'gutter_drip'].includes(rainyNightGrain.grainType));
+
+  // Save/Import round-trip for rainy-night & night
+  let state = createInitialGameState();
+  state.weather = 'rainy-night';
+  const restored = importSaveJson(exportSaveJson(state));
+  assert.ok(restored);
+  assert.equal(restored.weather, 'rainy-night');
+
+  state.weather = 'night';
+  const restoredNight = importSaveJson(exportSaveJson(state));
+  assert.ok(restoredNight);
+  assert.equal(restoredNight.weather, 'night');
+});
+
 
 
 

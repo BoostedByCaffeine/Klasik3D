@@ -5,9 +5,32 @@
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
-export type WeatherMode = 'morning' | 'golden' | 'rainy';
+export type WeatherMode = 'morning' | 'golden' | 'rainy' | 'night' | 'rainy-night';
 export type BaristaStationId = 1 | 2 | 3 | 4 | 5;
 export type GraphicsQuality = 'low' | 'max';
+export type OrderType = 'dine-in' | 'takeout';
+export type CupVesselType = 'hot-mug' | 'iced-glass' | 'hot-takeout' | 'iced-takeout';
+
+export function isRainyWeather(weather: WeatherMode): boolean {
+  return weather === 'rainy' || weather === 'rainy-night';
+}
+
+export function isNightWeather(weather: WeatherMode): boolean {
+  return weather === 'night' || weather === 'rainy-night';
+}
+
+export function normalizeWeatherMode(val: unknown): WeatherMode {
+  if (
+    val === 'morning' ||
+    val === 'golden' ||
+    val === 'rainy' ||
+    val === 'night' ||
+    val === 'rainy-night'
+  ) {
+    return val;
+  }
+  return 'morning';
+}
 
 export const STORAGE_GFX_KEY = 'klasik3d_gfx_quality_v2';
 
@@ -452,10 +475,11 @@ export interface CustomerOrder {
   avatarColor: string;
   shirtColor: string;
   recipeId: string;
+  orderType: OrderType;
   patience: number; // 0..100
   maxPatience: number;
   state: 'ordering' | 'seated' | 'departing';
-  seatIndex: number | null; // 0..5 for the 6 cafe & garden tables
+  seatIndex: number | null; // 0..5 for the 6 cafe & garden tables (always null for takeout)
   seatedTimer: number;
   dialogueLine: string;
   customAddons: string[];
@@ -1032,6 +1056,7 @@ export function createInitialGameState(): KlasikGameState {
     avatarColor: '#f5d0b5',
     shirtColor: '#d97706',
     recipeId: 'velvet-latte',
+    orderType: 'dine-in',
     patience: 100,
     maxPatience: 100,
     state: 'ordering',
@@ -1050,13 +1075,14 @@ export function createInitialGameState(): KlasikGameState {
     avatarColor: '#e2a983',
     shirtColor: '#059669',
     recipeId: 'iced-caramel-macchiato',
+    orderType: 'takeout',
     patience: 100,
     maxPatience: 100,
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
     dialogueLine:
-      'That 1990 Miata MX-5 is clean! Hit me with an Iced Caramel Garden Macchiato—iced, with Caramel drizzle!',
+      'That 1990 Miata MX-5 is clean! Make it a Takeout Iced Caramel Garden Macchiato—iced, with Caramel drizzle!',
     customAddons: ['+Iced', '+Caramel'],
     customBonusTip: 3,
     customNeedsIce: true,
@@ -1070,6 +1096,7 @@ export function createInitialGameState(): KlasikGameState {
     avatarColor: '#f1c27d',
     shirtColor: '#2563eb',
     recipeId: 'london-fog-tea-latte',
+    orderType: 'dine-in',
     patience: 100,
     maxPatience: 100,
     state: 'ordering',
@@ -1147,6 +1174,30 @@ export function getEffectiveRecipeForOrder(
     needsIce: order.customNeedsIce !== undefined ? order.customNeedsIce : base.needsIce,
     syrup: order.customSyrup !== undefined ? order.customSyrup : base.syrup,
   };
+}
+
+export function isColdOrIcedOrder(
+  order?: CustomerOrder | null,
+  fallbackRecipe?: DrinkRecipe | null
+): boolean {
+  const effective = getEffectiveRecipeForOrder(order, fallbackRecipe);
+  return (
+    effective.needsIce ||
+    effective.category === 'iced_coffee' ||
+    effective.category === 'cold_drink'
+  );
+}
+
+export function getOrderVesselType(
+  order?: CustomerOrder | null,
+  fallbackRecipe?: DrinkRecipe | null
+): CupVesselType {
+  const isCold = isColdOrIcedOrder(order, fallbackRecipe);
+  const isTakeout = order?.orderType === 'takeout';
+  if (isTakeout) {
+    return isCold ? 'iced-takeout' : 'hot-takeout';
+  }
+  return isCold ? 'iced-glass' : 'hot-mug';
 }
 
 // Strict Recipe & Wrong-Ingredient Validator to prevent Premature Serving & Cash Exploits
@@ -1695,17 +1746,20 @@ export function serveCurrentCupToCustomer(
     targetCustomer.customBonusTip
   );
 
-  // Find available garden / showroom table seat (0..5)
-  const occupiedSeats = new Set(
-    state.customers
-      .filter((c) => c.state === 'seated' && c.seatIndex !== null)
-      .map((c) => c.seatIndex)
-  );
+  // Takeout patrons leave straight through the front entrance without occupying any indoor seat!
+  const isTakeoutOrder = targetCustomer.orderType === 'takeout';
   let assignedSeat: number | null = null;
-  for (let i = 0; i < MAX_GARDEN_SEATS; i++) {
-    if (!occupiedSeats.has(i)) {
-      assignedSeat = i;
-      break;
+  if (!isTakeoutOrder) {
+    const occupiedSeats = new Set(
+      state.customers
+        .filter((c) => c.state === 'seated' && c.seatIndex !== null)
+        .map((c) => c.seatIndex)
+    );
+    for (let i = 0; i < MAX_GARDEN_SEATS; i++) {
+      if (!occupiedSeats.has(i)) {
+        assignedSeat = i;
+        break;
+      }
     }
   }
 
@@ -1715,7 +1769,7 @@ export function serveCurrentCupToCustomer(
       ...c,
       state: (assignedSeat !== null ? 'seated' : 'departing') as CustomerOrder['state'],
       seatIndex: assignedSeat,
-      seatedTimer: assignedSeat !== null ? 24 : 4,
+      seatedTimer: assignedSeat !== null ? 24 : isTakeoutOrder ? 9.5 : 5.5,
     };
   });
 
@@ -1760,9 +1814,10 @@ export function serveCurrentCupToCustomer(
     ? ` · DAILY QUOTA (${state.dailyOrderQuota} ORDERS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
     : '';
 
+  const takeoutLabel = isTakeoutOrder ? ' (Takeout)' : '';
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}! +$${payout.totalPayout}${goldenBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
-    : `Served ${recipe.name} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}.${quotaSuffix}${unlockSuffix}`;
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
+    : `Served ${recipe.name}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}.${quotaSuffix}${unlockSuffix}`;
 
   return {
     ...state,
@@ -1849,11 +1904,13 @@ export function spawnCustomerOrder(
       ? 'extra cold with fresh ice'
       : 'with silky 65°C microfoam';
 
+  const orderType: OrderType = Math.random() < 0.38 ? 'takeout' : 'dine-in';
+  const toGoSuffix = orderType === 'takeout' ? ' to go' : '';
   const greetings = [
-    `Morning! Could I get a ${recipe.name}—${addonPhrase}?`,
-    `That 1990 Miata MX-5 in the garage bay is iconic! Hit me with a ${recipe.name}, ${addonPhrase}!`,
-    `Love the vinyl spinning today! Can I order a ${recipe.name}, ${addonPhrase}?`,
-    `Hi there! One ${recipe.name} please—${addonPhrase}.`,
+    `Morning! Could I get a ${recipe.name}${toGoSuffix}—${addonPhrase}?`,
+    `That 1990 Miata MX-5 in the garage bay is iconic! Hit me with a ${recipe.name}${toGoSuffix}, ${addonPhrase}!`,
+    `Love the vinyl spinning today! Can I order a ${recipe.name}${toGoSuffix}, ${addonPhrase}?`,
+    `Hi there! One ${recipe.name}${toGoSuffix} please—${addonPhrase}.`,
   ];
   const dialogueLine = greetings[(nameIdx + seedOffset) % greetings.length];
   const socialBehavior = SOCIAL_BEHAVIORS[(nameIdx + seedOffset) % SOCIAL_BEHAVIORS.length];
@@ -1868,6 +1925,7 @@ export function spawnCustomerOrder(
     avatarColor: AVATAR_COLORS[nameIdx % AVATAR_COLORS.length],
     shirtColor: palette[(nameIdx + seedOffset) % palette.length],
     recipeId: recipe.id,
+    orderType,
     patience: 100,
     maxPatience: 100,
     state: 'ordering',
@@ -2372,7 +2430,7 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       totalCupsServed: typeof d.totalCupsServed === 'number' ? d.totalCupsServed : 0,
       activeShiftSeconds: typeof d.activeShiftSeconds === 'number' ? d.activeShiftSeconds : 0,
       satisfactionScore: typeof d.satisfactionScore === 'number' ? d.satisfactionScore : 100,
-      weather: d.weather || base.weather,
+      weather: normalizeWeatherMode(d.weather),
       graphicsQuality: normalizeGraphicsQuality(d.graphicsQuality),
       realismMode: Boolean(d.realismMode),
       upgrades: mergedUpgrades,

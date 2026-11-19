@@ -318,29 +318,23 @@
   );
 }
 
-/* Diegetic 3D POS Terminal Bezel & Subtle CRT/LCD Glass Surface */
+/* Diegetic 3D Klasik Roastery POS Tablet Bezel & Warm Espresso-Crema Surface */
 .pos-terminal-bezel {
-  background: linear-gradient(168deg, #1b2226 0%, #0f1417 55%, #0a0e10 100%);
-  border: 2px solid rgba(52, 211, 153, 0.35);
+  background: linear-gradient(168deg, #241711 0%, #160e0a 55%, #0e0906 100%);
+  border: 2px solid rgba(245, 158, 11, 0.48);
   box-shadow:
-    0 26px 70px -14px rgba(0, 0, 0, 0.85),
-    0 0 0 6px rgba(15, 18, 22, 0.92),
-    0 0 0 8px rgba(217, 119, 6, 0.42),
-    inset 0 1px 0 rgba(167, 243, 208, 0.22);
+    0 26px 70px -14px rgba(0, 0, 0, 0.88),
+    0 0 0 6px rgba(24, 15, 10, 0.94),
+    0 0 0 8px rgba(217, 119, 6, 0.36),
+    inset 0 1px 0 rgba(254, 243, 199, 0.2);
 }
 
 .pos-terminal-screen {
-  background-color: #0b1412;
+  background-color: #160e0a;
   background-image:
-    repeating-linear-gradient(
-      0deg,
-      rgba(16, 185, 129, 0.03) 0px,
-      rgba(16, 185, 129, 0.03) 1px,
-      transparent 1px,
-      transparent 3px
-    ),
-    radial-gradient(circle at 18% 12%, rgba(16, 185, 129, 0.1) 0%, transparent 55%),
-    radial-gradient(circle at 86% 88%, rgba(245, 158, 11, 0.09) 0%, transparent 52%);
+    radial-gradient(circle at 14% 10%, rgba(245, 158, 11, 0.12) 0%, transparent 52%),
+    radial-gradient(circle at 88% 86%, rgba(180, 83, 9, 0.11) 0%, transparent 54%),
+    linear-gradient(180deg, rgba(32, 20, 14, 0.45) 0%, rgba(14, 9, 6, 0.72) 100%);
 }
 
 /* ===== 1-SECOND MOBILE LANDSCAPE PRE-SPLASH GATE ===== */

@@ -36,9 +36,12 @@ export function computeGranularWeatherParams(
   const hash2 = (idx * 0.381966011250105 + 0.23) % 1;
   const pan = Number(((hash1 * 2 - 1) * 0.78).toFixed(3));
 
-  if (weather === 'rainy') {
+  if (weather === 'rainy' || weather === 'rainy-night') {
     // Polyrhythmic 8-step roof raindrop pattern (rhythmic drops on corrugated polycarbonate/timber pergola roof)
-    const rhythmPattern = [85, 115, 70, 145, 90, 110, 65, 160];
+    const rhythmPattern =
+      weather === 'rainy-night'
+        ? [78, 108, 66, 138, 86, 104, 62, 152]
+        : [85, 115, 70, 145, 90, 110, 65, 160];
     const baseInterval = rhythmPattern[idx % rhythmPattern.length];
     const isGutterDrip = idx % 7 === 0;
     const isSkylight = idx % 3 === 1;
@@ -52,7 +55,7 @@ export function computeGranularWeatherParams(
         filterFreqHz: Math.round(980 + hash1 * 620),
         filterQ: 4.2,
         pan,
-        gain: 0.022,
+        gain: weather === 'rainy-night' ? 0.025 : 0.022,
         pitchEndRatio: 1.42, // Classic rising water-drop bubble inflection
       };
     }
@@ -66,7 +69,7 @@ export function computeGranularWeatherParams(
         filterFreqHz: Math.round(1350 + hash2 * 700),
         filterQ: 2.6,
         pan,
-        gain: 0.016,
+        gain: weather === 'rainy-night' ? 0.019 : 0.016,
         pitchEndRatio: 0.82,
       };
     }
@@ -79,13 +82,29 @@ export function computeGranularWeatherParams(
       filterFreqHz: Math.round(480 + hash1 * 420),
       filterQ: 3.1,
       pan,
-      gain: 0.024,
+      gain: weather === 'rainy-night' ? 0.027 : 0.024,
       pitchEndRatio: 0.68, // Woody/metallic roof thud decay
     };
   }
 
-  // Sunny modes ('morning' or 'golden'): Distant garden birds & pentatonic bamboo/brass wind chimes
+  // Clear Night Shift: Soft nocturnal pentatonic wind chimes (no daytime birds)
   const pentatonicChimes = [1046.5, 1174.66, 1318.51, 1567.98, 1760.0, 2093.0]; // C6, D6, E6, G6, A6, C7
+  if (weather === 'night') {
+    const chimeFreq = pentatonicChimes[idx % pentatonicChimes.length] * 0.5;
+    return {
+      grainType: 'wind_chime',
+      intervalMs: 420 + Math.round(hash1 * 280),
+      durationSec: Number((0.28 + hash2 * 0.16).toFixed(3)),
+      carrierFreqHz: chimeFreq,
+      filterFreqHz: Math.round(chimeFreq * 1.25),
+      filterQ: 4.8,
+      pan,
+      gain: 0.01,
+      pitchEndRatio: 0.992,
+    };
+  }
+
+  // Sunny modes ('morning' or 'golden'): Distant garden birds & pentatonic bamboo/brass wind chimes
   const isBirdGrain = idx % 3 === 0;
 
   if (isBirdGrain) {
@@ -532,7 +551,7 @@ class SoundEngine {
     });
   }
 
-  // 7. SYRUP PUMP / BAMBOO MATCHA WHISK
+  // 7. SYRUP DOUBLE-PUMP SQUIRT / BAMBOO MATCHA WHISK
   public playSyrupOrWhisk(isMatcha = false) {
     if (this.isMuted) return;
     const ctx = this.ensureContext();
@@ -552,7 +571,42 @@ class SoundEngine {
       src.start(now);
       src.stop(now + 0.88);
     } else {
-      this.playCeramicClink(1.12);
+      // Two crisp mechanical nozzle pump clicks + viscous glossy liquid squirt pulses
+      [0.18, 0.54].forEach((offset, idx) => {
+        const t0 = now + offset;
+        const clickOsc = ctx.createOscillator();
+        const clickGain = ctx.createGain();
+        clickOsc.type = 'triangle';
+        clickOsc.frequency.setValueAtTime(idx === 0 ? 520 : 560, t0);
+        clickOsc.frequency.exponentialRampToValueAtTime(210, t0 + 0.055);
+        clickGain.gain.setValueAtTime(0.001, t0);
+        clickGain.gain.exponentialRampToValueAtTime(0.09, t0 + 0.008);
+        clickGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.065);
+        clickOsc.connect(clickGain);
+        clickGain.connect(ctx.destination);
+        clickOsc.start(t0);
+        clickOsc.stop(t0 + 0.07);
+
+        if (this.waterPourBuffer) {
+          const squirtSrc = ctx.createBufferSource();
+          squirtSrc.buffer = this.waterPourBuffer;
+          squirtSrc.playbackRate.setValueAtTime(1.35 + idx * 0.08, t0 + 0.02);
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.setValueAtTime(1080, t0 + 0.02);
+          bp.frequency.exponentialRampToValueAtTime(640, t0 + 0.24);
+          bp.Q.setValueAtTime(2.2, t0 + 0.02);
+          const squirtGain = ctx.createGain();
+          squirtGain.gain.setValueAtTime(0.001, t0 + 0.02);
+          squirtGain.gain.exponentialRampToValueAtTime(0.11, t0 + 0.06);
+          squirtGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.26);
+          squirtSrc.connect(bp);
+          bp.connect(squirtGain);
+          squirtGain.connect(ctx.destination);
+          squirtSrc.start(t0 + 0.02);
+          squirtSrc.stop(t0 + 0.28);
+        }
+      });
     }
   }
 
@@ -724,7 +778,8 @@ class SoundEngine {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
-    const shouldPlayRainLoop = enabled && weather === 'rainy';
+    const shouldPlayRainLoop =
+      enabled && (weather === 'rainy' || weather === 'rainy-night');
 
     // 1. Handle Continuous Skylight Rain Bed
     if (!shouldPlayRainLoop) {

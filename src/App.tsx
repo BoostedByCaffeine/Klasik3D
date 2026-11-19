@@ -99,6 +99,8 @@ export default function App() {
   const [stepProgress, setStepProgress] = useState<number | null>(null);
   const [stepDurationMs, setStepDurationMs] = useState<number | null>(null);
   const [fps, setFps] = useState<number>(60);
+  const [hudPinnedRecipeId, setHudPinnedRecipeId] = useState<string | null>(null);
+  const [isPinnedRecipeMinimized, setIsPinnedRecipeMinimized] = useState<boolean>(false);
 
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<KlasikCafeScene3D | null>(null);
@@ -216,6 +218,11 @@ export default function App() {
       }
 
       animTimerRef.current = window.setTimeout(() => {
+        if (progressIntervalRef.current) {
+          window.clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        animTimerRef.current = null;
         setActiveAnimLabel(null);
         setStepProgress(null);
         setStepDurationMs(null);
@@ -314,6 +321,12 @@ export default function App() {
       stepCommitTimerRef.current = window.setTimeout(() => {
         stepCommitTimerRef.current = null;
         stepLockUntilRef.current = 0;
+        if (progressIntervalRef.current) {
+          window.clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        setStepProgress(null);
+        setStepDurationMs(null);
         soundEngine.playCashRegister();
         setGameState((latest) => {
           const committed = serveCurrentCupToCustomer(
@@ -506,6 +519,12 @@ export default function App() {
       stepCommitTimerRef.current = window.setTimeout(() => {
         stepCommitTimerRef.current = null;
         stepLockUntilRef.current = 0;
+        if (progressIntervalRef.current) {
+          window.clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        setStepProgress(null);
+        setStepDurationMs(null);
         soundEngine.playCeramicClink(1.18);
         setGameState((latest) => {
           const committed = performCupAction(
@@ -869,6 +888,15 @@ export default function App() {
           activeAnimLabel={activeAnimLabel}
           stepProgress={stepProgress}
           stepDurationMs={stepDurationMs}
+          hudPinnedRecipeId={hudPinnedRecipeId}
+          isPinnedRecipeMinimized={isPinnedRecipeMinimized}
+          onToggleMinimizePinnedRecipe={() =>
+            setIsPinnedRecipeMinimized((prev) => !prev)
+          }
+          onUnpinHudRecipe={() => {
+            setHudPinnedRecipeId(null);
+            setIsPinnedRecipeMinimized(false);
+          }}
           onSelectStation={handleSelectStation}
           onPinOrder={(orderId) =>
             setGameState((prev) => ({ ...prev, pinnedOrderId: orderId }))
@@ -913,6 +941,19 @@ export default function App() {
             currentDay={gameState.day}
             pinnedRecipeId={pinnedCust?.recipeId ?? null}
             pinnedCustomerName={pinnedCust?.customerName ?? null}
+            hudPinnedRecipeId={hudPinnedRecipeId}
+            onTogglePinRecipe={(recipeId) => {
+              soundEngine.playCeramicClink(1.18);
+              if (hudPinnedRecipeId === recipeId) {
+                setHudPinnedRecipeId(null);
+                setIsPinnedRecipeMinimized(false);
+              } else {
+                setHudPinnedRecipeId(recipeId);
+                setIsPinnedRecipeMinimized(false);
+                const rec = getRecipeById(recipeId);
+                flashAnimBanner(`Pinned ${rec.name} to HUD!`, 1200, false);
+              }
+            }}
             onClose={() => setActiveModal(null)}
           />
         );

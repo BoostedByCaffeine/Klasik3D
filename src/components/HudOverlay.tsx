@@ -5,8 +5,10 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Coffee,
   Compass,
   CupSoda,
@@ -19,11 +21,15 @@ import {
   Lock,
   Maximize2,
   Menu,
+  Minus,
+  Pin,
   RotateCcw,
+  ShoppingBag,
   SlidersHorizontal,
   Snowflake,
   Sparkles,
   Sprout,
+  Store,
   Trophy,
   Volume2,
   VolumeX,
@@ -43,6 +49,7 @@ import {
 import { SpotifyVinylState } from '../game/spotifyManager';
 import { AppRuntimeVersion } from '../pwa/pwaManager';
 import { DailyGoalProgressBar } from './DailyGoalProgressBar';
+import { buildStepPipeline, isStepChipCompleted } from './RecipeMenuModal';
 
 interface HudOverlayProps {
   gameState: KlasikGameState;
@@ -54,6 +61,10 @@ interface HudOverlayProps {
   activeAnimLabel: string | null;
   stepProgress: number | null;
   stepDurationMs: number | null;
+  hudPinnedRecipeId?: string | null;
+  isPinnedRecipeMinimized?: boolean;
+  onToggleMinimizePinnedRecipe?: () => void;
+  onUnpinHudRecipe?: () => void;
   onSelectStation: (station: BaristaStationId) => void;
   onPinOrder: (orderId: string) => void;
   onCupAction: (
@@ -104,6 +115,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   activeAnimLabel,
   stepProgress,
   stepDurationMs,
+  hudPinnedRecipeId,
+  isPinnedRecipeMinimized = false,
+  onToggleMinimizePinnedRecipe,
+  onUnpinHudRecipe,
   onSelectStation,
   onPinOrder,
   onCupAction,
@@ -351,23 +366,37 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               {orderingCustomers.map((cust) => {
                 const recipe = getRecipeById(cust.recipeId);
                 const isPinned = pinnedOrder?.id === cust.id;
+                const isTakeout = cust.orderType === 'takeout';
                 return (
                   <button
                     key={cust.id}
                     type="button"
                     onClick={() => onPinOrder(cust.id)}
-                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[130px] overflow-hidden glass-text-crisp ${
+                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[152px] overflow-hidden glass-text-crisp ${
                       isPinned
                         ? 'bg-amber-500/25 border-amber-400 text-[#FAF5EE] font-semibold'
                         : 'glass-btn-inner text-[#E7D7C1]'
                     }`}
-                    title={`${cust.customerName}: ${recipe.name}`}
+                    title={`${cust.customerName} (${isTakeout ? 'Takeout' : 'Dine-In'}): ${recipe.name}`}
                   >
                     <span
                       className="w-1.5 h-1.5 rounded-full shrink-0"
                       style={{ backgroundColor: recipe.colorHex }}
                     />
                     <span className="font-semibold truncate">{cust.customerName}</span>
+                    {isTakeout ? (
+                      <ShoppingBag
+                        className="w-2.5 h-2.5 text-emerald-300 shrink-0"
+                        strokeWidth={2.4}
+                        aria-label="Takeout"
+                      />
+                    ) : (
+                      <Store
+                        className="w-2.5 h-2.5 text-amber-300/80 shrink-0"
+                        strokeWidth={2.2}
+                        aria-label="Dine-In"
+                      />
+                    )}
                     <span className="font-mono tabular-nums text-emerald-300 font-bold shrink-0">
                       ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
                     </span>
@@ -560,7 +589,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <Sprout className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Cafe Decor</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">18 Styles &amp; Weather</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">20 Styles &amp; 5 Weathers</div>
               </div>
             </button>
 
@@ -659,10 +688,30 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         )}
 
         {/* Ultra-Compact Single-Line Order Strip + Inline Timed Progress */}
-        <div className="flex items-center justify-between gap-2 px-2 mt-1.5 pointer-events-none">
+        <div className="flex items-start justify-between gap-2 px-2 mt-1.5 pointer-events-none">
           {!ticketsCollapsed && pinnedOrder && targetRecipe ? (
             <div className="pointer-events-auto inline-flex items-center gap-1.5 glass-panel rounded-full px-2.5 py-0.5 max-w-[78vw] sm:max-w-xl overflow-hidden">
               {renderCategoryIcon()}
+              <span
+                data-testid="order-type-badge"
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] font-bold uppercase tracking-wider shrink-0 ${
+                  pinnedOrder.orderType === 'takeout'
+                    ? 'bg-emerald-500/25 border-emerald-400/55 text-emerald-200'
+                    : 'bg-amber-500/20 border-amber-400/45 text-amber-200'
+                }`}
+              >
+                {pinnedOrder.orderType === 'takeout' ? (
+                  <>
+                    <ShoppingBag className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                    <span>Takeout</span>
+                  </>
+                ) : (
+                  <>
+                    <Store className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
+                    <span>Dine-In</span>
+                  </>
+                )}
+              </span>
               <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 glass-text-crisp shrink-0">
                 {pinnedOrder.customerName}:
               </span>
@@ -694,25 +743,137 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             <div />
           )}
 
-          {/* Slim Top-Right Progress / Hover Pill */}
-          {displayBannerText && (
-            <div className="pointer-events-none inline-flex items-center gap-2 glass-pill text-[#FAF5EE] glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[55vw] truncate">
-              <span className="truncate">{displayBannerText}</span>
-              {stepDurationMs && stepProgress !== null && (
-                <span className="text-[9px] font-mono text-amber-300 shrink-0">
-                  {(stepDurationMs / 1000).toFixed(1)}s
-                </span>
-              )}
-              {stepProgress !== null && (
-                <div className="w-14 h-1.5 rounded-full bg-black/50 overflow-hidden shrink-0">
+          {/* Right Stack: Slim Progress Pill + Minimizable Pinned Recipe Card */}
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            {displayBannerText && (
+              <div className="pointer-events-none inline-flex items-center gap-2 glass-pill text-[#FAF5EE] glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[55vw] truncate">
+                <span className="truncate">{displayBannerText}</span>
+                {stepDurationMs && stepProgress !== null && (
+                  <span className="text-[9px] font-mono text-amber-300 shrink-0">
+                    {(stepDurationMs / 1000).toFixed(1)}s
+                  </span>
+                )}
+                {stepProgress !== null && (
+                  <div className="w-14 h-1.5 rounded-full bg-black/50 overflow-hidden shrink-0">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-75"
+                      style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Floating Minimizable Pinned Recipe Tracker */}
+            {hudPinnedRecipeId && (() => {
+              const pinnedCodexRecipe = getRecipeById(hudPinnedRecipeId);
+              const steps = buildStepPipeline(pinnedCodexRecipe);
+              const completedCount = steps.filter((s) =>
+                isStepChipCompleted(s, gameState.currentCup, pinnedCodexRecipe)
+              ).length;
+              const nextIncompleteIdx = steps.findIndex(
+                (s) => !isStepChipCompleted(s, gameState.currentCup, pinnedCodexRecipe)
+              );
+
+              if (isPinnedRecipeMinimized) {
+                return (
                   <div
-                    className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-75"
-                    style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
-                  />
+                    data-testid="pinned-recipe-pill"
+                    className="pointer-events-auto glass-pill rounded-full px-2.5 py-1 flex items-center gap-1.5 border border-amber-400/45 shadow-lg"
+                  >
+                    <button
+                      type="button"
+                      data-testid="btn-toggle-pinned-recipe"
+                      onClick={() => onToggleMinimizePinnedRecipe?.()}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#FAF5EE] hover:text-amber-200 cursor-pointer"
+                      title="Expand Pinned Recipe Steps"
+                    >
+                      <Pin className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.4} />
+                      <span className="max-w-[140px] truncate">{pinnedCodexRecipe.name}</span>
+                      <span className="text-[10px] font-mono text-amber-300 font-bold">
+                        {completedCount}/{steps.length - 1}
+                      </span>
+                      <ChevronDown className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.4} />
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="btn-unpin-recipe"
+                      onClick={() => onUnpinHudRecipe?.()}
+                      className="text-[#E7D7C1] hover:text-white cursor-pointer pl-0.5"
+                      title="Unpin Recipe"
+                      aria-label="Unpin Recipe"
+                    >
+                      <X className="w-3 h-3" strokeWidth={2.3} />
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  data-testid="pinned-recipe-card"
+                  className="pointer-events-auto glass-panel rounded-xl px-3 py-2 w-[235px] sm:w-[270px] border border-amber-400/45 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-amber-400/20 pb-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Pin className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.3} />
+                      <span className="text-xs font-display font-bold text-[#FAF5EE] truncate glass-text-crisp">
+                        {pinnedCodexRecipe.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        data-testid="btn-toggle-pinned-recipe"
+                        onClick={() => onToggleMinimizePinnedRecipe?.()}
+                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-amber-400/25 text-amber-200 flex items-center justify-center cursor-pointer"
+                        title="Minimize Pinned Recipe"
+                        aria-label="Minimize Pinned Recipe"
+                      >
+                        <Minus className="w-3 h-3" strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="btn-unpin-recipe"
+                        onClick={() => onUnpinHudRecipe?.()}
+                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-rose-500/35 text-[#E7D7C1] hover:text-white flex items-center justify-center cursor-pointer"
+                        title="Unpin Recipe"
+                        aria-label="Unpin Recipe"
+                      >
+                        <X className="w-3 h-3" strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {steps.map((chip, idx) => {
+                      const done = isStepChipCompleted(chip, gameState.currentCup, pinnedCodexRecipe);
+                      const isCurrent = idx === nextIncompleteIdx;
+                      return (
+                        <span
+                          key={`hud-pin-${chip.stepNum}`}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-semibold ${
+                            done
+                              ? 'bg-emerald-500/25 border-emerald-400/55 text-emerald-200 line-through opacity-85'
+                              : isCurrent
+                              ? 'bg-amber-500/30 border-amber-300 text-amber-100 shadow-[0_0_8px_rgba(245,158,11,0.45)]'
+                              : 'bg-black/35 border-white/15 text-[#E7D7C1]/85'
+                          }`}
+                        >
+                          {done ? (
+                            <Check className="w-2.5 h-2.5 text-emerald-300 shrink-0" strokeWidth={2.8} />
+                          ) : (
+                            <span className="font-mono opacity-80">{chip.stepNum}.</span>
+                          )}
+                          <span>{chip.label}</span>
+                          <span className="text-[9px] font-mono opacity-70">{chip.stationTag}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+              );
+            })()}
+          </div>
         </div>
       </div>
 

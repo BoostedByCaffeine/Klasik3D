@@ -1,9 +1,11 @@
 import React from 'react';
 import {
+  CloudLightning,
   CloudRain,
   Disc3,
   Download,
   Globe,
+  Moon,
   PackageCheck,
   Play,
   Save,
@@ -234,19 +236,24 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           >
             {(
               [
-                { id: 'morning', label: 'Morning Sun', Icon: Sun },
+                { id: 'morning', label: 'Morning', Icon: Sun },
                 { id: 'golden', label: 'Golden Hour', Icon: Sunset },
-                { id: 'rainy', label: 'Rainy Roof', Icon: CloudRain },
+                { id: 'rainy', label: 'Rainy Day', Icon: CloudRain },
+                { id: 'night', label: 'Night Shift', Icon: Moon },
+                { id: 'rainy-night', label: 'Rainy Night', Icon: CloudLightning },
               ] as const
-            ).map((item) => {
+            ).map((item, idx) => {
               const Icon = item.Icon;
               const isActive = weather === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
+                  data-testid={`title-weather-${item.id}`}
                   onClick={() => onChangeWeather(item.id)}
-                  className={`py-1 px-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
+                  className={`py-1 px-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
+                    idx === 3 ? 'col-span-1' : idx === 4 ? 'col-span-2' : ''
+                  } ${
                     isActive
                       ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow-[0_4px_12px_-3px_rgba(245,158,11,0.55)]'
                       : 'glass-btn-inner border-transparent bg-transparent hover:bg-amber-400/15 text-[#E7D7C1]'

@@ -3,6 +3,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { STUDIO_ICON_SVG_RAW, STUDIO_LOGO_SVG_RAW } from '../components/StudioLogo';
 import {
   BaristaStationId,
+  CupVesselType,
   CustomerOrder,
   CustomerSkinPackId,
   KlasikGameState,
@@ -12,8 +13,11 @@ import {
   SyrupFlavor,
   WeatherMode,
   getNextRecommendedStep,
+  getOrderVesselType,
   getRecipeById,
   isClearOfMiataBay,
+  isNightWeather,
+  isRainyWeather,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
 
@@ -193,6 +197,12 @@ const SKY_DOME_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
   uniform float uSunIntensity;
+  uniform float uStarIntensity;
+  uniform float uTime;
+
+  float hashStar(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
 
   void main() {
     vec3 dir = normalize(vWorldDir);
@@ -205,6 +215,20 @@ const SKY_DOME_FRAGMENT_SHADER = /* glsl */ `
     float sunHalo = pow(sunDot, 10.0) * 0.42 * uSunIntensity;
     float sunDisc = smoothstep(0.9945, 0.9985, sunDot) * 1.15 * uSunIntensity;
     skyCol += uSunColor * (sunHalo + sunDisc);
+
+    // Subtle procedural twinkling night stars (zero extra draw calls!)
+    if (uStarIntensity > 0.01 && dir.y > 0.08) {
+      vec2 starUv = vec2(atan(dir.x, -dir.z) * 18.0, dir.y * 34.0);
+      vec2 cell = floor(starUv);
+      vec2 f = fract(starUv) - 0.5;
+      float rnd = hashStar(cell);
+      if (rnd > 0.935) {
+        float dist = length(f);
+        float twinkle = 0.65 + 0.35 * sin(uTime * (1.8 + rnd * 3.0) + rnd * 40.0);
+        float starMask = smoothstep(0.16, 0.02, dist) * smoothstep(0.08, 0.32, dir.y) * twinkle;
+        skyCol += vec3(0.92, 0.96, 1.0) * starMask * uStarIntensity * 1.15;
+      }
+    }
 
     gl_FragColor = vec4(skyCol, 1.0);
   }
@@ -289,7 +313,15 @@ interface StaticCollider2D {
 interface PooledPedestrian {
   actor: Omit<
     ArticulatedCustomerActor,
-    'currentPos' | 'lastPos' | 'waypoints' | 'finalGoalKey' | 'walkPhase' | 'walkBlend' | 'seatedBlend' | 'facingAngle'
+    | 'currentPos'
+    | 'lastPos'
+    | 'waypoints'
+    | 'finalGoalKey'
+    | 'walkPhase'
+    | 'walkBlend'
+    | 'seatedBlend'
+    | 'facingAngle'
+    | 'moveState'
   >;
   laneZ: number;
   x: number;
@@ -327,6 +359,9 @@ interface ArticulatedCustomerActor {
   leftEyeMesh: THREE.Object3D;
   rightEyeMesh: THREE.Object3D;
   heldCup: THREE.Group;
+  heldVesselVariants: Record<CupVesselType, THREE.Group>;
+  appliedVesselType: CupVesselType;
+  umbrellaGroup: THREE.Group;
   phoneMesh: THREE.Mesh;
   activitySprite: THREE.Sprite;
   activityTexture: THREE.CanvasTexture;
@@ -339,6 +374,7 @@ interface ArticulatedCustomerActor {
   walkBlend: number;
   seatedBlend: number;
   facingAngle: number;
+  moveState: 'walking' | 'idle-queue' | 'yielding-door' | 'seated';
   seed: number;
   appliedSkinPack: CustomerSkinPackId;
   appliedShirtColor: string;
@@ -393,6 +429,7 @@ export class KlasikCafeScene3D {
   // Shared procedural textures
   private studioLogoTexture!: THREE.CanvasTexture;
   private studioCupEmblemTexture!: THREE.CanvasTexture;
+  private cupMedallionTexture!: THREE.CanvasTexture;
   private woodBumpTexture!: THREE.CanvasTexture;
   private microCementTexture!: THREE.CanvasTexture;
   private herringboneFloorTexture!: THREE.CanvasTexture;
@@ -424,8 +461,16 @@ export class KlasikCafeScene3D {
   private patioFloorMat!: THREE.MeshStandardMaterial;
   private pendantBulbMats: THREE.MeshStandardMaterial[] = [];
   private streetLampBulbMats: THREE.MeshStandardMaterial[] = [];
+  private streetLampConeMat!: THREE.MeshBasicMaterial;
+  private streetLampPoolMat!: THREE.MeshBasicMaterial;
+  private streetLampGlowsGroup!: THREE.Group;
+  private cityWindowWarmMat!: THREE.MeshStandardMaterial;
+  private cityWindowCoolMat!: THREE.MeshStandardMaterial;
+  private citySignEmissiveMat!: THREE.MeshStandardMaterial;
   private vehicleHeadlightMat!: THREE.MeshStandardMaterial;
   private vehicleTaillightMat!: THREE.MeshStandardMaterial;
+  private vehicleHeadlightBeamMat!: THREE.MeshBasicMaterial;
+  private vehicleHeadlightBeamsGroupList: THREE.Object3D[] = [];
   private glassRainStreaksGroup!: THREE.Group;
   private botanicalPlanterExtras: THREE.Object3D[] = [];
   private hangingSignFaceMat!: THREE.MeshStandardMaterial;
@@ -446,6 +491,8 @@ export class KlasikCafeScene3D {
   private doorAngle = 0;
   private doorWasOpen = false;
   private doorChimeCooldown = 0;
+  private doorOccupantId: string | null = null;
+  private doorOccupantTimer = 0;
   private titleHeroCupGroup!: THREE.Group;
   private titlePlaqueGroup!: THREE.Group;
 
@@ -484,6 +531,10 @@ export class KlasikCafeScene3D {
 
   // Active Barista Cup & Custom ShaderMaterial Internal Liquid
   private activeBaristaCupGroup!: THREE.Group;
+  private activeVesselVariants!: Record<CupVesselType, THREE.Group>;
+  private activeHotTakeoutLidMesh: THREE.Object3D | null = null;
+  private activeIcedTakeoutLidMesh: THREE.Object3D | null = null;
+  private currentActiveVesselType: CupVesselType = 'hot-mug';
   private activeCupLiquidMesh!: THREE.Mesh;
   private cupLiquidShaderMat!: THREE.ShaderMaterial;
   private currentLiquidFill = 0;
@@ -518,6 +569,9 @@ export class KlasikCafeScene3D {
   private teaPourStreamMesh!: THREE.Mesh;
   private iceScoopGroup!: THREE.Group;
   private syrupPumpHeads: Map<string, THREE.Group> = new Map();
+  private syrupBottleGroups: Map<string, THREE.Group> = new Map();
+  private syrupBottleBaseX: Map<string, number> = new Map();
+  private syrupDroplets: THREE.Mesh[] = [];
   private syrupRibbonMesh!: THREE.Mesh;
   private matchaWhiskGroup!: THREE.Group;
   private floatingBadgeSprite!: THREE.Sprite;
@@ -724,19 +778,10 @@ export class KlasikCafeScene3D {
       p.actor.group.visible = idx < maxPeds;
     });
 
-    // Scale Fixed Outdoor Street & Highway Traffic Pool (2 street + 2 highway on LOW; 6 + 4 on MAX)
-    let streetShown = 0;
-    let highwayShown = 0;
-    const maxStreet = isLow ? 2 : 6;
-    const maxHighway = isLow ? 2 : 4;
-    this.trafficPool.forEach((v) => {
-      if (v.isHighway) {
-        v.group.visible = highwayShown < maxHighway;
-        highwayShown++;
-      } else {
-        v.group.visible = streetShown < maxStreet;
-        streetShown++;
-      }
+    // Scale Fixed Outdoor Street Traffic Pool (3 street vehicles on LOW; 6 on MAX — zero elevated highway!)
+    const maxStreet = isLow ? 3 : 6;
+    this.trafficPool.forEach((v, idx) => {
+      v.group.visible = idx < maxStreet;
     });
 
     const { width, height } = this.getEffectiveLandscapeDimensions();
@@ -990,6 +1035,42 @@ export class KlasikCafeScene3D {
     this.studioCupEmblemTexture.colorSpace = THREE.SRGBColorSpace;
     this.studioCupEmblemTexture.anisotropy = maxAniso;
 
+    // Dedicated crisp 1:1 circular medallion texture for Takeout cup badges (prevents horizontal squashing)
+    const medallionCanvas = document.createElement('canvas');
+    medallionCanvas.width = 256;
+    medallionCanvas.height = 256;
+    const mCtx = medallionCanvas.getContext('2d')!;
+    const drawMedallionBase = () => {
+      mCtx.clearRect(0, 0, 256, 256);
+      const bgGrad = mCtx.createRadialGradient(128, 118, 16, 128, 128, 124);
+      bgGrad.addColorStop(0, '#2a1c14');
+      bgGrad.addColorStop(1, '#120b07');
+      mCtx.fillStyle = bgGrad;
+      mCtx.beginPath();
+      mCtx.arc(128, 128, 124, 0, Math.PI * 2);
+      mCtx.fill();
+      mCtx.strokeStyle = '#f59e0b';
+      mCtx.lineWidth = 8;
+      mCtx.beginPath();
+      mCtx.arc(128, 128, 116, 0, Math.PI * 2);
+      mCtx.stroke();
+      mCtx.strokeStyle = 'rgba(253, 230, 138, 0.45)';
+      mCtx.lineWidth = 2.5;
+      mCtx.beginPath();
+      mCtx.arc(128, 128, 102, 0, Math.PI * 2);
+      mCtx.stroke();
+    };
+    drawMedallionBase();
+    mCtx.fillStyle = '#f59e0b';
+    mCtx.font = 'bold 58px Georgia, serif';
+    mCtx.textAlign = 'center';
+    mCtx.textBaseline = 'middle';
+    mCtx.fillText('K', 128, 132);
+
+    this.cupMedallionTexture = new THREE.CanvasTexture(medallionCanvas);
+    this.cupMedallionTexture.colorSpace = THREE.SRGBColorSpace;
+    this.cupMedallionTexture.anisotropy = maxAniso;
+
     const iconDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(STUDIO_ICON_SVG_RAW)}`;
     const iconImg = new Image();
     iconImg.onload = () => {
@@ -997,6 +1078,10 @@ export class KlasikCafeScene3D {
       cCtx.fillRect(0, 0, 1024, 512);
       cCtx.drawImage(iconImg, 386, 66, 252, 380);
       this.studioCupEmblemTexture.needsUpdate = true;
+
+      drawMedallionBase();
+      mCtx.drawImage(iconImg, 54, 34, 148, 188);
+      this.cupMedallionTexture.needsUpdate = true;
     };
     iconImg.src = iconDataUrl;
 
@@ -1665,6 +1750,8 @@ export class KlasikCafeScene3D {
         uSunDir: { value: new THREE.Vector3(-0.42, 0.26, -0.87).normalize() },
         uSunColor: { value: new THREE.Color('#fff1c7') },
         uSunIntensity: { value: 0.75 },
+        uStarIntensity: { value: 0.0 },
+        uTime: { value: 0.0 },
       },
     });
     const skyDome = new THREE.Mesh(new THREE.SphereGeometry(64, 24, 16), this.skyDomeMat);
@@ -3236,7 +3323,283 @@ export class KlasikCafeScene3D {
     return group;
   }
 
-  // Phase 4: Exterior Layered Streetscape (Sidewalk, Planters, Streetlamps, 2-Lane Avenue, Far Block & Elevated Highway)
+  // Phase 2: Authentic 4-Variant Drink Vessel Rig (Hot Mug, Iced Glass, Hot Takeout Cup, Iced Takeout Cold Cup)
+  private createMultiVesselRig(
+    scale = 1,
+    withStaticLiquid = false
+  ): {
+    root: THREE.Group;
+    variants: Record<CupVesselType, THREE.Group>;
+    hotTakeoutLid: THREE.Group;
+    icedTakeoutLid: THREE.Group;
+  } {
+    const root = new THREE.Group();
+
+    // 1. Hot Dine-In Porcelain Mug + Saucer + Spoon
+    const hotMug = this.createPorcelainCupMesh(1, withStaticLiquid, false);
+
+    // 2. Iced Dine-In Tall Clear Glass + Straw (NO saucer, NO ceramic handle!)
+    const icedGlass = new THREE.Group();
+    const clearGlassMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      roughness: 0.08,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const glassBaseMat = new THREE.MeshStandardMaterial({
+      color: 0xdbeafe,
+      roughness: 0.1,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.56,
+    });
+    const glassBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.051, 0.022, 22),
+      glassBaseMat
+    );
+    glassBase.position.y = 0.011;
+    icedGlass.add(glassBase);
+
+    const glassWall = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.072, 0.054, 0.175, 24, 1, true),
+      clearGlassMat
+    );
+    glassWall.position.y = 0.106;
+    icedGlass.add(glassWall);
+
+    const glassRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.071, 0.0032, 8, 24),
+      glassBaseMat
+    );
+    glassRim.rotation.x = Math.PI / 2;
+    glassRim.position.y = 0.193;
+    icedGlass.add(glassRim);
+
+    const bambooStrawMat = new THREE.MeshStandardMaterial({
+      color: 0xe7d3b0,
+      roughness: 0.42,
+    });
+    const icedStraw = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0055, 0.0055, 0.24, 10),
+      bambooStrawMat
+    );
+    icedStraw.position.set(0.026, 0.135, 0.01);
+    icedStraw.rotation.z = -0.17;
+    icedGlass.add(icedStraw);
+
+    if (withStaticLiquid) {
+      const coldLiq = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.065, 0.051, 0.135, 20),
+        new THREE.MeshStandardMaterial({ color: 0xa46636, roughness: 0.2 })
+      );
+      coldLiq.position.y = 0.09;
+      icedGlass.add(coldLiq);
+      const miniIceMat = new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        roughness: 0.12,
+        transparent: true,
+        opacity: 0.78,
+      });
+      for (let i = 0; i < 3; i++) {
+        const ic = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.024), miniIceMat);
+        ic.position.set((i - 1) * 0.02, 0.155, (i % 2 === 0 ? 1 : -1) * 0.014);
+        ic.rotation.set(i * 0.5, i * 0.8, 0.25);
+        icedGlass.add(ic);
+      }
+    }
+
+    // 3. Hot Takeout Paper Cup + Kraft Heat Sleeve + Snap-on Black Sip Lid
+    const hotTakeout = new THREE.Group();
+    const paperCupMat = new THREE.MeshStandardMaterial({
+      color: 0xfaf6f0,
+      roughness: 0.58,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+    });
+    const kraftSleeveMat = new THREE.MeshStandardMaterial({
+      color: 0xb68150,
+      roughness: 0.76,
+      metalness: 0.02,
+    });
+    const lidBlackMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1917,
+      roughness: 0.34,
+      metalness: 0.08,
+    });
+    const paperWall = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.071, 0.051, 0.162, 24, 1, true),
+      paperCupMat
+    );
+    paperWall.position.y = 0.084;
+    hotTakeout.add(paperWall);
+
+    const paperBottom = new THREE.Mesh(new THREE.CircleGeometry(0.051, 20), paperCupMat);
+    paperBottom.rotation.x = -Math.PI / 2;
+    paperBottom.position.y = 0.005;
+    hotTakeout.add(paperBottom);
+
+    const kraftSleeve = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.066, 0.059, 0.068, 24, 1, true),
+      kraftSleeveMat
+    );
+    kraftSleeve.position.y = 0.085;
+    hotTakeout.add(kraftSleeve);
+
+    // Crisp dark espresso & gold circular medallion badge on front of kraft sleeve
+    const sleeveBadge = new THREE.Mesh(
+      new THREE.CircleGeometry(0.024, 20),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: this.cupMedallionTexture,
+        roughness: 0.36,
+      })
+    );
+    sleeveBadge.position.set(0, 0.086, 0.066);
+    hotTakeout.add(sleeveBadge);
+
+    const paperRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.071, 0.0038, 8, 24),
+      paperCupMat
+    );
+    paperRim.rotation.x = Math.PI / 2;
+    paperRim.position.y = 0.165;
+    hotTakeout.add(paperRim);
+
+    const hotTakeoutLid = new THREE.Group();
+    const lidCollar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.075, 0.074, 0.014, 24),
+      lidBlackMat
+    );
+    lidCollar.position.y = 0.169;
+    hotTakeoutLid.add(lidCollar);
+    const lidTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.066, 0.073, 0.015, 24),
+      lidBlackMat
+    );
+    lidTop.position.y = 0.181;
+    hotTakeoutLid.add(lidTop);
+    const sipSpout = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.01, 0.014), lidBlackMat);
+    sipSpout.position.set(0, 0.19, 0.048);
+    hotTakeoutLid.add(sipSpout);
+    hotTakeout.add(hotTakeoutLid);
+
+    // 4. Iced Takeout Clear Cold Cup + Dome Lid + Emerald Straw
+    const icedTakeout = new THREE.Group();
+    const coldWall = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.071, 0.052, 0.166, 24, 1, true),
+      clearGlassMat
+    );
+    coldWall.position.y = 0.086;
+    icedTakeout.add(coldWall);
+
+    const coldBottom = new THREE.Mesh(new THREE.CircleGeometry(0.052, 20), glassBaseMat);
+    coldBottom.rotation.x = -Math.PI / 2;
+    coldBottom.position.y = 0.005;
+    icedTakeout.add(coldBottom);
+
+    const coldLabel = new THREE.Mesh(
+      new THREE.CircleGeometry(0.024, 20),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: this.cupMedallionTexture,
+        roughness: 0.28,
+      })
+    );
+    coldLabel.position.set(0, 0.088, 0.065);
+    icedTakeout.add(coldLabel);
+
+    const openColdRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.071, 0.0032, 8, 24),
+      glassBaseMat
+    );
+    openColdRim.rotation.x = Math.PI / 2;
+    openColdRim.position.y = 0.169;
+    icedTakeout.add(openColdRim);
+
+    const icedTakeoutLid = new THREE.Group();
+    const domeRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.073, 0.0042, 8, 24),
+      glassBaseMat
+    );
+    domeRim.rotation.x = Math.PI / 2;
+    domeRim.position.y = 0.17;
+    icedTakeoutLid.add(domeRim);
+
+    const domeLid = new THREE.Mesh(
+      new THREE.SphereGeometry(0.071, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.48),
+      clearGlassMat
+    );
+    domeLid.position.y = 0.17;
+    icedTakeoutLid.add(domeLid);
+
+    const greenStrawMat = new THREE.MeshStandardMaterial({
+      color: 0x059669,
+      roughness: 0.35,
+    });
+    const coldStraw = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0052, 0.0052, 0.255, 10),
+      greenStrawMat
+    );
+    coldStraw.position.set(0.006, 0.162, 0);
+    coldStraw.rotation.z = -0.06;
+    icedTakeoutLid.add(coldStraw);
+    icedTakeout.add(icedTakeoutLid);
+
+    if (withStaticLiquid) {
+      const coldLiq = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.064, 0.05, 0.132, 20),
+        new THREE.MeshStandardMaterial({ color: 0xb6723a, roughness: 0.2 })
+      );
+      coldLiq.position.y = 0.082;
+      icedTakeout.add(coldLiq);
+      const miniIceMat = new THREE.MeshStandardMaterial({
+        color: 0xe0f2fe,
+        roughness: 0.12,
+        transparent: true,
+        opacity: 0.8,
+      });
+      for (let i = 0; i < 3; i++) {
+        const ic = new THREE.Mesh(new THREE.BoxGeometry(0.023, 0.023, 0.023), miniIceMat);
+        ic.position.set((i - 1) * 0.019, 0.145, (i % 2 === 0 ? 1 : -1) * 0.014);
+        ic.rotation.set(i * 0.6, i * 0.7, 0.2);
+        icedTakeout.add(ic);
+      }
+    }
+
+    icedGlass.visible = false;
+    hotTakeout.visible = false;
+    icedTakeout.visible = false;
+
+    root.add(hotMug, icedGlass, hotTakeout, icedTakeout);
+    root.scale.setScalar(scale);
+
+    return {
+      root,
+      variants: {
+        'hot-mug': hotMug,
+        'iced-glass': icedGlass,
+        'hot-takeout': hotTakeout,
+        'iced-takeout': icedTakeout,
+      },
+      hotTakeoutLid,
+      icedTakeoutLid,
+    };
+  }
+
+  private setVesselVariantVisibility(
+    variants: Record<CupVesselType, THREE.Group>,
+    vesselType: CupVesselType
+  ) {
+    variants['hot-mug'].visible = vesselType === 'hot-mug';
+    variants['iced-glass'].visible = vesselType === 'iced-glass';
+    variants['hot-takeout'].visible = vesselType === 'hot-takeout';
+    variants['iced-takeout'].visible = vesselType === 'iced-takeout';
+  }
+
+  // Phase 5 & 7: Single Clean Two-Lane Streetscape, Working Streetlamp Light Cones & Detailed Neighborhood Storefronts (Zero Duplicated Highway!)
   private buildOutdoorNeighborhood() {
     const extGroup = new THREE.Group();
 
@@ -3254,11 +3617,6 @@ export class KlasikCafeScene3D {
       roughness: 0.42,
       metalness: 0.72,
     });
-    const viaductConcreteMat = new THREE.MeshStandardMaterial({
-      color: 0x52565c,
-      roughness: 0.82,
-      metalness: 0.06,
-    });
     const cedarMat = new THREE.MeshStandardMaterial({
       color: 0x7c4a26,
       roughness: 0.68,
@@ -3269,12 +3627,12 @@ export class KlasikCafeScene3D {
     });
 
     // Layer 1: Raised Concrete Pedestrian Sidewalk (z = -7.2 to -9.2) & Painted Curb
-    const nearSidewalk = new THREE.Mesh(new THREE.BoxGeometry(36, 0.12, 2.0), sidewalkMat);
+    const nearSidewalk = new THREE.Mesh(new THREE.BoxGeometry(38, 0.12, 2.0), sidewalkMat);
     nearSidewalk.position.set(0, 0.02, -8.2);
     nearSidewalk.receiveShadow = true;
     extGroup.add(nearSidewalk);
 
-    const nearCurb = new THREE.Mesh(new THREE.BoxGeometry(36, 0.14, 0.16), curbMat);
+    const nearCurb = new THREE.Mesh(new THREE.BoxGeometry(38, 0.14, 0.16), curbMat);
     nearCurb.position.set(0, 0.03, -9.22);
     extGroup.add(nearCurb);
 
@@ -3291,7 +3649,29 @@ export class KlasikCafeScene3D {
       extGroup.add(hedge);
     });
 
-    // Warm Minimalist Streetlamps along the Near Sidewalk Curb
+    // Shared Additive Streetlamp Volumetric Glow Materials (Zero Extra Real-Time PointLights!)
+    this.streetLampConeMat = new THREE.MeshBasicMaterial({
+      color: 0xfde68a,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.streetLampPoolMat = new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.streetLampGlowsGroup = new THREE.Group();
+
+    const coneGeo = new THREE.CylinderGeometry(0.16, 1.55, 3.38, 14, 1, true);
+    const poolGeo = new THREE.CircleGeometry(1.65, 16);
+    poolGeo.rotateX(-Math.PI / 2);
+
+    // Warm Minimalist Streetlamps along the Near Sidewalk Curb (with Night Volumetric Light Cones + Sidewalk Pools)
     [-5.4, 0.55, 5.8].forEach((lx) => {
       const lampGroup = new THREE.Group();
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 3.6, 8), darkSteelMat);
@@ -3313,22 +3693,35 @@ export class KlasikCafeScene3D {
         roughness: 0.2,
       });
       this.streetLampBulbMats.push(bulbMat);
-      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), bulbMat);
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.115, 10, 8), bulbMat);
       globe.position.set(0, 3.44, -0.6);
       lampGroup.add(globe);
 
       lampGroup.position.set(lx, 0.08, -8.95);
       extGroup.add(lampGroup);
-    });
 
-    // Layer 2: Two-Lane Neighborhood Avenue (z = -9.3 to -15.8) with Wet-Specular Asphalt
+      // Volumetric downward cone & sidewalk glow pool
+      const lightCone = new THREE.Mesh(coneGeo, this.streetLampConeMat);
+      lightCone.position.set(lx, 1.78, -9.55);
+      lightCone.renderOrder = 2;
+      this.streetLampGlowsGroup.add(lightCone);
+
+      const lightPool = new THREE.Mesh(poolGeo, this.streetLampPoolMat);
+      lightPool.position.set(lx, 0.095, -9.55);
+      lightPool.renderOrder = 2;
+      this.streetLampGlowsGroup.add(lightPool);
+    });
+    this.streetLampGlowsGroup.visible = false;
+    extGroup.add(this.streetLampGlowsGroup);
+
+    // Layer 2: Single Clean Two-Lane Neighborhood Avenue (z = -9.3 to -15.8) with Wet-Specular Asphalt
     this.roadAsphaltMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: this.roadAsphaltTexture,
       roughness: 0.85,
       metalness: 0.08,
     });
-    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(54, 6.6), this.roadAsphaltMat);
+    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(56, 6.6), this.roadAsphaltMat);
     avenueRoad.rotation.x = -Math.PI / 2;
     avenueRoad.position.set(0, 0.0, -12.55);
     avenueRoad.receiveShadow = true;
@@ -3343,75 +3736,206 @@ export class KlasikCafeScene3D {
       extGroup.add(stripe);
     }
 
-    // Opposite Far Sidewalk (z = -15.8 to -17.8)
-    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(44, 0.12, 2.0), sidewalkMat);
-    farSidewalk.position.set(0, 0.02, -16.8);
+    // Opposite Far Sidewalk (z = -15.8 to -17.8) & Curb
+    const farCurb = new THREE.Mesh(new THREE.BoxGeometry(46, 0.14, 0.16), curbMat);
+    farCurb.position.set(0, 0.03, -15.82);
+    extGroup.add(farCurb);
+
+    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(46, 0.12, 2.2), sidewalkMat);
+    farSidewalk.position.set(0, 0.02, -16.9);
     extGroup.add(farSidewalk);
 
-    // Layer 3: Distant Elevated City Highway / Overpass (z = -18.8, deck y = 2.15 — clearly visible above the avenue!)
-    const highwayDeck = new THREE.Mesh(new THREE.BoxGeometry(58, 0.38, 3.8), viaductConcreteMat);
-    highwayDeck.position.set(0, 2.12, -18.8);
-    extGroup.add(highwayDeck);
-
-    // Highway Concrete Piers
-    for (let px = -22; px <= 22; px += 8.8) {
-      const pier = new THREE.Mesh(new THREE.BoxGeometry(0.75, 2.1, 1.1), viaductConcreteMat);
-      pier.position.set(px, 1.05, -18.8);
-      extGroup.add(pier);
-    }
-
-    // Highway Guardrail & Warm Overhead Highway Light Poles
-    const guardrail = new THREE.Mesh(new THREE.BoxGeometry(58, 0.3, 0.14), curbMat);
-    guardrail.position.set(0, 2.45, -16.95);
-    extGroup.add(guardrail);
-
-    const highwayLampMat = new THREE.MeshStandardMaterial({
-      color: 0xfffbeb,
-      emissive: 0xfbbf24,
-      emissiveIntensity: 1.4,
+    // Layer 3: Detailed Multi-Story Neighborhood Storefronts & Apartments right across the street (NO elevated highway!)
+    this.cityWindowWarmMat = new THREE.MeshStandardMaterial({
+      color: 0xfef3c7,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.15,
       roughness: 0.25,
     });
-    this.streetLampBulbMats.push(highwayLampMat);
-
-    for (let hx = -18; hx <= 18; hx += 9) {
-      const hPole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 1.9, 6), darkSteelMat);
-      hPole.position.set(hx, 3.25, -18.8);
-      extGroup.add(hPole);
-      const hLamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.16), highwayLampMat);
-      hLamp.position.set(hx, 4.2, -18.55);
-      extGroup.add(hLamp);
-    }
-
-    // Layer 4: Stylized Low-Poly Far Neighborhood Skyline behind Viaduct (leaving wide open Sky Dome vista above!)
-    const buildingColors = [0x3b332d, 0x2f3842, 0x45352c, 0x333c36, 0x3d343b];
-    const windowGlowMat = new THREE.MeshStandardMaterial({
-      color: 0xfde68a,
-      emissive: 0xd97706,
-      emissiveIntensity: 0.42,
-      roughness: 0.4,
+    this.cityWindowCoolMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.1,
+      roughness: 0.22,
     });
-
-    const buildings: Array<[number, number, number, number]> = [
-      [-14.5, 5.2, 5.4, 3.2],
-      [-8.6, 4.6, 4.2, 3.0],
-      [-2.8, 4.0, 3.4, 2.8],
-      [3.6, 4.8, 4.4, 3.0],
-      [9.4, 4.6, 5.2, 3.2],
-      [15.2, 5.0, 4.6, 3.0],
+    const cityWindowDarkMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.18,
+      metalness: 0.42,
+    });
+    this.citySignEmissiveMat = new THREE.MeshStandardMaterial({
+      color: 0xffedd5,
+      emissive: 0xf97316,
+      emissiveIntensity: 0.65,
+      roughness: 0.25,
+    });
+    const corniceMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.78 });
+    const frameTrimMat = new THREE.MeshStandardMaterial({ color: 0x262626, roughness: 0.55 });
+    const hvacMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.72, metalness: 0.25 });
+    const doorWoodMat = new THREE.MeshStandardMaterial({ color: 0x5c341d, roughness: 0.62 });
+    const awningMats = [
+      new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.78 }), // Forest green
+      new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.78 }), // Burgundy bistro
+      new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.78 }), // Navy bookshop
+      new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.78 }), // Warm ochre bakery
     ];
-    buildings.forEach(([bx, bw, bh, bd], idx) => {
-      const bMat = new THREE.MeshStandardMaterial({
-        color: buildingColors[idx % buildingColors.length],
-        roughness: 0.85,
-      });
-      const bldg = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), bMat);
-      bldg.position.set(bx, bh / 2, -24.6);
-      extGroup.add(bldg);
+    const awningStripeMat = new THREE.MeshStandardMaterial({ color: 0xfaf6f0, roughness: 0.8 });
 
-      // Subtle warm glowing window strip on upper facade
-      const shopWin = new THREE.Mesh(new THREE.PlaneGeometry(bw * 0.65, 0.65), windowGlowMat);
-      shopWin.position.set(bx, Math.min(bh - 0.85, 3.1), -24.6 + bd / 2 + 0.02);
-      extGroup.add(shopWin);
+    const storefrontSpecs: Array<{
+      x: number;
+      w: number;
+      h: number;
+      d: number;
+      wallColor: number;
+      floors: number;
+      cols: number;
+      awningIdx: number;
+      hasNeonSign: boolean;
+      hasWaterTower?: boolean;
+    }> = [
+      { x: -13.6, w: 4.8, h: 6.2, d: 3.6, wallColor: 0x8b4d3b, floors: 3, cols: 3, awningIdx: 0, hasNeonSign: false },
+      { x: -8.3, w: 4.6, h: 5.1, d: 3.4, wallColor: 0xd6c7b2, floors: 2, cols: 3, awningIdx: 1, hasNeonSign: true },
+      { x: -3.2, w: 4.4, h: 6.8, d: 3.6, wallColor: 0x4b5563, floors: 3, cols: 3, awningIdx: 2, hasNeonSign: true, hasWaterTower: true },
+      { x: 1.9, w: 4.7, h: 5.5, d: 3.5, wallColor: 0xc9a882, floors: 2, cols: 3, awningIdx: 3, hasNeonSign: false },
+      { x: 7.2, w: 4.8, h: 6.4, d: 3.6, wallColor: 0x566558, floors: 3, cols: 3, awningIdx: 0, hasNeonSign: true },
+      { x: 12.6, w: 4.8, h: 5.2, d: 3.4, wallColor: 0x7c5c4b, floors: 2, cols: 3, awningIdx: 1, hasNeonSign: false },
+    ];
+
+    const winGeo = new THREE.PlaneGeometry(0.76, 1.02);
+    const frameGeo = new THREE.BoxGeometry(0.88, 1.12, 0.08);
+    const sillGeo = new THREE.BoxGeometry(0.94, 0.09, 0.16);
+
+    storefrontSpecs.forEach((b, bIdx) => {
+      const bGroup = new THREE.Group();
+      const frontZ = -18.0; // Flush with opposite sidewalk edge so street feels intimate & architectural
+      const centerZ = frontZ - b.d / 2;
+
+      const wallMat = new THREE.MeshStandardMaterial({
+        color: b.wallColor,
+        roughness: 0.84,
+      });
+
+      // Main masonry volume
+      const body = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), wallMat);
+      body.position.set(0, b.h / 2, 0);
+      bGroup.add(body);
+
+      // Ground-floor dark stone plinth / storefront base trim
+      const plinth = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w + 0.08, 2.25, b.d + 0.06),
+        frameTrimMat
+      );
+      plinth.position.set(0, 1.125, 0);
+      bGroup.add(plinth);
+
+      // Ground-floor warm illuminated shop display window + wooden shop door
+      const shopWinW = b.w * 0.56;
+      const shopWin = new THREE.Mesh(
+        new THREE.PlaneGeometry(shopWinW, 1.38),
+        bIdx % 3 === 2 ? this.cityWindowCoolMat : this.cityWindowWarmMat
+      );
+      shopWin.position.set(-b.w * 0.14, 1.15, b.d / 2 + 0.045);
+      bGroup.add(shopWin);
+
+      const shopDoor = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1.72, 0.08), doorWoodMat);
+      shopDoor.position.set(b.w * 0.3, 0.9, b.d / 2 + 0.03);
+      bGroup.add(shopDoor);
+
+      const doorGlass = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5, 0.78),
+        this.cityWindowWarmMat
+      );
+      doorGlass.position.set(b.w * 0.3, 1.24, b.d / 2 + 0.078);
+      bGroup.add(doorGlass);
+
+      // Sloped striped storefront fabric awning over ground floor
+      const awningGroup = new THREE.Group();
+      const awningBody = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w - 0.36, 0.14, 0.78),
+        awningMats[b.awningIdx % awningMats.length]
+      );
+      awningBody.rotation.x = 0.28;
+      awningGroup.add(awningBody);
+
+      // 3 crisp white fabric stripes along awning
+      for (let st = -1; st <= 1; st++) {
+        const stripe = new THREE.Mesh(
+          new THREE.BoxGeometry(0.28, 0.148, 0.79),
+          awningStripeMat
+        );
+        stripe.position.x = st * ((b.w - 0.9) * 0.34);
+        stripe.rotation.x = 0.28;
+        awningGroup.add(stripe);
+      }
+      awningGroup.position.set(0, 2.24, b.d / 2 + 0.32);
+      bGroup.add(awningGroup);
+
+      // Upper-story recessed framed window grids (mix of warm lit, cool lit & dark unlit panes!)
+      const spacingX = (b.w - 0.9) / Math.max(1, b.cols);
+      for (let fl = 0; fl < b.floors - 1; fl++) {
+        const wy = 3.25 + fl * 1.48;
+        if (wy > b.h - 0.75) continue;
+        for (let col = 0; col < b.cols; col++) {
+          const wx = -((b.cols - 1) * spacingX) / 2 + col * spacingX;
+          const hash = (bIdx * 7 + fl * 5 + col * 3) % 5;
+          const paneMat =
+            hash === 0 || hash === 2
+              ? this.cityWindowWarmMat
+              : hash === 4
+              ? this.cityWindowCoolMat
+              : cityWindowDarkMat;
+
+          const frame = new THREE.Mesh(frameGeo, frameTrimMat);
+          frame.position.set(wx, wy, b.d / 2 + 0.015);
+          bGroup.add(frame);
+
+          const pane = new THREE.Mesh(winGeo, paneMat);
+          pane.position.set(wx, wy, b.d / 2 + 0.062);
+          bGroup.add(pane);
+
+          const sill = new THREE.Mesh(sillGeo, corniceMat);
+          sill.position.set(wx, wy - 0.58, b.d / 2 + 0.07);
+          bGroup.add(sill);
+        }
+      }
+
+      // Roof Parapet Cornice Molding
+      const cornice = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w + 0.22, 0.26, b.d + 0.22),
+        corniceMat
+      );
+      cornice.position.set(0, b.h + 0.1, 0);
+      bGroup.add(cornice);
+
+      // Rooftop HVAC box or classic wooden water tower silhouette
+      const hvac = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.58, 0.85), hvacMat);
+      hvac.position.set(-b.w * 0.24, b.h + 0.48, -0.35);
+      bGroup.add(hvac);
+
+      if (b.hasWaterTower) {
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.56, 0.95, 10), cedarMat);
+        tank.position.set(b.w * 0.22, b.h + 1.05, -0.2);
+        bGroup.add(tank);
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.58, 0.36, 10), darkSteelMat);
+        cap.position.set(b.w * 0.22, b.h + 1.7, -0.2);
+        bGroup.add(cap);
+      }
+
+      // Subtle vertical illuminated storefront sign projecting from facade
+      if (b.hasNeonSign) {
+        const signFrame = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.35, 0.52), darkSteelMat);
+        signFrame.position.set(b.w / 2 - 0.18, 3.65, b.d / 2 + 0.34);
+        bGroup.add(signFrame);
+        const signGlow = new THREE.Mesh(
+          new THREE.BoxGeometry(0.16, 1.18, 0.38),
+          this.citySignEmissiveMat
+        );
+        signGlow.position.set(b.w / 2 - 0.18, 3.65, b.d / 2 + 0.34);
+        bGroup.add(signGlow);
+      }
+
+      bGroup.position.set(b.x, 0, centerZ);
+      extGroup.add(bGroup);
     });
 
     this.scene.add(extGroup);
@@ -4158,8 +4682,14 @@ export class KlasikCafeScene3D {
     this.toolGroups.set('rinse', sinkGroup);
     st2Group.add(sinkGroup);
 
-    // 7. Active Barista Cup with Dynamic Custom ShaderMaterial Liquid + Procedural Crema
-    this.activeBaristaCupGroup = this.createPorcelainCupMesh(1.04, false, false);
+    // 7. Active Barista Cup with 4 Authentic Drink Vessels + Dynamic Custom ShaderMaterial Liquid
+    const activeVesselRig = this.createMultiVesselRig(1.04, false);
+    this.activeBaristaCupGroup = activeVesselRig.root;
+    this.activeVesselVariants = activeVesselRig.variants;
+    this.activeHotTakeoutLidMesh = activeVesselRig.hotTakeoutLid;
+    this.activeHotTakeoutLidMesh.visible = false;
+    this.activeIcedTakeoutLidMesh = activeVesselRig.icedTakeoutLid;
+    this.activeIcedTakeoutLidMesh.visible = false;
     this.activeBaristaCupGroup.position.copy(this.cupCurrentPos);
 
     this.cupLiquidShaderMat = new THREE.ShaderMaterial({
@@ -4563,6 +5093,8 @@ export class KlasikCafeScene3D {
 
       bottleGroup.add(pumpHeadGroup);
       this.syrupPumpHeads.set(s.flavor, pumpHeadGroup);
+      this.syrupBottleGroups.set(s.flavor, bottleGroup);
+      this.syrupBottleBaseX.set(s.flavor, s.x);
 
       bottleGroup.position.set(s.x, 1.045, 0.18);
       this.registerInteractiveTool(
@@ -4625,12 +5157,27 @@ export class KlasikCafeScene3D {
     );
     st3Group.add(matchaGroup);
 
+    const syrupLiquidMat = new THREE.MeshStandardMaterial({
+      color: 0xd97706,
+      roughness: 0.12,
+      metalness: 0.08,
+    });
     this.syrupRibbonMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.007, 0.004, 0.2, 10),
-      new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.15 })
+      new THREE.CylinderGeometry(0.0065, 0.0042, 0.19, 10),
+      syrupLiquidMat
     );
     this.syrupRibbonMesh.visible = false;
     st3Group.add(this.syrupRibbonMesh);
+
+    // 3 reusable glossy syrup droplets falling from spout tip into cup during double-pump pour
+    this.syrupDroplets = [];
+    const dropGeo = new THREE.SphereGeometry(0.0085, 8, 8);
+    for (let i = 0; i < 3; i++) {
+      const drop = new THREE.Mesh(dropGeo, syrupLiquidMat);
+      drop.visible = false;
+      st3Group.add(drop);
+      this.syrupDroplets.push(drop);
+    }
 
     this.scene.add(st3Group);
   }
@@ -5473,6 +6020,9 @@ export class KlasikCafeScene3D {
       actor.activitySprite.visible = false;
       actor.phoneMesh.visible = false;
       actor.heldCup.visible = idx % 2 === 0;
+      const pedVessel: CupVesselType = idx % 4 === 0 ? 'hot-takeout' : 'iced-takeout';
+      actor.appliedVesselType = pedVessel;
+      this.setVesselVariantVisibility(actor.heldVesselVariants, pedVessel);
       actor.group.position.set(cfg.x, 0.08, cfg.laneZ);
       actor.group.rotation.y = cfg.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
       this.scene.add(actor.group);
@@ -5503,6 +6053,15 @@ export class KlasikCafeScene3D {
       emissiveIntensity: 0.95,
       roughness: 0.2,
     });
+    this.vehicleHeadlightBeamMat = new THREE.MeshBasicMaterial({
+      color: 0xfef3c7,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.vehicleHeadlightBeamsGroupList = [];
 
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.88 });
     const hubMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.7, roughness: 0.25 });
@@ -5593,8 +6152,11 @@ export class KlasikCafeScene3D {
         group.add(spoiler);
       }
 
-      // Headlights (+X) & Taillights (-X)
+      // Headlights (+X) + Lightweight Additive Road-Beam Cones + Taillights (-X)
       const lightGeo = new THREE.BoxGeometry(0.06, 0.14, 0.26);
+      const beamConeGeo = new THREE.ConeGeometry(0.46, 2.8, 10, 1, true);
+      beamConeGeo.rotateZ(Math.PI / 2);
+      const beamGroup = new THREE.Group();
       [-dims.w * 0.34, dims.w * 0.34].forEach((lz) => {
         const hl = new THREE.Mesh(lightGeo, this.vehicleHeadlightMat);
         hl.position.set(dims.len / 2 + 0.01, 0.27 + dims.hullH * 0.56, lz);
@@ -5602,7 +6164,15 @@ export class KlasikCafeScene3D {
         const tl = new THREE.Mesh(lightGeo, this.vehicleTaillightMat);
         tl.position.set(-dims.len / 2 - 0.01, 0.27 + dims.hullH * 0.56, lz);
         group.add(tl);
+
+        const beam = new THREE.Mesh(beamConeGeo, this.vehicleHeadlightBeamMat);
+        beam.position.set(dims.len / 2 + 1.42, 0.38, lz);
+        beam.rotation.z = -0.07;
+        beamGroup.add(beam);
       });
+      beamGroup.visible = false;
+      group.add(beamGroup);
+      this.vehicleHeadlightBeamsGroupList.push(beamGroup);
 
       // Four grounded rotating wheels (bottom at y = 0)
       const wheels: THREE.Object3D[] = [];
@@ -5640,18 +6210,13 @@ export class KlasikCafeScene3D {
       speed: number;
       isHighway: boolean;
     }> = [
-      // Street-level Avenue (6 pooled vehicles: 3 eastbound, 3 westbound — first 2 visible immediately on LOW!)
+      // Single Ground-Level Two-Lane Neighborhood Avenue (6 pooled vehicles: 3 eastbound, 3 westbound)
       { variant: 'keivan', color: 0xfef3c7, laneZ: -11.05, laneY: 0.02, x: -3.2, dir: 1, speed: 4.3, isHighway: false },
       { variant: 'hatchback', color: 0x3b82f6, laneZ: -13.75, laneY: 0.02, x: 4.2, dir: -1, speed: 4.9, isHighway: false },
       { variant: 'sedan', color: 0x94a3b8, laneZ: -11.05, laneY: 0.02, x: -13.0, dir: 1, speed: 4.6, isHighway: false },
       { variant: 'coupe', color: 0xef4444, laneZ: -13.75, laneY: 0.02, x: -9.5, dir: -1, speed: 5.5, isHighway: false },
       { variant: 'hatchback', color: 0x10b981, laneZ: -11.05, laneY: 0.02, x: 11.5, dir: 1, speed: 4.5, isHighway: false },
       { variant: 'keivan', color: 0xf97316, laneZ: -13.75, laneY: 0.02, x: 15.0, dir: -1, speed: 4.2, isHighway: false },
-      // Distant Elevated City Highway Viaduct (z = -18.8, deck top y = 2.31 — 4 pooled vehicles)
-      { variant: 'sedan', color: 0xe2e8f0, laneZ: -17.95, laneY: 2.33, x: -4.8, dir: 1, speed: 7.4, isHighway: true },
-      { variant: 'coupe', color: 0xf59e0b, laneZ: -19.55, laneY: 2.33, x: 4.5, dir: -1, speed: 8.2, isHighway: true },
-      { variant: 'keivan', color: 0x38bdf8, laneZ: -17.95, laneY: 2.33, x: 9.5, dir: 1, speed: 6.9, isHighway: true },
-      { variant: 'hatchback', color: 0xf43f5e, laneZ: -19.55, laneY: 2.33, x: -12.5, dir: -1, speed: 7.8, isHighway: true },
     ];
 
     this.trafficPool = [];
@@ -6439,8 +7004,19 @@ export class KlasikCafeScene3D {
     phoneMesh.visible = false;
     leftArm.elbowJoint.add(phoneMesh);
 
-    // Held Porcelain Cup in Right Hand
-    const heldCup = this.createPorcelainCupMesh(0.75, true, false);
+    // Phase 6: Procedural Rainy-Day 3D Umbrella attached to Left Hand (shown automatically outdoors in rain!)
+    const umbrellaPalette = [0x1d4ed8, 0xb91c1c, 0x0f766e, 0xd97706, 0x4c1d95, 0x334155, 0xbe185d];
+    const umbrellaHex = umbrellaPalette[Math.abs(seed) % umbrellaPalette.length];
+    const umbrellaGroup = this.createUmbrellaMesh(umbrellaHex);
+    // Oriented so when leftShoulder=-1.28, leftElbow=-0.30 (forearm forward), the shaft rises straight UP (+Y world) above the head
+    umbrellaGroup.position.set(0.06, -0.22, 0.02);
+    umbrellaGroup.rotation.set(Math.PI / 2, 0, -0.08);
+    umbrellaGroup.visible = false;
+    leftArm.elbowJoint.add(umbrellaGroup);
+
+    // Held Authentic Multi-Vessel Drink Cup in Right Hand (Hot Mug / Iced Glass / Hot Takeout / Iced Takeout)
+    const heldVesselRig = this.createMultiVesselRig(0.76, true);
+    const heldCup = heldVesselRig.root;
     heldCup.position.set(0, -0.24, 0.06);
     heldCup.rotation.x = Math.PI / 2;
     heldCup.visible = false;
@@ -6476,6 +7052,9 @@ export class KlasikCafeScene3D {
       leftEyeMesh,
       rightEyeMesh,
       heldCup,
+      heldVesselVariants: heldVesselRig.variants,
+      appliedVesselType: 'hot-mug' as CupVesselType,
+      umbrellaGroup,
       phoneMesh,
       activitySprite,
       activityTexture,
@@ -6483,7 +7062,56 @@ export class KlasikCafeScene3D {
       seed,
       appliedSkinPack: skinPackId,
       appliedShirtColor: shirtColor,
+      moveState: 'walking' as const,
     };
+  }
+
+  private createUmbrellaMesh(canopyHex: number): THREE.Group {
+    const uGroup = new THREE.Group();
+    const shaftMat = new THREE.MeshStandardMaterial({
+      color: 0x27272a,
+      roughness: 0.4,
+      metalness: 0.72,
+    });
+    const handleMat = new THREE.MeshStandardMaterial({
+      color: 0x78350f,
+      roughness: 0.58,
+    });
+    const canopyMat = new THREE.MeshStandardMaterial({
+      color: canopyHex,
+      roughness: 0.52,
+      metalness: 0.05,
+      side: THREE.DoubleSide,
+    });
+
+    // Curved J-handle seated in character hand (y = 0)
+    const handleHook = new THREE.Mesh(
+      new THREE.TorusGeometry(0.034, 0.011, 6, 10, Math.PI),
+      handleMat
+    );
+    handleHook.rotation.z = Math.PI;
+    handleHook.position.set(0.034, -0.025, 0);
+    uGroup.add(handleHook);
+
+    // Slim vertical shaft extending cleanly above head & hat
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.78, 6), shaftMat);
+    shaft.position.y = 0.39;
+    uGroup.add(shaft);
+
+    // 8-segment curved canopy dome
+    const canopy = new THREE.Mesh(
+      new THREE.ConeGeometry(0.46, 0.17, 8, 1, true),
+      canopyMat
+    );
+    canopy.position.y = 0.75;
+    uGroup.add(canopy);
+
+    // Metallic top tip ferrule
+    const ferrule = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.016, 0.06, 6), shaftMat);
+    ferrule.position.y = 0.855;
+    uGroup.add(ferrule);
+
+    return uGroup;
   }
 
   private syncCustomerActors() {
@@ -6496,6 +7124,10 @@ export class KlasikCafeScene3D {
         this.customersRoot.remove(actor.group);
         actor.activityTexture.dispose();
         this.customerActors.delete(id);
+        if (this.doorOccupantId === id) {
+          this.doorOccupantId = null;
+          this.doorOccupantTimer = 0;
+        }
       }
     }
 
@@ -6516,6 +7148,7 @@ export class KlasikCafeScene3D {
         const preservedWalkBlend = actor.walkBlend;
         const preservedSeatedBlend = actor.seatedBlend;
         const preservedFacing = actor.facingAngle;
+        const preservedMoveState = actor.moveState;
         this.customersRoot.remove(actor.group);
         actor.activityTexture.dispose();
 
@@ -6538,6 +7171,7 @@ export class KlasikCafeScene3D {
           walkBlend: preservedWalkBlend,
           seatedBlend: preservedSeatedBlend,
           facingAngle: preservedFacing,
+          moveState: preservedMoveState,
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -6551,9 +7185,9 @@ export class KlasikCafeScene3D {
           cust.shirtColor,
           activePackId
         );
-        // Spawn arriving customers on the outdoor sidewalk so they walk in & push open the swinging glass door!
-        const spawnX = idx % 2 === 0 ? -3.4 : 1.75;
-        const startPos = new THREE.Vector3(spawnX, 0, -7.75);
+        // Spawn arriving customers on the outdoor sidewalk staggered slightly so they don't pile on spawn
+        const spawnX = idx % 2 === 0 ? -3.4 - idx * 0.9 : 1.85 + idx * 0.85;
+        const startPos = new THREE.Vector3(spawnX, 0, -7.85);
         built.group.position.copy(startPos);
         this.customersRoot.add(built.group);
         actor = {
@@ -6566,8 +7200,16 @@ export class KlasikCafeScene3D {
           walkBlend: 0,
           seatedBlend: 0,
           facingAngle: 0,
+          moveState: 'walking',
         };
         this.customerActors.set(cust.id, actor);
+      }
+
+      // Sync authentic drink vessel type (hot-mug, iced-glass, hot-takeout, iced-takeout)
+      const desiredVessel = getOrderVesselType(cust);
+      if (actor.appliedVesselType !== desiredVessel) {
+        actor.appliedVesselType = desiredVessel;
+        this.setVesselVariantVisibility(actor.heldVesselVariants, desiredVessel);
       }
 
       if (cust.state === 'ordering') {
@@ -6595,7 +7237,7 @@ export class KlasikCafeScene3D {
       steep_tea: 1.35,
       steam_milk: 1.55,
       add_ice: 1.15,
-      add_syrup: 1.2,
+      add_syrup: 1.35,
       rinse_cup: 0.75,
       serve_drink: 1.5,
     };
@@ -6672,16 +7314,38 @@ export class KlasikCafeScene3D {
         ? this.scene.fog
         : (this.scene.fog = new THREE.FogExp2(0xd2e4ec, 0.012));
 
+    const setStreetlampGlow = (visible: boolean, coneOp: number, poolOp: number) => {
+      if (this.streetLampGlowsGroup) this.streetLampGlowsGroup.visible = visible;
+      if (this.streetLampConeMat) this.streetLampConeMat.opacity = coneOp;
+      if (this.streetLampPoolMat) this.streetLampPoolMat.opacity = poolOp;
+    };
+
+    const setCityWindows = (warmEmissive: number, coolEmissive: number, signEmissive: number) => {
+      if (this.cityWindowWarmMat) this.cityWindowWarmMat.emissiveIntensity = warmEmissive;
+      if (this.cityWindowCoolMat) this.cityWindowCoolMat.emissiveIntensity = coolEmissive;
+      if (this.citySignEmissiveMat) this.citySignEmissiveMat.emissiveIntensity = signEmissive;
+    };
+
+    const setVehicleBeams = (visible: boolean, opacity: number) => {
+      if (this.vehicleHeadlightBeamMat) this.vehicleHeadlightBeamMat.opacity = opacity;
+      for (let i = 0; i < this.vehicleHeadlightBeamsGroupList.length; i++) {
+        this.vehicleHeadlightBeamsGroupList[i].visible = visible;
+      }
+    };
+
     if (weather === 'morning') {
       bgCol.setHex(0xbae6fd);
       fog.color.setHex(0xdbeafe);
       fog.density = 0.011;
+      this.scene.environmentIntensity = 0.95;
       this.sunLight.position.set(5.5, 9.2, -7.5);
       this.sunLight.color.setHex(0xfff4d6);
       this.sunLight.intensity = 2.45;
       this.hemiLight.color.setHex(0xdbeafe);
       this.hemiLight.groundColor.setHex(0x5c4033);
       this.hemiLight.intensity = 1.08;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.45;
+      if (this.neonSignLight) this.neonSignLight.intensity = 1.1;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x38bdf8);
@@ -6690,6 +7354,7 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uSunDir.value.set(-0.35, 0.56, -0.75).normalize();
         this.skyDomeMat.uniforms.uSunColor.value.setHex(0xfff8dc);
         this.skyDomeMat.uniforms.uSunIntensity.value = 0.72;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
       if (this.gpuRainLines) this.gpuRainLines.visible = false;
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
@@ -6718,12 +7383,16 @@ export class KlasikCafeScene3D {
       this.streetLampBulbMats.forEach((m) => {
         m.emissiveIntensity = 0.45;
       });
+      setStreetlampGlow(false, 0.0, 0.0);
+      setCityWindows(0.08, 0.05, 0.35);
+      setVehicleBeams(false, 0.0);
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 0.6;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 0.85;
     } else if (weather === 'golden') {
       bgCol.setHex(0xc96859);
       fog.color.setHex(0xd98a5b);
       fog.density = 0.014;
+      this.scene.environmentIntensity = 0.8;
       // Low dramatic sun streaming through front glass bays with warm key / cool twilight shadow contrast
       this.sunLight.position.set(-10.5, 4.6, -13.5);
       this.sunLight.color.setHex(0xffba6b);
@@ -6731,6 +7400,8 @@ export class KlasikCafeScene3D {
       this.hemiLight.color.setHex(0xffd2a1);
       this.hemiLight.groundColor.setHex(0x3b3556);
       this.hemiLight.intensity = 0.96;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.8;
+      if (this.neonSignLight) this.neonSignLight.intensity = 1.35;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x24325c);
@@ -6739,6 +7410,7 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uSunDir.value.set(-0.24, 0.16, -0.95).normalize();
         this.skyDomeMat.uniforms.uSunColor.value.setHex(0xffd782);
         this.skyDomeMat.uniforms.uSunIntensity.value = 1.45;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
       if (this.gpuRainLines) this.gpuRainLines.visible = false;
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
@@ -6767,26 +7439,37 @@ export class KlasikCafeScene3D {
       this.streetLampBulbMats.forEach((m) => {
         m.emissiveIntensity = 2.25;
       });
+      setStreetlampGlow(true, 0.09, 0.12);
+      setCityWindows(0.55, 0.32, 1.1);
+      setVehicleBeams(true, 0.09);
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.15;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.05;
-    } else {
+    } else if (weather === 'rainy') {
       bgCol.setHex(0x1e293b);
       fog.color.setHex(0x334155);
       fog.density = 0.02;
+      this.scene.environmentIntensity = 0.56;
       this.sunLight.position.set(-3.0, 8.2, -6.5);
       this.sunLight.color.setHex(0x93c5fd);
       this.sunLight.intensity = 1.05;
       this.hemiLight.color.setHex(0x7dd3fc);
       this.hemiLight.groundColor.setHex(0x1e1b4b);
       this.hemiLight.intensity = 0.72;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.1;
+      if (this.neonSignLight) this.neonSignLight.intensity = 1.5;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x1e293b);
         this.skyDomeMat.uniforms.uMidColor.value.setHex(0x475569);
         this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0x64748b);
         this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
       if (this.gpuRainLines) this.gpuRainLines.visible = true;
+      if (this.gpuRainMat) {
+        this.gpuRainMat.uniforms.uColor.value.setHex(0xe2e8f0);
+        this.gpuRainMat.uniforms.uOpacity.value = 0.48;
+      }
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = true;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
       if (this.godRaysGroup) this.godRaysGroup.visible = false;
@@ -6813,8 +7496,120 @@ export class KlasikCafeScene3D {
       this.streetLampBulbMats.forEach((m) => {
         m.emissiveIntensity = 2.65;
       });
+      setStreetlampGlow(true, 0.13, 0.16);
+      setCityWindows(0.85, 0.55, 1.35);
+      setVehicleBeams(true, 0.14);
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.45;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.25;
+    } else if (weather === 'night') {
+      // Phase 7: Clear Starry Night Shift (Cozy Warm Interior Sanctuary vs Indigo Moonlight Street!)
+      bgCol.setHex(0x070d1d);
+      fog.color.setHex(0x0b132b);
+      fog.density = 0.017;
+      this.scene.environmentIntensity = 0.24;
+      this.sunLight.position.set(4.0, 9.5, -10.5);
+      this.sunLight.color.setHex(0x8ab4f8);
+      this.sunLight.intensity = 0.46;
+      this.hemiLight.color.setHex(0x334155);
+      this.hemiLight.groundColor.setHex(0x1f140d);
+      this.hemiLight.intensity = 0.42;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.75;
+      if (this.neonSignLight) this.neonSignLight.intensity = 1.95;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x030712);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0x0b132b);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0x1b2845);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 1.0;
+      }
+      if (this.gpuRainLines) this.gpuRainLines.visible = false;
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+      if (this.godRaysGroup) this.godRaysGroup.visible = false;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
+      if (this.godRayMat) this.godRayMat.uniforms.uOpacity.value = 0.0;
+
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.62;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.58;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0x1e293b);
+        this.skylightPaneMat.emissive.setHex(0x1d4ed8);
+        this.skylightPaneMat.emissiveIntensity = 0.22;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0x1e293b);
+        this.garageGlassMat.opacity = 0.22;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfbbf24);
+        m.emissiveIntensity = 3.25;
+      });
+      this.streetLampBulbMats.forEach((m) => {
+        m.emissiveIntensity = 3.5;
+      });
+      setStreetlampGlow(true, 0.22, 0.26);
+      setCityWindows(1.7, 1.1, 1.95);
+      setVehicleBeams(true, 0.24);
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 3.5;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 3.0;
+    } else {
+      // Phase 7: Rainy Night — Midnight Storm, Glistening Outdoor Rain, Mirror-Wet Street, Lit Windows & Umbrellas!
+      bgCol.setHex(0x050811);
+      fog.color.setHex(0x0f172a);
+      fog.density = 0.022;
+      this.scene.environmentIntensity = 0.2;
+      this.sunLight.position.set(-2.5, 8.5, -8.0);
+      this.sunLight.color.setHex(0x64748b);
+      this.sunLight.intensity = 0.38;
+      this.hemiLight.color.setHex(0x1e293b);
+      this.hemiLight.groundColor.setHex(0x1a120c);
+      this.hemiLight.intensity = 0.36;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.95;
+      if (this.neonSignLight) this.neonSignLight.intensity = 2.15;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x040711);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0x0f172a);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0x1e293b);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
+      }
+      if (this.gpuRainLines) this.gpuRainLines.visible = true;
+      if (this.gpuRainMat) {
+        this.gpuRainMat.uniforms.uColor.value.setHex(0xfef3c7);
+        this.gpuRainMat.uniforms.uOpacity.value = 0.56;
+      }
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = true;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
+      if (this.godRaysGroup) this.godRaysGroup.visible = false;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
+      if (this.godRayMat) this.godRayMat.uniforms.uOpacity.value = 0.0;
+
+      // Mirror-wet night street asphalt catching streetlamp & headlight reflections
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.16;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.18;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0x0f172a);
+        this.skylightPaneMat.emissive.setHex(0x1e3a8a);
+        this.skylightPaneMat.emissiveIntensity = 0.25;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0x334155);
+        this.garageGlassMat.opacity = 0.3;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfbbf24);
+        m.emissiveIntensity = 3.45;
+      });
+      this.streetLampBulbMats.forEach((m) => {
+        m.emissiveIntensity = 3.6;
+      });
+      setStreetlampGlow(true, 0.26, 0.3);
+      setCityWindows(1.85, 1.15, 2.15);
+      setVehicleBeams(true, 0.28);
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 3.6;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 3.1;
     }
   }
 
@@ -6972,7 +7767,7 @@ export class KlasikCafeScene3D {
     });
   }
 
-  // Updates Coffee Grounds, Tamped Puck visibility, and Cup Progression State Machine target
+  // Updates Coffee Grounds, Tamped Puck visibility, Authentic 3D Vessel Variant, and Cup Progression State Machine target
   private updateActiveCupVisuals() {
     const cup = this.gameState.currentCup;
     const hasAnyLiquid =
@@ -6980,6 +7775,38 @@ export class KlasikCafeScene3D {
       cup.hasSteepedTea ||
       cup.hasSteamedMilk ||
       cup.syrup !== 'none';
+
+    // Sync active barista vessel (Hot Mug, Iced Glass, Hot Takeout, Iced Takeout) to active pinned customer order!
+    const pinnedOrder =
+      this.gameState.customers.find(
+        (c) => c.id === this.gameState.pinnedOrderId && c.state === 'ordering'
+      ) || this.gameState.customers.find((c) => c.state === 'ordering');
+    let nextVessel: CupVesselType = pinnedOrder
+      ? getOrderVesselType(pinnedOrder)
+      : cup.hasIce
+      ? 'iced-glass'
+      : 'hot-mug';
+    // If barista explicitly added ice to a dine-in cup, visually adapt to iced glass
+    if (cup.hasIce && nextVessel === 'hot-mug') nextVessel = 'iced-glass';
+    if (cup.hasIce && nextVessel === 'hot-takeout') nextVessel = 'iced-takeout';
+
+    if (this.activeVesselVariants && this.currentActiveVesselType !== nextVessel) {
+      this.currentActiveVesselType = nextVessel;
+      this.setVesselVariantVisibility(this.activeVesselVariants, nextVessel);
+    }
+
+    // Snap takeout lids (black sip lid / clear dome lid + emerald straw) ONLY when moving to Pickup Counter / serving!
+    const isServingLidReady =
+      (this.gameState.activeStation === 4 || this.stepAnim?.type === 'serve_drink') &&
+      hasAnyLiquid;
+    if (this.activeHotTakeoutLidMesh) {
+      this.activeHotTakeoutLidMesh.visible =
+        this.currentActiveVesselType === 'hot-takeout' && isServingLidReady;
+    }
+    if (this.activeIcedTakeoutLidMesh) {
+      this.activeIcedTakeoutLidMesh.visible =
+        this.currentActiveVesselType === 'iced-takeout' && isServingLidReady;
+    }
 
     this.fluffyGroundsMesh.visible = cup.hasGrounds && !cup.isTamped;
     this.tampedPuckMesh.visible = cup.isTamped || cup.hasEspresso;
@@ -7271,13 +8098,20 @@ export class KlasikCafeScene3D {
     this.cupLiquidShaderMat.uniforms.uHasMilk.value = this.currentLiquidMilk;
     this.cupLiquidShaderMat.uniforms.uTime.value = this.elapsed;
 
+    const isTall = this.currentActiveVesselType !== 'hot-mug';
     if (this.currentLiquidFill > 0.02) {
       this.activeCupLiquidMesh.visible = true;
-      const scaleY = Math.max(0.08, this.currentLiquidFill);
-      this.activeCupLiquidMesh.scale.set(0.86 + scaleY * 0.14, scaleY, 0.86 + scaleY * 0.14);
-      this.activeCupLiquidMesh.position.y = 0.026 + 0.056 * scaleY;
+      const scaleY = Math.max(0.08, this.currentLiquidFill) * (isTall ? 1.24 : 1.0);
+      const radiusFactor = isTall ? 0.84 : 1.0;
+      const xzScale = (0.86 + Math.min(1, this.currentLiquidFill) * 0.14) * radiusFactor;
+      this.activeCupLiquidMesh.scale.set(xzScale, scaleY, xzScale);
+      const centerY = (isTall ? 0.018 : 0.026) + 0.056 * scaleY;
+      this.activeCupLiquidMesh.position.y = centerY;
+      // Keep drizzle ring resting snugly on the live liquid surface (never floating in empty air!)
+      this.activeCupDrizzleRing.position.y = centerY + 0.055 * scaleY + 0.0025;
     } else {
       this.activeCupLiquidMesh.visible = false;
+      this.activeCupDrizzleRing.position.y = isTall ? 0.024 : 0.032;
     }
   }
 
@@ -7313,6 +8147,16 @@ export class KlasikCafeScene3D {
     for (const pump of this.syrupPumpHeads.values()) {
       pump.position.y = 0.27;
     }
+    for (const [flKey, bGroup] of this.syrupBottleGroups.entries()) {
+      const bx = this.syrupBottleBaseX.get(flKey) ?? 1.32;
+      bGroup.position.set(bx, 1.045, 0.18);
+      bGroup.rotation.set(0, 0, 0);
+    }
+    for (let i = 0; i < this.syrupDroplets.length; i++) {
+      this.syrupDroplets[i].visible = false;
+    }
+    const drizzleFitScale = this.currentActiveVesselType !== 'hot-mug' ? 0.78 : 0.96;
+    this.activeCupDrizzleRing.scale.setScalar(drizzleFitScale);
 
     const cup = this.gameState.currentCup;
     if (cup.hasEspresso) {
@@ -7333,8 +8177,9 @@ export class KlasikCafeScene3D {
     this.groupHeadLedMat.emissiveIntensity = 0.4;
 
     if (this.activeCupIceGroup.visible) {
+      const iceBaseY = this.currentActiveVesselType !== 'hot-mug' ? 0.152 : 0.132;
       this.activeCupIceGroup.children.forEach((cube, idx) => {
-        cube.position.y = 0.132 + Math.sin(this.elapsed * 3.8 + idx) * 0.004;
+        cube.position.y = iceBaseY + Math.sin(this.elapsed * 3.8 + idx) * 0.004;
       });
     }
 
@@ -7509,22 +8354,94 @@ export class KlasikCafeScene3D {
         this.matchaWhiskGroup.position.x = Math.sin(p * Math.PI * 8) * 0.028;
         this.matchaWhiskGroup.position.z = Math.sin(p * Math.PI * 4) * 0.022;
         this.matchaWhiskGroup.rotation.z = Math.cos(p * Math.PI * 8) * 0.18;
+        this.syrupRibbonMesh.visible = true;
+        this.syrupRibbonMesh.position.set(0.78, 1.21, 0.38);
+        this.syrupRibbonMesh.scale.set(1, 1, 1);
+        this.activeCupDrizzleRing.visible = true;
+        this.activeCupDrizzleRing.scale.setScalar(0.35 + p * 0.65);
+        this.activeCupDrizzleRing.rotation.z = p * Math.PI * 4;
       } else {
+        // Phase 3: Physical Syrup Bottle Lift -> Double-Pump Spout Pour -> Falling Droplets -> Smooth Return!
         if (fl === 'vanilla') rMat.color.setHex(0xfde68a);
         else if (fl === 'caramel') rMat.color.setHex(0xd97706);
         else rMat.color.setHex(0x451a03);
 
+        const bottle = this.syrupBottleGroups.get(fl);
+        const baseX = this.syrupBottleBaseX.get(fl) ?? 1.32;
         const pump = this.syrupPumpHeads.get(fl);
-        if (pump) {
-          const doublePump = Math.abs(Math.sin(p * Math.PI * 2));
-          pump.position.y = 0.27 - doublePump * 0.032;
+        // Side-offset pour pose to the RIGHT of the open cup (0.78, 1.01, 0.38): zero bottle/cup clipping!
+        // With rotation (0.20, -PI/2, 0), the brass spout tip extends cleanly over cup center at ~(0.795, 1.395, 0.38)
+        const pourX = 0.922;
+        const pourY = 1.13;
+        const pourZ = 0.38;
+        const drizzleBaseScale = this.currentActiveVesselType !== 'hot-mug' ? 0.78 : 0.96;
+
+        if (p < 0.22) {
+          const liftT = easeInOutCubic(p / 0.22);
+          if (bottle) {
+            bottle.position.set(
+              evalQuadBezier(baseX, (baseX + pourX) * 0.5, pourX, liftT),
+              evalQuadBezier(1.045, 1.28, pourY, liftT),
+              evalQuadBezier(0.18, 0.29, pourZ, liftT)
+            );
+            bottle.rotation.set(0.2 * liftT, -Math.PI * 0.5 * liftT, 0);
+          }
+        } else if (p < 0.8) {
+          const subP = (p - 0.22) / 0.58; // 0..1 across two distinct pump strokes
+          if (bottle) {
+            bottle.position.set(pourX, pourY, pourZ);
+            bottle.rotation.set(0.2, -Math.PI * 0.5, 0);
+          }
+          // Two crisp downward pump presses (0..0.46 and 0.52..0.98)
+          const cyclePhase = (subP * 2) % 1;
+          const press = cyclePhase < 0.88 ? Math.sin((cyclePhase / 0.88) * Math.PI) : 0;
+          if (pump) {
+            pump.position.y = 0.27 - press * 0.036;
+          }
+
+          // Glossy colored stream shooting vertically from spout tip (~0.794, 1.385, 0.38) straight into open cup!
+          const streamTopY = 1.385 - press * 0.032;
+          const liquidWorldY = 1.01 + this.activeCupDrizzleRing.position.y;
+          const streamMidY = (streamTopY + liquidWorldY) * 0.5;
+          const streamHeight = Math.max(0.08, streamTopY - liquidWorldY);
+          this.syrupRibbonMesh.visible = press > 0.14;
+          this.syrupRibbonMesh.position.set(0.792, streamMidY, 0.38);
+          this.syrupRibbonMesh.scale.set(
+            0.78 + press * 0.32,
+            streamHeight / 0.22,
+            0.78 + press * 0.32
+          );
+
+          // Falling glossy syrup droplets along the exact spout-to-liquid column
+          for (let di = 0; di < this.syrupDroplets.length; di++) {
+            const drop = this.syrupDroplets[di];
+            const dtPhase = (subP * 3.2 + di * 0.33) % 1;
+            drop.visible = true;
+            drop.position.set(
+              0.792 + Math.sin(dtPhase * 8 + di) * 0.003,
+              THREE.MathUtils.lerp(streamTopY - 0.01, liquidWorldY + 0.01, dtPhase),
+              0.38 + Math.cos(dtPhase * 7 + di) * 0.003
+            );
+            drop.scale.setScalar(0.75 + Math.sin(dtPhase * Math.PI) * 0.45);
+          }
+
+          this.activeCupDrizzleRing.visible = true;
+          this.activeCupDrizzleRing.scale.setScalar(drizzleBaseScale * (0.3 + subP * 0.7));
+          this.activeCupDrizzleRing.rotation.z = subP * Math.PI * 3.5;
+        } else {
+          const backT = easeInOutCubic((p - 0.8) / 0.2);
+          if (bottle) {
+            bottle.position.set(
+              evalQuadBezier(pourX, (baseX + pourX) * 0.5, baseX, backT),
+              evalQuadBezier(pourY, 1.26, 1.045, backT),
+              evalQuadBezier(pourZ, 0.28, 0.18, backT)
+            );
+            bottle.rotation.set(0.2 * (1 - backT), -Math.PI * 0.5 * (1 - backT), 0);
+          }
+          this.activeCupDrizzleRing.visible = true;
+          this.activeCupDrizzleRing.scale.setScalar(drizzleBaseScale);
         }
       }
-
-      this.syrupRibbonMesh.visible = true;
-      this.syrupRibbonMesh.position.set(0.78, 1.2, 0.38);
-      this.activeCupDrizzleRing.visible = true;
-      this.activeCupDrizzleRing.rotation.z = p * Math.PI * 4;
     } else if (this.stepAnim.type === 'steep_tea') {
       // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over the cup on Assembly Coaster (0.78, 1.01, 0.38)
       this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
@@ -7638,9 +8555,12 @@ export class KlasikCafeScene3D {
     _targetQuat.setFromRotationMatrix(_lookMat);
     this.camera.quaternion.slerp(_targetQuat, camDamp);
 
-    // 3. Exterior Hanging Blade Sign gentle wind sway (preserves bracket orientation!)
+    // 3. Exterior Hanging Blade Sign gentle wind sway & Sky Dome twinkling time uniform
+    if (this.skyDomeMat) {
+      this.skyDomeMat.uniforms.uTime.value = this.elapsed;
+    }
     if (this.hangingSignGroup) {
-      const windAmp = this.gameState.weather === 'rainy' ? 0.055 : 0.024;
+      const windAmp = isRainyWeather(this.gameState.weather) ? 0.055 : 0.024;
       this.hangingSignGroup.rotation.z = Math.sin(this.elapsed * 1.45) * windAmp;
       this.hangingSignGroup.rotation.x = Math.cos(this.elapsed * 0.95) * 0.012;
     }
@@ -7674,7 +8594,9 @@ export class KlasikCafeScene3D {
     // 3b. 1990 Mazda Miata MX-5 Pop-Up Headlight Wink & Illumination
     if (this.miataLeftPopupGroup && this.miataRightPopupGroup) {
       const isNightOrRain =
-        this.gameState.weather === 'rainy' || this.gameState.weather === 'golden';
+        isRainyWeather(this.gameState.weather) ||
+        isNightWeather(this.gameState.weather) ||
+        this.gameState.weather === 'golden';
       const winkCycle = this.elapsed % 9.0;
       const isWinking = winkCycle > 7.8 && winkCycle < 8.4;
       const baseAngle = isNightOrRain ? 0.0 : -0.08;
@@ -7890,7 +8812,8 @@ export class KlasikCafeScene3D {
       this.goldenDustInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 8b. Advance Pooled Full-Quality Outdoor Sidewalk Pedestrians (Zero Allocation)
+    // 8b. Advance Pooled Full-Quality Outdoor Sidewalk Pedestrians + Phase 6 Rainy-Day 3D Umbrellas (Zero Allocation)
+    const isRainActive = isRainyWeather(this.gameState.weather);
     for (let i = 0; i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
       if (!p.actor.group.visible) continue;
@@ -7911,8 +8834,17 @@ export class KlasikCafeScene3D {
       p.actor.rightHipJoint.rotation.x = -s * 0.48;
       p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * 0.5);
       p.actor.rightKneeJoint.rotation.x = Math.max(0, c * 0.5);
-      p.actor.leftShoulderJoint.rotation.x = -s * 0.38;
-      p.actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.22;
+
+      p.actor.umbrellaGroup.visible = isRainActive;
+      if (isRainActive) {
+        // Hold umbrella upright above head in left hand
+        p.actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03;
+        p.actor.leftElbowJoint.rotation.x = -0.3;
+      } else {
+        p.actor.leftShoulderJoint.rotation.x = -s * 0.38;
+        p.actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.22;
+      }
+
       if (p.actor.heldCup.visible) {
         p.actor.rightShoulderJoint.rotation.x = -0.56 + Math.abs(s) * 0.04;
         p.actor.rightElbowJoint.rotation.x = -0.88;
@@ -7926,12 +8858,12 @@ export class KlasikCafeScene3D {
       p.actor.neckJoint.rotation.y += (targetGlance - p.actor.neckJoint.rotation.y) * Math.min(1, dt * 4);
     }
 
-    // 8c. Advance Pooled Outdoor Street & Elevated Highway Traffic Vehicles (Zero Allocation)
+    // 8c. Advance Pooled Outdoor Street Traffic Vehicles (Zero Allocation)
     for (let i = 0; i < this.trafficPool.length; i++) {
       const v = this.trafficPool[i];
       if (!v.group.visible) continue;
       v.x += v.dir * v.speed * dt;
-      const bound = v.isHighway ? 20.0 : 18.0;
+      const bound = 19.0;
       if (v.dir === 1 && v.x > bound) v.x = -bound;
       else if (v.dir === -1 && v.x < -bound) v.x = bound;
       v.group.position.x = v.x;
@@ -7941,19 +8873,42 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 9. Animate Articulated 3D Customers (Swinging-Door Entry, Obstacle-Free Steering & Staggered Queue)
-    const shortestAngleLerp = (current: number, target: number, alpha: number): number => {
+    // 9. Animate Articulated 3D Customers (Phase 1 Doorway Reservation Lock & Anti-Jitter Queue + Phase 2 Takeout Walk-Out + Phase 6 Umbrellas)
+    const shortestAngleDelta = (current: number, target: number): number => {
       let diff = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
       if (diff < -Math.PI) diff += Math.PI * 2;
-      return current + diff * alpha;
+      return diff;
     };
+
+    const clampTurnToward = (current: number, target: number, alpha: number, maxStepRad: number): number => {
+      const diff = shortestAngleDelta(current, target);
+      const step = THREE.MathUtils.clamp(diff * alpha, -maxStepRad, maxStepRad);
+      return current + step;
+    };
+
+    // Release doorway reservation lock when occupant leaves corridor or exceeds 3.2s safety timeout
+    const DOOR_X = -1.15;
+    const DOOR_Z = -6.2;
+    if (this.doorOccupantId) {
+      this.doorOccupantTimer += dt;
+      const holder = this.customerActors.get(this.doorOccupantId);
+      const holderStillInCorridor =
+        holder &&
+        Math.abs(holder.currentPos.x - DOOR_X) < 1.1 &&
+        holder.currentPos.z > -7.35 &&
+        holder.currentPos.z < -5.05;
+      if (!holderStillInCorridor || this.doorOccupantTimer > 3.2) {
+        this.doorOccupantId = null;
+        this.doorOccupantTimer = 0;
+      }
+    }
 
     const buildAisleWaypoints = (
       from: THREE.Vector3,
       goal: THREE.Vector3,
       kind: 'pickup' | 'queue' | 'seat' | 'car_selfie' | 'exit'
     ): THREE.Vector3[] => {
-      const doorX = -1.15; // Center of swinging glass entrance door (x = -1.72..-0.58)
+      const doorX = DOOR_X;
       const corridorZ = -1.78; // Open clear walkway between bar counter & front lounge tables
       const centerAisleZ = -3.65; // Open aisle between front & back lounge table rows
       const pts: THREE.Vector3[] = [];
@@ -7966,8 +8921,8 @@ export class KlasikCafeScene3D {
       if (kind === 'queue') {
         // Outdoor sidewalk -> swing through glass entrance door -> corridor -> staggered register queue
         if (from.z < -6.1) {
-          pts.push(new THREE.Vector3(doorX, 0, -7.05));
-          pts.push(new THREE.Vector3(doorX, 0, -5.25));
+          pts.push(new THREE.Vector3(doorX, 0, -7.25));
+          pts.push(new THREE.Vector3(doorX, 0, -5.15));
           pts.push(new THREE.Vector3(doorX, 0, corridorZ));
         } else {
           if (from.z < -2.6 && from.x > -0.8) {
@@ -7983,8 +8938,8 @@ export class KlasikCafeScene3D {
 
       if (kind === 'car_selfie') {
         if (from.z < -6.1) {
-          pts.push(new THREE.Vector3(doorX, 0, -7.05));
-          pts.push(new THREE.Vector3(doorX, 0, -5.25));
+          pts.push(new THREE.Vector3(doorX, 0, -7.25));
+          pts.push(new THREE.Vector3(doorX, 0, -5.15));
         }
         if (from.z > -1.4) {
           pts.push(new THREE.Vector3(doorX, 0, corridorZ));
@@ -7995,8 +8950,8 @@ export class KlasikCafeScene3D {
 
       if (kind === 'seat') {
         if (from.z < -6.1) {
-          pts.push(new THREE.Vector3(doorX, 0, -7.05));
-          pts.push(new THREE.Vector3(doorX, 0, -5.25));
+          pts.push(new THREE.Vector3(doorX, 0, -7.25));
+          pts.push(new THREE.Vector3(doorX, 0, -5.15));
         }
         if (from.z > -1.4 || from.x < -0.8) {
           pts.push(new THREE.Vector3(-1.1, 0, corridorZ));
@@ -8014,15 +8969,15 @@ export class KlasikCafeScene3D {
         return pts;
       }
 
-      // Exit cleanly through the swinging glass entrance door onto the outdoor sidewalk
+      // Exit cleanly through the swinging glass entrance door onto the outdoor sidewalk (including Takeout walk-out!)
       if (from.z > -3.5) {
         pts.push(new THREE.Vector3(from.x, 0, corridorZ));
         pts.push(new THREE.Vector3(doorX, 0, corridorZ));
       } else {
         pts.push(new THREE.Vector3(doorX, 0, centerAisleZ));
       }
-      pts.push(new THREE.Vector3(doorX, 0, -5.25));
-      pts.push(new THREE.Vector3(doorX, 0, -7.15));
+      pts.push(new THREE.Vector3(doorX, 0, -5.15));
+      pts.push(new THREE.Vector3(doorX, 0, -7.35));
       pts.push(goal.clone());
       return pts;
     };
@@ -8050,8 +9005,8 @@ export class KlasikCafeScene3D {
       } else if (cust.state === 'ordering') {
         goalKind = 'queue';
         goalKey = `queue-${orderQueueIdx}`;
-        // Generously staggered queue slots (0.78m separation) strictly clear of Miata showroom bay!
-        _targetPos.set(-1.48 + orderQueueIdx * 0.22, 0, -0.82 - orderQueueIdx * 0.78);
+        // Generously staggered 0.88m queue slots (exceeds 0.62m separation radius so idle patrons NEVER push each other!)
+        _targetPos.set(-1.46 + orderQueueIdx * 0.24, 0, -0.82 - orderQueueIdx * 0.88);
         targetFacing = 0;
         orderQueueIdx++;
       } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
@@ -8070,34 +9025,88 @@ export class KlasikCafeScene3D {
         targetFacing = seat.facingRotY;
         actor.heldCup.visible = true;
       } else {
+        // Departing (Takeout walk-out straight from counter or finished Dine-In exit onto sidewalk)
         goalKind = 'exit';
-        goalKey = 'exit';
-        _targetPos.set(-4.2, 0, -7.75);
-        targetFacing = -Math.PI / 2;
+        const exitDir = actor.seed % 2 === 0 ? -1 : 1;
+        goalKey = `exit-${exitDir}`;
+        _targetPos.set(exitDir * 9.2, 0, -8.15);
+        targetFacing = exitDir === 1 ? Math.PI / 2 : -Math.PI / 2;
+        actor.heldCup.visible = true;
       }
 
       // Recompute smooth aisle waypoints whenever destination key changes
       if (actor.finalGoalKey !== goalKey) {
         actor.finalGoalKey = goalKey;
         actor.waypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
+        if (actor.moveState === 'idle-queue' && _targetPos.distanceTo(actor.currentPos) > 0.22) {
+          actor.moveState = 'walking';
+        }
+      }
+
+      actor.lastPos.copy(actor.currentPos);
+      let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
+
+      // Phase 1 Hysteresis: Once settled at a queue slot (< 0.07m), stay completely calm until slot moves > 0.22m!
+      if (goalKind === 'queue' && !isPickingUpDrink) {
+        if (actor.moveState === 'idle-queue') {
+          if (remainingDistToFinal > 0.22) {
+            actor.moveState = 'walking';
+          }
+        } else if (remainingDistToFinal < 0.07 && actor.waypoints.length <= 1) {
+          actor.currentPos.copy(_targetPos);
+          actor.waypoints = [];
+          actor.moveState = 'idle-queue';
+          remainingDistToFinal = 0;
+        }
+      } else if (actor.moveState === 'idle-queue') {
+        actor.moveState = 'walking';
+      }
+
+      // Phase 1 Single-Lane Doorway Reservation Lock (prevents opposing patrons deadlocking & shaking at glass door!)
+      let isYieldingAtDoor = false;
+      if (actor.moveState !== 'idle-queue' && actor.waypoints.length > 0 && !isPickingUpDrink) {
+        const nextWp = actor.waypoints[0];
+        const distToDoor = Math.hypot(actor.currentPos.x - DOOR_X, actor.currentPos.z - DOOR_Z);
+        const crossingIn = actor.currentPos.z < -6.2 && nextWp.z > -6.3;
+        const crossingOut = actor.currentPos.z > -6.2 && nextWp.z < -6.1;
+        const approachingDoor =
+          distToDoor < 1.55 &&
+          (crossingIn || crossingOut || (Math.abs(nextWp.x - DOOR_X) < 0.5 && Math.abs(nextWp.z - DOOR_Z) < 1.2));
+
+        if (approachingDoor) {
+          if (!this.doorOccupantId || this.doorOccupantId === cust.id) {
+            this.doorOccupantId = cust.id;
+            this.doorOccupantTimer = Math.min(this.doorOccupantTimer, 3.0);
+          } else {
+            // Another customer holds the doorway token — pause politely outside/inside the threshold!
+            const outsideWait = actor.currentPos.z <= -6.2 && actor.currentPos.z > -7.55;
+            const insideWait = actor.currentPos.z >= -6.2 && actor.currentPos.z < -4.85;
+            if (outsideWait || insideWait) {
+              isYieldingAtDoor = true;
+              actor.moveState = 'yielding-door';
+            }
+          }
+        }
+      }
+
+      if (!isYieldingAtDoor && actor.moveState === 'yielding-door') {
+        actor.moveState = 'walking';
       }
 
       // Advance along active waypoint queue at natural bipedal walking speed
-      actor.lastPos.copy(actor.currentPos);
       const walkSpeed = isPickingUpDrink ? 2.15 : 1.62;
       let moveDx = 0;
       let moveDz = 0;
-      let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
 
-      if (actor.waypoints.length > 0) {
+      if (actor.moveState === 'walking' && actor.waypoints.length > 0) {
         const nextWp = actor.waypoints[0];
         const wDx = nextWp.x - actor.currentPos.x;
         const wDz = nextWp.z - actor.currentPos.z;
         const wDist = Math.hypot(wDx, wDz);
 
-        if (wDist <= 0.12 && actor.waypoints.length > 1) {
+        if (wDist <= 0.14 && actor.waypoints.length > 1) {
           actor.waypoints.shift();
-        } else if (wDist > 0.025) {
+        } else if (wDist > 0.03) {
           const step = Math.min(wDist, walkSpeed * dt);
           actor.currentPos.x += (wDx / wDist) * step;
           actor.currentPos.z += (wDz / wDist) * step;
@@ -8111,8 +9120,17 @@ export class KlasikCafeScene3D {
         remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
       }
 
-      // Zero-allocation 2D obstacle & neighbor separation while walking (prevents Miata, table & body clipping)
-      const shouldApplyAvoidance = remainingDistToFinal > 0.22 && !isPickingUpDrink;
+      // Zero-allocation 2D obstacle & neighbor separation ONLY for actively walking patrons OUTSIDE doorway & queue!
+      const inDoorCorridor =
+        Math.abs(actor.currentPos.x - DOOR_X) < 1.15 &&
+        actor.currentPos.z > -7.55 &&
+        actor.currentPos.z < -4.85;
+      const shouldApplyAvoidance =
+        actor.moveState === 'walking' &&
+        remainingDistToFinal > 0.25 &&
+        !isPickingUpDrink &&
+        !inDoorCorridor;
+
       if (shouldApplyAvoidance) {
         const actorRadius = 0.28;
         for (let ci = 0; ci < this.staticColliders.length; ci++) {
@@ -8123,20 +9141,22 @@ export class KlasikCafeScene3D {
           const distSq = dx * dx + dz * dz;
           if (distSq < minR * minR && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
-            const push = (minR - dist) * 0.45;
+            const push = (minR - dist) * 0.42;
             actor.currentPos.x += (dx / dist) * push;
             actor.currentPos.z += (dz / dist) * push;
           }
         }
         for (const [otherId, otherActor] of this.customerActors.entries()) {
           if (otherId === cust.id) continue;
+          // Do not bounce against yielding doorway actors
+          if (otherActor.moveState === 'yielding-door') continue;
           const dx = actor.currentPos.x - otherActor.currentPos.x;
           const dz = actor.currentPos.z - otherActor.currentPos.z;
-          const minSep = 0.62;
+          const minSep = 0.58;
           const distSq = dx * dx + dz * dz;
           if (distSq < minSep * minSep && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
-            const push = (minSep - dist) * 0.35;
+            const push = (minSep - dist) * 0.28;
             actor.currentPos.x += (dx / dist) * push;
             actor.currentPos.z += (dz / dist) * push;
           }
@@ -8151,7 +9171,8 @@ export class KlasikCafeScene3D {
         actor.currentPos.z - actor.lastPos.z
       );
       const actualSpeed = dt > 0.0001 ? frameDisp / dt : 0;
-      const isActivelyWalking = actualSpeed > 0.08 && remainingDistToFinal > 0.04;
+      const isActivelyWalking =
+        actor.moveState === 'walking' && actualSpeed > 0.14 && remainingDistToFinal > 0.05;
 
       const walkBlendTarget = isActivelyWalking ? Math.min(1, actualSpeed / 1.35) : 0;
       actor.walkBlend += (walkBlendTarget - actor.walkBlend) * (1 - Math.exp(-10 * dt));
@@ -8161,23 +9182,27 @@ export class KlasikCafeScene3D {
         cust.state === 'seated' &&
         cust.socialBehavior !== 'car_selfie' &&
         !isPickingUpDrink &&
-        remainingDistToFinal <= 0.12;
+        remainingDistToFinal <= 0.14;
       const seatedTarget = isArrivedSeated ? 1 : 0;
       actor.seatedBlend += (seatedTarget - actor.seatedBlend) * (1 - Math.exp(-7 * dt));
 
-      if (isActivelyWalking) {
+      // Clamped yaw turn rate + planar speed threshold (> 0.22 m/s) eliminates 180-deg facing flips!
+      const maxYawStep = dt * 7.5;
+      if (isActivelyWalking && actualSpeed > 0.22 && Math.hypot(moveDx, moveDz) > 0.04) {
         actor.walkPhase += actualSpeed * dt * 5.2;
         const moveHeading = Math.atan2(moveDx, moveDz);
-        actor.facingAngle = shortestAngleLerp(
+        actor.facingAngle = clampTurnToward(
           actor.facingAngle,
           moveHeading,
-          1 - Math.exp(-10 * dt)
+          1 - Math.exp(-9 * dt),
+          maxYawStep
         );
       } else {
-        actor.facingAngle = shortestAngleLerp(
+        actor.facingAngle = clampTurnToward(
           actor.facingAngle,
           targetFacing,
-          1 - Math.exp(-7 * dt)
+          1 - Math.exp(-7 * dt),
+          maxYawStep
         );
       }
       actor.group.rotation.y = actor.facingAngle;
@@ -8187,6 +9212,10 @@ export class KlasikCafeScene3D {
       const eyeScaleY = blinkCycle < 0.12 ? 0.1 : 1.0;
       actor.leftEyeMesh.scale.y = eyeScaleY;
       actor.rightEyeMesh.scale.y = eyeScaleY;
+
+      // Phase 6: Customer Rainy-Day 3D Umbrella — open outdoors (z < -6.25), automatically folded/hidden indoors!
+      const customerNeedsUmbrella = isRainActive && actor.currentPos.z < -6.25;
+      actor.umbrellaGroup.visible = customerNeedsUmbrella;
 
       if (isPickingUpDrink && remainingDistToFinal <= 0.18) {
         // Stage 2 Customer Pickup Pose at counter: both articulated arms reach forward to lift the cup!
@@ -8206,8 +9235,8 @@ export class KlasikCafeScene3D {
         actor.neckJoint.rotation.x = 0.12;
         actor.neckJoint.rotation.y = 0;
         actor.activitySprite.visible = false;
-      } else if (actor.walkBlend > 0.12) {
-        // Speed-Synchronized Fluid Bipedal Walk Cycle (zero ice-skating, natural arm swing & cup carry!)
+      } else if (actor.walkBlend > 0.14) {
+        // Speed-Synchronized Fluid Bipedal Walk Cycle (zero ice-skating, natural arm swing, umbrella & cup carry!)
         const wb = actor.walkBlend;
         const s = Math.sin(actor.walkPhase);
         const c = Math.cos(actor.walkPhase);
@@ -8233,8 +9262,13 @@ export class KlasikCafeScene3D {
           actor.seatedBlend
         );
 
-        actor.leftShoulderJoint.rotation.x = -s * 0.4 * wb;
-        actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.25 * wb;
+        if (customerNeedsUmbrella) {
+          actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03 * wb;
+          actor.leftElbowJoint.rotation.x = -0.3;
+        } else {
+          actor.leftShoulderJoint.rotation.x = -s * 0.4 * wb;
+          actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.25 * wb;
+        }
         actor.phoneMesh.visible = false;
         actor.activitySprite.visible = false;
 
@@ -8348,43 +9382,54 @@ export class KlasikCafeScene3D {
           }
         }
       } else {
-        // Expressive Waiting Idle Animations at Station 1 Order Queue
-        const idlePhase = this.elapsed * 1.4 + actor.seed;
-        const weightShift = Math.sin(idlePhase * 0.8);
-        actor.pelvisGroup.position.y = 0.58 + Math.sin(idlePhase * 1.6) * 0.008;
-        actor.pelvisGroup.rotation.z = weightShift * 0.045;
+        // Phase 1 Calm Anti-Jitter Standing Idle Pose (Zero Leg Jitter, Zero Heading Shake!)
+        const idlePhase = this.elapsed * 1.15 + actor.seed;
+        const gentleBreath = Math.sin(idlePhase * 1.4);
+        actor.pelvisGroup.position.y = 0.58 + gentleBreath * 0.004;
+        actor.pelvisGroup.rotation.z = 0;
         actor.torsoGroup.rotation.y = 0;
-        actor.torsoGroup.rotation.z = -weightShift * 0.035;
+        actor.torsoGroup.rotation.z = 0;
         actor.leftHipJoint.rotation.x = 0;
         actor.rightHipJoint.rotation.x = 0;
-        actor.leftKneeJoint.rotation.x = weightShift > 0 ? 0.12 * weightShift : 0;
-        actor.rightKneeJoint.rotation.x = weightShift < 0 ? -0.12 * weightShift : 0;
+        actor.leftKneeJoint.rotation.x = 0;
+        actor.rightKneeJoint.rotation.x = 0;
 
-        const idleMode = (Math.floor(this.elapsed * 0.25) + actor.seed) % 3;
-        if (idleMode === 0) {
-          actor.phoneMesh.visible = actor.seed % 2 === 0;
-          actor.leftShoulderJoint.rotation.x = -0.65;
-          actor.leftElbowJoint.rotation.x = -0.95;
-          actor.rightShoulderJoint.rotation.x = -0.22;
-          actor.rightElbowJoint.rotation.x = -0.35;
-          actor.neckJoint.rotation.x = 0.22;
-          actor.neckJoint.rotation.y = -0.12;
-        } else if (idleMode === 1) {
+        if (customerNeedsUmbrella) {
+          // Yielding calmly outside in the rain while holding umbrella steady
           actor.phoneMesh.visible = false;
-          actor.leftShoulderJoint.rotation.x = -0.22;
-          actor.leftElbowJoint.rotation.x = -0.4;
-          actor.rightShoulderJoint.rotation.x = -0.22;
-          actor.rightElbowJoint.rotation.x = -0.4;
-          actor.neckJoint.rotation.y = Math.sin(idlePhase * 0.9) * 0.42;
-          actor.neckJoint.rotation.x = -0.12 * Math.cos(idlePhase * 0.7);
-        } else {
-          actor.phoneMesh.visible = false;
-          actor.leftShoulderJoint.rotation.x = -0.25;
-          actor.leftElbowJoint.rotation.x = -0.45;
-          actor.rightShoulderJoint.rotation.x = -0.58 + Math.sin(this.elapsed * 4.5) * 0.12;
-          actor.rightElbowJoint.rotation.x = -0.78 + Math.cos(this.elapsed * 4.5) * 0.15;
-          actor.neckJoint.rotation.y = Math.sin(idlePhase) * 0.16;
+          actor.leftShoulderJoint.rotation.x = -1.28;
+          actor.leftElbowJoint.rotation.x = -0.3;
+          actor.rightShoulderJoint.rotation.x = actor.heldCup.visible ? -0.56 : -0.18;
+          actor.rightElbowJoint.rotation.x = actor.heldCup.visible ? -0.88 : -0.3;
+          actor.neckJoint.rotation.y = Math.sin(idlePhase * 0.6) * 0.16;
           actor.neckJoint.rotation.x = 0;
+        } else {
+          const idleMode = (Math.floor(this.elapsed * 0.18) + actor.seed) % 3;
+          if (idleMode === 0) {
+            actor.phoneMesh.visible = actor.seed % 2 === 0;
+            actor.leftShoulderJoint.rotation.x = -0.62;
+            actor.leftElbowJoint.rotation.x = -0.9;
+            actor.rightShoulderJoint.rotation.x = -0.18;
+            actor.rightElbowJoint.rotation.x = -0.32;
+            actor.neckJoint.rotation.x = 0.18;
+            actor.neckJoint.rotation.y = -0.08;
+          } else if (idleMode === 1) {
+            actor.phoneMesh.visible = false;
+            actor.leftShoulderJoint.rotation.x = -0.18;
+            actor.leftElbowJoint.rotation.x = -0.34;
+            actor.rightShoulderJoint.rotation.x = -0.18;
+            actor.rightElbowJoint.rotation.x = -0.34;
+            actor.neckJoint.rotation.y = Math.sin(idlePhase * 0.75) * 0.32;
+            actor.neckJoint.rotation.x = -0.08 * Math.cos(idlePhase * 0.55);
+          } else {
+            actor.phoneMesh.visible = false;
+            actor.leftShoulderJoint.rotation.x = -0.2;
+            actor.leftElbowJoint.rotation.x = -0.38;
+            actor.rightShoulderJoint.rotation.x = -0.54 + Math.sin(this.elapsed * 2.4) * 0.05;
+            actor.rightElbowJoint.rotation.x = -0.74;
+            actor.neckJoint.rotation.y = Math.sin(idlePhase * 0.8) * 0.14;
+            actor.neckJoint.rotation.x = 0;
+          }
         }
       }
     });
@@ -8404,6 +9449,7 @@ export class KlasikCafeScene3D {
     this.resizeObserver?.disconnect();
     this.studioLogoTexture?.dispose();
     this.studioCupEmblemTexture?.dispose();
+    this.cupMedallionTexture?.dispose();
     this.woodBumpTexture?.dispose();
     this.microCementTexture?.dispose();
     this.herringboneFloorTexture?.dispose();
@@ -8421,6 +9467,12 @@ export class KlasikCafeScene3D {
     this.windowRainTexture?.dispose();
     this.ticketTextures.forEach((t) => t.dispose());
     this.pedestrianPool.forEach((p) => p.actor.activityTexture.dispose());
+    this.streetLampConeMat?.dispose();
+    this.streetLampPoolMat?.dispose();
+    this.cityWindowWarmMat?.dispose();
+    this.cityWindowCoolMat?.dispose();
+    this.citySignEmissiveMat?.dispose();
+    this.vehicleHeadlightBeamMat?.dispose();
     this.cupLiquidShaderMat?.dispose();
     this.skyDomeMat?.dispose();
     this.godRayMat?.dispose();

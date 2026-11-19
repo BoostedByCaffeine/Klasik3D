@@ -1,7 +1,9 @@
 import React from 'react';
 import {
+  CloudLightning,
   CloudRain,
   Coffee,
+  Moon,
   Palette,
   Sparkles,
   Sprout,
@@ -44,7 +46,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                 id="customize-modal-title"
                 className="text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
               >
-                Cafe Decor, Architecture &amp; Lighting (18 Options)
+                Cafe Decor, Architecture &amp; Lighting (20 Options)
               </h2>
               <p className="text-[11px] text-[#E7D7C1]">
                 Customize your 3D countertop timber, ceramic mug glaze, neon sign, and greenery.
@@ -157,7 +159,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="space-y-3">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-amber-200 flex items-center gap-1.5 glass-text-crisp">
                 <Sprout className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={2.2} />
@@ -189,14 +191,16 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-amber-200 flex items-center gap-1.5 glass-text-crisp">
                 <Sun className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
-                <span>Atmosphere &amp; Granular Weather</span>
+                <span>Atmosphere, Shift &amp; Granular Weather (5 Modes)</span>
               </label>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                 {(
                   [
                     { id: 'morning', label: 'Morning', Icon: Sun },
                     { id: 'golden', label: 'Golden', Icon: Sunset },
                     { id: 'rainy', label: 'Rainy', Icon: CloudRain },
+                    { id: 'night', label: 'Night Shift', Icon: Moon },
+                    { id: 'rainy-night', label: 'Rainy Night', Icon: CloudLightning },
                   ] as const
                 ).map((opt) => {
                   const Icon = opt.Icon;
@@ -206,7 +210,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                       type="button"
                       data-testid={`btn-weather-${opt.id}`}
                       onClick={() => onUpdateWeather(opt.id)}
-                      className={`py-1.5 px-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all flex items-center justify-center gap-1 ${
+                      className={`py-1.5 px-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                         weather === opt.id
                           ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold border border-amber-300 shadow'
                           : 'glass-btn-inner'
