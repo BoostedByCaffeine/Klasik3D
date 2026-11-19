@@ -1,4 +1,4 @@
-const CACHE_NAME = 'klasik-3d-v2.4.0';
+const CACHE_NAME = 'klasik-3d-v2.4.1';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -14,9 +14,16 @@ const PRECACHE_ASSETS = [
   './pwa-maskable-512x512.png'
 ];
 const OPTIONAL_AUDIO_ASSETS = [
-  './audio/champy/purr.wav',
-  './audio/champy/meow_greet.wav',
-  './audio/champy/chirp_trill.wav'
+  './assets/aistudio/catpurr_c52b8326.wav',
+  './assets/aistudio/meow1_1d7bd0df.wav',
+  './assets/aistudio/meow2_445b0e23.wav',
+  './assets/aistudio/meow3_780c1570.wav',
+  './assets/aistudio/meow4_007510c4.wav',
+  './assets/aistudio/meow5_445b0e23.wav',
+  './assets/aistudio/meow6_70d1c317.wav',
+  './assets/aistudio/meow7_780c1570.wav',
+  './assets/aistudio/meow8_3c301d51.wav',
+  './assets/aistudio/meow9_7fdd1ebb.wav'
 ];
 
 self.addEventListener('install', (event) => {

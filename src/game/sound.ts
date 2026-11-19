@@ -170,10 +170,14 @@ class SoundEngine {
   private chordIndex = 0;
 
   // Phase 6: Hybrid Local Audio + Procedural Fallback for Champy the Cafe Cat
-  private champyBuffers: Partial<Record<'purr' | 'meowGreet' | 'chirp', AudioBuffer>> = {};
+  private champyPurrBuffer: AudioBuffer | null = null;
+  private champyGreetBuffers: AudioBuffer[] = [];
+  private champyChirpBuffers: AudioBuffer[] = [];
   private champyLoaded = false;
   private lastChampyMeowMs = 0;
   private lastChampyPurrMs = 0;
+  private lastGreetIdx = -1;
+  private lastChirpIdx = -1;
 
   private ensureContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -1143,30 +1147,45 @@ class SoundEngine {
         (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL) ||
       '/';
     const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-    const urls: Record<'purr' | 'meowGreet' | 'chirp', string> = {
-      purr: `${normalizedBase}audio/champy/purr.wav`,
-      meowGreet: `${normalizedBase}audio/champy/meow_greet.wav`,
-      chirp: `${normalizedBase}audio/champy/chirp_trill.wav`,
+    const purrUrl = `${normalizedBase}assets/aistudio/catpurr_c52b8326.wav`;
+    const greetUrls = [
+      `${normalizedBase}assets/aistudio/meow1_1d7bd0df.wav`,
+      `${normalizedBase}assets/aistudio/meow2_445b0e23.wav`,
+      `${normalizedBase}assets/aistudio/meow4_007510c4.wav`,
+      `${normalizedBase}assets/aistudio/meow8_3c301d51.wav`,
+      `${normalizedBase}assets/aistudio/meow9_7fdd1ebb.wav`,
+    ];
+    const chirpUrls = [
+      `${normalizedBase}assets/aistudio/meow3_780c1570.wav`,
+      `${normalizedBase}assets/aistudio/meow5_445b0e23.wav`,
+      `${normalizedBase}assets/aistudio/meow6_70d1c317.wav`,
+      `${normalizedBase}assets/aistudio/meow7_780c1570.wav`,
+    ];
+
+    const decodeUrl = async (url: string): Promise<AudioBuffer | null> => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const arr = await res.arrayBuffer();
+        if (!this.ctx) return null;
+        return await this.ctx.decodeAudioData(arr);
+      } catch {
+        return null;
+      }
     };
-    await Promise.allSettled(
-      (Object.entries(urls) as Array<['purr' | 'meowGreet' | 'chirp', string]>).map(
-        async ([key, url]) => {
-          try {
-            const res = await fetch(url);
-            if (!res.ok) return;
-            const arr = await res.arrayBuffer();
-            if (this.ctx) {
-              this.champyBuffers[key] = await this.ctx.decodeAudioData(arr);
-            }
-          } catch {
-            // Graceful fallback to procedural Web Audio cat purr / meow synth
-          }
-        }
-      )
-    );
+
+    const [purrBuf, greetBufs, chirpBufs] = await Promise.all([
+      decodeUrl(purrUrl),
+      Promise.all(greetUrls.map(decodeUrl)),
+      Promise.all(chirpUrls.map(decodeUrl)),
+    ]);
+
+    if (purrBuf) this.champyPurrBuffer = purrBuf;
+    this.champyGreetBuffers = greetBufs.filter((b): b is AudioBuffer => b !== null);
+    this.champyChirpBuffers = chirpBufs.filter((b): b is AudioBuffer => b !== null);
   }
 
-  public playChampyPurr(durationSec = 2.6): void {
+  public playChampyPurr(durationSec = 2.8): void {
     if (this.isMuted) return;
     const nowMs = Date.now();
     if (nowMs - this.lastChampyPurrMs < 1100) return;
@@ -1174,19 +1193,23 @@ class SoundEngine {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
-    const buf = this.champyBuffers.purr;
+    const buf = this.champyPurrBuffer;
     if (buf) {
       const src = ctx.createBufferSource();
       const gain = ctx.createGain();
       src.buffer = buf;
       src.loop = true;
       const now = ctx.currentTime;
+      const safeOffset =
+        buf.duration > durationSec + 0.5
+          ? Math.random() * (buf.duration - durationSec - 0.3)
+          : 0;
       gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(0.32, now + 0.2);
-      gain.gain.setValueAtTime(0.32, now + Math.max(0.3, durationSec - 0.35));
+      gain.gain.linearRampToValueAtTime(0.42, now + 0.22);
+      gain.gain.setValueAtTime(0.42, now + Math.max(0.35, durationSec - 0.4));
       gain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
       src.connect(gain).connect(ctx.destination);
-      src.start(now);
+      src.start(now, safeOffset);
       src.stop(now + durationSec + 0.05);
       return;
     }
@@ -1202,13 +1225,30 @@ class SoundEngine {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
-    const buf = kind === 'chirp' ? this.champyBuffers.chirp : this.champyBuffers.meowGreet;
-    if (buf) {
+    const pool =
+      kind === 'chirp'
+        ? this.champyChirpBuffers.length > 0
+          ? this.champyChirpBuffers
+          : this.champyGreetBuffers
+        : this.champyGreetBuffers.length > 0
+        ? this.champyGreetBuffers
+        : this.champyChirpBuffers;
+
+    if (pool.length > 0) {
+      let idx = Math.floor(Math.random() * pool.length);
+      const lastIdx = kind === 'chirp' ? this.lastChirpIdx : this.lastGreetIdx;
+      if (pool.length > 1 && idx === lastIdx) {
+        idx = (idx + 1) % pool.length;
+      }
+      if (kind === 'chirp') this.lastChirpIdx = idx;
+      else this.lastGreetIdx = idx;
+
+      const buf = pool[idx];
       const src = ctx.createBufferSource();
       const gain = ctx.createGain();
       src.buffer = buf;
-      src.playbackRate.value = 0.94 + Math.random() * 0.12;
-      gain.gain.value = 0.26;
+      src.playbackRate.value = 0.96 + Math.random() * 0.08;
+      gain.gain.value = 0.32;
       src.connect(gain).connect(ctx.destination);
       src.start();
       return;
