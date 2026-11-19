@@ -146,21 +146,21 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="pwa-modal-title"
     >
-      <div className="w-full max-w-xl bg-[#1b120d] border border-amber-500/40 rounded-2xl p-3 sm:p-4 shadow-2xl space-y-2 max-h-[94%] overflow-y-auto no-scrollbar">
-        <div className="flex items-center justify-between border-b border-stone-800 pb-1.5">
+      <div className="w-full max-w-xl glass-modal rounded-2xl p-3 sm:p-4 space-y-2.5 max-h-[94%] overflow-y-auto no-scrollbar">
+        <div className="flex items-center justify-between border-b border-amber-400/20 pb-2">
           <div>
             <h2
               id="pwa-modal-title"
-              className="text-sm sm:text-base font-bold font-display text-amber-100"
+              className="text-sm sm:text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
             >
               Android APK Offline Package &amp; 3D Graphics Settings
             </h2>
-            <p className="text-[10px] text-stone-400">
+            <p className="text-[10px] text-[#E7D7C1]/85">
               100% Offline-Compatible `.apk` Build (Phone Spotify App Redirect + Internal Vinyl
               Player)
             </p>
@@ -168,22 +168,22 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-2.5 py-1 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
+            className="px-2.5 py-1 rounded-lg glass-btn-inner text-xs font-semibold text-[#FAF5EE] cursor-pointer flex items-center gap-1"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5" strokeWidth={2.2} />
             <span>Close</span>
           </button>
         </div>
 
         {/* 1. Native Android APK (.apk) Section */}
-        <div className="p-2.5 rounded-xl bg-[#140d09] border border-emerald-500/40 space-y-1.5">
+        <div className="p-2.5 rounded-xl bg-emerald-950/35 border border-emerald-400/35 space-y-1.5">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 shrink-0" />
+              <Smartphone className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
               <span>Native Android APK (`Klasik3D.apk` · 100% Offline Ready)</span>
             </div>
-            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-mono font-bold text-emerald-300 shrink-0 inline-flex items-center gap-1">
-              <WifiOff className="w-2.5 h-2.5" />
+            <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-[9px] font-mono font-bold text-emerald-200 shrink-0 inline-flex items-center gap-1">
+              <WifiOff className="w-2.5 h-2.5" strokeWidth={2.2} />
               <span>OFFLINE APK</span>
             </span>
           </div>
@@ -194,13 +194,13 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
               data-testid="btn-download-apk"
               disabled={isCheckingApk}
               onClick={handleDownloadDirectApk}
-              className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs text-left cursor-pointer shadow flex items-center justify-between"
+              className="p-2 rounded-xl bg-gradient-to-b from-emerald-400 via-emerald-500 to-emerald-600 hover:from-emerald-300 hover:to-emerald-500 text-[#160E09] font-bold text-xs text-left cursor-pointer shadow-[0_6px_18px_-4px_rgba(16,185,129,0.45)] flex items-center justify-between"
             >
               <span className="flex items-center gap-1.5">
-                <Download className="w-3.5 h-3.5 shrink-0" />
+                <Download className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                 <span>Download Klasik3D.apk</span>
               </span>
-              <span className="text-[9px] font-mono bg-stone-950/15 px-1.5 py-0.5 rounded">
+              <span className="text-[9px] font-mono bg-black/15 px-1.5 py-0.5 rounded">
                 .APK
               </span>
             </button>
@@ -208,10 +208,10 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
             <button
               type="button"
               onClick={handleCopyApkWorkflow}
-              className="p-2 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-200 font-semibold text-xs text-left cursor-pointer flex items-center justify-between"
+              className="p-2 rounded-xl glass-btn-inner text-amber-200 font-semibold text-xs text-left cursor-pointer flex items-center justify-between"
             >
               <span className="flex items-center gap-1.5">
-                <Copy className="w-3.5 h-3.5 shrink-0" />
+                <Copy className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                 <span>Copy GitHub APK Workflow</span>
               </span>
               <span className="text-[9px] font-mono text-amber-300">YAML</span>
@@ -220,9 +220,9 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
         </div>
 
         {/* 2. 2-State Graphics Settings (LOW vs MAX Only) */}
-        <div className="p-2.5 rounded-xl bg-[#211610] border border-stone-800 space-y-1.5">
-          <div className="text-xs font-bold text-amber-200 flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20 space-y-1.5">
+          <div className="text-xs font-bold text-[#FAF5EE] glass-text-crisp flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
             <span>3D Graphics Quality (LOW or MAX Only)</span>
           </div>
 
@@ -230,16 +230,16 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
             <button
               type="button"
               onClick={() => onChangeGraphics('low')}
-              className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+              className={`p-2 rounded-xl text-left cursor-pointer transition-all ${
                 !isMaxGraphics
-                  ? 'bg-amber-500 text-stone-950 border-amber-300 font-bold shadow'
-                  : 'bg-[#140d09] text-stone-300 border-stone-800 hover:border-stone-600'
+                  ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border border-amber-300 font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                  : 'glass-btn-inner text-[#E7D7C1]'
               }`}
             >
               <div className="text-xs font-bold">LOW (Battery / 60 FPS)</div>
               <div
                 className={`text-[10px] ${
-                  !isMaxGraphics ? 'text-stone-900' : 'text-stone-400'
+                  !isMaxGraphics ? 'text-[#160E09]/85' : 'text-[#E7D7C1]/75'
                 }`}
               >
                 0.85x DPR · No Shadows · Fast
@@ -249,16 +249,16 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
             <button
               type="button"
               onClick={() => onChangeGraphics('max')}
-              className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+              className={`p-2 rounded-xl text-left cursor-pointer transition-all ${
                 isMaxGraphics
-                  ? 'bg-amber-500 text-stone-950 border-amber-300 font-bold shadow'
-                  : 'bg-[#140d09] text-stone-300 border-stone-800 hover:border-stone-600'
+                  ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border border-amber-300 font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                  : 'glass-btn-inner text-[#E7D7C1]'
               }`}
             >
               <div className="text-xs font-bold">MAX (High-End Android HD)</div>
               <div
                 className={`text-[10px] ${
-                  isMaxGraphics ? 'text-stone-900' : 'text-stone-400'
+                  isMaxGraphics ? 'text-[#160E09]/85' : 'text-[#E7D7C1]/75'
                 }`}
               >
                 2.0x Retina DPR · Soft Shadows · PBR
@@ -272,13 +272,13 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
           <button
             type="button"
             onClick={handleTriggerInstall}
-            className="p-2 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-100 font-bold text-left cursor-pointer"
+            className="p-2 rounded-xl glass-btn-inner text-[#FAF5EE] font-bold text-left cursor-pointer"
           >
             <div className="text-xs flex items-center gap-1">
-              <Download className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <Download className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>Install Fullscreen PWA</span>
             </div>
-            <div className="text-[10px] font-normal text-stone-400">
+            <div className="text-[10px] font-normal text-[#E7D7C1]/80">
               {pwaStatus.isInstallable ? 'One-click install ready' : 'Add to Home Screen'}
             </div>
           </button>
@@ -286,20 +286,20 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
           <button
             type="button"
             onClick={handleLockLandscape}
-            className="p-2 rounded-xl bg-[#241811] hover:bg-[#312118] border border-amber-500/35 text-amber-100 font-bold text-left cursor-pointer"
+            className="p-2 rounded-xl glass-btn-inner text-[#FAF5EE] font-bold text-left cursor-pointer"
           >
             <div className="text-xs flex items-center gap-1">
-              <Maximize2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <Maximize2 className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>Fullscreen Landscape Lock</span>
             </div>
-            <div className="text-[10px] font-normal text-stone-400">
+            <div className="text-[10px] font-normal text-[#E7D7C1]/80">
               Hide Android system bars
             </div>
           </button>
         </div>
 
         {installMsg && (
-          <div className="p-2.5 rounded-xl bg-[#291c14] border border-amber-500/40 text-xs text-amber-200">
+          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/45 text-xs text-amber-200">
             {installMsg}
           </div>
         )}

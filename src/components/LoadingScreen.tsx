@@ -1,133 +1,243 @@
-import React, { useEffect, useState } from 'react';
-import { Coffee, FastForward } from 'lucide-react';
-import { AppRuntimeVersion } from '../pwa/pwaManager';
-import { StudioLogo } from './StudioLogo';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 interface LoadingScreenProps {
-  appVersion?: AppRuntimeVersion;
-  onFinished: () => void;
+  /** Resolves true once the 3D scene / WebGL assets finish initial boot */
+  isReady?: boolean;
+  /** Called once the splash screen has fully faded out and unmounted */
+  onComplete: () => void;
 }
 
-const LOADING_STEPS = [
-  'Grinding Procedural 3D Meshes & Walnut Grain...',
-  'Heating Dual Boilers to 93°C & Compiling PBR Shaders...',
-  'Syncing 33.3 RPM Vinyl Turntable & Studio Emblem...',
-  'Opening Garage Garden Pergola...',
-];
-
-const WEB_BARISTA_TIPS = [
-  'Tip: Click any hanging order ticket or press Space to execute the next recommended barista step.',
-  'Tip: Press M anytime to drop or lift the 3D vinyl turntable needle.',
-  'Tip: Customers who receive 100% accurate drinks sit in the Garage Garden and leave bonus tips!',
-  'Tip: Press 1–5 or A/D to glide smoothly between the five barista stations.',
-];
-
-const APK_BARISTA_TIPS = [
-  'Tip: Tap any hanging order ticket or touch the 3D espresso bar equipment to brew step by step.',
-  'Tip: Tap the 3D vinyl turntable needle at Station 5 to spin records and sync Phone Spotify.',
-  'Tip: Customers who receive 100% accurate drinks sit in the Garage Garden and leave bonus tips!',
-  'Tip: Enable Realism Mode in the top Menu to rely purely on the Recipe Codex and 3D tools.',
-];
+const MIN_SPLASH_MS = 2350;
+const FAILSAFE_TIMEOUT_MS = 6000;
+const HALO_DIM_MS = 180;
+const FADE_OUT_FAILSAFE_MS = 650;
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
-  appVersion = 'web',
-  onFinished,
+  isReady = true,
+  onComplete,
 }) => {
-  const [progress, setProgress] = useState(12);
-  const [tipIndex, setTipIndex] = useState(0);
-  const [fadingOut, setFadingOut] = useState(false);
+  const uid = useId().replace(/:/g, '');
+  const [minTimerElapsed, setMinTimerElapsed] = useState(false);
+  const [failsafeElapsed, setFailsafeElapsed] = useState(false);
+  const [exitStage, setExitStage] = useState<'idle' | 'dim' | 'fade'>('idle');
+  const [unmounted, setUnmounted] = useState(false);
+  const completedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
-  const tips = appVersion === 'apk' ? APK_BARISTA_TIPS : WEB_BARISTA_TIPS;
+  const finishAndUnmount = useCallback(() => {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    setUnmounted(true);
+    onCompleteRef.current();
+  }, []);
 
+  // 1. Guaranteed minimum display timer + fail-safe anti-soft-lock timer
   useEffect(() => {
-    const tipTimer = window.setInterval(() => {
-      setTipIndex((prev) => (prev + 1) % tips.length);
-    }, 1800);
+    const minTimer = window.setTimeout(() => {
+      setMinTimerElapsed(true);
+    }, MIN_SPLASH_MS);
 
-    const progTimer = window.setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          window.clearInterval(progTimer);
-          setFadingOut(true);
-          window.setTimeout(onFinished, 350);
-          return 100;
-        }
-        return Math.min(100, prev + 4.5);
-      });
-    }, 115);
+    const failsafeTimer = window.setTimeout(() => {
+      setFailsafeElapsed(true);
+    }, FAILSAFE_TIMEOUT_MS);
 
     return () => {
-      window.clearInterval(tipTimer);
-      window.clearInterval(progTimer);
+      window.clearTimeout(minTimer);
+      window.clearTimeout(failsafeTimer);
     };
-  }, [onFinished, tips.length]);
+  }, []);
 
-  const stepIndex = Math.min(
-    LOADING_STEPS.length - 1,
-    Math.floor((progress / 100) * LOADING_STEPS.length)
-  );
+  // 2. Dual-Gate Exit Trigger (requires BOTH minTimer + isReady, or fail-safe)
+  useEffect(() => {
+    if (exitStage !== 'idle') return;
+    const readyToExit = (minTimerElapsed && isReady) || failsafeElapsed;
+    if (!readyToExit) return;
+
+    setExitStage('dim');
+  }, [minTimerElapsed, isReady, failsafeElapsed, exitStage]);
+
+  // 3. Staggered Exit Stage A -> Step B (dim halo/thruster for 180ms, then fade backdrop)
+  useEffect(() => {
+    if (exitStage !== 'dim') return;
+
+    const fadeTimer = window.setTimeout(() => {
+      setExitStage('fade');
+    }, HALO_DIM_MS);
+
+    return () => {
+      window.clearTimeout(fadeTimer);
+    };
+  }, [exitStage]);
+
+  // 4. Fail-safe unmount timer in case transitionend is skipped (e.g., reduced motion / hidden tab)
+  useEffect(() => {
+    if (exitStage !== 'fade') return;
+
+    const cleanupFallback = window.setTimeout(() => {
+      finishAndUnmount();
+    }, FADE_OUT_FAILSAFE_MS);
+
+    return () => {
+      window.clearTimeout(cleanupFallback);
+    };
+  }, [exitStage, finishAndUnmount]);
+
+  const handleBackdropTransitionEnd = (e: React.TransitionEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget && e.propertyName === 'opacity' && exitStage === 'fade') {
+      finishAndUnmount();
+    }
+  };
+
+  if (unmounted) return null;
+
+  const backdropClass = [
+    'crema-splash-backdrop',
+    exitStage === 'dim' ? 'is-exiting-dim' : '',
+    exitStage === 'fade' ? 'is-exiting-dim is-exiting-fade' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-between bg-[#140e0b] px-6 py-10 text-[#f5ebe1] transition-opacity duration-300 overflow-hidden ${
-        fadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
-      }`}
+      data-testid="crema-ring-splash"
+      className={backdropClass}
+      onTransitionEnd={handleBackdropTransitionEnd}
       role="status"
-      aria-label="Loading Klasik 3D Garage Garden Cafe"
+      aria-live="polite"
+      aria-label="Boosted By Caffeine"
     >
-      {/* Ambient radial espresso-gold spotlight behind centerpiece */}
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(245,158,11,0.14)_0%,rgba(20,14,11,0)_68%)]"
-        aria-hidden="true"
-      />
+      <div className="crema-splash-lockup">
+        {/* Circular Rocket-Coffee Emblem + Restrained Ambient Glow */}
+        <div className="crema-emblem-wrap">
+          <div className="crema-ambient-halo" aria-hidden="true" />
+          <svg
+            viewBox="0 0 200 200"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-full h-full overflow-visible"
+            aria-hidden="true"
+          >
+            <defs>
+              <linearGradient id={`crema_ring_grad_${uid}`} x1="20" y1="18" x2="180" y2="182" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#FDE68A" />
+                <stop offset="50%" stopColor="#E59A3C" />
+                <stop offset="100%" stopColor="#B4691E" />
+              </linearGradient>
 
-      <div className="relative z-10 text-xs tracking-widest text-amber-300/80 font-mono flex items-center gap-1.5">
-        <Coffee className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-        <span>BOOSTED BY CAFFEINE STUDIOS · WEBGL 3D ENGINE</span>
-      </div>
+              <linearGradient id={`crema_flame_grad_${uid}`} x1="100" y1="142" x2="100" y2="188" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#FEF08A" />
+                <stop offset="48%" stopColor="#F59E0B" />
+                <stop offset="100%" stopColor="#EA580C" />
+              </linearGradient>
 
-      <div className="relative z-10 flex flex-col items-center max-w-md w-full text-center gap-6">
-        <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-b from-[#231812] to-[#140e0b] border border-amber-500/40 shadow-[0_0_50px_-12px_rgba(245,158,11,0.35)]">
-          <StudioLogo
-            variant="full"
-            progress={progress}
-            className="w-72 sm:w-96 h-auto"
-          />
-        </div>
+              <linearGradient id={`crema_steam_grad_${uid}`} x1="100" y1="56" x2="100" y2="16" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#C8924A" />
+                <stop offset="100%" stopColor="#FEF3C7" />
+              </linearGradient>
+            </defs>
 
-        <div className="space-y-1.5">
-          <h1 className="text-2xl sm:text-3xl font-bold font-display text-amber-100 tracking-tight">
-            Brewing Shaders &amp; Warming Boilers...
-          </h1>
-          <p className="text-sm text-amber-200/80 font-medium">{LOADING_STEPS[stepIndex]}</p>
-        </div>
-
-        {/* Espresso Shot Glass Progress Bar */}
-        <div className="w-full space-y-2">
-          <div className="relative h-5 w-full overflow-hidden rounded-lg bg-[#241913] border border-amber-500/30 p-0.5">
-            <div
-              className="h-full rounded-md bg-gradient-to-r from-[#5c2c16] via-[#b45309] to-[#f59e0b] transition-all duration-150"
-              style={{ width: `${progress}%` }}
+            {/* 1. Outer Amber Crema Ring (Draws 360° clockwise from 12 o'clock) */}
+            <circle
+              className="crema-ring"
+              cx="100"
+              cy="100"
+              r="86"
+              stroke={`url(#crema_ring_grad_${uid})`}
+              strokeWidth="4.2"
+              strokeLinecap="round"
+              fill="none"
             />
-          </div>
-          <div className="flex items-center justify-between text-xs font-mono tabular-nums text-amber-300/90">
-            <span>9.0 BAR EXTRACTION</span>
-            <span>{Math.round(progress)}%</span>
-          </div>
+
+            {/* 2. White Rocket-Cup Silhouette with Fins + Nozzle */}
+            <g className="rocket-cup">
+              {/* Swept Delta Fins */}
+              <path d="M56 104 L32 128 L36 142 L66 128 Z" fill="#F5F0E8" />
+              <path d="M54 112 L38 129 L41 136 L62 125 Z" fill="#E59A3C" />
+              <path d="M144 104 L168 128 L164 142 L134 128 Z" fill="#F5F0E8" />
+              <path d="M146 112 L162 129 L159 136 L138 125 Z" fill="#E59A3C" />
+
+              {/* Rocket Thruster Nozzle */}
+              <path
+                d="M82 132 H118 L124 145 H76 L82 132 Z"
+                fill="#242B2E"
+                stroke="#F5F0E8"
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+
+              {/* Barista Cup Handle */}
+              <path
+                d="M136 80 H149 C160 80 166 88 164 99 C162 109 153 115 141 115 H131"
+                stroke="#F5F0E8"
+                strokeWidth="9.5"
+                strokeLinecap="round"
+                fill="none"
+              />
+
+              {/* Tapered Porcelain Rocket-Cup Body */}
+              <path
+                d="M52 70 H148 L135 122 C132 130 124 134 114 134 H86 C76 134 68 130 65 122 L52 70 Z"
+                fill="#F5F0E8"
+              />
+
+              {/* Charcoal Aerospace Band & Brass Porthole */}
+              <path d="M57 94 H143 L140 106 H60 L57 94 Z" fill="#1A1613" />
+              <circle cx="100" cy="100" r="8.2" fill="#E59A3C" stroke="#F5F0E8" strokeWidth="2.4" />
+
+              {/* Cup Rim & Warm Espresso Crema */}
+              <ellipse cx="100" cy="70" rx="48" ry="11" fill="#F5F0E8" stroke="#1A1613" strokeWidth="3" />
+              <ellipse cx="100" cy="70" rx="41" ry="7.5" fill="#451A03" />
+              <ellipse cx="100" cy="70" rx="32" ry="4.8" fill="#D97706" />
+            </g>
+
+            {/* 3. Warm Amber Thruster Flame */}
+            <g className="thruster-flame">
+              <path
+                d="M81 145 Q100 190 119 145 Q109 162 100 183 Q91 162 81 145 Z"
+                fill={`url(#crema_flame_grad_${uid})`}
+              />
+              <path d="M89 145 Q100 172 111 145 Z" fill="#FEF9C3" />
+            </g>
+
+            {/* 4. Three Staggered Rising Amber Steam Waves (drawn bottom-to-top) */}
+            <path
+              className="steam-wave-1"
+              pathLength={1}
+              d="M79 56 C72 46 86 36 79 24"
+              stroke={`url(#crema_steam_grad_${uid})`}
+              strokeWidth="4.8"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <path
+              className="steam-wave-2"
+              pathLength={1}
+              d="M100 53 C91 41 109 29 100 16"
+              stroke={`url(#crema_steam_grad_${uid})`}
+              strokeWidth="5.6"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <path
+              className="steam-wave-3"
+              pathLength={1}
+              d="M121 56 C114 46 128 36 121 24"
+              stroke={`url(#crema_steam_grad_${uid})`}
+              strokeWidth="4.8"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </svg>
         </div>
 
-        <button
-          type="button"
-          data-testid="btn-skip-loading"
-          onClick={onFinished}
-          className="text-xs text-stone-400 hover:text-amber-300 underline transition-colors cursor-pointer inline-flex items-center gap-1"
-        >
-          <FastForward className="w-3.5 h-3.5 shrink-0" />
-          <span>Skip Preloader</span>
-        </button>
+        {/* Remastered Clean Wordmark (Zero Cards, Zero Pills) */}
+        <div className="crema-wordmark-stack">
+          <h1 className="crema-wordmark-boosted">BOOSTED</h1>
+          <p className="crema-wordmark-sub">BY CAFFEINE</p>
+        </div>
       </div>
-
-      <div className="max-w-lg text-center text-xs text-stone-400">{tips[tipIndex]}</div>
     </div>
   );
 };

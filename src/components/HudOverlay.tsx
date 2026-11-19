@@ -191,17 +191,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   };
 
   const renderCategoryIcon = () => {
-    if (!targetRecipe) return <Coffee className="w-3 h-3 text-amber-300 shrink-0" />;
+    if (!targetRecipe) return <Coffee className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />;
     if (targetRecipe.category === 'tea') {
-      return <Leaf className="w-3 h-3 text-lime-400 shrink-0" />;
+      return <Leaf className="w-3 h-3 text-lime-300 shrink-0" strokeWidth={2.2} />;
     }
     if (targetRecipe.category === 'cold_drink') {
-      return <CupSoda className="w-3 h-3 text-sky-400 shrink-0" />;
+      return <CupSoda className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.2} />;
     }
     if (targetRecipe.category === 'iced_coffee' || pinnedOrder?.customNeedsIce) {
-      return <Snowflake className="w-3 h-3 text-sky-300 shrink-0" />;
+      return <Snowflake className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.2} />;
     }
-    return <Flame className="w-3 h-3 text-amber-400 shrink-0" />;
+    return <Flame className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />;
   };
 
   const displayBannerText = stripKeyboardShortcutsForApk(
@@ -214,55 +214,55 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     return (
       <div className="fixed inset-0 z-10 pointer-events-none overflow-hidden">
         {/* Ultra-minimal floating controls in top-right corner so 98% of 3D view is open */}
-        <div className="pointer-events-auto fixed top-2 right-2 flex items-center gap-1.5 bg-stone-950/85 border border-amber-500/40 rounded-full px-2.5 py-1 shadow-xl">
+        <div className="pointer-events-auto fixed top-2 right-2 flex items-center gap-1.5 glass-pill rounded-full px-2.5 py-1">
           <button
             type="button"
             onClick={handlePrevStation}
-            className="p-0.5 rounded-full bg-stone-800 hover:bg-stone-700 text-amber-200 cursor-pointer flex items-center justify-center"
+            className="glass-btn-inner p-0.5 rounded-full text-amber-200 cursor-pointer flex items-center justify-center"
             title={isApkVersion ? 'Previous Station' : 'Previous Station [A]'}
             aria-label="Previous Station"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
+            <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.2} />
           </button>
-          <span className="text-[10px] font-mono font-bold text-amber-100 whitespace-nowrap">
+          <span className="text-[10px] font-mono font-bold text-[#FAF5EE] glass-text-crisp whitespace-nowrap">
             {currentStationMeta.name}
           </span>
           <button
             type="button"
             onClick={handleNextStation}
-            className="p-0.5 rounded-full bg-stone-800 hover:bg-stone-700 text-amber-200 cursor-pointer flex items-center justify-center"
+            className="glass-btn-inner p-0.5 rounded-full text-amber-200 cursor-pointer flex items-center justify-center"
             title={isApkVersion ? 'Next Station' : 'Next Station [D]'}
             aria-label="Next Station"
           >
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.2} />
           </button>
 
           {targetRecipe && !isRealismMode && (
             <button
               type="button"
               onClick={() => onCupAction('quick_brew_step')}
-              className={`px-2 py-0.5 rounded-full font-bold text-[10px] cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+              className={`px-2 py-0.5 rounded-full font-bold text-[10px] cursor-pointer whitespace-nowrap flex items-center gap-1 shadow ${
                 drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-500 text-stone-950'
+                  ? 'bg-rose-500 text-[#160E09]'
                   : isDrinkReadyToServe
-                  ? 'bg-emerald-500 text-stone-950'
-                  : 'bg-amber-500 text-stone-950'
+                  ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-[#160E09]'
+                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09]'
               }`}
               title={stripKeyboardShortcutsForApk(nextStep.instruction, isApkVersion)}
             >
               {drinkValidation.hasWrongIngredient ? (
                 <>
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>Rinse</span>
                 </>
               ) : isDrinkReadyToServe ? (
                 <>
-                  <Check className="w-3 h-3 shrink-0" />
+                  <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>Serve</span>
                 </>
               ) : (
                 <>
-                  <Zap className="w-3 h-3 shrink-0" />
+                  <Zap className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>Brew Step</span>
                 </>
               )}
@@ -273,23 +273,23 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="btn-show-hud"
             onClick={() => setHudHidden(false)}
-            className="px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] font-bold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
+            className="glass-btn-inner px-2 py-0.5 rounded-full !border-amber-400/50 text-[10px] font-bold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
             title={isApkVersion ? 'Restore Full Barista HUD' : 'Restore Full Barista HUD [H]'}
           >
-            <Eye className="w-3 h-3 shrink-0" />
+            <Eye className="w-3 h-3 shrink-0" strokeWidth={2.2} />
             <span>Show HUD</span>
           </button>
         </div>
 
         {/* Tiny progress pill at top-center only while actively executing a timed step */}
         {stepProgress !== null && displayBannerText && (
-          <div className="fixed top-2 left-1/2 -translate-x-1/2 bg-stone-950/85 border border-amber-500/40 rounded-full px-3 py-0.5 flex items-center gap-2 shadow-lg">
-            <span className="text-[10px] font-semibold text-amber-100 whitespace-nowrap">
+          <div className="fixed top-2 left-1/2 -translate-x-1/2 glass-pill rounded-full px-3 py-0.5 flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-[#FAF5EE] glass-text-crisp whitespace-nowrap">
               {displayBannerText}
             </span>
-            <div className="w-16 h-1.5 rounded-full bg-stone-800 overflow-hidden">
+            <div className="w-16 h-1.5 rounded-full bg-black/50 overflow-hidden">
               <div
-                className="h-full bg-amber-400 transition-all duration-75"
+                className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-75"
                 style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
               />
             </div>
@@ -305,22 +305,22 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       <div className="flex flex-col w-full pointer-events-none relative">
         <div
           data-testid="hud-top-bar"
-          className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/92 border-b border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
+          className="pointer-events-auto h-9 sm:h-10 w-full glass-pill !rounded-none !border-x-0 !border-t-0 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
         >
           {/* Left Cluster: Direct Non-Shrinking Station Indicator + Flexible Mini Order Tickets */}
           <button
             type="button"
             data-testid="hud-station-indicator"
             onClick={() => setTicketsCollapsed((prev) => !prev)}
-            className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/35 text-[10px] sm:text-[11px] font-bold text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/45 text-[10px] sm:text-[11px] font-bold text-amber-200 glass-text-crisp whitespace-nowrap shrink-0 cursor-pointer transition-colors"
             title="Toggle Order Strip"
           >
             {currentStationMeta.badge}
           </button>
 
           {isGoldenEquipped && (
-            <span className="px-1.5 py-0.5 rounded-md bg-amber-400/20 border border-amber-400 text-[9px] font-mono font-bold text-amber-300 whitespace-nowrap shrink-0 inline-flex items-center gap-1">
-              <Trophy className="w-2.5 h-2.5 shrink-0" />
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-400/25 border border-amber-400 text-[9px] font-mono font-bold text-amber-200 whitespace-nowrap shrink-0 inline-flex items-center gap-1">
+              <Trophy className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
               <span>2x</span>
             </span>
           )}
@@ -335,10 +335,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     key={cust.id}
                     type="button"
                     onClick={() => onPinOrder(cust.id)}
-                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[130px] overflow-hidden ${
+                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[130px] overflow-hidden glass-text-crisp ${
                       isPinned
-                        ? 'bg-amber-950/90 border-amber-400 text-amber-100'
-                        : 'bg-stone-900/90 border-stone-800 text-stone-300 hover:border-stone-600'
+                        ? 'bg-amber-500/25 border-amber-400 text-[#FAF5EE] font-semibold'
+                        : 'glass-btn-inner text-[#E7D7C1]'
                     }`}
                     title={`${cust.customerName}: ${recipe.name}`}
                   >
@@ -347,7 +347,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       style={{ backgroundColor: recipe.colorHex }}
                     />
                     <span className="font-semibold truncate">{cust.customerName}</span>
-                    <span className="font-mono tabular-nums text-emerald-400 font-bold shrink-0">
+                    <span className="font-mono tabular-nums text-emerald-300 font-bold shrink-0">
                       ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
                     </span>
                     <span
@@ -390,16 +390,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               aria-label="Open Cafe Menu"
               title="All Cafe Navigation: Graphics, Realism Mode, Music, Recipe Codex, Upgrades, Decor, Sound & Hide HUD"
               onClick={() => setTopMenuOpen((prev) => !prev)}
-              className={`relative h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap transition-colors ${
+              className={`relative h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap transition-all ${
                 topMenuOpen
-                  ? 'bg-amber-500 text-stone-950 border-amber-300 shadow'
-                  : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/50 text-amber-200'
+                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow-[0_4px_14px_-3px_rgba(245,158,11,0.55)]'
+                  : 'glass-btn-inner !border-amber-400/50 text-amber-200'
               }`}
             >
               {topMenuOpen ? (
-                <X className="w-3.5 h-3.5 shrink-0" />
+                <X className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
               ) : (
-                <Menu className="w-3.5 h-3.5 shrink-0" />
+                <Menu className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
               )}
               <span>Menu</span>
               {unclaimedLoginCount > 0 && !topMenuOpen && (
@@ -413,7 +413,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         {topMenuOpen && (
           <div
             data-testid="top-navigation-menu-drawer"
-            className="pointer-events-auto self-end mr-2 mt-1 w-[320px] sm:w-[460px] bg-[#1b120d]/98 border border-amber-500/45 rounded-xl p-2.5 shadow-2xl grid grid-cols-2 sm:grid-cols-3 gap-1.5 z-30"
+            className="pointer-events-auto self-end mr-2 mt-1 w-[320px] sm:w-[460px] glass-panel rounded-xl p-2.5 grid grid-cols-2 sm:grid-cols-3 gap-1.5 z-30"
           >
             {/* 1. Graphics Toggle (LOW or MAX) */}
             <button
@@ -422,18 +422,18 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => {
                 handleToggleGraphics();
               }}
-              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-colors ${
+              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-all ${
                 isMaxGraphics
-                  ? 'bg-amber-500 text-stone-950 border-amber-300'
-                  : 'bg-[#291c14] text-stone-200 border-stone-700 hover:border-amber-500/40'
+                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow'
+                  : 'glass-btn-inner'
               }`}
             >
-              <Sparkles className="w-4 h-4 shrink-0" />
+              <Sparkles className="w-4 h-4 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">GFX: {qualityLabel}</div>
                 <div
                   className={`text-[10px] font-mono ${
-                    isMaxGraphics ? 'text-stone-900' : 'text-emerald-400'
+                    isMaxGraphics ? 'text-[#160E09]/80 font-bold' : 'text-emerald-300'
                   }`}
                 >
                   {Math.min(60, Math.max(30, fps))} FPS · Tap
@@ -448,18 +448,18 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => {
                 onToggleRealismMode();
               }}
-              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-colors ${
+              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-all ${
                 isRealismMode
-                  ? 'bg-amber-500 text-stone-950 border-amber-300 shadow'
-                  : 'bg-[#291c14] text-amber-200 border-amber-500/40 hover:bg-[#342419]'
+                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow'
+                  : 'glass-btn-inner !border-amber-400/40 text-amber-200'
               }`}
             >
-              <Compass className="w-4 h-4 shrink-0" />
+              <Compass className="w-4 h-4 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Realism: {isRealismMode ? 'ON' : 'OFF'}</div>
                 <div
                   className={`text-[10px] truncate ${
-                    isRealismMode ? 'text-stone-900 font-semibold' : 'text-stone-400'
+                    isRealismMode ? 'text-[#160E09]/80 font-semibold' : 'text-[#E7D7C1]'
                   }`}
                 >
                   {isRealismMode ? 'Touch 3D Tools & Codex' : 'Guided HUD & Shortcuts'}
@@ -475,14 +475,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('spotify');
               }}
-              className="px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-emerald-300 border border-emerald-500/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-emerald-300 !border-emerald-400/35 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
               <Disc3
                 className={`w-4 h-4 shrink-0 ${spotifyState.isPlaying ? 'animate-spin' : ''}`}
+                strokeWidth={2.2}
               />
               <div className="min-w-0">
                 <div className="truncate">Music Deck</div>
-                <div className="text-[10px] text-stone-400 truncate">
+                <div className="text-[10px] text-[#E7D7C1] truncate">
                   {isApkVersion ? 'Phone Spotify' : 'Spotify Web'}
                 </div>
               </div>
@@ -496,12 +497,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('recipes');
               }}
-              className="px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-amber-100 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <BookOpen className="w-4 h-4 text-amber-300 shrink-0" />
+              <BookOpen className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Recipe Codex</div>
-                <div className="text-[10px] text-stone-400 truncate">Coffee &amp; Tea</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">Coffee &amp; Tea</div>
               </div>
             </button>
 
@@ -513,12 +514,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('upgrades');
               }}
-              className="relative px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-amber-200 border border-amber-500/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="relative glass-btn-inner px-2.5 py-2 rounded-lg text-amber-200 !border-amber-400/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+              <Zap className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Upgrades</div>
-                <div className="text-[10px] text-amber-400/90 truncate">150K Gold &amp; Skins</div>
+                <div className="text-[10px] text-amber-300 truncate">150K Gold &amp; Skins</div>
               </div>
               {unclaimedLoginCount > 0 && (
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute top-1.5 right-1.5" />
@@ -533,12 +534,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('customize');
               }}
-              className="px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-amber-100 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <Sprout className="w-4 h-4 text-emerald-400 shrink-0" />
+              <Sprout className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Cafe Decor</div>
-                <div className="text-[10px] text-stone-400 truncate">18 Styles &amp; Weather</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">18 Styles &amp; Weather</div>
               </div>
             </button>
 
@@ -549,16 +550,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => {
                 onToggleMute();
               }}
-              className="px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-amber-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
               {isMuted ? (
-                <VolumeX className="w-4 h-4 text-rose-400 shrink-0" />
+                <VolumeX className="w-4 h-4 text-rose-400 shrink-0" strokeWidth={2.2} />
               ) : (
-                <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
               )}
               <div className="min-w-0">
                 <div className="truncate">{isMuted ? 'Sound: Off' : 'Sound: On'}</div>
-                <div className="text-[10px] text-stone-400 truncate">Granular Audio</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">Granular Audio</div>
               </div>
             </button>
 
@@ -570,14 +571,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 setHudHidden(true);
               }}
-              className="px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-amber-200 border border-amber-500/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-amber-200 !border-amber-400/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <EyeOff className="w-4 h-4 text-amber-300 shrink-0" />
+              <EyeOff className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">
                   {isApkVersion ? 'Hide HUD' : 'Hide HUD [H]'}
                 </div>
-                <div className="text-[10px] text-stone-400 truncate">Pure 3D View</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">Pure 3D View</div>
               </div>
             </button>
 
@@ -588,12 +589,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onRequestFullscreenLandscape();
               }}
-              className="px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-stone-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <Maximize2 className="w-4 h-4 text-amber-300 shrink-0" />
+              <Maximize2 className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Fullscreen</div>
-                <div className="text-[10px] text-stone-400 truncate">Landscape Lock</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">Landscape Lock</div>
               </div>
             </button>
 
@@ -605,12 +606,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   setTopMenuOpen(false);
                   onOpenModal('pwa');
                 }}
-                className="px-2.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-xs text-left cursor-pointer flex items-center gap-2"
+                className="px-2.5 py-2 rounded-lg bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 hover:brightness-105 text-[#160E09] font-bold text-xs text-left cursor-pointer flex items-center gap-2 shadow"
               >
-                <Download className="w-4 h-4 shrink-0" />
+                <Download className="w-4 h-4 shrink-0" strokeWidth={2.2} />
                 <div className="min-w-0">
                   <div className="truncate">Install APK</div>
-                  <div className="text-[10px] text-stone-900 truncate">APK &amp; PWA</div>
+                  <div className="text-[10px] text-[#160E09]/80 font-semibold truncate">APK &amp; PWA</div>
                 </div>
               </button>
             ) : null}
@@ -622,11 +623,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onTogglePause();
               }}
-              className={`px-2.5 py-2 rounded-lg bg-[#291c14] hover:bg-[#342419] text-stone-200 border border-stone-700 font-semibold text-xs text-left cursor-pointer flex items-center justify-center gap-2 ${
+              className={`glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center justify-center gap-2 ${
                 isApkVersion ? 'col-span-2 sm:col-span-3' : 'col-span-1 sm:col-span-2'
               }`}
             >
-              <SlidersHorizontal className="w-4 h-4 text-amber-300 shrink-0" />
+              <SlidersHorizontal className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>
                 {isApkVersion
                   ? 'Pause Shift & Save Backup'
@@ -637,35 +638,35 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         )}
 
         {/* Ultra-Compact Single-Line Order Strip + Inline Timed Progress */}
-        <div className="flex items-center justify-between gap-2 px-2 mt-1 pointer-events-none">
+        <div className="flex items-center justify-between gap-2 px-2 mt-1.5 pointer-events-none">
           {!ticketsCollapsed && pinnedOrder && targetRecipe ? (
-            <div className="pointer-events-auto inline-flex items-center gap-1.5 bg-stone-950/85 border border-amber-500/35 rounded-full px-2.5 py-0.5 shadow-md max-w-[78vw] sm:max-w-xl overflow-hidden">
+            <div className="pointer-events-auto inline-flex items-center gap-1.5 glass-panel rounded-full px-2.5 py-0.5 max-w-[78vw] sm:max-w-xl overflow-hidden">
               {renderCategoryIcon()}
-              <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 shrink-0">
+              <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 glass-text-crisp shrink-0">
                 {pinnedOrder.customerName}:
               </span>
-              <span className="text-[10px] sm:text-[11px] font-semibold text-stone-100 truncate">
+              <span className="text-[10px] sm:text-[11px] font-semibold text-[#FAF5EE] glass-text-crisp truncate">
                 {targetRecipe.name}
               </span>
               {pinnedOrder.customAddons?.map((addon) => (
                 <span
                   key={addon}
-                  className="px-1 py-0 rounded bg-amber-500/20 border border-amber-500/40 text-[9px] font-mono font-semibold text-amber-200 shrink-0"
+                  className="px-1 py-0 rounded bg-amber-500/20 border border-amber-400/40 text-[9px] font-mono font-semibold text-amber-200 shrink-0"
                 >
                   {addon}
                 </span>
               ))}
-              <span className="px-1 py-0 rounded bg-emerald-500/20 text-[9px] font-mono font-bold text-emerald-300 shrink-0">
+              <span className="px-1 py-0 rounded bg-emerald-500/25 border border-emerald-400/35 text-[9px] font-mono font-bold text-emerald-300 shrink-0">
                 +${isGoldenEquipped ? pinnedOrder.customBonusTip * 2 : pinnedOrder.customBonusTip}
               </span>
               <button
                 type="button"
                 onClick={() => setTicketsCollapsed(true)}
-                className="ml-0.5 text-stone-400 hover:text-white cursor-pointer shrink-0 flex items-center"
+                className="ml-0.5 text-[#E7D7C1] hover:text-white cursor-pointer shrink-0 flex items-center"
                 title="Minimize Order Strip"
                 aria-label="Minimize Order Strip"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3 h-3" strokeWidth={2.2} />
               </button>
             </div>
           ) : (
@@ -674,7 +675,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
           {/* Slim Top-Right Progress / Hover Pill */}
           {displayBannerText && (
-            <div className="pointer-events-none inline-flex items-center gap-2 bg-stone-950/88 border border-amber-500/45 text-amber-100 text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full shadow-md max-w-[55vw] truncate">
+            <div className="pointer-events-none inline-flex items-center gap-2 glass-pill text-[#FAF5EE] glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[55vw] truncate">
               <span className="truncate">{displayBannerText}</span>
               {stepDurationMs && stepProgress !== null && (
                 <span className="text-[9px] font-mono text-amber-300 shrink-0">
@@ -682,9 +683,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 </span>
               )}
               {stepProgress !== null && (
-                <div className="w-14 h-1.5 rounded-full bg-stone-800 overflow-hidden shrink-0">
+                <div className="w-14 h-1.5 rounded-full bg-black/50 overflow-hidden shrink-0">
                   <div
-                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-75"
+                    className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-75"
                     style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
                   />
                 </div>
@@ -695,11 +696,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       </div>
 
       {/* 2. SINGLE-ROW EDGE-TO-EDGE BOTTOM BAR */}
-      <div className="pointer-events-auto h-9 sm:h-10 w-full bg-stone-950/95 border-t border-amber-500/25 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0">
-        {/* Left Side: Compact Switchable Station Pill <-(Orders)-> */}
+      <div className="pointer-events-auto h-9 sm:h-10 w-full glass-panel !rounded-none !border-x-0 !border-b-0 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0">
+        {/* Left Side: Compact Switchable Station Pill <-Station-> */}
         <div
           data-testid="station-switcher-pill"
-          className="inline-flex items-center gap-1 bg-stone-900/95 border border-amber-500/40 rounded-full p-0.5 shrink-0 shadow-sm"
+          className="inline-flex items-center gap-1 bg-black/30 border border-amber-400/35 rounded-full p-0.5 shrink-0"
           role="group"
           aria-label="Switch Barista Station"
         >
@@ -707,16 +708,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="btn-station-prev"
             onClick={handlePrevStation}
-            className="w-6 h-6 rounded-full bg-[#291c14] hover:bg-amber-500 hover:text-stone-950 text-amber-200 flex items-center justify-center transition-colors cursor-pointer"
+            className="glass-btn-inner w-6 h-6 rounded-full hover:!bg-amber-500 hover:!text-[#160E09] text-amber-200 flex items-center justify-center cursor-pointer"
             title={isApkVersion ? 'Previous Station' : 'Previous Station [A / Left]'}
             aria-label="Previous Station"
           >
-            <ArrowLeft className="w-3.5 h-3.5 shrink-0" />
+            <ArrowLeft className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
           </button>
 
           <div
             data-testid="station-pill-label"
-            className="px-2.5 py-0.5 rounded-full bg-amber-500 text-stone-950 font-bold text-[10px] sm:text-xs whitespace-nowrap flex items-center gap-1"
+            className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold text-[10px] sm:text-xs whitespace-nowrap flex items-center gap-1 shadow-[0_2px_10px_-2px_rgba(245,158,11,0.55)]"
           >
             <span>{currentStationMeta.name}</span>
           </div>
@@ -725,11 +726,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="btn-station-next"
             onClick={handleNextStation}
-            className="w-6 h-6 rounded-full bg-[#291c14] hover:bg-amber-500 hover:text-stone-950 text-amber-200 flex items-center justify-center transition-colors cursor-pointer"
+            className="glass-btn-inner w-6 h-6 rounded-full hover:!bg-amber-500 hover:!text-[#160E09] text-amber-200 flex items-center justify-center cursor-pointer"
             title={isApkVersion ? 'Next Station' : 'Next Station [D / Right]'}
             aria-label="Next Station"
           >
-            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
           </button>
 
           {/* Subtle Guided Next-Station Indicator (Hidden when Realism Mode is ON) */}
@@ -740,10 +741,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 type="button"
                 data-testid="btn-recommended-station-guide"
                 onClick={() => onSelectStation(nextStep.station)}
-                className="px-2 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 mr-0.5"
+                className="px-2 py-0.5 rounded-full bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/55 text-[10px] font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 mr-0.5 transition-colors"
                 title={`Next step at ${recommendedStationMeta.badge}`}
               >
-                <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                <Zap className="w-2.5 h-2.5 text-amber-300 shrink-0" strokeWidth={2.2} />
                 <span>Go: {recommendedStationMeta.name}</span>
               </button>
             )}
@@ -758,10 +759,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               e.currentTarget.blur();
               onCupAction('quick_brew_step');
             }}
-            className={`px-2 sm:px-2.5 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
+            className={`px-2 sm:px-2.5 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 transition-all ${
               drinkValidation.hasWrongIngredient
-                ? 'bg-rose-500 hover:bg-rose-400 text-stone-950 animate-pulse'
-                : 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-200'
+                ? 'bg-rose-500 hover:bg-rose-400 text-[#160E09] animate-pulse shadow'
+                : 'bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/65 text-amber-200 glass-text-crisp'
             }`}
             title={stripKeyboardShortcutsForApk(
               `${targetRecipe.name}: ${nextStep.instruction}`,
@@ -770,12 +771,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           >
             {drinkValidation.hasWrongIngredient ? (
               <>
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                 <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
               </>
             ) : (
               <>
-                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
                 <span>
                   {nextStep.toolKey === 'grinder'
                     ? 'Grind'
@@ -803,16 +804,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             data-testid="realism-mode-active-strip"
             className="flex items-center gap-1.5 shrink-0"
           >
-            <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-[10px] sm:text-xs font-semibold text-amber-200 whitespace-nowrap inline-flex items-center gap-1">
-              <Compass className="w-3 h-3 text-amber-400 shrink-0" />
+            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/45 text-[10px] sm:text-xs font-semibold text-amber-200 glass-text-crisp whitespace-nowrap inline-flex items-center gap-1">
+              <Compass className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>Realism Mode: Touch 3D Equipment directly</span>
             </span>
             <button
               type="button"
               onClick={() => onOpenModal('recipes')}
-              className="px-2 py-1 rounded-md bg-[#291c14] hover:bg-[#36251b] border border-amber-500/40 text-[10px] sm:text-xs font-semibold text-amber-100 cursor-pointer whitespace-nowrap flex items-center gap-1"
+              className="glass-btn-inner px-2 py-1 rounded-md !border-amber-400/40 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1"
             >
-              <BookOpen className="w-3 h-3 text-amber-300 shrink-0" />
+              <BookOpen className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>Recipe Codex</span>
             </button>
           </div>
@@ -825,18 +826,18 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenModal('recipes')}
-                className="px-1.5 sm:px-2 py-1 rounded-md bg-stone-800 hover:bg-stone-700 border border-stone-600 text-[10px] sm:text-xs font-medium text-amber-100 cursor-pointer whitespace-nowrap flex items-center gap-1"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-medium cursor-pointer whitespace-nowrap flex items-center gap-1"
               >
-                <BookOpen className="w-3 h-3 shrink-0" />
+                <BookOpen className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
                 <span>Recipe Book</span>
               </button>
               <button
                 type="button"
                 onClick={() => onSelectStation(2)}
-                className="px-1.5 sm:px-2 py-1 rounded-md bg-amber-500/20 border border-amber-500/40 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
+                className="px-1.5 sm:px-2 py-1 rounded-md bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors"
               >
                 <span>Espresso Bar</span>
-                <ArrowRight className="w-3 h-3 shrink-0" />
+                <ArrowRight className="w-3 h-3 shrink-0" strokeWidth={2.2} />
               </button>
             </>
           )}
@@ -847,13 +848,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 type="button"
                 data-testid="btn-action-grind"
                 onClick={() => onCupAction('grind')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors ${
                   cup.hasGrounds
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                    : 'bg-stone-800 hover:bg-stone-700 border-amber-500/50 text-amber-100'
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
+                    : 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE]'
                 }`}
               >
-                {cup.hasGrounds && <Check className="w-3 h-3 shrink-0" />}
+                {cup.hasGrounds && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
                 <span>
                   {cup.hasGrounds
                     ? 'Ground'
@@ -866,16 +867,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 type="button"
                 data-testid="btn-action-tamp"
                 onClick={() => onCupAction('tamp')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors ${
                   cup.isTamped
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
                     : cup.hasGrounds
-                    ? 'bg-stone-800 hover:bg-stone-700 border-amber-500/50 text-amber-100'
-                    : 'bg-stone-900/80 border-stone-800 text-stone-500'
+                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE]'
+                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45'
                 }`}
                 title={!cup.hasGrounds ? 'Grind beans first before tamping!' : 'Tamp coffee puck'}
               >
-                {cup.isTamped && <Check className="w-3 h-3 shrink-0" />}
+                {cup.isTamped && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
                 <span>
                   {cup.isTamped
                     ? 'Tamped'
@@ -888,12 +889,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 type="button"
                 data-testid="btn-action-shot"
                 onClick={() => onCupAction('pull_espresso')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors ${
                   cup.hasEspresso
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
                     : cup.hasGrounds && cup.isTamped
-                    ? 'bg-stone-800 hover:bg-stone-700 border-amber-500/50 text-amber-100'
-                    : 'bg-stone-900/80 border-stone-800 text-stone-500'
+                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE]'
+                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45'
                 }`}
                 title={
                   !cup.hasGrounds || !cup.isTamped
@@ -901,7 +902,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     : 'Pull 9-bar double espresso shot'
                 }
               >
-                {cup.hasEspresso && <Check className="w-3 h-3 shrink-0" />}
+                {cup.hasEspresso && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
                 <span>
                   {cup.hasEspresso
                     ? 'Shot'
@@ -917,13 +918,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   drinkValidation.hasWrongIngredient
                     ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse'
-                    : 'bg-stone-900 hover:bg-stone-800 border-stone-700 text-stone-300'
+                    : 'glass-btn-inner text-[#E7D7C1]'
                 }`}
               >
                 {drinkValidation.hasWrongIngredient ? (
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 ) : (
-                  <RotateCcw className="w-3 h-3 shrink-0" />
+                  <RotateCcw className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 )}
                 <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
               </button>
@@ -938,10 +939,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   cup.hasSteepedTea
                     ? 'bg-lime-500/25 border-lime-400 text-lime-200'
-                    : 'bg-stone-800 hover:bg-stone-700 border-lime-500/40 text-lime-200'
+                    : 'glass-btn-inner !border-lime-400/40 text-lime-200'
                 }`}
               >
-                <Leaf className="w-3 h-3 shrink-0" />
+                <Leaf className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 <span>Tea</span>
               </button>
               <button
@@ -949,13 +950,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('steam_milk')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                   cup.hasSteamedMilk
-                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
                     : cup.hasEspresso || cup.hasSteepedTea
-                    ? 'bg-stone-800 hover:bg-stone-700 border-stone-600 text-amber-100'
-                    : 'bg-stone-900/80 border-stone-800 text-stone-500'
+                    ? 'glass-btn-inner !border-amber-400/45 text-[#FAF5EE]'
+                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45'
                 }`}
               >
-                {cup.hasSteamedMilk && <Check className="w-3 h-3 shrink-0" />}
+                {cup.hasSteamedMilk && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
                 <span>Milk</span>
               </button>
               <button
@@ -964,7 +965,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap ${
                   cup.hasIce
                     ? 'bg-sky-500/25 border-sky-400 text-sky-200'
-                    : 'bg-stone-800 border-stone-600 text-sky-100'
+                    : 'glass-btn-inner !border-sky-400/35 text-sky-100'
                 }`}
               >
                 +Ice
@@ -984,7 +985,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   className={`px-1.5 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap ${
                     cup.syrup === s.id
                       ? 'bg-amber-500/25 border-amber-400 text-amber-200'
-                      : 'bg-stone-800 border-stone-700 text-stone-200 hover:text-white'
+                      : 'glass-btn-inner text-[#FAF5EE]'
                   }`}
                 >
                   {s.label}
@@ -996,7 +997,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   onClick={() => onCupAction('rinse_cup')}
                   className="px-1.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 border border-rose-300 text-[10px] sm:text-xs font-bold text-white cursor-pointer whitespace-nowrap animate-pulse flex items-center gap-1"
                 >
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>Rinse</span>
                 </button>
               )}
@@ -1010,10 +1011,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               className={`px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
                 drinkValidation.hasWrongIngredient
                   ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse'
-                  : 'bg-stone-800 hover:bg-stone-700 border-stone-700 text-stone-300'
+                  : 'glass-btn-inner text-[#E7D7C1]'
               }`}
             >
-              <RotateCcw className="w-3 h-3 shrink-0" />
+              <RotateCcw className="w-3 h-3 shrink-0" strokeWidth={2.2} />
               <span>{isApkVersion ? 'Rinse Cup' : 'Rinse Cup [R]'}</span>
             </button>
           )}
@@ -1023,22 +1024,22 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 onClick={onToggleVinyl}
-                className="px-1.5 sm:px-2 py-1 rounded-md bg-stone-800 hover:bg-stone-700 border border-amber-500/35 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-amber-400/40 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap"
               >
                 {spotifyState.isPlaying ? 'Pause Vinyl' : 'Spin Vinyl'}
               </button>
               <button
                 type="button"
                 onClick={() => onOpenModal('spotify')}
-                className="px-1.5 sm:px-2 py-1 rounded-md bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-500/40 text-[10px] sm:text-xs font-semibold text-emerald-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-emerald-400/45 text-[10px] sm:text-xs font-semibold text-emerald-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
               >
-                <Disc3 className="w-3 h-3 shrink-0" />
+                <Disc3 className="w-3 h-3 text-emerald-300 shrink-0" strokeWidth={2.2} />
                 <span>{isApkVersion ? 'Phone Spotify' : 'Spotify Web'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => onOpenModal('upgrades')}
-                className="px-1.5 sm:px-2 py-1 rounded-md bg-stone-800 hover:bg-stone-700 border border-stone-700 text-[10px] sm:text-xs font-semibold text-stone-200 cursor-pointer whitespace-nowrap"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap"
               >
                 Shop &amp; 150K
               </button>
@@ -1052,10 +1053,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => onServeCustomer()}
               className={`px-2 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
                 isDrinkReadyToServe
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-stone-950 shadow-md'
+                  ? 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 hover:brightness-105 text-[#160E09] shadow-[0_4px_14px_-3px_rgba(16,185,129,0.55)]'
                   : drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-500/60 text-rose-200'
-                  : 'bg-stone-900/90 hover:bg-stone-800 border border-stone-700 text-stone-400'
+                  ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-400/60 text-rose-200'
+                  : 'bg-black/30 hover:bg-black/45 border border-white/15 text-[#E7D7C1]/65'
               }`}
               title={
                 isDrinkReadyToServe
@@ -1068,16 +1069,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               {isDrinkReadyToServe ? (
                 <>
                   <span>Serve</span>
-                  <ArrowRight className="w-3 h-3 shrink-0" />
+                  <ArrowRight className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 </>
               ) : drinkValidation.hasWrongIngredient ? (
                 <>
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>Serve (Wrong)</span>
                 </>
               ) : (
                 <>
-                  <Lock className="w-3 h-3 shrink-0" />
+                  <Lock className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>Serve</span>
                 </>
               )}

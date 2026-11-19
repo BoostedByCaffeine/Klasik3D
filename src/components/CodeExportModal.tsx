@@ -95,25 +95,25 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="export-modal-title"
     >
-      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto bg-[#1b120d] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3.5">
-        <div className="flex items-center justify-between border-b border-stone-800 pb-2.5">
+      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5">
+        <div className="flex items-center justify-between border-b border-amber-400/20 pb-2.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300 shrink-0">
-              <Save className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+              <Save className="w-4 h-4" strokeWidth={2.2} />
             </div>
             <div>
               <h2
                 id="export-modal-title"
-                className="text-base sm:text-lg font-bold font-display text-amber-100"
+                className="text-base sm:text-lg font-bold font-display text-[#FAF5EE] glass-text-crisp"
               >
                 GitHub Deployment &amp; JSON Save Backup
               </h2>
-              <p className="text-[11px] text-stone-400">
+              <p className="text-[11px] text-[#E7D7C1]/85">
                 Cross-device save transfer &amp; lockfile-safe GitHub Pages Actions pipeline.
               </p>
             </div>
@@ -121,9 +121,9 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
+            className="px-3 py-1.5 rounded-lg glass-btn-inner text-xs font-semibold text-[#FAF5EE] cursor-pointer flex items-center gap-1"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5" strokeWidth={2.2} />
             <span>Close</span>
           </button>
         </div>
@@ -138,17 +138,17 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopySave}
-                className="px-2.5 py-1 rounded-lg bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-[11px] font-medium text-amber-200 cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 rounded-lg glass-btn-inner text-[11px] font-medium text-amber-200 cursor-pointer flex items-center gap-1"
               >
-                <Copy className="w-3 h-3 shrink-0" />
+                <Copy className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 <span>Copy JSON</span>
               </button>
               <button
                 type="button"
                 onClick={handleImportSave}
-                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                className="px-2.5 py-1 rounded-lg bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] text-[11px] font-bold cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)] flex items-center gap-1"
               >
-                <Upload className="w-3 h-3 shrink-0" />
+                <Upload className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 <span>Import &amp; Restore</span>
               </button>
             </div>
@@ -158,12 +158,12 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
             rows={4}
             value={saveJsonText}
             onChange={(e) => setSaveJsonText(e.target.value)}
-            className="w-full rounded-xl bg-[#120c09] border border-stone-800 p-2.5 text-[11px] font-mono text-stone-200 focus:outline-none focus:border-amber-500"
+            className="w-full rounded-xl bg-black/35 border border-amber-400/25 p-2.5 text-[11px] font-mono text-[#FAF5EE] focus:outline-none focus:border-amber-400"
           />
         </div>
 
         {/* GitHub Pages Deployment Guide */}
-        <div className="p-3 rounded-xl bg-[#140d09] border border-stone-800 space-y-1.5 text-[11px] font-mono text-stone-300">
+        <div className="p-3 rounded-xl bg-black/35 border border-amber-400/20 space-y-1.5 text-[11px] font-mono text-[#E7D7C1]">
           <div className="flex items-center justify-between">
             <span className="text-amber-300 font-semibold font-sans">
               GitHub Actions Auto-Deploy (.github/workflows/deploy.yml)
@@ -171,21 +171,21 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
             <button
               type="button"
               onClick={handleCopyWorkflow}
-              className="px-2 py-0.5 rounded bg-[#291c14] hover:bg-[#38261b] border border-amber-500/30 text-[10px] font-sans font-semibold text-amber-200 cursor-pointer flex items-center gap-1"
+              className="px-2 py-0.5 rounded glass-btn-inner text-[10px] font-sans font-semibold text-amber-200 cursor-pointer flex items-center gap-1"
             >
-              <Copy className="w-2.5 h-2.5 shrink-0" />
+              <Copy className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
               <span>Copy Workflow YAML</span>
             </button>
           </div>
-          <p className="text-[11px] font-sans text-stone-400 leading-relaxed">
+          <p className="text-[11px] font-sans text-[#E7D7C1]/85 leading-relaxed">
             Pre-configured in <code className="text-amber-200">.github/workflows/deploy.yml</code>{' '}
             and <code className="text-amber-200">.github/workflows/android-apk.yml</code>. In GitHub
-            Settings &rarr; Pages, set Source to <strong>GitHub Actions</strong>.
+            Settings &rarr; Pages, set Source to <strong className="text-[#FAF5EE]">GitHub Actions</strong>.
           </p>
         </div>
 
         {feedback && (
-          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-xs text-amber-200 font-medium text-center">
+          <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-400/45 text-xs text-amber-200 font-medium text-center">
             {feedback}
           </div>
         )}

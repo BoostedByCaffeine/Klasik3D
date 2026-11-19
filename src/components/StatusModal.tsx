@@ -27,28 +27,28 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-modal-title"
     >
-      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto bg-[#1b120d] border border-amber-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3.5 text-center">
+      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 text-center">
         <div className="space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-amber-400">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-amber-300 glass-text-crisp">
             {isPaused
               ? `DAY ${gameState.day} SHIFT PAUSED`
               : goalMet
               ? `DAY ${gameState.day} SHIFT COMPLETE!`
               : `DAY ${gameState.day} SHIFT ENDED`}
           </div>
-          <h2 id="status-modal-title" className="text-xl font-bold font-display text-amber-100">
+          <h2 id="status-modal-title" className="text-xl font-bold font-display text-[#FAF5EE] glass-text-crisp">
             {isPaused
               ? 'Take a Breather Behind the Bar'
               : goalMet
               ? 'Neighborhood Favorite Roaster!'
               : 'Keep Practicing Your Extraction'}
           </h2>
-          <p className="text-xs text-stone-400">
+          <p className="text-xs text-[#E7D7C1]">
             {isPaused
               ? `Daily Quota: ${gameState.cupsServedToday} / ${gameState.dailyOrderQuota} Orders (+$${DAILY_QUOTA_COMPLETION_BONUS} Quota Completion Bonus).`
               : quotaMet
@@ -61,31 +61,31 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 
         {/* 3 Tabular-Nums Stat Tiles */}
         <div className="grid grid-cols-3 gap-2">
-          <div className="p-2.5 rounded-xl bg-[#241811] border border-stone-800">
-            <div className="text-[10px] font-bold uppercase text-stone-400">SHIFT REVENUE</div>
-            <div className="text-base font-bold font-mono tabular-nums text-emerald-400 mt-0.5">
+          <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
+            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">SHIFT REVENUE</div>
+            <div className="text-base font-bold font-mono tabular-nums text-emerald-300 mt-0.5 glass-text-crisp">
               ${Math.round(gameState.dailyRevenue)}
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-[#241811] border border-stone-800">
-            <div className="text-[10px] font-bold uppercase text-stone-400">DAILY QUOTA</div>
-            <div className="text-base font-bold font-mono tabular-nums text-amber-200 mt-0.5">
+          <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
+            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">DAILY QUOTA</div>
+            <div className="text-base font-bold font-mono tabular-nums text-[#FAF5EE] mt-0.5 glass-text-crisp">
               {Math.round(gameState.cupsServedToday)} / {gameState.dailyOrderQuota}
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-[#241811] border border-stone-800">
-            <div className="text-[10px] font-bold uppercase text-stone-400">VIBE RATING</div>
-            <div className="text-base font-bold font-mono tabular-nums text-amber-400 mt-0.5">
+          <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
+            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">VIBE RATING</div>
+            <div className="text-base font-bold font-mono tabular-nums text-amber-300 mt-0.5 glass-text-crisp">
               {Math.round(gameState.satisfactionScore)}%
             </div>
           </div>
         </div>
 
         {quotaMet && (
-          <div className="p-2 rounded-xl bg-emerald-950/75 border border-emerald-500/40 text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1.5">
-            <Award className="w-4 h-4 shrink-0" />
+          <div className="p-2 rounded-xl bg-emerald-950/65 border border-emerald-400/40 text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1.5">
+            <Award className="w-4 h-4 shrink-0" strokeWidth={2.2} />
             <span>
               Daily Order Quota ({gameState.dailyOrderQuota} Orders) Completed — +$
               {DAILY_QUOTA_COMPLETION_BONUS} Bonus Awarded!
@@ -99,9 +99,9 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             <button
               type="button"
               onClick={onResume}
-              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow flex items-center justify-center gap-1.5"
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs sm:text-sm cursor-pointer shadow-[0_8px_22px_-6px_rgba(245,158,11,0.6)] flex items-center justify-center gap-1.5"
             >
-              <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+              <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
               <span>{isApkVersion ? 'Resume Shift' : 'Resume Shift [Esc / P]'}</span>
             </button>
           ) : (
@@ -109,12 +109,12 @@ export const StatusModal: React.FC<StatusModalProps> = ({
               type="button"
               data-start="true"
               onClick={onNextDayOrRetry}
-              className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs sm:text-sm cursor-pointer shadow flex items-center justify-center gap-1.5"
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs sm:text-sm cursor-pointer shadow-[0_8px_22px_-6px_rgba(245,158,11,0.6)] flex items-center justify-center gap-1.5"
             >
               {goalMet ? (
-                <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
               ) : (
-                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
               )}
               <span>
                 {goalMet
@@ -128,17 +128,17 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             <button
               type="button"
               onClick={onOpenSaveExport}
-              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-xs font-semibold text-stone-200 cursor-pointer flex items-center justify-center gap-1.5"
+              className="glass-btn-inner py-2 px-3 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <Save className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <Save className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>Backup / Restore Save</span>
             </button>
             <button
               type="button"
               onClick={onReturnToTitle}
-              className="py-2 px-3 rounded-xl bg-[#291c14] hover:bg-[#38261b] border border-stone-700 text-xs font-semibold text-stone-300 cursor-pointer flex items-center justify-center gap-1.5"
+              className="glass-btn-inner py-2 px-3 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <Home className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              <Home className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
               <span>Return to 3D Title</span>
             </button>
           </div>

@@ -56,6 +56,7 @@ export default function App() {
     new URLSearchParams(window.location.search).get('autostart') === '1';
 
   const [isLoading, setIsLoading] = useState<boolean>(!isAutostart);
+  const [isSceneReady, setIsSceneReady] = useState<boolean>(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [isPortraitRotated, setIsPortraitRotated] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false
@@ -406,6 +407,7 @@ export default function App() {
     if (!container) return;
 
     let scene: KlasikCafeScene3D | null = null;
+    let readyRaf: number | null = null;
     try {
       scene = new KlasikCafeScene3D(
         container,
@@ -436,15 +438,20 @@ export default function App() {
       );
       sceneRef.current = scene;
       setWebglError(null);
+      readyRaf = window.requestAnimationFrame(() => setIsSceneReady(true));
     } catch (err) {
       setWebglError(
         err instanceof Error
           ? err.message
           : 'WebGL 3D context could not be initialized on this device.'
       );
+      setIsSceneReady(true);
     }
 
     return () => {
+      if (readyRaf !== null) {
+        window.cancelAnimationFrame(readyRaf);
+      }
       scene?.dispose();
       sceneRef.current = null;
     };
@@ -614,16 +621,16 @@ export default function App() {
 
       {/* Safe On-Screen Recovery Fallback if WebGL or Service Worker Encounters an Error */}
       {webglError && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/90 p-4">
-          <div className="max-w-md w-full bg-[#1b120d] border border-amber-500/40 rounded-2xl p-5 text-center space-y-3 shadow-2xl">
-            <h2 className="text-lg font-bold font-display text-amber-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4">
+          <div className="max-w-md w-full glass-modal rounded-2xl p-5 text-center space-y-3">
+            <h2 className="text-lg font-bold font-display text-[#FAF5EE] glass-text-crisp">
               3D Graphics Recovery Mode
             </h2>
-            <p className="text-xs text-stone-300">{webglError}</p>
+            <p className="text-xs text-[#E7D7C1]">{webglError}</p>
             <button
               type="button"
               onClick={handleClearSwCacheAndReload}
-              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs cursor-pointer shadow-lg"
             >
               Reset Cache &amp; Reload Cafe
             </button>
@@ -631,11 +638,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Cozy Studio Preloader Splash */}
+      {/* Minimalist Cinematic "Crema Ring" Studio Splash */}
       {isLoading && (
         <LoadingScreen
-          appVersion={pwaStatus.appVersion}
-          onFinished={() => setIsLoading(false)}
+          isReady={isSceneReady}
+          onComplete={() => setIsLoading(false)}
         />
       )}
 
@@ -774,14 +781,14 @@ export default function App() {
           data-testid="persistent-spotify-embed-dock"
           className={
             activeModal === 'spotify' && spotifyState.mode === 'bridge'
-              ? 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md rounded-xl overflow-hidden border border-emerald-500/50 bg-black shadow-2xl'
+              ? 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md rounded-xl overflow-hidden glass-modal border-emerald-400/50'
               : spotifyState.showMiniEmbed && gameState.phase !== 'title'
-              ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden border border-emerald-500/45 bg-stone-950/95 shadow-xl'
+              ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden glass-panel border-emerald-400/40'
               : 'fixed -bottom-96 left-0 w-72 h-20 opacity-0 pointer-events-none overflow-hidden'
           }
         >
           {spotifyState.showMiniEmbed && activeModal !== 'spotify' && (
-            <div className="flex items-center justify-between px-2.5 py-1 bg-stone-950 border-b border-stone-800 text-[10px] text-emerald-300 font-semibold">
+            <div className="flex items-center justify-between px-2.5 py-1 bg-black/45 border-b border-amber-500/20 text-[10px] text-emerald-300 font-semibold glass-text-crisp">
               <span className="truncate flex items-center gap-1">
                 <Disc3 className="w-3 h-3 shrink-0" />
                 <span>{spotifyState.currentTrack.title}</span>

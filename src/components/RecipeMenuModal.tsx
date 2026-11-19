@@ -52,25 +52,25 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, on
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="recipe-modal-title"
     >
-      <div className="w-full max-w-2xl bg-[#1b120d] border border-[#5c3a21] rounded-2xl p-4 sm:p-5 shadow-2xl space-y-3 max-h-[84vh] flex flex-col">
-        <div className="flex items-center justify-between border-b border-stone-800 pb-2.5 shrink-0">
+      <div className="w-full max-w-2xl glass-modal rounded-2xl p-4 sm:p-5 space-y-3 max-h-[84vh] flex flex-col">
+        <div className="flex items-center justify-between border-b border-amber-400/20 pb-2.5 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-300 shrink-0">
-              <BookOpen className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+              <BookOpen className="w-4 h-4" strokeWidth={2.2} />
             </div>
             <div>
               <h2
                 id="recipe-modal-title"
-                className="text-base font-bold font-display text-amber-100"
+                className="text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
               >
                 Barista Recipe Codex (Hot Coffee, Iced Coffee, Tea &amp; Cold Drinks)
               </h2>
-              <p className="text-[11px] text-stone-400">
+              <p className="text-[11px] text-[#E7D7C1]">
                 Follow the step-by-step brewing or tea-steeping sequence for 100% accuracy tips.
               </p>
             </div>
@@ -78,9 +78,9 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, on
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
+            className="glass-btn-inner px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer flex items-center gap-1"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5" strokeWidth={2.2} />
             <span>Close</span>
           </button>
         </div>
@@ -94,10 +94,10 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, on
                 key={tab.id}
                 type="button"
                 onClick={() => setSelectedCategory(tab.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-all flex items-center gap-1.5 ${
                   selectedCategory === tab.id
-                    ? 'bg-amber-500 text-stone-950 font-bold'
-                    : 'bg-[#241811] text-stone-300 border border-stone-800 hover:border-stone-600'
+                    ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow'
+                    : 'glass-btn-inner'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -115,28 +115,28 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({ currentDay, on
                 key={recipe.id}
                 className={`p-3 rounded-xl border space-y-1.5 ${
                   unlocked
-                    ? 'bg-[#241811] border-stone-800'
-                    : 'bg-[#17100c] border-stone-900 opacity-75'
+                    ? 'bg-white/[0.06] border-amber-400/20'
+                    : 'bg-black/25 border-white/10 opacity-75'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/20"
+                      className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/25"
                       style={{ backgroundColor: recipe.colorHex }}
                     />
-                    <h3 className="text-xs font-bold text-amber-100 truncate">{recipe.name}</h3>
+                    <h3 className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">{recipe.name}</h3>
                   </div>
-                  <span className="text-xs font-bold font-mono tabular-nums text-emerald-400 shrink-0">
+                  <span className="text-xs font-bold font-mono tabular-nums text-emerald-300 shrink-0">
                     ${recipe.price}
                   </span>
                 </div>
 
-                <p className="text-[11px] text-stone-400 leading-snug line-clamp-2">
+                <p className="text-[11px] text-[#E7D7C1] leading-snug line-clamp-2">
                   {recipe.tagline}
                 </p>
 
-                <div className="text-[10px] font-mono text-amber-300/95 bg-stone-950/60 px-2 py-1 rounded border border-amber-500/20">
+                <div className="text-[10px] font-mono text-amber-200 bg-black/35 px-2 py-1 rounded border border-amber-400/25">
                   {getStepSequenceText(recipe)}
                 </div>
               </div>

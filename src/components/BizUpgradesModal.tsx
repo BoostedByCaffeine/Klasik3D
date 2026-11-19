@@ -68,37 +68,37 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 p-2.5 sm:p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-2.5 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="upgrades-modal-title"
     >
-      <div className="w-full max-w-2xl bg-[#1b120d] border border-[#5c3a21] rounded-2xl p-3.5 sm:p-5 shadow-2xl space-y-3 max-h-[86vh] flex flex-col">
+      <div className="w-full max-w-2xl glass-modal rounded-2xl p-3.5 sm:p-5 space-y-3 max-h-[86vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-stone-800 pb-2.5 shrink-0 gap-2">
+        <div className="flex items-center justify-between border-b border-amber-400/20 pb-2.5 shrink-0 gap-2">
           <div>
             <h2
               id="upgrades-modal-title"
-              className="text-sm sm:text-base font-bold font-display text-amber-100"
+              className="text-sm sm:text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
             >
               Cafe Upgrades, Golden 150K Skins &amp; Login Unlockables
             </h2>
-            <p className="text-[11px] text-stone-400">
+            <p className="text-[11px] text-[#E7D7C1]/85">
               60+ Unlockables · Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} /
               $150,000
               {isGoldenEquipped ? ' · 2x GOLDEN SALE INCOME ACTIVE!' : ''}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs font-bold font-mono tabular-nums text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+            <span className="text-xs font-bold font-mono tabular-nums text-emerald-300 bg-emerald-950/60 border border-emerald-400/35 px-2.5 py-1 rounded-lg glass-text-crisp">
               ${Math.round(cash).toLocaleString()}
             </span>
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg bg-[#291c14] hover:bg-[#38261b] text-xs font-semibold text-stone-200 cursor-pointer flex items-center gap-1"
+              className="px-3 py-1.5 rounded-lg glass-btn-inner text-xs font-semibold text-[#FAF5EE] cursor-pointer flex items-center gap-1"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5" strokeWidth={2.2} />
               <span>Close</span>
             </button>
           </div>
@@ -109,13 +109,13 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           {(
             [
               { id: 'upgrades', label: `Upgrades (${upgrades.length})`, Icon: Zap },
-              { id: 'equipment_skins', label: 'Golden 150K & Equipment Skins', Icon: Crown },
+              { id: 'equipment_skins', label: 'Golden 150K & Skins', Icon: Crown },
               {
                 id: 'customer_skins',
                 label: `Customer Skins (${customerSkinPacks.length})`,
                 Icon: Shirt,
               },
-              { id: 'login_rewards', label: 'Daily Login Rewards (7)', Icon: Gift },
+              { id: 'login_rewards', label: 'Login Rewards (7)', Icon: Gift },
             ] as const
           ).map((t) => {
             const Icon = t.Icon;
@@ -124,13 +124,13 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => setActiveTab(t.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap cursor-pointer transition-all flex items-center gap-1.5 ${
                   activeTab === t.id
-                    ? 'bg-amber-500 text-stone-950 font-bold'
-                    : 'bg-[#241811] text-stone-300 border border-stone-800 hover:border-stone-600'
+                    ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
+                    : 'glass-btn-inner text-[#E7D7C1]'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <Icon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                 <span>{t.label}</span>
               </button>
             );
@@ -145,35 +145,35 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               return (
                 <div
                   key={upg.id}
-                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-[#241811] border border-stone-800"
+                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-white/[0.06] border border-amber-400/20"
                 >
                   <div className="space-y-1">
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-bold text-amber-100 leading-tight">
+                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp leading-tight">
                         {upg.name}
                       </span>
-                      <span className="text-[10px] font-mono text-amber-400 shrink-0">
+                      <span className="text-[10px] font-mono text-amber-300 shrink-0">
                         {upg.effectLabel}
                       </span>
                     </div>
-                    <p className="text-[11px] text-stone-400 leading-snug">{upg.description}</p>
+                    <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">{upg.description}</p>
                   </div>
 
                   <button
                     type="button"
                     disabled={upg.purchased || !canAfford}
                     onClick={() => onPurchaseUpgrade(upg.id)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono tabular-nums whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono tabular-nums whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
                       upg.purchased
-                        ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 cursor-default'
+                        ? 'bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 cursor-default'
                         : canAfford
-                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer shadow'
-                        : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
+                        ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
+                        : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
                     }`}
                   >
                     {upg.purchased ? (
                       <>
-                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                         <span>Installed</span>
                       </>
                     ) : (
@@ -190,23 +190,23 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
         {activeTab === 'equipment_skins' && (
           <div className="space-y-3 overflow-y-auto pr-1">
             {/* Hero Golden Espresso Machine Milestone Banner */}
-            <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/90 via-[#2b1d0e] to-amber-950/90 border-2 border-amber-400/70 space-y-2">
+            <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/75 via-amber-900/35 to-amber-950/75 border-2 border-amber-400/70 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 flex items-center gap-1">
-                    <Trophy className="w-3 h-3 shrink-0" />
+                    <Trophy className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                     <span>TRUE GRINDER PRESTIGE REWARD · 2X SALE INCOME MULTIPLIER</span>
                   </span>
-                  <h3 className="text-sm font-bold text-amber-100">
+                  <h3 className="text-sm font-bold text-[#FAF5EE] glass-text-crisp">
                     Golden Espresso Machine (24K Solid Gold Dual-Boiler)
                   </h3>
                 </div>
-                <span className="text-xs font-mono font-bold text-amber-300 bg-stone-950/70 px-2.5 py-1 rounded-lg border border-amber-400/40">
+                <span className="text-xs font-mono font-bold text-amber-300 bg-black/45 px-2.5 py-1 rounded-lg border border-amber-400/40">
                   ${Math.round(lifetimeGrossIncome).toLocaleString()} / $150,000 Gross
                 </span>
               </div>
 
-              <div className="w-full h-2.5 rounded-full bg-stone-950 overflow-hidden border border-amber-500/30">
+              <div className="w-full h-2.5 rounded-full bg-black/45 overflow-hidden border border-amber-400/30">
                 <div
                   className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all"
                   style={{ width: `${grossPct}%` }}
@@ -214,7 +214,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <span className="text-[11px] text-amber-100/90">
+                <span className="text-[11px] text-[#E7D7C1]/95">
                   Earned exclusively by grinding to $150,000 gross income. Doubles (2x) all drink
                   sale income &amp; table tips once equipped!
                 </span>
@@ -222,9 +222,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   {lifetimeGrossIncome < GOLDEN_MACHINE_GROSS_THRESHOLD ? (
                     <span
                       data-testid="golden-machine-locked-badge"
-                      className="px-3 py-1.5 rounded-lg bg-stone-950/90 border border-amber-500/35 text-stone-400 font-mono font-bold text-xs inline-flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-lg bg-black/45 border border-amber-400/35 text-[#E7D7C1]/75 font-mono font-bold text-xs inline-flex items-center gap-1.5"
                     >
-                      <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <Lock className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
                       <span>
                         Locked · Grind ${remainingGrossForGold.toLocaleString()} More ({grossPct}%)
                       </span>
@@ -238,9 +238,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                           isGoldenEquipped ? 'classic-steel' : 'golden-espresso-machine'
                         )
                       }
-                      className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-stone-950 font-bold text-xs cursor-pointer shadow flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] font-bold text-xs cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)] flex items-center gap-1.5"
                     >
-                      <Trophy className="w-3.5 h-3.5 shrink-0" />
+                      <Trophy className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                       <span>
                         {isGoldenEquipped
                           ? 'Equipped (2x Active) · Unequip'
@@ -268,8 +268,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     key={skin.id}
                     className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                       isEquipped
-                        ? 'bg-[#2c1f14] border-amber-400'
-                        : 'bg-[#241811] border-stone-800'
+                        ? 'bg-amber-500/15 border-amber-400/75'
+                        : 'bg-white/[0.06] border-amber-400/20'
                     }`}
                   >
                     <div className="space-y-1">
@@ -279,37 +279,39 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                             className="w-3 h-3 rounded-full shrink-0 border border-white/30"
                             style={{ backgroundColor: skin.previewColorHex }}
                           />
-                          <span className="text-xs font-bold text-amber-100 truncate">
+                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
                             {skin.name}
                           </span>
                         </div>
-                        <span className="text-[10px] font-mono uppercase text-amber-400 shrink-0">
+                        <span className="text-[10px] font-mono uppercase text-amber-300 shrink-0">
                           {skin.slot}
                         </span>
                       </div>
-                      <p className="text-[11px] text-stone-400 leading-snug">{skin.description}</p>
+                      <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">
+                        {skin.description}
+                      </p>
                     </div>
 
                     <button
                       type="button"
                       disabled={isEquipped || !canAfford}
                       onClick={() => onUnlockOrEquipEquipmentSkin(skin.id)}
-                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors flex items-center justify-center gap-1.5 ${
+                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
                         isEquipped
-                          ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 cursor-default'
+                          ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
                           : canAfford
-                          ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer'
-                          : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
+                          ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                          : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
                       }`}
                     >
                       {isEquipped ? (
                         <>
-                          <Check className="w-3.5 h-3.5 shrink-0" />
+                          <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                           <span>Equipped on 3D Counter</span>
                         </>
                       ) : needsGross ? (
                         <>
-                          <Lock className="w-3.5 h-3.5 shrink-0" />
+                          <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                           <span>Requires $150K Gross ({grossPct}%)</span>
                         </>
                       ) : skin.unlocked ? (
@@ -336,41 +338,43 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   key={pack.id}
                   className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                     isEquipped
-                      ? 'bg-[#2c1f14] border-amber-400'
-                      : 'bg-[#241811] border-stone-800'
+                      ? 'bg-amber-500/15 border-amber-400/75'
+                      : 'bg-white/[0.06] border-amber-400/20'
                   }`}
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-1.5">
-                      <span className="text-xs font-bold text-amber-100">{pack.name}</span>
+                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp">
+                        {pack.name}
+                      </span>
                       <div className="flex items-center gap-1">
                         {pack.paletteColors.slice(0, 4).map((hex) => (
                           <span
                             key={hex}
-                            className="w-2.5 h-2.5 rounded-full border border-white/20"
+                            className="w-2.5 h-2.5 rounded-full border border-white/25"
                             style={{ backgroundColor: hex }}
                           />
                         ))}
                       </div>
                     </div>
-                    <p className="text-[11px] text-stone-400 leading-snug">{pack.description}</p>
+                    <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">{pack.description}</p>
                   </div>
 
                   <button
                     type="button"
                     disabled={isEquipped || !canAfford}
                     onClick={() => onUnlockOrEquipCustomerPack(pack.id)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
                       isEquipped
-                        ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 cursor-default'
+                        ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
                         : canAfford
-                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer'
-                        : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
+                        ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                        : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
                     }`}
                   >
                     {isEquipped ? (
                       <>
-                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                         <span>Active Patron Style</span>
                       </>
                     ) : pack.unlocked ? (
@@ -408,34 +412,36 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-[#241811] border border-stone-800"
+                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-white/[0.06] border border-amber-400/20"
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-bold text-amber-100">{item.title}</span>
-                      <span className="text-[10px] font-mono text-emerald-400 shrink-0">
+                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp">
+                        {item.title}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-300 shrink-0">
                         {item.rewardLabel}
                       </span>
                     </div>
-                    <p className="text-[11px] text-stone-400 leading-snug">{item.description}</p>
+                    <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">{item.description}</p>
 
                     {/* Verifiable Playtime & Orders Progress Bar */}
                     <div className="space-y-1 pt-1">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-stone-300">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#E7D7C1]">
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-amber-300 shrink-0" />
+                          <Clock className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
                           <span>
                             {fmtTime(activeSecs)} / {fmtTime(reqSecs)} Shift Time
                           </span>
                         </span>
                         <span className="flex items-center gap-1">
-                          <Coffee className="w-3 h-3 text-amber-300 shrink-0" />
+                          <Coffee className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
                           <span>
                             {servedOrders} / {reqOrders} Orders
                           </span>
                         </span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-stone-950 overflow-hidden border border-stone-700/70">
+                      <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-amber-400/25">
                         <div
                           className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all"
                           style={{ width: `${item.claimed ? 100 : overallPct}%` }}
@@ -448,24 +454,24 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     type="button"
                     disabled={item.claimed || !isUnlockedToClaim}
                     onClick={() => onClaimLoginReward(item.day)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-colors flex items-center justify-center gap-1 ${
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
                       item.claimed
-                        ? 'bg-emerald-950/60 border border-emerald-600/40 text-emerald-300 cursor-default'
+                        ? 'bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 cursor-default'
                         : isUnlockedToClaim
-                        ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 cursor-pointer shadow'
-                        : 'bg-stone-900 border border-stone-800 text-stone-500 cursor-not-allowed'
+                        ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
+                        : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
                     }`}
                   >
                     {item.claimed ? (
                       <>
-                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                         <span>Claimed</span>
                       </>
                     ) : isUnlockedToClaim ? (
                       <span>Claim Tier {item.day} Unlockable</span>
                     ) : (
                       <>
-                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                         <span>Locked ({overallPct}% Complete)</span>
                       </>
                     )}
