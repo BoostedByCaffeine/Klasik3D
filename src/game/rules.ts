@@ -5,14 +5,170 @@
 
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
-export type WeatherMode = 'morning' | 'golden' | 'rainy' | 'night' | 'rainy-night';
-export type BaristaStationId = 1 | 2 | 3 | 4 | 5;
-export type GraphicsQuality = 'low' | 'max';
+export type TimeOfDayMode = 'auto' | 'dawn' | 'morning' | 'noon' | 'golden' | 'night';
+export type ResolvedTimeOfDay = 'dawn' | 'morning' | 'noon' | 'golden' | 'night';
+export type RainPreference = 'auto' | 'clear' | 'rain';
+export type WeatherMode =
+  | 'dawn'
+  | 'rainy-dawn'
+  | 'morning'
+  | 'noon'
+  | 'rainy-noon'
+  | 'golden'
+  | 'rainy-golden'
+  | 'rainy'
+  | 'night'
+  | 'rainy-night';
+export type BaristaStationId = 1 | 2 | 3 | 4 | 5 | 6;
+export type GraphicsQuality = 'low' | 'medium' | 'max';
 export type OrderType = 'dine-in' | 'takeout';
 export type CupVesselType = 'hot-mug' | 'iced-glass' | 'hot-takeout' | 'iced-takeout';
+export type PastryId = 'daisy-donut' | 'miata-cake' | 'croissant';
+export type DeliveryRiderVariant = 'blue' | 'green' | 'red';
+
+export interface PastrySpec {
+  id: PastryId;
+  name: string;
+  shortName: string;
+  price: number;
+  description: string;
+  accentHex: string;
+}
+
+export const PASTRY_CATALOG: readonly PastrySpec[] = [
+  {
+    id: 'daisy-donut',
+    name: 'Daisy Donut',
+    shortName: 'Daisy Donut',
+    price: 4,
+    description: 'White Bavarian-glazed brioche donut with sunny yellow cream center.',
+    accentHex: '#facc15',
+  },
+  {
+    id: 'miata-cake',
+    name: 'Miata Cake',
+    shortName: 'Miata Cake',
+    price: 5,
+    description: 'Crimson red velvet strawberry slice with layered cream frosting & berry crown.',
+    accentHex: '#dc2626',
+  },
+  {
+    id: 'croissant',
+    name: 'Croissant',
+    shortName: 'Croissant',
+    price: 4,
+    description: 'Flaky hand-laminated golden French butter croissant baked warm.',
+    accentHex: '#d97706',
+  },
+] as const;
+
+export const ALL_PASTRY_IDS: readonly PastryId[] = PASTRY_CATALOG.map((p) => p.id);
+
+export function getPastryById(id: PastryId | null | undefined): PastrySpec | null {
+  if (!id) return null;
+  return PASTRY_CATALOG.find((p) => p.id === id) || null;
+}
+
+export function isValidPastryId(val: unknown): val is PastryId {
+  return val === 'daisy-donut' || val === 'miata-cake' || val === 'croissant';
+}
+
+export interface DailyQuotaState {
+  dateKey: string; // Local calendar date 'YYYY-MM-DD'
+  cupsServedToday: number; // Resets automatically at local midnight
+  dailyCupQuota: number; // Default: 35 cups per 24-hour day
+  quotaBonusClaimed: boolean; // True once $120 daily owner bonus is awarded today
+}
+
+export interface DailyLoginState {
+  lastClaimDateKey: string | null; // 'YYYY-MM-DD' of last claimed reward
+  lastClaimTimestamp: number | null; // Epoch ms of last claim
+  streakDay: number; // 1..7 repeating weekly streak
+  claimedToday: boolean; // True if lastClaimDateKey === getLocalDateKey()
+}
+
+export function getLocalDateKey(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function getCalendarDayDiff(fromDateKey: string, toDateKey: string): number {
+  const [fy, fm, fd] = fromDateKey.split('-').map(Number);
+  const [ty, tm, td] = toDateKey.split('-').map(Number);
+  if (!fy || !fm || !fd || !ty || !tm || !td) return 0;
+  const fromUtc = Date.UTC(fy, fm - 1, fd);
+  const toUtc = Date.UTC(ty, tm - 1, td);
+  return Math.round((toUtc - fromUtc) / 86_400_000);
+}
+
+export function formatLocalClock(now: Date = new Date()): string {
+  const hours24 = now.getHours();
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  const suffix = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${mins} ${suffix}`;
+}
+
+export function getTimeUntilMidnightLabel(now: Date = new Date()): string {
+  const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  const diffMs = Math.max(0, nextMidnight.getTime() - now.getTime());
+  const totalMins = Math.ceil(diffMs / 60_000);
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  return `Next reward in ${String(hours).padStart(2, '0')}h ${String(mins).padStart(2, '0')}m`;
+}
+
+export function resolveDeviceTimeOfDay(date: Date = new Date()): ResolvedTimeOfDay {
+  const totalMins = date.getHours() * 60 + date.getMinutes();
+  if (totalMins >= 300 && totalMins <= 389) return 'dawn'; // 05:00 - 06:29
+  if (totalMins >= 390 && totalMins <= 659) return 'morning'; // 06:30 - 10:59
+  if (totalMins >= 660 && totalMins <= 929) return 'noon'; // 11:00 - 15:29
+  if (totalMins >= 930 && totalMins <= 1109) return 'golden'; // 15:30 - 18:29
+  return 'night'; // 18:30 - 04:59
+}
+
+export function resolveTimeOfDay(
+  mode: TimeOfDayMode,
+  date: Date = new Date()
+): ResolvedTimeOfDay {
+  if (mode === 'auto') return resolveDeviceTimeOfDay(date);
+  return mode;
+}
+
+export function resolveCompositeWeather(
+  time: ResolvedTimeOfDay,
+  isRaining: boolean
+): WeatherMode {
+  if (!isRaining) return time;
+  if (time === 'morning') return 'rainy';
+  if (time === 'dawn') return 'rainy-dawn';
+  if (time === 'noon') return 'rainy-noon';
+  if (time === 'golden') return 'rainy-golden';
+  return 'rainy-night';
+}
+
+export function extractTimeOfDayFromWeather(weather: WeatherMode): ResolvedTimeOfDay {
+  if (weather === 'dawn' || weather === 'rainy-dawn') return 'dawn';
+  if (weather === 'noon' || weather === 'rainy-noon') return 'noon';
+  if (weather === 'golden' || weather === 'rainy-golden') return 'golden';
+  if (weather === 'night' || weather === 'rainy-night') return 'night';
+  return 'morning';
+}
+
+export function rollAutoRain(rng: () => number = Math.random): boolean {
+  return rng() < 0.28;
+}
 
 export function isRainyWeather(weather: WeatherMode): boolean {
-  return weather === 'rainy' || weather === 'rainy-night';
+  return (
+    weather === 'rainy' ||
+    weather === 'rainy-dawn' ||
+    weather === 'rainy-noon' ||
+    weather === 'rainy-golden' ||
+    weather === 'rainy-night'
+  );
 }
 
 export function isNightWeather(weather: WeatherMode): boolean {
@@ -21,8 +177,13 @@ export function isNightWeather(weather: WeatherMode): boolean {
 
 export function normalizeWeatherMode(val: unknown): WeatherMode {
   if (
+    val === 'dawn' ||
+    val === 'rainy-dawn' ||
     val === 'morning' ||
+    val === 'noon' ||
+    val === 'rainy-noon' ||
     val === 'golden' ||
+    val === 'rainy-golden' ||
     val === 'rainy' ||
     val === 'night' ||
     val === 'rainy-night'
@@ -32,17 +193,46 @@ export function normalizeWeatherMode(val: unknown): WeatherMode {
   return 'morning';
 }
 
+export function normalizeTimeOfDayMode(val: unknown): TimeOfDayMode {
+  if (
+    val === 'auto' ||
+    val === 'dawn' ||
+    val === 'morning' ||
+    val === 'noon' ||
+    val === 'golden' ||
+    val === 'night'
+  ) {
+    return val;
+  }
+  return 'auto';
+}
+
+export function normalizeRainPreference(val: unknown): RainPreference {
+  if (val === 'auto' || val === 'clear' || val === 'rain') {
+    return val;
+  }
+  return 'auto';
+}
+
 export const STORAGE_GFX_KEY = 'klasik3d_gfx_quality_v2';
 
 export function normalizeGraphicsQuality(val: unknown): GraphicsQuality {
-  return val === 'max' ? 'max' : 'low';
+  if (val === 'max') return 'max';
+  if (val === 'medium') return 'medium';
+  return 'low';
+}
+
+export function cycleGraphicsQuality(current: GraphicsQuality): GraphicsQuality {
+  if (current === 'low') return 'medium';
+  if (current === 'medium') return 'max';
+  return 'low';
 }
 
 export function loadSavedGraphicsQuality(): GraphicsQuality {
   if (typeof window === 'undefined') return 'low';
   try {
     const saved = window.localStorage.getItem(STORAGE_GFX_KEY);
-    return saved === 'max' ? 'max' : 'low';
+    return normalizeGraphicsQuality(saved);
   } catch {
     return 'low';
   }
@@ -441,7 +631,10 @@ export function isValidCafeCatId(val: unknown): val is CafeCatId {
 export const SHIFT_SECONDS = 300;
 export const MAX_QUEUE = 3;
 export const MAX_GARDEN_SEATS = 6;
-export const DAILY_QUOTA_COMPLETION_BONUS = 50;
+export const DAILY_REALTIME_CUP_QUOTA = 35;
+export const DAILY_QUOTA_COMPLETION_BONUS = 120;
+export const DELIVERY_PARTNER_BONUS = 3;
+export const DELIVERY_RIDER_MIN_REGULAR_COOLDOWN = 3;
 export const GOLDEN_MACHINE_GROSS_THRESHOLD = 150000;
 export const MIN_ARRIVAL_GAP_SEC = 3.2;
 
@@ -512,13 +705,13 @@ export function stripKeyboardShortcutsForApk(text: string, isApk: boolean): stri
     .trim();
 }
 
-export function getDailyOrderQuota(day: number): number {
-  return Math.min(50, 30 + (Math.max(1, day) - 1) * 5);
+export function getDailyOrderQuota(_day: number = 1): number {
+  return DAILY_REALTIME_CUP_QUOTA;
 }
 
 export function getDailyRevenueGoal(day: number): number {
   const quota = getDailyOrderQuota(day);
-  return quota * 7 + (Math.max(1, day) - 1) * 20;
+  return quota * 8 + (Math.max(1, day) - 1) * 20;
 }
 
 export interface DrinkRecipe {
@@ -822,6 +1015,9 @@ export interface CustomerOrder {
   customBonusTip: number;
   customNeedsIce?: boolean;
   customSyrup?: SyrupFlavor;
+  requestedPastry?: PastryId | null; // Optional single pastry paired with coffee (always set for Delivery Riders)
+  isDeliveryRider?: boolean;
+  riderVariant?: DeliveryRiderVariant;
   socialBehavior: CustomerSocialBehavior;
 }
 
@@ -926,6 +1122,9 @@ export interface KlasikGameState {
   phase: GamePhase;
   mode: GameMode;
   weather: WeatherMode;
+  timeOfDayMode: TimeOfDayMode;
+  rainPreference: RainPreference;
+  isRaining: boolean;
   activeStation: BaristaStationId;
   graphicsQuality: GraphicsQuality;
   realismMode: boolean;
@@ -936,15 +1135,19 @@ export interface KlasikGameState {
   dailyGoal: number;
   dailyOrderQuota: number;
   quotaBonusAwarded: boolean;
+  dailyQuota: DailyQuotaState;
+  dailyLogin: DailyLoginState;
   cupsServedToday: number;
   totalCupsServed: number;
   satisfactionScore: number; // 0..100
-  shiftTimeRemaining: number; // seconds (300s per shift)
-  activeShiftSeconds: number; // verifiable active shift playtime in seconds
+  shiftTimeRemaining: number; // legacy field retained for compatibility (no forced 5-min timeout)
+  activeShiftSeconds: number; // verifiable active shop playtime in seconds
   waveCustomersRemaining: number; // remaining customers in current 2-3 customer wave
   nextCustomerSpawnTimer: number; // seconds until next 1-by-1 customer walks in or wave cooldown ends
+  regularCustomersSinceLastRider: number; // cooldown tracker for rare Delivery Rider NPCs
   pinnedOrderId: string | null;
   currentCup: CupBuildState;
+  preparedPastry: PastryId | null; // 100% decoupled from currentCup brew steps!
   activeStepLock?: ActiveStepAction | null;
   customers: CustomerOrder[];
   upgrades: BizUpgradeItem[];
@@ -1417,6 +1620,7 @@ export function createInitialGameState(): KlasikGameState {
       'Morning! Could I get a hot Garage Velvet Latte with extra silky 65°C microfoam?',
     customAddons: ['+Extra Shot', '+Velvet Foam'],
     customBonusTip: 2,
+    requestedPastry: null,
     socialBehavior: 'car_selfie',
   };
 
@@ -1445,6 +1649,7 @@ export function createInitialGameState(): KlasikGameState {
     customBonusTip: 3,
     customNeedsIce: true,
     customSyrup: 'caramel',
+    requestedPastry: null,
     socialBehavior: 'laptop',
   };
 
@@ -1472,14 +1677,24 @@ export function createInitialGameState(): KlasikGameState {
     customAddons: ['+Steeped Tea', '+Vanilla'],
     customBonusTip: 3,
     customSyrup: 'vanilla',
+    requestedPastry: null,
     socialBehavior: 'selfie',
   };
 
   const day = 1;
+  const now = new Date();
+  const todayKey = getLocalDateKey(now);
+  const resolvedTime = resolveDeviceTimeOfDay(now);
+  const initialRain = false;
+  const initialWeather = resolveCompositeWeather(resolvedTime, initialRain);
+
   return {
     phase: 'title',
     mode: 'career',
-    weather: 'morning',
+    weather: initialWeather,
+    timeOfDayMode: 'auto',
+    rainPreference: 'auto',
+    isRaining: initialRain,
     activeStation: 2,
     graphicsQuality: 'low',
     realismMode: false,
@@ -1488,8 +1703,20 @@ export function createInitialGameState(): KlasikGameState {
     lifetimeGrossIncome: 0,
     dailyRevenue: 0,
     dailyGoal: getDailyRevenueGoal(day),
-    dailyOrderQuota: getDailyOrderQuota(day),
+    dailyOrderQuota: DAILY_REALTIME_CUP_QUOTA,
     quotaBonusAwarded: false,
+    dailyQuota: {
+      dateKey: todayKey,
+      cupsServedToday: 0,
+      dailyCupQuota: DAILY_REALTIME_CUP_QUOTA,
+      quotaBonusClaimed: false,
+    },
+    dailyLogin: {
+      lastClaimDateKey: null,
+      lastClaimTimestamp: null,
+      streakDay: 1,
+      claimedToday: false,
+    },
     cupsServedToday: 0,
     totalCupsServed: 0,
     satisfactionScore: 100,
@@ -1497,8 +1724,10 @@ export function createInitialGameState(): KlasikGameState {
     activeShiftSeconds: 0,
     waveCustomersRemaining: 2,
     nextCustomerSpawnTimer: 5,
+    regularCustomersSinceLastRider: 3,
     pinnedOrderId: firstCustomer.id,
     currentCup: createEmptyCup(),
+    preparedPastry: null,
     activeStepLock: null,
     customers: [firstCustomer, secondCustomer, thirdCustomer],
     upgrades: INITIAL_UPGRADES.map((u) => ({ ...u })),
@@ -1691,14 +1920,77 @@ export function getStepDurationMs(
   return 450;
 }
 
+export function preparePastry(
+  state: KlasikGameState,
+  pastryId: PastryId
+): KlasikGameState {
+  const spec = getPastryById(pastryId);
+  if (!spec) return state;
+  const activeOrder =
+    state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
+    state.customers.find((c) => c.state === 'ordering');
+  const isTakeout = activeOrder?.orderType === 'takeout' || Boolean(activeOrder?.isDeliveryRider);
+  const containerLabel = isTakeout ? 'Kraft Paper Bag' : 'Mini Porcelain Plate';
+  return {
+    ...state,
+    preparedPastry: pastryId,
+    lastActionFeedback: `Placed ${spec.name} into ${containerLabel} beside the Serving Coaster! (Coffee steps stay untouched.)`,
+  };
+}
+
+export function clearPreparedPastry(state: KlasikGameState): KlasikGameState {
+  return {
+    ...state,
+    preparedPastry: null,
+  };
+}
+
+export function isOrderReadyToServe(
+  cup: CupBuildState,
+  preparedPastry: PastryId | null | undefined,
+  order: CustomerOrder | null | undefined
+): {
+  ready: boolean;
+  drinkReady: boolean;
+  pastryReady: boolean;
+  hasWrongIngredient: boolean;
+  missingSteps: string[];
+  missingPastry: PastrySpec | null;
+} {
+  if (!order) {
+    return {
+      ready: false,
+      drinkReady: false,
+      pastryReady: true,
+      hasWrongIngredient: false,
+      missingSteps: ['Accept an order'],
+      missingPastry: null,
+    };
+  }
+  const recipe = getRecipeById(order.recipeId);
+  const validation = validateDrinkForServe(cup, recipe, order);
+  const drinkReady = validation.isComplete && !validation.hasWrongIngredient;
+  const reqPastry = order.requestedPastry ? getPastryById(order.requestedPastry) : null;
+  const pastryReady = !reqPastry || preparedPastry === reqPastry.id;
+  return {
+    ready: drinkReady && pastryReady,
+    drinkReady,
+    pastryReady,
+    hasWrongIngredient: validation.hasWrongIngredient,
+    missingSteps: validation.missingSteps,
+    missingPastry: pastryReady ? null : reqPastry,
+  };
+}
+
 // Determines the next recommended action & station for the smart diegetic halo highlighter
 export function getNextRecommendedStep(
   cup: CupBuildState,
   targetRecipe: DrinkRecipe | null,
-  targetOrder?: CustomerOrder | null
+  targetOrder?: CustomerOrder | null,
+  preparedPastry?: PastryId | null
 ): {
   station: BaristaStationId;
-  toolKey: 'grinder' | 'tamper' | 'espresso' | 'tea' | 'milk' | 'ice' | 'syrup' | 'serve' | 'rinse';
+  toolKey: 'pastry' | 'grinder' | 'tamper' | 'espresso' | 'tea' | 'milk' | 'ice' | 'syrup' | 'serve' | 'rinse';
   instruction: string;
   isError?: boolean;
 } {
@@ -1707,9 +1999,9 @@ export function getNextRecommendedStep(
 
   if (validation.hasWrongIngredient) {
     return {
-      station: 2,
+      station: 3,
       toolKey: 'rinse',
-      instruction: `Wrong addition (${validation.wrongIngredients[0]})! Rinse cup [R] at Sink to restart`,
+      instruction: `Wrong addition (${validation.wrongIngredients[0]})! Rinse/Discard cup [R] at Station 3 to restart`,
       isError: true,
     };
   }
@@ -1717,63 +2009,76 @@ export function getNextRecommendedStep(
   if (recipe.needsEspresso) {
     if (!cup.hasGrounds) {
       return {
-        station: 2,
+        station: 3,
         toolKey: 'grinder',
-        instruction: 'Grind fresh dark-roast beans into portafilter (Station 2)',
+        instruction: 'Grind fresh dark-roast beans into portafilter (Station 3)',
       };
     }
     if (!cup.isTamped) {
       return {
-        station: 2,
+        station: 3,
         toolKey: 'tamper',
-        instruction: 'Tamp coffee grounds evenly on the tamping mat (Station 2)',
+        instruction: 'Tamp coffee grounds evenly on the tamping mat (Station 3)',
       };
     }
     if (!cup.hasEspresso) {
       return {
-        station: 2,
+        station: 3,
         toolKey: 'espresso',
-        instruction: 'Pull 9-bar double espresso shot into ceramic mug (Station 2)',
+        instruction: 'Pull 9-bar double espresso shot into cup (Station 3)',
       };
     }
   }
 
   if (recipe.needsTeaSteep && !cup.hasSteepedTea) {
     return {
-      station: 3,
+      station: 4,
       toolKey: 'tea',
-      instruction: 'Steep artisanal tea leaves & botanicals in the Glass Teapot (Station 3)',
+      instruction: 'Steep artisanal tea leaves & botanicals in the Glass Teapot (Station 4)',
     };
   }
 
   if (recipe.syrup !== 'none' && cup.syrup !== recipe.syrup) {
     return {
-      station: 3,
+      station: 4,
       toolKey: 'syrup',
-      instruction: `Pump ${recipe.syrup.toUpperCase()} flavor into the cup on Assembly Coaster (Station 3)`,
+      instruction: `Pump ${recipe.syrup.toUpperCase()} flavor into the cup on Assembly Coaster (Station 4)`,
     };
   }
 
   if (recipe.needsIce && !cup.hasIce) {
     return {
-      station: 3,
+      station: 4,
       toolKey: 'ice',
-      instruction: 'Scoop crystal ice cubes into the cup on Assembly Coaster (Station 3)',
+      instruction: 'Scoop crystal ice cubes into the cup on Assembly Coaster (Station 4)',
     };
   }
 
   if (recipe.needsSteamedMilk && !cup.hasSteamedMilk) {
     return {
-      station: 3,
+      station: 4,
       toolKey: 'milk',
-      instruction: 'Steam silky microfoam milk & pour Rosetta latte art (Station 3)',
+      instruction: 'Steam silky microfoam milk & pour Rosetta latte art (Station 4)',
+    };
+  }
+
+  if (
+    preparedPastry !== undefined &&
+    targetOrder?.requestedPastry &&
+    preparedPastry !== targetOrder.requestedPastry
+  ) {
+    const pastry = getPastryById(targetOrder.requestedPastry);
+    return {
+      station: 1,
+      toolKey: 'pastry',
+      instruction: `Grab ${pastry?.name || 'Pastry'} from the Glass Pastry Case (Station 1)`,
     };
   }
 
   return {
-    station: 4,
+    station: 5,
     toolKey: 'serve',
-    instruction: `Ring bell & serve finished ${recipe.name} at Pickup Counter (Station 4)`,
+    instruction: `Ring bell & serve finished ${recipe.name} at Pickup Counter (Station 5)`,
   };
 }
 
@@ -1846,10 +2151,14 @@ export function calculateDrinkPayout(
   recipe: DrinkRecipe,
   accuracy: number,
   customerMood: number,
-  customBonusTip = 0
+  customBonusTip = 0,
+  pastryId: PastryId | null = null,
+  isDeliveryRider = false
 ): {
   totalPayout: number;
   basePrice: number;
+  pastryPrice: number;
+  deliveryBonus: number;
   tip: number;
   speedTip: number;
   speedTipLabel: string | null;
@@ -1858,6 +2167,10 @@ export function calculateDrinkPayout(
   catRevenueMultiplier: number;
 } {
   const basePrice = Math.max(1, Math.round(recipe.price * (accuracy / 100)));
+  const pastrySpec = getPastryById(pastryId);
+  const pastryPrice = pastrySpec ? pastrySpec.price : 0;
+  const deliveryBonus = isDeliveryRider ? DELIVERY_PARTNER_BONUS : 0;
+
   let upgradeBonus = 0;
   for (const upg of state.upgrades) {
     if (!upg.purchased) continue;
@@ -1873,7 +2186,7 @@ export function calculateDrinkPayout(
   }
 
   const earnedCustomTip = accuracy === 100 ? customBonusTip : 0;
-  const tip = accuracy >= 75 ? moodTip + upgradeBonus + earnedCustomTip : 0;
+  const tip = accuracy >= 75 ? moodTip + upgradeBonus + earnedCustomTip + deliveryBonus : 0;
 
   // Golden Espresso Machine Skin doubles (2x) all drink sale income once equipped!
   const machineMultiplier = state.equippedMachineSkin === 'golden-espresso-machine' ? 2 : 1;
@@ -1882,11 +2195,13 @@ export function calculateDrinkPayout(
   const catRevenueMultiplier = equippedCat.revenueMultiplier || 1.0;
   const totalMultiplier = machineMultiplier * catRevenueMultiplier;
 
-  const rawTotal = basePrice + tip;
+  const rawTotal = basePrice + pastryPrice + tip;
   const totalPayout = Math.round(rawTotal * totalMultiplier);
   return {
     totalPayout,
     basePrice: Math.round(basePrice * totalMultiplier),
+    pastryPrice: Math.round(pastryPrice * totalMultiplier),
+    deliveryBonus: Math.round(deliveryBonus * totalMultiplier),
     tip: Math.round(tip * totalMultiplier),
     speedTip: Math.round(moodTip * totalMultiplier),
     speedTipLabel: moodTipLabel,
@@ -1921,11 +2236,18 @@ export function performCupAction(
   let activeStation = state.activeStation;
 
   if (action === 'rinse_cup') {
+    const activeOrder =
+      state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
+      state.customers.find((c) => c.state === 'ordering');
+    const vessel = getOrderVesselType(activeOrder);
+    const isTakeout = vessel === 'hot-takeout' || vessel === 'iced-takeout';
     return {
       ...state,
-      activeStation: 2,
+      activeStation: 3,
       currentCup: createEmptyCup(),
-      lastActionFeedback: 'Rinsed ceramic cup & knocked spent puck into the Knock Box.',
+      lastActionFeedback: isTakeout
+        ? 'Tossed disposable takeout cup into the Barista Trash Chute & grabbed a fresh cup.'
+        : 'Inverted cup on the pressurized Rinser & sprayed sparkling clean.',
     };
   }
 
@@ -1935,15 +2257,20 @@ export function performCupAction(
       state.customers.find((c) => c.state === 'ordering');
     const targetRecipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : RECIPES[1];
     const effectiveRecipe = getEffectiveRecipeForOrder(pinnedOrder, targetRecipe);
-    const step = getNextRecommendedStep(cup, targetRecipe, pinnedOrder);
+    const step = getNextRecommendedStep(cup, targetRecipe, pinnedOrder, state.preparedPastry);
     activeStation = step.station;
 
     if (step.toolKey === 'rinse') {
       return {
         ...state,
-        activeStation: 2,
+        activeStation: 3,
         currentCup: createEmptyCup(),
-        lastActionFeedback: 'Rinsed cup at Stainless Sink [R] after wrong ingredient.',
+        lastActionFeedback: 'Cleared cup at Rinser / Trash Chute [R] after wrong ingredient.',
+      };
+    } else if (step.toolKey === 'pastry' && pinnedOrder?.requestedPastry) {
+      return {
+        ...preparePastry(state, pinnedOrder.requestedPastry),
+        activeStation: 1,
       };
     } else if (step.toolKey === 'grinder') {
       cup.hasGrounds = true;
@@ -1953,26 +2280,26 @@ export function performCupAction(
       feedback = 'Tamped coffee puck evenly at 30 lbs of pressure.';
     } else if (step.toolKey === 'espresso') {
       cup.hasEspresso = true;
-      const postShotStep = getNextRecommendedStep(cup, targetRecipe, pinnedOrder);
+      const postShotStep = getNextRecommendedStep(cup, targetRecipe, pinnedOrder, state.preparedPastry);
       activeStation = postShotStep.station;
       feedback =
-        'Extracted 9-bar double espresso with golden crema! Cup gliding to Station 3 Assembly Coaster.';
+        'Extracted 9-bar double espresso with golden crema! Cup gliding to Station 4 Assembly Coaster.';
     } else if (step.toolKey === 'tea') {
       cup.hasSteepedTea = true;
-      activeStation = 3;
+      activeStation = 4;
       feedback =
-        'Steeped fragrant organic tea leaves & botanicals in the Kyoto Glass Teapot on Station 3!';
+        'Steeped fragrant organic tea leaves & botanicals in the Kyoto Glass Teapot on Station 4!';
     } else if (step.toolKey === 'syrup') {
       cup.syrup = effectiveRecipe.syrup;
-      feedback = `Added aromatic ${effectiveRecipe.syrup} infusion on the Station 3 Assembly Coaster.`;
+      feedback = `Added aromatic ${effectiveRecipe.syrup} infusion on the Station 4 Assembly Coaster.`;
     } else if (step.toolKey === 'ice') {
       cup.hasIce = true;
-      feedback = 'Scooped crystal-clear ice cubes into the cup on Station 3.';
+      feedback = 'Scooped crystal-clear ice cubes into the cup on Station 4.';
     } else if (step.toolKey === 'milk') {
       cup.hasSteamedMilk = true;
       feedback = 'Steamed 65°C velvety microfoam & poured Rosetta latte art!';
     } else if (step.toolKey === 'serve') {
-      return serveCurrentCupToCustomer({ ...state, activeStation: 4 });
+      return serveCurrentCupToCustomer({ ...state, activeStation: 5 });
     }
 
     return {
@@ -1986,7 +2313,7 @@ export function performCupAction(
   if (action === 'grind') {
     cup.hasGrounds = true;
     cup.isTamped = false;
-    activeStation = 2;
+    activeStation = 3;
     feedback = 'Ground 18g of fresh dark-roast beans into portafilter.';
   } else if (action === 'tamp') {
     // Enforce strict sequential order: cannot tamp without grinding first!
@@ -1997,7 +2324,7 @@ export function performCupAction(
       };
     }
     cup.isTamped = true;
-    activeStation = 2;
+    activeStation = 3;
     feedback = 'Tamped grounds level & polished espresso puck surface at 30 lbs.';
   } else if (action === 'pull_espresso') {
     // Enforce strict sequential order: cannot pull shot without grinding & tamping first!
@@ -2010,12 +2337,12 @@ export function performCupAction(
       };
     }
     cup.hasEspresso = true;
-    activeStation = 3;
-    feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 3 Assembly Coaster.';
+    activeStation = 4;
+    feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 4 Assembly Coaster.';
   } else if (action === 'steep_tea') {
     cup.hasSteepedTea = true;
-    activeStation = 3;
-    feedback = 'Steeped artisanal tea leaves & botanical infusion at 80°C on Station 3.';
+    activeStation = 4;
+    feedback = 'Steeped artisanal tea leaves & botanical infusion at 80°C on Station 4.';
   } else if (action === 'steam_milk') {
     if (!cup.hasEspresso && !cup.hasSteepedTea) {
       return {
@@ -2024,18 +2351,18 @@ export function performCupAction(
       };
     }
     cup.hasSteamedMilk = true;
-    activeStation = 3;
+    activeStation = 4;
     feedback = 'Steamed silky 65°C microfoam milk & poured Rosetta latte art.';
   } else if (action === 'add_ice') {
     cup.hasIce = !cup.hasIce;
-    activeStation = 3;
+    activeStation = 4;
     feedback = cup.hasIce ? 'Scooped crystal ice cubes into cup.' : 'Removed ice from cup.';
   } else if (action === 'add_syrup' && syrupFlavor) {
     cup.syrup = syrupFlavor;
     if (syrupFlavor === 'matcha') {
       cup.hasSteepedTea = true;
     }
-    activeStation = 3;
+    activeStation = 4;
     feedback =
       syrupFlavor === 'none'
         ? 'Cleared syrup selection.'
@@ -2049,7 +2376,7 @@ export function performCupAction(
   if (activeOrder) {
     const check = validateDrinkForServe(cup, getRecipeById(activeOrder.recipeId), activeOrder);
     if (check.hasWrongIngredient) {
-      feedback = `Wrong addition (${check.wrongIngredients[0]})! Press [R] at the Rinse Sink to restart cup.`;
+      feedback = `Wrong addition (${check.wrongIngredients[0]})! Press [R] at the Rinser / Trash Chute to restart cup.`;
     }
   }
 
@@ -2292,12 +2619,23 @@ export function serveCurrentCupToCustomer(
     const penalizedSatisfaction = Math.max(0, state.satisfactionScore - 8);
     return {
       ...state,
-      activeStation: 4,
+      activeStation: 5,
       satisfactionScore: penalizedSatisfaction,
       currentCup: createEmptyCup(),
       customers: updatedAfterComplaint,
       pinnedOrderId: nextOrderingAfterComplaint ? nextOrderingAfterComplaint.id : null,
       lastActionFeedback: `${targetCustomer.customerName}: "Wait—I didn't ask for ${validation.wrongIngredients[0]} in this! Not cool..." (-8% Vibe · $0 Tip)`,
+    };
+  }
+
+  // 3. PASTRY PAIRING CHECK (Decoupled from coffee — NEVER resets coffee cup if pastry isn't grabbed yet!)
+  const reqPastry = targetCustomer.requestedPastry
+    ? getPastryById(targetCustomer.requestedPastry)
+    : null;
+  if (reqPastry && state.preparedPastry !== reqPastry.id) {
+    return {
+      ...state,
+      lastActionFeedback: `Order also needs ${reqPastry.name}! Grab it at Station 1: Pastries (your finished coffee stays ready).`,
     };
   }
 
@@ -2313,11 +2651,14 @@ export function serveCurrentCupToCustomer(
     recipe,
     evaluation.accuracy,
     customerMood,
-    targetCustomer.customBonusTip
+    targetCustomer.customBonusTip,
+    reqPastry ? reqPastry.id : null,
+    Boolean(targetCustomer.isDeliveryRider)
   );
 
-  // Takeout patrons leave straight through the front entrance without occupying any indoor seat!
-  const isTakeoutOrder = targetCustomer.orderType === 'takeout';
+  // Takeout & Delivery Rider patrons leave straight through the front entrance without occupying any indoor seat!
+  const isTakeoutOrder =
+    targetCustomer.orderType === 'takeout' || Boolean(targetCustomer.isDeliveryRider);
   let assignedSeat: number | null = null;
   if (!isTakeoutOrder) {
     const occupiedSeats = new Set(
@@ -2339,7 +2680,7 @@ export function serveCurrentCupToCustomer(
       ...c,
       state: (assignedSeat !== null ? 'seated' : 'departing') as CustomerOrder['state'],
       seatIndex: assignedSeat,
-      seatedTimer: assignedSeat !== null ? 24 : isTakeoutOrder ? 9.5 : 5.5,
+      seatedTimer: assignedSeat !== null ? 24 : targetCustomer.isDeliveryRider ? 16 : isTakeoutOrder ? 9.5 : 5.5,
     };
   });
 
@@ -2356,17 +2697,28 @@ export function serveCurrentCupToCustomer(
   const nextOrdering =
     updatedCustomers.find((c) => c.state === 'ordering' && c.orderAccepted) ||
     updatedCustomers.find((c) => c.state === 'ordering');
-  const newCupsToday = state.cupsServedToday + 1;
+
+  const todayKey = getLocalDateKey(new Date(nowMs));
+  const curQuota = state.dailyQuota || {
+    dateKey: todayKey,
+    cupsServedToday: state.cupsServedToday,
+    dailyCupQuota: state.dailyOrderQuota || DAILY_REALTIME_CUP_QUOTA,
+    quotaBonusClaimed: state.quotaBonusAwarded,
+  };
+  const isSameDay = curQuota.dateKey === todayKey;
+  const baseCupsToday = isSameDay ? state.cupsServedToday : 0;
+  const alreadyClaimedQuota = isSameDay ? state.quotaBonusAwarded || curQuota.quotaBonusClaimed : false;
+  const quotaTarget = curQuota.dailyCupQuota || state.dailyOrderQuota || DAILY_REALTIME_CUP_QUOTA;
+  const newCupsToday = baseCupsToday + 1;
   const newTotalCups = state.totalCupsServed + 1;
 
-  // Check if Daily Order Quota (30-50 orders) was just completed!
-  const justCompletedQuota =
-    !state.quotaBonusAwarded && newCupsToday >= state.dailyOrderQuota;
+  // Check if real-time 24h Daily Cup Quota (35 cups/day) was just completed!
+  const justCompletedQuota = !alreadyClaimedQuota && newCupsToday >= quotaTarget;
   const quotaBonus = justCompletedQuota ? DAILY_QUOTA_COMPLETION_BONUS : 0;
 
   const grossEarned = payout.totalPayout + quotaBonus;
   const newCash = state.cash + grossEarned;
-  const newDailyRevenue = state.dailyRevenue + grossEarned;
+  const newDailyRevenue = (isSameDay ? state.dailyRevenue : 0) + grossEarned;
   const newLifetimeGross = (state.lifetimeGrossIncome || 0) + grossEarned;
   const updatedSkins = syncGrossIncomeUnlocks(state.equipmentSkins, newLifetimeGross);
   const catSync = syncCatUnlocks(state.unlockedCats, newLifetimeGross);
@@ -2381,33 +2733,49 @@ export function serveCurrentCupToCustomer(
 
   const goldenBadge = payout.multiplier === 2 ? ' [2x GOLDEN MACHINE!]' : '';
   const mikmikBadge = payout.catRevenueMultiplier > 1 ? ' [+30% MIKMIK!]' : '';
+  const pastryBadge = reqPastry ? ` + ${reqPastry.name}` : '';
+  const deliveryBadge = targetCustomer.isDeliveryRider
+    ? ` [🛵 Delivery +$${DELIVERY_PARTNER_BONUS}]`
+    : '';
   const unlockSuffix = justUnlockedGolden
     ? ' · $150K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
     : '';
   const quotaSuffix = justCompletedQuota
-    ? ` · DAILY QUOTA (${state.dailyOrderQuota} ORDERS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
+    ? ` · DAILY QUOTA (${quotaTarget}/${quotaTarget} CUPS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
     : '';
 
-  const takeoutLabel = isTakeoutOrder ? ' (Takeout)' : '';
+  const takeoutLabel = targetCustomer.isDeliveryRider
+    ? ' (Delivery)'
+    : isTakeoutOrder
+    ? ' (Takeout)'
+    : '';
   const speedBadge =
     payout.speedTipLabel && payout.speedTip > 0 ? ` · ${payout.speedTipLabel}` : '';
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
-    : `Served ${recipe.name}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}${mikmikBadge}.${quotaSuffix}${unlockSuffix}`;
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${pastryBadge}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
+    : `Served ${recipe.name}${pastryBadge}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}.${quotaSuffix}${unlockSuffix}`;
 
   return {
     ...state,
-    activeStation: 4,
+    activeStation: 5,
     cash: newCash,
     lifetimeGrossIncome: newLifetimeGross,
     dailyRevenue: newDailyRevenue,
-    quotaBonusAwarded: state.quotaBonusAwarded || justCompletedQuota,
+    quotaBonusAwarded: alreadyClaimedQuota || justCompletedQuota,
+    dailyQuota: {
+      dateKey: todayKey,
+      cupsServedToday: newCupsToday,
+      dailyCupQuota: quotaTarget,
+      quotaBonusClaimed: alreadyClaimedQuota || justCompletedQuota,
+    },
     cupsServedToday: newCupsToday,
     totalCupsServed: newTotalCups,
     satisfactionScore: newSatisfaction,
     waveCustomersRemaining: nextWaveRemaining,
     nextCustomerSpawnTimer: nextSpawnTimer,
     currentCup: createEmptyCup(),
+    // Only consume preparedPastry if this order requested it!
+    preparedPastry: reqPastry ? null : state.preparedPastry,
     customers: updatedCustomers,
     equipmentSkins: updatedSkins,
     unlockedCats: catSync.unlockedCats,
@@ -2424,13 +2792,14 @@ export function serveCurrentCupToCustomer(
 export function spawnCustomerOrder(
   day: number,
   seedOffset = 0,
-  customPalette?: string[]
+  customPalette?: string[],
+  rng: () => number = Math.random
 ): CustomerOrder {
   const unlockedRecipes = RECIPES.filter((r) => r.unlockDay <= Math.max(1, day));
-  const idx = (day * 7 + seedOffset * 3 + Math.floor(Math.random() * 100)) % unlockedRecipes.length;
+  const idx = (day * 7 + seedOffset * 3 + Math.floor(rng() * 100)) % unlockedRecipes.length;
   const recipe = unlockedRecipes[idx] || RECIPES[0];
   const nameIdx =
-    (day * 3 + seedOffset * 5 + Math.floor(Math.random() * 100)) % CUSTOMER_NAMES.length;
+    (day * 3 + seedOffset * 5 + Math.floor(rng() * 100)) % CUSTOMER_NAMES.length;
   const customerName = CUSTOMER_NAMES[nameIdx];
 
   let customNeedsIce: boolean | undefined = undefined;
@@ -2471,6 +2840,13 @@ export function spawnCustomerOrder(
     customBonusTip = 2;
   }
 
+  // Phase 6: ~40% chance for regular patrons to attach 1 random signature pastry
+  const requestedPastry: PastryId | null =
+    rng() < 0.4
+      ? ALL_PASTRY_IDS[Math.floor(rng() * ALL_PASTRY_IDS.length) % ALL_PASTRY_IDS.length]
+      : null;
+  const pastrySpec = getPastryById(requestedPastry);
+
   const addonPhrase =
     customNeedsIce && customSyrup
       ? `iced, with an extra pump of ${customSyrup}`
@@ -2486,13 +2862,14 @@ export function spawnCustomerOrder(
       ? 'extra cold with fresh ice'
       : 'with silky 65°C microfoam';
 
-  const orderType: OrderType = Math.random() < 0.38 ? 'takeout' : 'dine-in';
+  const orderType: OrderType = rng() < 0.38 ? 'takeout' : 'dine-in';
   const toGoSuffix = orderType === 'takeout' ? ' to go' : '';
+  const pastryPhrase = pastrySpec ? ` plus a fresh ${pastrySpec.name}` : '';
   const greetings = [
-    `Morning! Could I get a ${recipe.name}${toGoSuffix}—${addonPhrase}?`,
-    `That 1990 Miata MX-5 in the garage bay is iconic! Hit me with a ${recipe.name}${toGoSuffix}, ${addonPhrase}!`,
-    `Love the vinyl spinning today! Can I order a ${recipe.name}${toGoSuffix}, ${addonPhrase}?`,
-    `Hi there! One ${recipe.name}${toGoSuffix} please—${addonPhrase}.`,
+    `Hey! Could I get a ${recipe.name}${toGoSuffix}—${addonPhrase}${pastryPhrase}?`,
+    `That 1990 Miata MX-5 in the garage bay is iconic! Hit me with a ${recipe.name}${toGoSuffix}, ${addonPhrase}${pastryPhrase}!`,
+    `Love the vinyl spinning today! Can I order a ${recipe.name}${toGoSuffix}, ${addonPhrase}${pastryPhrase}?`,
+    `Hi there! One ${recipe.name}${toGoSuffix} please—${addonPhrase}${pastryPhrase}.`,
   ];
   const dialogueLine = greetings[(nameIdx + seedOffset) % greetings.length];
   const socialBehavior = SOCIAL_BEHAVIORS[(nameIdx + seedOffset) % SOCIAL_BEHAVIORS.length];
@@ -2501,7 +2878,7 @@ export function spawnCustomerOrder(
       ? customPalette
       : INITIAL_CUSTOMER_SKIN_PACKS[0].paletteColors;
 
-  const moodDurationSec = rollMoodDurationSec();
+  const moodDurationSec = rollMoodDurationSec(rng);
 
   return {
     id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -2527,7 +2904,50 @@ export function spawnCustomerOrder(
     customBonusTip,
     customNeedsIce,
     customSyrup,
+    requestedPastry,
+    isDeliveryRider: false,
     socialBehavior,
+  };
+}
+
+const RIDER_VARIANT_CONFIG: Record<
+  DeliveryRiderVariant,
+  { label: string; names: readonly string[]; jacketHex: string }
+> = {
+  blue: { label: 'Blue Delivery', names: ['Marco', 'Ren', 'Leo'], jacketHex: '#2563eb' },
+  green: { label: 'Green Delivery', names: ['Kai', 'Juno', 'Milo'], jacketHex: '#16a34a' },
+  red: { label: 'Red Delivery', names: ['Rina', 'Dante', 'Saki'], jacketHex: '#dc2626' },
+};
+
+export function spawnDeliveryRiderOrder(
+  day: number,
+  seedOffset = 0,
+  forcedVariant?: DeliveryRiderVariant,
+  rng: () => number = Math.random
+): CustomerOrder {
+  const variants: readonly DeliveryRiderVariant[] = ['blue', 'green', 'red'];
+  const variant =
+    forcedVariant || variants[Math.floor(rng() * variants.length) % variants.length];
+  const cfg = RIDER_VARIANT_CONFIG[variant];
+  const baseOrder = spawnCustomerOrder(day, seedOffset, [cfg.jacketHex], rng);
+  const pastryId: PastryId =
+    baseOrder.requestedPastry ||
+    ALL_PASTRY_IDS[Math.floor(rng() * ALL_PASTRY_IDS.length) % ALL_PASTRY_IDS.length];
+  const pastrySpec = getPastryById(pastryId)!;
+  const recipe = getRecipeById(baseOrder.recipeId);
+  const riderName = cfg.names[Math.abs(seedOffset + day) % cfg.names.length];
+
+  return {
+    ...baseOrder,
+    id: `rider-${variant}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    customerName: riderName,
+    shirtColor: cfg.jacketHex,
+    orderType: 'takeout',
+    requestedPastry: pastryId,
+    isDeliveryRider: true,
+    riderVariant: variant,
+    dialogueLine: `Scooter parked outside! ${cfg.label} pickup for ${recipe.name} (Takeout) + ${pastrySpec.name} in a Kraft Bag!`,
+    socialBehavior: 'relaxing',
   };
 }
 
@@ -2648,25 +3068,139 @@ export function unlockOrEquipCustomerSkinPack(
   };
 }
 
-export function claimLoginReward(state: KlasikGameState, rewardDay: number): KlasikGameState {
-  const reward = state.loginRewards.find((r) => r.day === rewardDay);
-  if (!reward || reward.claimed) return state;
+export function syncDailyQuotaForDate(
+  state: KlasikGameState,
+  now: Date = new Date()
+): KlasikGameState {
+  const todayKey = getLocalDateKey(now);
+  const curQuota = state.dailyQuota || {
+    dateKey: todayKey,
+    cupsServedToday: state.cupsServedToday,
+    dailyCupQuota: DAILY_REALTIME_CUP_QUOTA,
+    quotaBonusClaimed: state.quotaBonusAwarded,
+  };
+  const curLogin = state.dailyLogin || {
+    lastClaimDateKey: null,
+    lastClaimTimestamp: null,
+    streakDay: Math.max(1, Math.min(7, state.loginStreakDays || 1)),
+    claimedToday: false,
+  };
+  const nextClaimedToday = curLogin.lastClaimDateKey === todayKey;
+  const quotaChanged = curQuota.dateKey !== todayKey;
+  const loginFlagChanged = curLogin.claimedToday !== nextClaimedToday;
 
-  // Gate loyalty/login rewards behind verifiable active shift playtime & completed orders!
-  const activeSecs = state.activeShiftSeconds ?? 0;
-  const reqSecs = reward.requiredShiftSeconds ?? 600;
-  const reqOrders = reward.requiredOrdersServed ?? 15;
-  if (activeSecs < reqSecs || state.totalCupsServed < reqOrders) {
-    const minsLeft = Math.max(0, Math.ceil((reqSecs - activeSecs) / 60));
-    const ordersLeft = Math.max(0, reqOrders - state.totalCupsServed);
+  if (!quotaChanged && !loginFlagChanged) {
+    return state;
+  }
+
+  return {
+    ...state,
+    ...(quotaChanged
+      ? {
+          day: state.day + 1,
+          dailyRevenue: 0,
+          cupsServedToday: 0,
+          quotaBonusAwarded: false,
+          dailyOrderQuota: DAILY_REALTIME_CUP_QUOTA,
+          dailyQuota: {
+            dateKey: todayKey,
+            cupsServedToday: 0,
+            dailyCupQuota: DAILY_REALTIME_CUP_QUOTA,
+            quotaBonusClaimed: false,
+          },
+          lastActionFeedback: `Midnight rolled over! Fresh 24h Owner Quota ready (0 / ${DAILY_REALTIME_CUP_QUOTA} Cups).`,
+        }
+      : {}),
+    dailyLogin: {
+      ...curLogin,
+      claimedToday: nextClaimedToday,
+    },
+  };
+}
+
+export function applyWeatherPreferences(
+  state: KlasikGameState,
+  timeOfDayMode: TimeOfDayMode,
+  rainPreference: RainPreference,
+  now: Date = new Date(),
+  rolledRain?: boolean
+): KlasikGameState {
+  const resolvedTime = resolveTimeOfDay(timeOfDayMode, now);
+  const isRaining =
+    rainPreference === 'rain'
+      ? true
+      : rainPreference === 'clear'
+      ? false
+      : rolledRain !== undefined
+      ? rolledRain
+      : state.isRaining;
+  const weather = resolveCompositeWeather(resolvedTime, isRaining);
+  return {
+    ...state,
+    timeOfDayMode,
+    rainPreference,
+    isRaining,
+    weather,
+  };
+}
+
+export function canClaimLoginReward(
+  state: KlasikGameState,
+  now: Date = new Date()
+): boolean {
+  const todayKey = getLocalDateKey(now);
+  const lastKey = state.dailyLogin?.lastClaimDateKey ?? null;
+  return lastKey !== todayKey;
+}
+
+export function claimLoginReward(
+  state: KlasikGameState,
+  rewardDay?: number,
+  now: Date = new Date()
+): KlasikGameState {
+  const todayKey = getLocalDateKey(now);
+  const curLogin = state.dailyLogin || {
+    lastClaimDateKey: null,
+    lastClaimTimestamp: null,
+    streakDay: 1,
+    claimedToday: false,
+  };
+
+  // Strict 24-hour real-calendar enforcement: max 1 claim per local calendar day!
+  if (!canClaimLoginReward(state, now)) {
     return {
       ...state,
-      lastActionFeedback: `Locked! Need ${minsLeft}m more active shift play & ${ordersLeft} more served orders to claim ${reward.title}.`,
+      dailyLogin: { ...curLogin, claimedToday: true },
+      lastActionFeedback: `Already claimed today's reward! ${getTimeUntilMidnightLabel(now)}`,
     };
   }
 
+  // Compute next real-calendar streak day (1..7 repeating weekly cycle)
+  let nextStreakDay = 1;
+  if (curLogin.lastClaimDateKey) {
+    const diffDays = getCalendarDayDiff(curLogin.lastClaimDateKey, todayKey);
+    if (diffDays === 1) {
+      nextStreakDay = (curLogin.streakDay % 7) + 1;
+    } else if (diffDays > 1) {
+      nextStreakDay = 1;
+    } else {
+      nextStreakDay = curLogin.streakDay;
+    }
+  } else {
+    nextStreakDay = rewardDay ? Math.max(1, Math.min(7, rewardDay)) : curLogin.streakDay || 1;
+  }
+
+  const targetDay = rewardDay ?? nextStreakDay;
+  const reward =
+    state.loginRewards.find((r) => r.day === targetDay) ||
+    state.loginRewards.find((r) => r.day === nextStreakDay) ||
+    state.loginRewards[0];
+  if (!reward) return state;
+
+  // Reset weekly reward claim flags cleanly when looping back to Day 1 after completing Day 7
+  const resetWeekly = nextStreakDay === 1 && curLogin.streakDay === 7;
   const updatedRewards = state.loginRewards.map((r) =>
-    r.day === rewardDay ? { ...r, claimed: true } : r
+    r.day === reward.day ? { ...r, claimed: true } : resetWeekly ? { ...r, claimed: false } : r
   );
 
   const newCash = state.cash + reward.cashBonus;
@@ -2716,7 +3250,13 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
     cash: newCash,
     lifetimeGrossIncome: newGross,
     loginRewards: updatedRewards,
-    loginStreakDays: Math.max(state.loginStreakDays, rewardDay + 1),
+    loginStreakDays: nextStreakDay,
+    dailyLogin: {
+      lastClaimDateKey: todayKey,
+      lastClaimTimestamp: now.getTime(),
+      streakDay: nextStreakDay,
+      claimedToday: true,
+    },
     equipmentSkins: updatedSkins,
     customerSkinPacks: updatedPacks,
     equippedMachineSkin: equippedMachine,
@@ -2730,7 +3270,7 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
       catSync.newlyUnlocked.length > 0
         ? (state.lastCatUnlockSeq ?? 0) + 1
         : state.lastCatUnlockSeq ?? 0,
-    lastActionFeedback: `Claimed ${reward.title}! (${reward.rewardLabel})`,
+    lastActionFeedback: `Claimed Day ${nextStreakDay} Daily Reward: ${reward.title}! (${reward.rewardLabel})`,
   };
 }
 
@@ -2753,6 +3293,7 @@ export interface SimulationTickOptions {
   modalOpen?: boolean;
   isRecipeBookOpen?: boolean;
   activeArrivingCount?: number;
+  rng?: () => number;
 }
 
 export function advanceSimulationTick(
@@ -2766,6 +3307,7 @@ export function advanceSimulationTick(
     return state;
   }
 
+  const rng = options.rng || Math.random;
   const dt = Math.min(Math.max(0, dtSeconds), 0.3);
   const hasPidBoiler = state.upgrades.some((u) => u.id === 'dual-pid-boiler' && u.purchased);
   const hasBonsai = state.upgrades.some((u) => u.id === 'japanese-bonsai-terrarium' && u.purchased);
@@ -2832,7 +3374,7 @@ export function advanceSimulationTick(
           orderTimeRemainingSec: 0,
           expired: true,
           state: 'departing',
-          seatedTimer: 7.5,
+          seatedTimer: cust.isDeliveryRider ? 16 : 7.5,
         });
       } else {
         nextCustomers.push({
@@ -2875,15 +3417,30 @@ export function advanceSimulationTick(
     state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
     INITIAL_CUSTOMER_SKIN_PACKS[0];
 
-  // Phase 1 Staggered Spawner Guard: minimum 3.2s gap AND never spawn while another arriving customer is crossing doorway
+  // Phase 1 Staggered Spawner Guard + Phase 7 Rare Delivery Rider Spawner (max 1 active, 15% chance after >= 3 regulars)
   const orderingCount = nextCustomers.filter((c) => c.state === 'ordering').length;
   const arrivingUnstartedCount = nextCustomers.filter(
     (c) => c.state === 'ordering' && !c.timerStarted
   ).length;
   const activeArrivingCount =
     options.activeArrivingCount !== undefined ? options.activeArrivingCount : arrivingUnstartedCount;
+  const hasActiveDeliveryRider = nextCustomers.some((c) => Boolean(c.isDeliveryRider));
+  let regularSinceRider = state.regularCustomersSinceLastRider ?? 3;
   let waveRemaining = state.waveCustomersRemaining ?? 2;
   let spawnTimer = (state.nextCustomerSpawnTimer ?? 5) - dt;
+
+  const spawnNextPatron = (seedOffset: number): CustomerOrder => {
+    const canSpawnRider =
+      !hasActiveDeliveryRider &&
+      regularSinceRider >= DELIVERY_RIDER_MIN_REGULAR_COOLDOWN &&
+      rng() < 0.15;
+    if (canSpawnRider) {
+      regularSinceRider = 0;
+      return spawnDeliveryRiderOrder(state.day, seedOffset, undefined, rng);
+    }
+    regularSinceRider += 1;
+    return spawnCustomerOrder(state.day, seedOffset, activePack.paletteColors, rng);
+  };
 
   if (
     orderingCount < MAX_QUEUE &&
@@ -2891,16 +3448,16 @@ export function advanceSimulationTick(
     spawnTimer <= 0 &&
     activeArrivingCount < 1
   ) {
-    const newlyArrived = spawnCustomerOrder(
-      state.day,
-      nextCustomers.length + Math.floor(state.activeShiftSeconds || 0),
-      activePack.paletteColors
+    const newlyArrived = spawnNextPatron(
+      nextCustomers.length + Math.floor(state.activeShiftSeconds || 0)
     );
     nextCustomers.push(newlyArrived);
     waveRemaining -= 1;
     spawnTimer = Math.max(MIN_ARRIVAL_GAP_SEC, waveRemaining > 0 ? 5.0 : 12.0);
     if (!tipMessage) {
-      tipMessage = `${newlyArrived.customerName} walked in through the Garage Garden door!`;
+      tipMessage = newlyArrived.isDeliveryRider
+        ? `🛵 ${newlyArrived.customerName} (${newlyArrived.riderVariant?.toUpperCase()} Delivery) parked a scooter outside!`
+        : `${newlyArrived.customerName} walked in through the Garage Garden door!`;
     }
   } else if (
     orderingCount === 0 &&
@@ -2908,28 +3465,20 @@ export function advanceSimulationTick(
     spawnTimer <= 0 &&
     activeArrivingCount < 1
   ) {
-    const firstOfNewWave = spawnCustomerOrder(
-      state.day,
-      nextCustomers.length + 1,
-      activePack.paletteColors
-    );
+    const firstOfNewWave = spawnNextPatron(nextCustomers.length + 1);
     nextCustomers.push(firstOfNewWave);
     waveRemaining = 2;
     spawnTimer = Math.max(MIN_ARRIVAL_GAP_SEC, 5.0);
     if (!tipMessage) {
-      tipMessage = `New wave arriving: ${firstOfNewWave.customerName} walked in!`;
+      tipMessage = firstOfNewWave.isDeliveryRider
+        ? `🛵 ${firstOfNewWave.customerName} (${firstOfNewWave.riderVariant?.toUpperCase()} Delivery) pulled up outside!`
+        : `New wave arriving: ${firstOfNewWave.customerName} walked in!`;
     }
   }
 
-  let nextShiftTime = state.shiftTimeRemaining;
-  let nextPhase: GamePhase = state.phase;
-
-  if (state.mode === 'career') {
-    nextShiftTime = Math.max(0, state.shiftTimeRemaining - dt * modalTimeScale);
-    if (nextShiftTime <= 0) {
-      nextPhase = 'gameover';
-    }
-  }
+  // Phase 1 V2: Continuous real-time 24-hour owner loop — NEVER forcibly end the game after 5 minutes!
+  const nextShiftTime = state.shiftTimeRemaining;
+  const nextPhase: GamePhase = state.phase;
 
   const pinnedExists = nextCustomers.some(
     (c) => c.id === state.pinnedOrderId && c.state === 'ordering'
@@ -2969,6 +3518,7 @@ export function advanceSimulationTick(
     activeShiftSeconds: (state.activeShiftSeconds ?? 0) + dt,
     waveCustomersRemaining: waveRemaining,
     nextCustomerSpawnTimer: Math.max(0, spawnTimer),
+    regularCustomersSinceLastRider: regularSinceRider,
     customers: nextCustomers,
     pinnedOrderId: pinnedExists ? state.pinnedOrderId : fallbackOrder ? fallbackOrder.id : null,
     lastActionFeedback: tipMessage || state.lastActionFeedback,
@@ -2976,10 +3526,9 @@ export function advanceSimulationTick(
 }
 
 export function startNextDayShift(state: KlasikGameState): KlasikGameState {
-  const isSuccess =
-    state.dailyRevenue >= state.dailyGoal || state.cupsServedToday >= state.dailyOrderQuota;
-  const nextDay = isSuccess ? state.day + 1 : state.day;
-  const nextQuota = getDailyOrderQuota(nextDay);
+  const todayKey = getLocalDateKey(new Date());
+  const nextDay = state.day + 1;
+  const nextQuota = DAILY_REALTIME_CUP_QUOTA;
   const nextGoal = getDailyRevenueGoal(nextDay);
   const activePack =
     state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
@@ -2992,19 +3541,25 @@ export function startNextDayShift(state: KlasikGameState): KlasikGameState {
     phase: 'playing',
     activeStation: 2,
     day: nextDay,
-    loginStreakDays: Math.min(7, Math.max(state.loginStreakDays, nextDay)),
     dailyRevenue: 0,
     dailyGoal: nextGoal,
     dailyOrderQuota: nextQuota,
     quotaBonusAwarded: false,
+    dailyQuota: {
+      dateKey: todayKey,
+      cupsServedToday: 0,
+      dailyCupQuota: nextQuota,
+      quotaBonusClaimed: false,
+    },
     cupsServedToday: 0,
     shiftTimeRemaining: SHIFT_SECONDS,
     waveCustomersRemaining: 2,
     nextCustomerSpawnTimer: 5,
     currentCup: createEmptyCup(),
+    preparedPastry: null,
     customers: [c1],
     pinnedOrderId: c1.id,
-    lastActionFeedback: `Day ${nextDay} Shift started! Quota: ${nextQuota} Orders · Target: $${nextGoal}`,
+    lastActionFeedback: `Entered Store! Daily Quota: ${nextQuota} Cups Today`,
   };
 }
 
@@ -3034,7 +3589,7 @@ export function loadGameFromStorage(): KlasikGameState | null {
 export function exportSaveJson(state: KlasikGameState): string {
   return JSON.stringify(
     {
-      version: '2.1.0',
+      version: '2.2.0',
       studio: 'BoostedByCaffeine Studios',
       timestamp: new Date().toISOString(),
       data: {
@@ -3043,12 +3598,20 @@ export function exportSaveJson(state: KlasikGameState): string {
         lifetimeGrossIncome: state.lifetimeGrossIncome,
         dailyGoal: state.dailyGoal,
         dailyOrderQuota: state.dailyOrderQuota,
+        dailyQuota: state.dailyQuota,
+        dailyLogin: state.dailyLogin,
+        cupsServedToday: state.cupsServedToday,
+        quotaBonusAwarded: state.quotaBonusAwarded,
         totalCupsServed: state.totalCupsServed,
         activeShiftSeconds: state.activeShiftSeconds ?? 0,
         satisfactionScore: state.satisfactionScore,
         weather: state.weather,
+        timeOfDayMode: state.timeOfDayMode,
+        rainPreference: state.rainPreference,
+        isRaining: state.isRaining,
         graphicsQuality: state.graphicsQuality,
         realismMode: Boolean(state.realismMode),
+        regularCustomersSinceLastRider: state.regularCustomersSinceLastRider ?? 3,
         upgrades: state.upgrades,
         equipmentSkins: state.equipmentSkins,
         equippedMachineSkin: state.equippedMachineSkin,
@@ -3137,6 +3700,69 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
         ? d.equippedCatId
         : 'champy';
 
+    // Real-time 24h daily quota & login sync against local calendar date
+    const now = new Date();
+    const todayKey = getLocalDateKey(now);
+    const savedQuotaDateKey =
+      d.dailyQuota && typeof d.dailyQuota.dateKey === 'string'
+        ? d.dailyQuota.dateKey
+        : todayKey;
+    const isSameQuotaDay = savedQuotaDateKey === todayKey;
+    const restoredCupsToday = isSameQuotaDay
+      ? typeof d.dailyQuota?.cupsServedToday === 'number'
+        ? Math.max(0, Math.floor(d.dailyQuota.cupsServedToday))
+        : typeof d.cupsServedToday === 'number'
+        ? Math.max(0, Math.floor(d.cupsServedToday))
+        : 0
+      : 0;
+    const restoredQuotaClaimed = isSameQuotaDay
+      ? Boolean(d.dailyQuota?.quotaBonusClaimed ?? d.quotaBonusAwarded)
+      : false;
+
+    const restoredLoginState: DailyLoginState = {
+      lastClaimDateKey:
+        d.dailyLogin && typeof d.dailyLogin.lastClaimDateKey === 'string'
+          ? d.dailyLogin.lastClaimDateKey
+          : null,
+      lastClaimTimestamp:
+        d.dailyLogin && typeof d.dailyLogin.lastClaimTimestamp === 'number'
+          ? d.dailyLogin.lastClaimTimestamp
+          : null,
+      streakDay:
+        d.dailyLogin && typeof d.dailyLogin.streakDay === 'number'
+          ? Math.max(1, Math.min(7, Math.floor(d.dailyLogin.streakDay)))
+          : typeof d.loginStreakDays === 'number'
+          ? Math.max(1, Math.min(7, Math.floor(d.loginStreakDays)))
+          : 1,
+      claimedToday:
+        Boolean(d.dailyLogin && d.dailyLogin.lastClaimDateKey === todayKey),
+    };
+
+    const restoredTimeMode: TimeOfDayMode =
+      d.timeOfDayMode !== undefined
+        ? normalizeTimeOfDayMode(d.timeOfDayMode)
+        : d.weather
+        ? extractTimeOfDayFromWeather(normalizeWeatherMode(d.weather))
+        : 'auto';
+    const restoredRainPref: RainPreference =
+      d.rainPreference !== undefined
+        ? normalizeRainPreference(d.rainPreference)
+        : d.weather
+        ? isRainyWeather(normalizeWeatherMode(d.weather))
+          ? 'rain'
+          : 'clear'
+        : 'auto';
+    const resolvedTime = resolveTimeOfDay(restoredTimeMode, now);
+    const restoredIsRaining =
+      restoredRainPref === 'rain'
+        ? true
+        : restoredRainPref === 'clear'
+        ? false
+        : typeof d.isRaining === 'boolean'
+        ? d.isRaining
+        : isRainyWeather(normalizeWeatherMode(d.weather));
+    const restoredWeather = resolveCompositeWeather(resolvedTime, restoredIsRaining);
+
     return {
       ...base,
       day: restoredDay,
@@ -3146,13 +3772,32 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       dailyOrderQuota:
         typeof d.dailyOrderQuota === 'number'
           ? d.dailyOrderQuota
-          : getDailyOrderQuota(restoredDay),
+          : DAILY_REALTIME_CUP_QUOTA,
+      dailyQuota: {
+        dateKey: todayKey,
+        cupsServedToday: restoredCupsToday,
+        dailyCupQuota:
+          typeof d.dailyQuota?.dailyCupQuota === 'number'
+            ? d.dailyQuota.dailyCupQuota
+            : DAILY_REALTIME_CUP_QUOTA,
+        quotaBonusClaimed: restoredQuotaClaimed,
+      },
+      cupsServedToday: restoredCupsToday,
+      quotaBonusAwarded: restoredQuotaClaimed,
+      dailyLogin: restoredLoginState,
       totalCupsServed: typeof d.totalCupsServed === 'number' ? d.totalCupsServed : 0,
       activeShiftSeconds: typeof d.activeShiftSeconds === 'number' ? d.activeShiftSeconds : 0,
       satisfactionScore: typeof d.satisfactionScore === 'number' ? d.satisfactionScore : 100,
-      weather: normalizeWeatherMode(d.weather),
+      weather: restoredWeather,
+      timeOfDayMode: restoredTimeMode,
+      rainPreference: restoredRainPref,
+      isRaining: restoredIsRaining,
       graphicsQuality: normalizeGraphicsQuality(d.graphicsQuality),
       realismMode: Boolean(d.realismMode),
+      regularCustomersSinceLastRider:
+        typeof d.regularCustomersSinceLastRider === 'number'
+          ? Math.max(0, Math.floor(d.regularCustomersSinceLastRider))
+          : 3,
       upgrades: mergedUpgrades,
       equipmentSkins: mergedSkins,
       equippedMachineSkin:
@@ -3165,7 +3810,7 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       activeCustomerSkinPack: restoredPackId,
       customers: syncedCustomers,
       loginRewards: mergedLogin,
-      loginStreakDays: typeof d.loginStreakDays === 'number' ? d.loginStreakDays : restoredDay,
+      loginStreakDays: restoredLoginState.streakDay,
       decor: d.decor ? { ...base.decor, ...d.decor } : base.decor,
       unlockedCats: syncedCats,
       equippedCatId: restoredEquippedCat,

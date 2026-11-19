@@ -356,6 +356,31 @@
   transform: translateZ(0);
 }
 
+/* GFX: MEDIUM — Balanced Smooth Mid-Tier Frosted Glass (11px blur) */
+[data-gfx='medium'] .glass-panel,
+[data-gfx='medium'] .glass-pill,
+[data-gfx='medium'] .glass-hud-btn {
+  backdrop-filter: blur(11px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(11px) saturate(130%) !important;
+  background: linear-gradient(
+    160deg,
+    rgba(28, 19, 14, 0.72) 0%,
+    rgba(16, 10, 8, 0.68) 100%
+  ) !important;
+  border-color: rgba(251, 191, 36, 0.29) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 247, 232, 0.18),
+    0 10px 26px -8px rgba(0, 0, 0, 0.58) !important;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+[data-gfx='medium'] .glass-modal {
+  backdrop-filter: blur(13px) saturate(135%) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(135%) !important;
+  transform: translateZ(0);
+}
+
 /* Diegetic 3D Klasik Roastery POS Tablet Bezel & Warm Espresso-Crema Surface */
 .pos-terminal-bezel {
   background: linear-gradient(168deg, #241711 0%, #160e0a 55%, #0e0906 100%);

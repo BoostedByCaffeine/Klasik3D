@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Bike,
   BookOpen,
   Cat,
   Check,
@@ -11,6 +12,7 @@ import {
   ChevronRight,
   Coffee,
   Compass,
+  Croissant,
   CupSoda,
   Disc3,
   Download,
@@ -35,6 +37,7 @@ import {
   Sparkles,
   Sprout,
   Store,
+  Trash2,
   Trophy,
   Volume2,
   VolumeX,
@@ -43,13 +46,21 @@ import {
 } from 'lucide-react';
 import {
   BaristaStationId,
+  DELIVERY_PARTNER_BONUS,
   GraphicsQuality,
   KlasikGameState,
+  PASTRY_CATALOG,
+  PastryId,
   SyrupFlavor,
+  canClaimLoginReward,
+  cycleGraphicsQuality,
   getCafeCatSpec,
   getMoodTier,
   getNextRecommendedStep,
+  getOrderVesselType,
+  getPastryById,
   getRecipeById,
+  isOrderReadyToServe,
   stripKeyboardShortcutsForApk,
   validateDrinkForServe,
 } from '../game/rules';
@@ -62,6 +73,7 @@ interface HudOverlayProps {
   gameState: KlasikGameState;
   spotifyState: SpotifyVinylState;
   appVersion: AppRuntimeVersion;
+  liveClockLabel: string;
   isMuted: boolean;
   hoveredToolLabel: string | null;
   fps: number;
@@ -76,6 +88,7 @@ interface HudOverlayProps {
   onSelectStation: (station: BaristaStationId) => void;
   onPinOrder: (orderId: string) => void;
   onAcceptOrder: (orderId: string) => void;
+  onGrabPastry: (pastryId: PastryId) => void;
   onCupAction: (
     action:
       | 'grind'
@@ -107,17 +120,19 @@ const STATION_TABS: Array<{
   short: string;
   badge: string;
 }> = [
-  { id: 1, name: 'Orders', short: '1. Orders', badge: 'St. 1: Orders' },
-  { id: 2, name: 'Espresso', short: '2. Espresso', badge: 'St. 2: Espresso' },
-  { id: 3, name: 'Tea & Milk', short: '3. Tea & Milk', badge: 'St. 3: Tea & Milk' },
-  { id: 4, name: 'Serve', short: '4. Serve', badge: 'St. 4: Serve' },
-  { id: 5, name: 'Vinyl', short: '5. Vinyl', badge: 'St. 5: Vinyl' },
+  { id: 1, name: 'Pastries', short: '1. Pastries', badge: 'St. 1: Pastries' },
+  { id: 2, name: 'Orders', short: '2. Orders', badge: 'St. 2: Orders' },
+  { id: 3, name: 'Espresso', short: '3. Espresso', badge: 'St. 3: Espresso' },
+  { id: 4, name: 'Tea & Milk', short: '4. Tea & Milk', badge: 'St. 4: Tea & Milk' },
+  { id: 5, name: 'Serve', short: '5. Serve', badge: 'St. 5: Serve' },
+  { id: 6, name: 'Vinyl', short: '6. Vinyl', badge: 'St. 6: Vinyl' },
 ];
 
 export const HudOverlay: React.FC<HudOverlayProps> = ({
   gameState,
   spotifyState,
   appVersion,
+  liveClockLabel,
   isMuted,
   hoveredToolLabel,
   fps,
@@ -132,6 +147,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onSelectStation,
   onPinOrder,
   onAcceptOrder,
+  onGrabPastry,
   onCupAction,
   onServeCustomer,
   onToggleMute,
@@ -169,7 +185,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
     orderingCustomers[0] ||
     null;
   const targetRecipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : null;
-  const nextStep = getNextRecommendedStep(gameState.currentCup, targetRecipe, pinnedOrder);
+  const nextStep = getNextRecommendedStep(
+    gameState.currentCup,
+    targetRecipe,
+    pinnedOrder,
+    gameState.preparedPastry
+  );
 
   const cup = gameState.currentCup;
   const drinkValidation = targetRecipe
@@ -180,47 +201,58 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         wrongIngredients: [],
         hasWrongIngredient: false,
       };
-  const isDrinkReadyToServe =
-    Boolean(targetRecipe) && drinkValidation.isComplete && !drinkValidation.hasWrongIngredient;
+  const orderReadiness = isOrderReadyToServe(cup, gameState.preparedPastry, pinnedOrder);
+  const isDrinkReadyToServe = Boolean(targetRecipe) && orderReadiness.ready;
+  const activeVessel = getOrderVesselType(pinnedOrder, targetRecipe);
+  const isTakeoutVessel =
+    activeVessel === 'hot-takeout' || activeVessel === 'iced-takeout';
+  const requestedPastrySpec = pinnedOrder?.requestedPastry
+    ? getPastryById(pinnedOrder.requestedPastry)
+    : null;
+  const preparedPastrySpec = gameState.preparedPastry
+    ? getPastryById(gameState.preparedPastry)
+    : null;
+  const isPastrySatisfied =
+    !requestedPastrySpec || gameState.preparedPastry === requestedPastrySpec.id;
+
   const isGoldenEquipped = gameState.equippedMachineSkin === 'golden-espresso-machine';
   const equippedCat = getCafeCatSpec(gameState.equippedCatId);
   const isLiloActive = gameState.equippedCatId === 'lilo';
   const isMikmikActive = gameState.equippedCatId === 'mikmik';
   const firstWaitingOrder = orderingCustomers.find((c) => !c.orderAccepted) || null;
-  const unclaimedLoginCount = (gameState.loginRewards || []).filter(
-    (r) =>
-      !r.claimed &&
-      (gameState.activeShiftSeconds ?? 0) >= (r.requiredShiftSeconds ?? 600) &&
-      (gameState.totalCupsServed ?? 0) >= (r.requiredOrdersServed ?? 15)
-  ).length;
+  const unclaimedLoginCount = canClaimLoginReward(gameState) ? 1 : 0;
 
-  const isMaxGraphics = gameState.graphicsQuality !== 'low';
-  const qualityLabel = isMaxGraphics ? 'MAX' : 'LOW';
+  const qualityLabel =
+    gameState.graphicsQuality === 'max'
+      ? 'MAX'
+      : gameState.graphicsQuality === 'medium'
+      ? 'MED'
+      : 'LOW';
   const isStepLocked = Boolean(gameState.activeStepLock) || stepProgress !== null;
   const activeLockLabel = gameState.activeStepLock?.label || 'Brewing...';
   const lockFillPct = Math.min(100, Math.max(4, stepProgress ?? 8));
 
   const currentStationMeta =
-    STATION_TABS.find((s) => s.id === gameState.activeStation) || STATION_TABS[1];
+    STATION_TABS.find((s) => s.id === gameState.activeStation) || STATION_TABS[2];
   const recommendedStationMeta =
-    STATION_TABS.find((s) => s.id === nextStep.station) || STATION_TABS[1];
+    STATION_TABS.find((s) => s.id === nextStep.station) || STATION_TABS[2];
 
   const handlePrevStation = () => {
     const prevSt = (
-      gameState.activeStation > 1 ? gameState.activeStation - 1 : 5
+      gameState.activeStation > 1 ? gameState.activeStation - 1 : 6
     ) as BaristaStationId;
     onSelectStation(prevSt);
   };
 
   const handleNextStation = () => {
     const nextSt = (
-      gameState.activeStation < 5 ? gameState.activeStation + 1 : 1
+      gameState.activeStation < 6 ? gameState.activeStation + 1 : 1
     ) as BaristaStationId;
     onSelectStation(nextSt);
   };
 
   const handleToggleGraphics = () => {
-    onChangeGraphics(isMaxGraphics ? 'low' : 'max');
+    onChangeGraphics(cycleGraphicsQuality(gameState.graphicsQuality));
   };
 
   const renderCategoryIcon = () => {
@@ -404,6 +436,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 const recipe = getRecipeById(cust.recipeId);
                 const isPinned = pinnedOrder?.id === cust.id;
                 const isTakeout = cust.orderType === 'takeout';
+                const isRider = Boolean(cust.isDeliveryRider);
+                const custPastry = cust.requestedPastry ? getPastryById(cust.requestedPastry) : null;
                 const isZenMode = gameState.mode === 'zen';
                 const isAccepted = Boolean(cust.orderAccepted);
                 const moodVal = isLiloActive
@@ -412,8 +446,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 const moodTier = getMoodTier(moodVal);
                 const isImpatient = isAccepted && !isZenMode && !isLiloActive && moodTier === 'impatient';
                 const isNeutral = isAccepted && !isZenMode && !isLiloActive && moodTier === 'content';
+                const baseTotal =
+                  recipe.price + (custPastry?.price ?? 0) + (isRider ? DELIVERY_PARTNER_BONUS : 0);
                 const displayPrice = Math.round(
-                  recipe.price * (isGoldenEquipped ? 2 : 1) * (isMikmikActive ? 1.3 : 1)
+                  baseTotal * (isGoldenEquipped ? 2 : 1) * (isMikmikActive ? 1.3 : 1)
                 );
 
                 return (
@@ -424,7 +460,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       isAccepted ? `hud-order-chip-${cust.id}` : `hud-accept-order-${cust.id}`
                     }
                     onClick={() => (isAccepted ? onPinOrder(cust.id) : onAcceptOrder(cust.id))}
-                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[205px] overflow-hidden glass-text-crisp ${
+                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[235px] overflow-hidden glass-text-crisp ${
                       !isAccepted
                         ? 'bg-amber-500/30 hover:bg-amber-500/40 border-amber-300/80 text-amber-100 font-bold'
                         : isImpatient
@@ -435,8 +471,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     }`}
                     title={
                       !isAccepted
-                        ? `Tap to accept ${cust.customerName}'s order (${recipe.name})`
-                        : `${cust.customerName} (${isTakeout ? 'Takeout' : 'Dine-In'}): ${recipe.name}${
+                        ? `Tap to accept ${cust.customerName}'s order (${recipe.name}${
+                            custPastry ? ` + ${custPastry.name}` : ''
+                          })`
+                        : `${cust.customerName} (${
+                            isRider ? 'Delivery Rider' : isTakeout ? 'Takeout' : 'Dine-In'
+                          }): ${recipe.name}${custPastry ? ` + ${custPastry.name}` : ''}${
                             isLiloActive
                               ? ' · Mood Disabled (Lilo)'
                               : isZenMode
@@ -450,7 +490,19 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       style={{ backgroundColor: recipe.colorHex }}
                     />
                     <span className="font-semibold truncate">{cust.customerName}</span>
-                    {isTakeout ? (
+                    {isRider ? (
+                      <Bike
+                        className={`w-3 h-3 shrink-0 ${
+                          cust.riderVariant === 'blue'
+                            ? 'text-sky-300'
+                            : cust.riderVariant === 'red'
+                            ? 'text-rose-300'
+                            : 'text-emerald-300'
+                        }`}
+                        strokeWidth={2.4}
+                        aria-label="Delivery Rider"
+                      />
+                    ) : isTakeout ? (
                       <ShoppingBag
                         className="w-2.5 h-2.5 text-emerald-300 shrink-0"
                         strokeWidth={2.4}
@@ -461,6 +513,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                         className="w-2.5 h-2.5 text-amber-300/80 shrink-0"
                         strokeWidth={2.2}
                         aria-label="Dine-In"
+                      />
+                    )}
+                    {custPastry && (
+                      <Croissant
+                        className="w-2.5 h-2.5 text-amber-300 shrink-0"
+                        strokeWidth={2.4}
+                        aria-label={custPastry.name}
                       />
                     )}
                     <span className="font-mono tabular-nums text-emerald-300 font-bold shrink-0">
@@ -546,7 +605,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             dailyOrderQuota={gameState.dailyOrderQuota}
             cupsServedToday={gameState.cupsServedToday}
             satisfactionScore={gameState.satisfactionScore}
-            shiftTimeRemaining={gameState.shiftTimeRemaining}
+            liveClockLabel={liveClockLabel}
           />
 
           {/* Right Cluster: Consolidated Single Menu Button (Contains GFX, Realism, Music, Codex, Upgrades, Decor, Sound & Hide HUD) */}
@@ -583,7 +642,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             data-testid="top-navigation-menu-drawer"
             className="pointer-events-auto self-end mr-2 mt-1 w-[320px] sm:w-[460px] glass-panel rounded-xl p-2.5 grid grid-cols-2 sm:grid-cols-3 gap-1.5 z-30"
           >
-            {/* 1. Graphics Toggle (LOW or MAX) */}
+            {/* 1. 3-Tier Graphics Cycle (LOW -> MED -> MAX) */}
             <button
               type="button"
               data-testid="btn-toggle-graphics"
@@ -591,8 +650,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 handleToggleGraphics();
               }}
               className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-all ${
-                isMaxGraphics
+                gameState.graphicsQuality === 'max'
                   ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow'
+                  : gameState.graphicsQuality === 'medium'
+                  ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-[#0c1220] border-sky-300 shadow'
                   : 'glass-btn-inner'
               }`}
             >
@@ -601,10 +662,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <div className="truncate">GFX: {qualityLabel}</div>
                 <div
                   className={`text-[10px] font-mono ${
-                    isMaxGraphics ? 'text-[#160E09]/80 font-bold' : 'text-emerald-300'
+                    gameState.graphicsQuality !== 'low'
+                      ? 'text-[#160E09]/80 font-bold'
+                      : 'text-emerald-300'
                   }`}
                 >
-                  {Math.min(60, Math.max(30, fps))} FPS · Tap
+                  {Math.min(60, Math.max(30, fps))} FPS · Cycle
                 </div>
               </div>
             </button>
@@ -709,7 +772,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <Sprout className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Cafe Decor</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">20 Styles &amp; 5 Weathers</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">20 Styles &amp; 10 Weathers</div>
               </div>
             </button>
 
@@ -810,17 +873,28 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         {/* Ultra-Compact Single-Line Order Strip + Inline Timed Progress */}
         <div className="flex items-start justify-between gap-2 px-2 mt-1.5 pointer-events-none">
           {!ticketsCollapsed && pinnedOrder && targetRecipe ? (
-            <div className="pointer-events-auto inline-flex items-center gap-1.5 glass-panel rounded-full px-2.5 py-0.5 max-w-[78vw] sm:max-w-xl overflow-hidden">
+            <div className="pointer-events-auto inline-flex items-center gap-1.5 glass-panel rounded-full px-2.5 py-0.5 max-w-[82vw] sm:max-w-2xl overflow-hidden">
               {renderCategoryIcon()}
               <span
                 data-testid="order-type-badge"
                 className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] font-bold uppercase tracking-wider shrink-0 ${
-                  pinnedOrder.orderType === 'takeout'
+                  pinnedOrder.isDeliveryRider
+                    ? pinnedOrder.riderVariant === 'blue'
+                      ? 'bg-sky-500/25 border-sky-400/65 text-sky-200'
+                      : pinnedOrder.riderVariant === 'red'
+                      ? 'bg-rose-500/25 border-rose-400/65 text-rose-200'
+                      : 'bg-emerald-500/25 border-emerald-400/65 text-emerald-200'
+                    : pinnedOrder.orderType === 'takeout'
                     ? 'bg-emerald-500/25 border-emerald-400/55 text-emerald-200'
                     : 'bg-amber-500/20 border-amber-400/45 text-amber-200'
                 }`}
               >
-                {pinnedOrder.orderType === 'takeout' ? (
+                {pinnedOrder.isDeliveryRider ? (
+                  <>
+                    <Bike className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                    <span>Delivery +${DELIVERY_PARTNER_BONUS}</span>
+                  </>
+                ) : pinnedOrder.orderType === 'takeout' ? (
                   <>
                     <ShoppingBag className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
                     <span>Takeout</span>
@@ -838,6 +912,32 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <span className="text-[10px] sm:text-[11px] font-semibold text-[#FAF5EE] glass-text-crisp truncate">
                 {targetRecipe.name}
               </span>
+              {requestedPastrySpec && (
+                <button
+                  type="button"
+                  data-testid="order-pastry-badge"
+                  onClick={() => onSelectStation(1)}
+                  className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded border text-[9px] font-bold shrink-0 cursor-pointer transition-colors ${
+                    isPastrySatisfied
+                      ? 'bg-emerald-500/30 border-emerald-400/70 text-emerald-200'
+                      : 'bg-amber-500/25 hover:bg-amber-500/40 border-amber-300/70 text-amber-100'
+                  }`}
+                  title={
+                    isPastrySatisfied
+                      ? `${requestedPastrySpec.name} staged!`
+                      : `Tap to go to Station 1 & grab ${requestedPastrySpec.name} (+$${requestedPastrySpec.price})`
+                  }
+                >
+                  {isPastrySatisfied ? (
+                    <Check className="w-2.5 h-2.5 shrink-0" strokeWidth={2.8} />
+                  ) : (
+                    <Croissant className="w-2.5 h-2.5 shrink-0" strokeWidth={2.3} />
+                  )}
+                  <span>
+                    +{requestedPastrySpec.name} (${requestedPastrySpec.price})
+                  </span>
+                </button>
+              )}
               {pinnedOrder.customAddons?.map((addon) => (
                 <span
                   key={addon}
@@ -1307,7 +1407,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <>
                   <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
                   <span>
-                    {nextStep.toolKey === 'grinder'
+                    {nextStep.toolKey === 'pastry'
+                      ? '+Pastry'
+                      : nextStep.toolKey === 'grinder'
                       ? 'Grind'
                       : nextStep.toolKey === 'tamper'
                       ? 'Tamp'
@@ -1336,8 +1438,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           >
             <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/45 text-[10px] sm:text-xs font-semibold text-amber-200 glass-text-crisp whitespace-nowrap inline-flex items-center gap-1">
               <Compass className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
-              <span>Realism Mode: Touch 3D Equipment directly</span>
+              <span>Realism Mode: Touch 3D Equipment</span>
             </span>
+            {preparedPastrySpec && (
+              <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/50 text-[10px] font-semibold text-emerald-200 whitespace-nowrap inline-flex items-center gap-1">
+                <Croissant className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                <span>{preparedPastrySpec.name}</span>
+              </span>
+            )}
             <button
               type="button"
               onClick={() => onOpenModal('recipes')}
@@ -1349,9 +1457,45 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           </div>
         )}
 
-        {/* Right Side: Context-Sensitive Station Actions (Hidden in Realism Mode except Codex/Vinyl/Serve) */}
+        {/* Right Side: Context-Sensitive 6-Station Actions + Realism Mode Serve Order Button */}
         <div className="flex items-center gap-1 shrink-0">
+          {/* Station 1: Pastries Showcase Quick-Grab Bar */}
           {!isRealismMode && gameState.activeStation === 1 && (
+            <>
+              {PASTRY_CATALOG.map((pastry) => {
+                const isSelected = gameState.preparedPastry === pastry.id;
+                const isRequested = pinnedOrder?.requestedPastry === pastry.id;
+                return (
+                  <button
+                    key={pastry.id}
+                    type="button"
+                    data-testid={`btn-pastry-${pastry.id}`}
+                    onClick={() => onGrabPastry(pastry.id)}
+                    className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 cursor-pointer transition-all ${
+                      isSelected
+                        ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200 shadow'
+                        : isRequested
+                        ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 border-amber-300 text-[#160E09] font-bold shadow'
+                        : 'glass-btn-inner text-[#FAF5EE]'
+                    }`}
+                    title={`Grab ${pastry.name} (+$${pastry.price}) — never resets coffee steps!`}
+                  >
+                    {isSelected ? (
+                      <Check className="w-3 h-3 shrink-0" strokeWidth={2.5} />
+                    ) : (
+                      <Croissant className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                    )}
+                    <span>
+                      {pastry.name} +${pastry.price}
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {/* Station 2: Orders & POS Counter */}
+          {!isRealismMode && gameState.activeStation === 2 && (
             <>
               {firstWaitingOrder && (
                 <button
@@ -1374,7 +1518,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => onSelectStation(2)}
+                onClick={() => onSelectStation(3)}
                 className="px-1.5 sm:px-2 py-1 rounded-md bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors"
               >
                 <span>Espresso Bar</span>
@@ -1383,7 +1527,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </>
           )}
 
-          {!isRealismMode && gameState.activeStation === 2 && (
+          {/* Station 3: Espresso Bar & Pressurized Rinser / Trash Chute */}
+          {!isRealismMode && gameState.activeStation === 3 && (
             <>
               <button
                 type="button"
@@ -1477,18 +1622,34 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse cursor-pointer'
                     : 'glass-btn-inner text-[#E7D7C1] cursor-pointer'
                 }`}
+                title={
+                  isTakeoutVessel
+                    ? 'Discard takeout cup into Barista Trash Chute'
+                    : 'Rinse cup on Pressurized Glass Rinser'
+                }
               >
                 {drinkValidation.hasWrongIngredient ? (
                   <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                ) : isTakeoutVessel ? (
+                  <Trash2 className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 ) : (
                   <RotateCcw className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 )}
-                <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
+                <span>
+                  {isTakeoutVessel
+                    ? isApkVersion
+                      ? 'Discard'
+                      : 'Discard [R]'
+                    : isApkVersion
+                    ? 'Rinse'
+                    : 'Rinse [R]'}
+                </span>
               </button>
             </>
           )}
 
-          {!isRealismMode && gameState.activeStation === 3 && (
+          {/* Station 4: Tea, Milk, Ice & Artisan Syrups */}
+          {!isRealismMode && gameState.activeStation === 4 && (
             <>
               <button
                 type="button"
@@ -1573,13 +1734,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   className="px-1.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 border border-rose-300 text-[10px] sm:text-xs font-bold text-white cursor-pointer whitespace-nowrap animate-pulse flex items-center gap-1"
                 >
                   <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
-                  <span>Rinse</span>
+                  <span>{isTakeoutVessel ? 'Discard' : 'Rinse'}</span>
                 </button>
               )}
             </>
           )}
 
-          {!isRealismMode && gameState.activeStation === 4 && (
+          {/* Station 5: Serve Coaster & Pastry Staging */}
+          {!isRealismMode && gameState.activeStation === 5 && (
             <button
               type="button"
               disabled={isStepLocked}
@@ -1593,12 +1755,25 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   : 'glass-btn-inner text-[#E7D7C1] cursor-pointer'
               }`}
             >
-              <RotateCcw className="w-3 h-3 shrink-0" strokeWidth={2.2} />
-              <span>{isApkVersion ? 'Rinse Cup' : 'Rinse Cup [R]'}</span>
+              {isTakeoutVessel ? (
+                <Trash2 className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+              ) : (
+                <RotateCcw className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+              )}
+              <span>
+                {isTakeoutVessel
+                  ? isApkVersion
+                    ? 'Discard Cup'
+                    : 'Discard Cup [R]'
+                  : isApkVersion
+                  ? 'Rinse Cup'
+                  : 'Rinse Cup [R]'}
+              </span>
             </button>
           )}
 
-          {gameState.activeStation === 5 && (
+          {/* Station 6: Vinyl Turntable & Upgrades */}
+          {gameState.activeStation === 6 && (
             <>
               <button
                 type="button"
@@ -1625,7 +1800,45 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </>
           )}
 
-          {/* Strict Validated Serve Button (Hidden in Realism Mode so player taps 3D Service Bell / Pickup Coaster directly) */}
+          {/* Phase 4 Realism Mode Serve Order Button (Always accessible at Station 5 or when Order is Ready!) */}
+          {isRealismMode && (gameState.activeStation === 5 || isDrinkReadyToServe) && (
+            <button
+              type="button"
+              data-testid="btn-realism-serve"
+              disabled={isStepLocked}
+              aria-busy={isStepLocked}
+              onClick={() => onServeCustomer()}
+              className={`px-2.5 sm:px-3.5 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                isStepLocked
+                  ? 'opacity-50 cursor-not-allowed bg-black/30 border border-white/15 text-[#E7D7C1]/70'
+                  : isDrinkReadyToServe
+                  ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-amber-300 hover:brightness-105 text-[#160E09] shadow-[0_0_18px_rgba(52,211,153,0.65)] animate-pulse cursor-pointer'
+                  : 'glass-btn-inner !border-amber-400/60 text-amber-200 cursor-pointer'
+              }`}
+              title={
+                isDrinkReadyToServe
+                  ? 'Serve Completed Order (or tap the glowing 3D cup / bell!)'
+                  : orderReadiness.missingPastry
+                  ? `Grab ${orderReadiness.missingPastry.name} at Station 1 first!`
+                  : `Incomplete order — missing: ${drinkValidation.missingSteps.join(', ')}`
+              }
+            >
+              {isDrinkReadyToServe ? (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 shrink-0" strokeWidth={2.3} />
+                  <span>Serve Order</span>
+                  <ArrowRight className="w-3 h-3 shrink-0" strokeWidth={2.4} />
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                  <span>Serve Order</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Guided Mode Strict Validated Serve Button */}
           {!isRealismMode && (
             <button
               type="button"
@@ -1644,10 +1857,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               }`}
               title={
                 isDrinkReadyToServe
-                  ? 'Ring Bell & Serve Completed Drink!'
+                  ? 'Ring Bell & Serve Completed Order!'
                   : drinkValidation.hasWrongIngredient
                   ? `Wrong ingredient (${drinkValidation.wrongIngredients[0]})! Serving will upset customer.`
-                  : `Drink incomplete! Missing: ${drinkValidation.missingSteps.join(', ')}`
+                  : orderReadiness.missingPastry
+                  ? `Grab ${orderReadiness.missingPastry.name} from Station 1 Pastries!`
+                  : `Order incomplete! Missing: ${drinkValidation.missingSteps.join(', ')}`
               }
             >
               {isDrinkReadyToServe ? (

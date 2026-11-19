@@ -72,8 +72,6 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
   const [installMsg, setInstallMsg] = useState<string | null>(null);
   const [isCheckingApk, setIsCheckingApk] = useState(false);
 
-  const isMaxGraphics = graphicsQuality !== 'low';
-
   const handleDownloadDirectApk = async () => {
     setIsCheckingApk(true);
     setInstallMsg(null);
@@ -219,30 +217,49 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
           </div>
         </div>
 
-        {/* 2. 2-State Graphics Settings (LOW vs MAX Only) */}
+        {/* 2. 3-Tier Graphics Settings (LOW / MED / MAX) */}
         <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20 space-y-1.5">
           <div className="text-xs font-bold text-[#FAF5EE] glass-text-crisp flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
-            <span>3D Graphics Quality (LOW or MAX Only)</span>
+            <span>3D Graphics Quality (LOW · MED · MAX)</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => onChangeGraphics('low')}
               className={`p-2 rounded-xl text-left cursor-pointer transition-all ${
-                !isMaxGraphics
+                graphicsQuality === 'low'
                   ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border border-amber-300 font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
                   : 'glass-btn-inner text-[#E7D7C1]'
               }`}
             >
-              <div className="text-xs font-bold">LOW (Battery / 60 FPS)</div>
+              <div className="text-xs font-bold">LOW (60 FPS)</div>
               <div
                 className={`text-[10px] ${
-                  !isMaxGraphics ? 'text-[#160E09]/85' : 'text-[#E7D7C1]/75'
+                  graphicsQuality === 'low' ? 'text-[#160E09]/85' : 'text-[#E7D7C1]/75'
                 }`}
               >
-                0.85x DPR · No Shadows · Fast
+                0.8x DPR · No Shadows · Solid HUD
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onChangeGraphics('medium')}
+              className={`p-2 rounded-xl text-left cursor-pointer transition-all ${
+                graphicsQuality === 'medium'
+                  ? 'bg-gradient-to-b from-sky-400 to-indigo-400 text-[#0c1220] border border-sky-300 font-bold shadow-[0_6px_18px_-4px_rgba(56,189,248,0.45)]'
+                  : 'glass-btn-inner text-[#E7D7C1]'
+              }`}
+            >
+              <div className="text-xs font-bold">MED (Balanced)</div>
+              <div
+                className={`text-[10px] ${
+                  graphicsQuality === 'medium' ? 'text-[#0c1220]/85' : 'text-[#E7D7C1]/75'
+                }`}
+              >
+                1.25x DPR · Soft Shadows · Glass
               </div>
             </button>
 
@@ -250,18 +267,18 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
               type="button"
               onClick={() => onChangeGraphics('max')}
               className={`p-2 rounded-xl text-left cursor-pointer transition-all ${
-                isMaxGraphics
+                graphicsQuality === 'max'
                   ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border border-amber-300 font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
                   : 'glass-btn-inner text-[#E7D7C1]'
               }`}
             >
-              <div className="text-xs font-bold">MAX (High-End Android HD)</div>
+              <div className="text-xs font-bold">MAX (Ultra HD)</div>
               <div
                 className={`text-[10px] ${
-                  isMaxGraphics ? 'text-[#160E09]/85' : 'text-[#E7D7C1]/75'
+                  graphicsQuality === 'max' ? 'text-[#160E09]/85' : 'text-[#E7D7C1]/75'
                 }`}
               >
-                2.0x Retina DPR · Soft Shadows · PBR
+                2.0x DPR · Full Shadows &amp; Reflections
               </div>
             </button>
           </div>

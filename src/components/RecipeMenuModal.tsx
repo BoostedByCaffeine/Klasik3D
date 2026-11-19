@@ -43,21 +43,21 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       stepNum: stepNum++,
       key: 'grind',
       label: 'Grind',
-      stationTag: 'St.2',
+      stationTag: 'St.3',
       toneClass: 'bg-amber-500/20 border-amber-400/45 text-amber-100',
     });
     chips.push({
       stepNum: stepNum++,
       key: 'tamp',
       label: 'Tamp',
-      stationTag: 'St.2',
+      stationTag: 'St.3',
       toneClass: 'bg-amber-500/20 border-amber-400/45 text-amber-100',
     });
     chips.push({
       stepNum: stepNum++,
       key: 'shot',
       label: 'Pull Shot',
-      stationTag: 'St.2',
+      stationTag: 'St.3',
       toneClass: 'bg-orange-500/25 border-orange-400/55 text-orange-100',
     });
   }
@@ -67,7 +67,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       stepNum: stepNum++,
       key: 'tea',
       label: 'Steep Tea',
-      stationTag: 'St.3',
+      stationTag: 'St.4',
       toneClass: 'bg-lime-500/20 border-lime-400/50 text-lime-100',
     });
   }
@@ -78,7 +78,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       stepNum: stepNum++,
       key: 'syrup',
       label: `+${flavorName}`,
-      stationTag: 'St.3',
+      stationTag: 'St.4',
       toneClass: 'bg-amber-700/30 border-amber-300/45 text-amber-100',
     });
   }
@@ -88,7 +88,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       stepNum: stepNum++,
       key: 'ice',
       label: '+Ice',
-      stationTag: 'St.3',
+      stationTag: 'St.4',
       toneClass: 'bg-sky-500/20 border-sky-400/50 text-sky-100',
     });
   }
@@ -98,7 +98,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       stepNum: stepNum++,
       key: 'milk',
       label: 'Steam Milk',
-      stationTag: 'St.3',
+      stationTag: 'St.4',
       toneClass: 'bg-stone-200/15 border-amber-200/40 text-stone-100',
     });
   }
@@ -107,7 +107,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
     stepNum: stepNum++,
     key: 'serve',
     label: 'Serve',
-    stationTag: 'St.4',
+    stationTag: 'St.5',
     toneClass: 'bg-emerald-500/25 border-emerald-400/55 text-emerald-100',
   });
 

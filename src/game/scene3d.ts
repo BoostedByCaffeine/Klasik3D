@@ -8,20 +8,26 @@ import {
   CupVesselType,
   CustomerOrder,
   CustomerSkinPackId,
+  DeliveryRiderVariant,
   KlasikGameState,
   LOUNGE_SEAT_COORDS,
   LOUNGE_TABLE_LAYOUT,
   MIATA_BAY,
+  PastryId,
   SyrupFlavor,
   WeatherMode,
+  extractTimeOfDayFromWeather,
   getCafeCatSpec,
   getMoodTier,
   getNextRecommendedStep,
   getOrderVesselType,
+  getPastryById,
   getRecipeById,
   isClearOfMiataBay,
   isNightWeather,
+  isOrderReadyToServe,
   isRainyWeather,
+  isStepLockActive,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
 
@@ -81,6 +87,8 @@ export interface SceneInteractionCallbacks {
   onPetChampy?: () => void;
   onChampyGreet?: () => void;
   onCookieJarTap?: (tapCount: number) => void;
+  onGrabPastry?: (pastryId: PastryId) => void;
+  onScooterSound?: (mode: 'arrive' | 'depart') => void;
 }
 
 interface StationCameraPreset {
@@ -88,27 +96,37 @@ interface StationCameraPreset {
   look: THREE.Vector3;
 }
 
-// Re-spaced camera presets matching the non-overlapping X-zones (-3.98 to +2.93)
+// V2 6-Station Camera Presets: 1 Pastries -> 2 Orders -> 3 Espresso -> 4 Tea & Milk -> 5 Serve -> 6 Vinyl
 const STATION_CAMERAS: Record<BaristaStationId, StationCameraPreset> = {
   1: {
-    pos: new THREE.Vector3(-2.36, 1.65, 2.16),
-    look: new THREE.Vector3(-2.26, 1.26, -0.58),
+    // Pastries: Close-up warm walnut & curved-glass bakery showcase
+    pos: new THREE.Vector3(-1.86, 1.44, 1.24),
+    look: new THREE.Vector3(-1.86, 1.13, 0.2),
   },
   2: {
-    pos: new THREE.Vector3(-0.36, 1.58, 1.76),
-    look: new THREE.Vector3(-0.36, 1.2, 0.05),
+    // Orders: Serve-like elevated front-counter framing showing POS, hanging tickets, Cat Perch & incoming queue
+    pos: new THREE.Vector3(-1.72, 1.66, 1.98),
+    look: new THREE.Vector3(-1.68, 1.22, -1.42),
   },
   3: {
-    pos: new THREE.Vector3(1.04, 1.58, 1.76),
-    look: new THREE.Vector3(1.04, 1.2, 0.08),
+    // Espresso: Knock Box, Grinder, Tamper, Dual-Boiler Machine, Separated Rinser & Trash Chute
+    pos: new THREE.Vector3(-0.08, 1.6, 1.92),
+    look: new THREE.Vector3(-0.08, 1.18, 0.1),
   },
   4: {
+    // Tea & Milk: Milk Pitcher, Assembly Coaster, Kyoto Teapot, Ice Bin, Syrup Rack & Matcha
+    pos: new THREE.Vector3(1.44, 1.58, 1.84),
+    look: new THREE.Vector3(1.44, 1.18, 0.14),
+  },
+  5: {
+    // Serve: Elevated Walnut Pickup Coaster, Brass Bell, Staged Pastry Plate/Bag, Lounge & Miata
     pos: new THREE.Vector3(-1.25, 1.64, 1.84),
     look: new THREE.Vector3(-1.25, 1.18, -1.65),
   },
-  5: {
-    pos: new THREE.Vector3(2.04, 1.55, 1.58),
-    look: new THREE.Vector3(2.1, 1.18, 0.12),
+  6: {
+    // Vinyl: Shop Management Tablet & 3D Vinyl Turntable Corner
+    pos: new THREE.Vector3(2.38, 1.55, 1.58),
+    look: new THREE.Vector3(2.42, 1.18, 0.14),
   },
 };
 
@@ -375,6 +393,11 @@ interface ArticulatedCustomerActor {
   heldCup: THREE.Group;
   heldVesselVariants: Record<CupVesselType, THREE.Group>;
   appliedVesselType: CupVesselType;
+  heldPastryGroup: THREE.Group;
+  heldPastryPlateGroup: THREE.Group;
+  heldPastryBagGroup: THREE.Group;
+  heldPastryPlateItems: Record<PastryId, THREE.Group>;
+  appliedPastryId: PastryId | null;
   umbrellaGroup: THREE.Group;
   phoneMesh: THREE.Mesh;
   activitySprite: THREE.Sprite;
@@ -396,6 +419,23 @@ interface ArticulatedCustomerActor {
   seed: number;
   appliedSkinPack: CustomerSkinPackId;
   appliedShirtColor: string;
+  isDeliveryRider?: boolean;
+  riderVariant?: DeliveryRiderVariant;
+  scooterStowTimer?: number;
+}
+
+interface DeliveryScooterController {
+  customerId: string;
+  variant: DeliveryRiderVariant;
+  root: THREE.Group;
+  wheels: THREE.Object3D[];
+  topBoxLidPivot: THREE.Group;
+  headlightMat: THREE.MeshStandardMaterial;
+  phase: 'arriving' | 'parked' | 'stowing' | 'departing';
+  x: number;
+  stowTimer: number;
+  arrivedSoundPlayed: boolean;
+  departSoundPlayed: boolean;
 }
 
 type ChampyState = 'sitting' | 'sleeping' | 'grooming' | 'greeting' | 'petted';
@@ -453,6 +493,7 @@ interface ActiveStepAnimation {
   flavor?: SyrupFlavor;
   badgeText?: string;
   servedCustomerId?: string;
+  vesselType?: CupVesselType;
 }
 
 function easeInOutCubic(t: number): number {
@@ -630,6 +671,27 @@ export class KlasikCafeScene3D {
   private activeCupIceGroup!: THREE.Group;
   private ghostCupMesh!: THREE.Mesh;
   private bellRippleRingMesh!: THREE.Mesh;
+  private serveReadyHaloMesh!: THREE.Mesh;
+  private serveReadyHaloMat!: THREE.MeshBasicMaterial;
+  private isServeCupClickable = false;
+
+  // Phase 5: Pressurized Glass Rinser Water Spray & Barista Trash Chute
+  private rinserSprayConeMesh!: THREE.Mesh;
+  private rinserMistDrops: THREE.Mesh[] = [];
+  private trashChuteGroup!: THREE.Group;
+  private trashFlapPivot!: THREE.Group;
+
+  // Phase 6: Overhauled Pastry Display Case & Staged Prepared Pastry (Mini Plate / Kraft Bag)
+  private pastryCaseItemGroups: Map<PastryId, THREE.Group> = new Map();
+  private pastryCaseHaloMats: Map<PastryId, THREE.MeshBasicMaterial> = new Map();
+  private preparedPastryStageGroup!: THREE.Group;
+  private preparedPlateGroup!: THREE.Group;
+  private preparedBagGroup!: THREE.Group;
+  private preparedPlatePastryMeshes!: Record<PastryId, THREE.Group>;
+
+  // Phase 7: Active Rare 3D Delivery Scooter Rig
+  private deliveryScooter: DeliveryScooterController | null = null;
+  private activeGreetTargetPos: THREE.Vector3 | null = null;
 
   // Animated Barista Equipment Rig Parts
   private grinderGroup!: THREE.Group;
@@ -840,25 +902,42 @@ export class KlasikCafeScene3D {
   }
 
   private updateGraphicsQuality() {
-    const isLow = this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
+    const quality = this.isSoftwareGl ? 'low' : this.gameState.graphicsQuality;
+    const isLow = quality === 'low';
+    const isMed = quality === 'medium';
     const dpr = window.devicePixelRatio || 1;
-    // On GFX: LOW mobile devices, cap DPR at 0.9 for huge fragment-shader win on Mali/Adreno GPUs
+    // Calibrated 3-tier DPR: Low (0.9x mobile / 1.0x desktop), Medium (1.35x), Max (2.0x)
     const targetRatio = isLow
       ? this.isMobileDevice
         ? Math.min(dpr, 0.9)
         : 1.0
+      : isMed
+      ? Math.min(dpr, 1.35)
       : Math.min(dpr, 2.0);
 
     this.renderer.setPixelRatio(targetRatio);
     const enableShadows = !isLow;
     this.renderer.shadowMap.enabled = enableShadows;
-    this.renderer.shadowMap.type = enableShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    this.renderer.shadowMap.type =
+      quality === 'max' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 
     if (this.sunLight) {
       this.sunLight.castShadow = enableShadows;
+      const desiredShadowSize = isMed ? 1024 : 2048;
+      if (enableShadows && this.sunLight.shadow.mapSize.width !== desiredShadowSize) {
+        this.sunLight.shadow.mapSize.set(desiredShadowSize, desiredShadowSize);
+        if (this.sunLight.shadow.map) {
+          this.sunLight.shadow.map.dispose();
+          this.sunLight.shadow.map = null;
+        }
+      }
     }
 
-    const targetAniso = isLow ? 1 : Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    const targetAniso = isLow
+      ? 1
+      : isMed
+      ? Math.min(2, this.renderer.capabilities.getMaxAnisotropy())
+      : Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
     [
       this.microCementTexture,
       this.herringboneFloorTexture,
@@ -877,23 +956,42 @@ export class KlasikCafeScene3D {
 
     if (this.monsteraLeavesInstanced) {
       const lush = this.gameState.decor.plantDensity === 'lush-jungle';
-      this.monsteraLeavesInstanced.count = isLow ? (lush ? 16 : 10) : lush ? 36 : 18;
+      this.monsteraLeavesInstanced.count = isLow
+        ? lush
+          ? 16
+          : 10
+        : isMed
+        ? lush
+          ? 26
+          : 14
+        : lush
+        ? 36
+        : 18;
     }
 
-    // Scale Outdoor GPU Raindrop count cleanly via drawRange (180 on LOW, 650 on MAX)
+    // Scale Outdoor GPU Raindrop count cleanly via drawRange (180 Low, 420 Med, 850 Max)
     if (this.gpuRainLines) {
-      const rainDropCount = isLow ? 180 : 650;
-      this.gpuRainLines.geometry.setDrawRange(0, rainDropCount * 2);
+      const maxVerts = this.gpuRainLines.geometry.attributes.position.count;
+      const rainDropCount = isLow ? 180 : isMed ? 420 : Math.min(850, Math.floor(maxVerts / 2));
+      this.gpuRainLines.geometry.setDrawRange(0, Math.min(maxVerts, rainDropCount * 2));
     }
 
-    // Scale Fixed Outdoor Pedestrian Pool (2 on LOW, 5 on MAX)
-    const maxPeds = isLow ? 2 : 5;
+    // Scale Volumetric God Ray shafts cleanly (3 Low, 4 Med, 6 Max)
+    if (this.godRaysGroup) {
+      const maxRays = isLow ? 3 : isMed ? 4 : 6;
+      this.godRaysGroup.children.forEach((child, idx) => {
+        child.visible = idx < maxRays;
+      });
+    }
+
+    // Scale Fixed Outdoor Pedestrian Pool (2 Low, 4 Med, 6 Max)
+    const maxPeds = isLow ? 2 : isMed ? 4 : 6;
     this.pedestrianPool.forEach((p, idx) => {
       p.actor.group.visible = idx < maxPeds;
     });
 
-    // Scale Fixed Outdoor Street Traffic Pool (3 street vehicles on LOW; 6 on MAX — zero elevated highway!)
-    const maxStreet = isLow ? 3 : 6;
+    // Scale Fixed Outdoor Street Traffic Pool (2 Low, 4 Med, 6 Max)
+    const maxStreet = isLow ? 2 : isMed ? 4 : 6;
     this.trafficPool.forEach((v, idx) => {
       v.group.visible = idx < maxStreet;
     });
@@ -4303,53 +4401,173 @@ export class KlasikCafeScene3D {
       'register',
       registerGroup,
       'KLASIK POS · Tap to Open Recipe Book',
-      1,
+      2,
       () => this.callbacks.onToolAction('open_recipes_modal')
     );
     st1Group.add(registerGroup);
 
-    // 2. Artisan Glass Pastry Display Case at x = -1.86, y = 1.0, z = 0.22 (width 0.34m, spans -2.03..-1.69, zero collision with Pickup Bell at -1.48!)
+    // 2. Phase 6: Overhauled Walnut & Curved-Glass Artisan Pastry Display Case at x = -1.86, y = 1.0, z = 0.22
     const pastryCaseGroup = new THREE.Group();
     const caseBase = new THREE.Mesh(
-      new THREE.BoxGeometry(0.34, 0.06, 0.3),
+      new THREE.BoxGeometry(0.46, 0.056, 0.34),
       this.counterWoodMat
     );
-    caseBase.position.y = 0.03;
+    caseBase.position.y = 0.028;
+    caseBase.castShadow = true;
+    caseBase.receiveShadow = true;
     pastryCaseGroup.add(caseBase);
+
+    const caseTrim = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.012, 0.35), brassMat);
+    caseTrim.position.y = 0.056;
+    pastryCaseGroup.add(caseTrim);
+
+    // Warm internal bakery LED backlight strip along top brass rail (zero dynamic GPU light cost!)
+    const warmBakeryGlowMat = new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.72,
+    });
+    const topLightStrip = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.008, 0.018), warmBakeryGlowMat);
+    topLightStrip.position.set(0, 0.268, -0.06);
+    pastryCaseGroup.add(topLightStrip);
+
+    // Warm brass corner stanchions & curved front glass hood
+    [-0.215, 0.215].forEach((sx) => {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.22, 8), brassMat);
+      post.position.set(sx, 0.168, -0.145);
+      pastryCaseGroup.add(post);
+      const sideArch = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.22, 0.31), brassMat);
+      sideArch.position.set(sx, 0.168, 0);
+      sideArch.visible = false;
+      pastryCaseGroup.add(sideArch);
+    });
 
     const useTrans = this.shouldUsePhysicalTransmission();
     const glassCaseMat = new THREE.MeshPhysicalMaterial({
-      color: 0xfffbeb,
-      roughness: 0.08,
-      transmission: useTrans ? 0.8 : 0,
+      color: 0xfffdf5,
+      roughness: 0.06,
+      metalness: 0.04,
+      transmission: useTrans ? 0.78 : 0,
       transparent: true,
-      opacity: useTrans ? 0.88 : 0.34,
+      opacity: useTrans ? 0.85 : 0.24,
+      depthWrite: false,
     });
-    const glassHood = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.28), glassCaseMat);
-    glassHood.position.y = 0.17;
-    pastryCaseGroup.add(glassHood);
+    // Rear-open curved bakery glass canopy (cylinder quarter-arc + top & side panes)
+    const curvedFrontGlass = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.22, 0.22, 0.44, 16, 1, true, 0, Math.PI * 0.5),
+      glassCaseMat
+    );
+    curvedFrontGlass.rotation.z = Math.PI / 2;
+    curvedFrontGlass.rotation.y = Math.PI;
+    curvedFrontGlass.position.set(0, 0.06, -0.14);
+    curvedFrontGlass.renderOrder = 4;
+    pastryCaseGroup.add(curvedFrontGlass);
 
-    const pastryShelf = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.01, 0.22), brassMat);
-    pastryShelf.position.y = 0.15;
-    pastryCaseGroup.add(pastryShelf);
+    const glassTop = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.008, 0.17), glassCaseMat);
+    glassTop.position.set(0, 0.278, -0.06);
+    glassTop.renderOrder = 4;
+    pastryCaseGroup.add(glassTop);
 
-    // 3D Croissants & Matcha Tarts inside Pastry Case
-    const croissantMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.55 });
-    [-0.065, 0.065].forEach((px) => {
-      const croissant = new THREE.Mesh(
-        new THREE.TorusGeometry(0.035, 0.016, 10, 16, Math.PI * 1.3),
-        croissantMat
+    [-0.22, 0.22].forEach((gx) => {
+      const sideGlass = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.215, 0.31), glassCaseMat);
+      sideGlass.position.set(gx, 0.168, 0);
+      sideGlass.renderOrder = 4;
+      pastryCaseGroup.add(sideGlass);
+    });
+
+    // Stepped Walnut & Cream-Parchment Pastry Display Deck
+    const parchmentMat = new THREE.MeshStandardMaterial({
+      color: 0xfef3c7,
+      roughness: 0.88,
+      metalness: 0.0,
+    });
+    const upperDeck = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.012, 0.12), brassMat);
+    upperDeck.position.set(0, 0.155, -0.06);
+    pastryCaseGroup.add(upperDeck);
+
+    // 3 Sculpted Interactive Pastries: Daisy Donut (left), Miata Cake (center), Artisanal Croissant (right)
+    const pastryShowcaseDefs: Array<{
+      id: PastryId;
+      x: number;
+      y: number;
+      z: number;
+      label: string;
+    }> = [
+      {
+        id: 'daisy-donut',
+        x: -0.135,
+        y: 0.072,
+        z: 0.045,
+        label: 'Daisy Donut (+$4) · Tap to Grab Pastry',
+      },
+      {
+        id: 'miata-cake',
+        x: 0.0,
+        y: 0.164,
+        z: -0.055,
+        label: 'Miata Cake (+$5) · Tap to Grab Pastry',
+      },
+      {
+        id: 'croissant',
+        x: 0.135,
+        y: 0.072,
+        z: 0.045,
+        label: 'Butter Croissant (+$4) · Tap to Grab Pastry',
+      },
+    ];
+
+    this.pastryCaseItemGroups.clear();
+    this.pastryCaseHaloMats.clear();
+    const hitInvisibleMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+
+    pastryShowcaseDefs.forEach((def) => {
+      const slotGroup = new THREE.Group();
+      slotGroup.position.set(def.x, def.y, def.z);
+
+      // Parchment paper doily underneath pastry
+      const trayPaper = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.058, 0.005, 16),
+        parchmentMat
       );
-      croissant.rotation.x = Math.PI / 2;
-      croissant.position.set(px, 0.075, 0.02);
-      pastryCaseGroup.add(croissant);
+      slotGroup.add(trayPaper);
 
-      const matchaTart = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.034, 0.028, 0.028, 14),
-        new THREE.MeshStandardMaterial({ color: 0x65a30d, roughness: 0.45 })
+      // Pulsing golden halo ring shown when active customer ordered this pastry!
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const haloRing = new THREE.Mesh(new THREE.RingGeometry(0.052, 0.068, 22), haloMat);
+      haloRing.rotation.x = -Math.PI / 2;
+      haloRing.position.y = 0.006;
+      slotGroup.add(haloRing);
+      this.pastryCaseHaloMats.set(def.id, haloMat);
+
+      // Sculpted 3D Pastry Mesh
+      const pastryMesh = this.buildSculptedPastryMesh(def.id, 1.0);
+      pastryMesh.position.y = 0.006;
+      slotGroup.add(pastryMesh);
+
+      // Generous invisible tap hitbox for reliable mobile & desktop pastry selection
+      const hitCyl = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.066, 0.066, 0.11, 10),
+        hitInvisibleMat
       );
-      matchaTart.position.set(px, 0.168, -0.02);
-      pastryCaseGroup.add(matchaTart);
+      hitCyl.position.y = 0.048;
+      slotGroup.add(hitCyl);
+
+      this.pastryCaseItemGroups.set(def.id, slotGroup);
+      this.registerInteractiveTool(`pastry-${def.id}`, slotGroup, def.label, 1, () => {
+        this.callbacks.onGrabPastry?.(def.id);
+      });
+      pastryCaseGroup.add(slotGroup);
     });
 
     pastryCaseGroup.position.set(-1.86, 1.0, 0.22);
@@ -4411,7 +4629,7 @@ export class KlasikCafeScene3D {
         `order-ticket-${slotIdx}`,
         ticketGroup,
         `Tap to Pin Order #${slotIdx + 1}`,
-        1,
+        2,
         () => {
           const slotData = this.ticketOrderSlots[slotIdx];
           if (slotData) {
@@ -4432,6 +4650,110 @@ export class KlasikCafeScene3D {
     st1Group.add(cookieJar);
 
     this.scene.add(st1Group);
+  }
+
+  // Sculpted reusable 3D Artisanal Pastries (Daisy Donut, Miata Cake, Butter Croissant)
+  private buildSculptedPastryMesh(pastryId: PastryId, scale = 1.0): THREE.Group {
+    const g = new THREE.Group();
+    g.scale.setScalar(scale);
+
+    if (pastryId === 'daisy-donut') {
+      const doughMat = new THREE.MeshStandardMaterial({ color: 0xd99b52, roughness: 0.65 });
+      const glazeMat = new THREE.MeshStandardMaterial({ color: 0xfffdf7, roughness: 0.22 });
+      const centerMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.35 });
+
+      const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.032, 0.014, 10, 18), doughMat);
+      baseRing.rotation.x = Math.PI / 2;
+      baseRing.position.y = 0.015;
+      g.add(baseRing);
+
+      // 8 glossy white daisy icing petals arranged around the top ring
+      const petalGeo = new THREE.SphereGeometry(0.014, 8, 8);
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2;
+        const petal = new THREE.Mesh(petalGeo, glazeMat);
+        petal.scale.set(1.18, 0.55, 0.85);
+        petal.position.set(Math.cos(ang) * 0.033, 0.025, Math.sin(ang) * 0.033);
+        petal.rotation.y = -ang;
+        g.add(petal);
+      }
+
+      // Warm sunny yellow daisy center dot
+      const daisyCore = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.01, 14), centerMat);
+      daisyCore.position.y = 0.026;
+      g.add(daisyCore);
+    } else if (pastryId === 'miata-cake') {
+      // Sculpted Classic Red NA Miata Frosting Mini-Cake with white cream wheels, headlights & windshield!
+      const redFrostingMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.34 });
+      const creamIcingMat = new THREE.MeshStandardMaterial({ color: 0xfffbeb, roughness: 0.26 });
+      const cocoaMat = new THREE.MeshStandardMaterial({ color: 0x3b1d0e, roughness: 0.55 });
+      const goldGlazeMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.22 });
+
+      const spongeBody = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.028, 0.052), redFrostingMat);
+      spongeBody.position.y = 0.02;
+      g.add(spongeBody);
+
+      // Rounded nose & tail cream bumpers
+      const noseFrost = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.014, 0.05, 10), redFrostingMat);
+      noseFrost.rotation.x = Math.PI / 2;
+      noseFrost.position.set(0.047, 0.018, 0);
+      g.add(noseFrost);
+
+      // White cream convertible cockpit & windshield icing
+      const cabinCream = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.018, 0.042), creamIcingMat);
+      cabinCream.position.set(-0.005, 0.038, 0);
+      g.add(cabinCream);
+
+      const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.018, 0.044), creamIcingMat);
+      windshield.position.set(0.018, 0.043, 0);
+      windshield.rotation.z = 0.38;
+      g.add(windshield);
+
+      // Cute twin pop-up frosting headlights
+      [-0.015, 0.015].forEach((hz) => {
+        const hl = new THREE.Mesh(new THREE.BoxGeometry(0.011, 0.01, 0.012), goldGlazeMat);
+        hl.position.set(0.038, 0.036, hz);
+        g.add(hl);
+      });
+
+      // 4 dark-chocolate cookie wheels
+      const wheelGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.008, 10);
+      [
+        [0.028, 0.026],
+        [0.028, -0.026],
+        [-0.028, 0.026],
+        [-0.028, -0.026],
+      ].forEach(([wx, wz]) => {
+        const w = new THREE.Mesh(wheelGeo, cocoaMat);
+        w.rotation.x = Math.PI / 2;
+        w.position.set(wx, 0.011, wz);
+        g.add(w);
+      });
+    } else {
+      // Flaky layered golden-brown French Butter Croissant (tapered laminated crescent)
+      const crustMat = new THREE.MeshStandardMaterial({ color: 0xc26d18, roughness: 0.48 });
+      const flakeMat = new THREE.MeshStandardMaterial({ color: 0xe69f3b, roughness: 0.42 });
+
+      const segments: Array<[number, number, number, number, number]> = [
+        [-0.034, 0.012, 0.014, 0.011, 0.48],
+        [-0.018, 0.018, 0.004, 0.016, 0.24],
+        [0.0, 0.022, -0.002, 0.021, 0.0],
+        [0.018, 0.018, 0.004, 0.016, -0.24],
+        [0.034, 0.012, 0.014, 0.011, -0.48],
+      ];
+      segments.forEach(([sx, sy, sz, rad, rotY], idx) => {
+        const puff = new THREE.Mesh(
+          new THREE.SphereGeometry(rad, 10, 8),
+          idx % 2 === 0 ? crustMat : flakeMat
+        );
+        puff.scale.set(1.22, 0.88, 0.92);
+        puff.position.set(sx, sy, sz);
+        puff.rotation.y = rotY;
+        g.add(puff);
+      });
+    }
+
+    return g;
   }
 
   private buildCookieJar(brassMat: THREE.MeshStandardMaterial): THREE.Group {
@@ -4550,7 +4872,7 @@ export class KlasikCafeScene3D {
     jarGroup.add(hitMesh);
 
     this.cookieJarGroup = jarGroup;
-    this.registerInteractiveTool('cookie-jar', jarGroup, '', 1, () => {
+    this.registerInteractiveTool('cookie-jar', jarGroup, '', 2, () => {
       this.handleCookieJarClick();
     });
 
@@ -4591,32 +4913,107 @@ export class KlasikCafeScene3D {
     this.catNameplateTexture.needsUpdate = true;
   }
 
-  private createProceduralCatFurTexture(spec: CafeCatSpec): THREE.CanvasTexture | null {
-    if (spec.coatPattern === 'solid') return null;
-
+  // Phase 8: High-craft organic feathered UV-mapped procedural fur textures (256px Low / 512px Med-Max, zero clay bumps!)
+  private createProceduralCatFurTexture(
+    spec: CafeCatSpec,
+    part: 'body' | 'head' = 'body'
+  ): THREE.CanvasTexture | null {
+    const texSize = !this.isSoftwareGl && this.gameState.graphicsQuality !== 'low' ? 512 : 256;
+    const scale = texSize / 256;
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
+    canvas.width = texSize;
+    canvas.height = texSize;
     const ctx = canvas.getContext('2d')!;
     const baseHexStr = '#' + spec.furHex.toString(16).padStart(6, '0');
     ctx.fillStyle = baseHexStr;
-    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillRect(0, 0, texSize, texSize);
+
+    // Subtle organic brushed fur-strand micro-noise for velvety plush coat look
+    ctx.save();
+    for (let i = 0; i < 650; i++) {
+      const fx = ((i * 73) % 256) * scale;
+      const fy = ((i * 41 + Math.floor(i / 7) * 19) % 256) * scale;
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
+      ctx.fillRect(fx, fy, 1.5 * scale, 6.5 * scale);
+    }
+    ctx.restore();
 
     if (spec.coatPattern === 'tabby' || spec.coatPattern === 'tuxedo-tabby') {
       const stripeHexStr = '#' + (spec.stripeHex ?? 0x44403c).toString(16).padStart(6, '0');
-      ctx.fillStyle = stripeHexStr;
-      // Mackerel tabby stripes wrapping across the back, flanks & head
-      for (let y = 14; y < 248; y += 26) {
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      // Softly feathered mackerel tabby stripes wrapping naturally around body/head UVs
+      for (let y = 18; y < 246; y += 26) {
+        const grad = ctx.createLinearGradient(0, (y - 9) * scale, 0, (y + 9) * scale);
+        grad.addColorStop(0, 'rgba(0,0,0,0)');
+        grad.addColorStop(0.5, stripeHexStr);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.ellipse(128, y, 128, 7.5, 0, 0, Math.PI * 2);
+        ctx.ellipse(128 * scale, y * scale, 128 * scale, 9.5 * scale, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       // Classic dorsal tabby spine stripe
-      ctx.fillRect(114, 0, 28, 256);
+      const spineGrad = ctx.createLinearGradient(104 * scale, 0, 152 * scale, 0);
+      spineGrad.addColorStop(0, 'rgba(0,0,0,0)');
+      spineGrad.addColorStop(0.5, stripeHexStr);
+      spineGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = spineGrad;
+      ctx.fillRect(104 * scale, 0, 48 * scale, texSize);
+
+      // Tabby forehead "M" marking on head UV
+      if (part === 'head') {
+        ctx.strokeStyle = stripeHexStr;
+        ctx.lineWidth = 4.5 * scale;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(48 * scale, 96 * scale);
+        ctx.lineTo(56 * scale, 72 * scale);
+        ctx.lineTo(64 * scale, 90 * scale);
+        ctx.lineTo(72 * scale, 72 * scale);
+        ctx.lineTo(80 * scale, 96 * scale);
+        ctx.stroke();
+      }
+      ctx.restore();
     } else if (spec.coatPattern === 'calico-mikmik') {
-      // Pure white base coat with crisp ginger accents (major patches also added as sculpted 3D meshes!)
+      // Smooth pure snow-white base coat with feathered organic ginger patches painted directly into UV fur texture!
       ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(0, 0, 256, 256);
+      ctx.fillRect(0, 0, texSize, texSize);
+      // Soft white fur strands
+      for (let i = 0; i < 420; i++) {
+        const fx = ((i * 59) % 256) * scale;
+        const fy = ((i * 37) % 256) * scale;
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(226,232,240,0.28)' : 'rgba(255,255,255,0.4)';
+        ctx.fillRect(fx, fy, 1.4 * scale, 6 * scale);
+      }
+
+      const paintFeatheredPatch = (cx: number, cy: number, rx: number, ry: number) => {
+        ctx.save();
+        ctx.translate(cx * scale, cy * scale);
+        ctx.scale(1, ry / rx);
+        const g = ctx.createRadialGradient(0, 0, rx * 0.15 * scale, 0, 0, rx * scale);
+        g.addColorStop(0, '#ea580c');
+        g.addColorStop(0.68, '#f97316');
+        g.addColorStop(0.88, 'rgba(249,115,22,0.48)');
+        g.addColorStop(1, 'rgba(248,250,252,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, rx * scale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      };
+
+      if (part === 'head') {
+        // Organic feathered ginger crown & left-ear cap patch (zero protruding clay mesh!)
+        paintFeatheredPatch(154, 72, 54, 46);
+        paintFeatheredPatch(178, 92, 34, 28);
+      } else {
+        // Two smooth feathered ginger flank/stomach patches blended seamlessly into Mikmik's white torso
+        paintFeatheredPatch(86, 138, 44, 38);
+        paintFeatheredPatch(176, 158, 48, 40);
+        paintFeatheredPatch(168, 128, 30, 26);
+      }
     }
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -4720,14 +5117,23 @@ export class KlasikCafeScene3D {
     this.redrawCatNameplate(spec.name);
 
     const coatTextures: THREE.CanvasTexture[] = [];
-    const furTex = this.createProceduralCatFurTexture(spec);
-    if (furTex) coatTextures.push(furTex);
+    const bodyFurTex = this.createProceduralCatFurTexture(spec, 'body');
+    const headFurTex = this.createProceduralCatFurTexture(spec, 'head');
+    if (bodyFurTex) coatTextures.push(bodyFurTex);
+    if (headFurTex) coatTextures.push(headFurTex);
 
+    // Velvety matte plush fur (roughness 0.72, low metalness 0.03) — zero plastic or clay bumps!
     const furMat = new THREE.MeshStandardMaterial({
-      color: furTex ? 0xffffff : spec.furHex,
-      ...(furTex ? { map: furTex } : {}),
-      roughness: 0.64,
-      metalness: 0.06,
+      color: bodyFurTex ? 0xffffff : spec.furHex,
+      ...(bodyFurTex ? { map: bodyFurTex } : {}),
+      roughness: 0.72,
+      metalness: 0.03,
+    });
+    const headFurMat = new THREE.MeshStandardMaterial({
+      color: headFurTex ? 0xffffff : spec.furHex,
+      ...(headFurTex ? { map: headFurTex } : {}),
+      roughness: 0.72,
+      metalness: 0.03,
     });
 
     const isDarkFur = spec.furHex < 0x333333;
@@ -4743,14 +5149,14 @@ export class KlasikCafeScene3D {
     // Pure white fur material for Katkat's tuxedo chest bib & paws
     const whiteFurMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
-      roughness: 0.64,
-      metalness: 0.04,
+      roughness: 0.72,
+      metalness: 0.03,
     });
-    // Vibrant ginger fur material for Mikmik's head patch, 2 stomach patches, and pure ginger tail
+    // Vibrant ginger fur material for Mikmik's solid ginger tail & left ear
     const gingerPatchMat = new THREE.MeshStandardMaterial({
       color: 0xea580c,
-      roughness: 0.64,
-      metalness: 0.05,
+      roughness: 0.72,
+      metalness: 0.03,
     });
 
     // Exact Anatomical Left (+X) and Right (-X) Eye Materials for Heterochromia (Chunky & Cheeto)!
@@ -4794,31 +5200,16 @@ export class KlasikCafeScene3D {
     torsoMesh.position.set(0, 0.115, -0.01);
     bodyPivot.add(torsoMesh);
 
-    // Katkat: Crisp Pure White Chest Tuxedo Bib!
+    // Katkat: Crisp Pure White Chest Tuxedo Bib! (Mikmik's ginger flank patches are now seamlessly UV-mapped onto torsoMesh!)
     const chestMat = spec.coatPattern === 'tuxedo-tabby' ? whiteFurMat : furMat;
-    const chestMesh = new THREE.Mesh(new THREE.SphereGeometry(0.068, 14, 12), chestMat);
+    const chestMesh = new THREE.Mesh(new THREE.SphereGeometry(0.068, 16, 14), chestMat);
     chestMesh.scale.set(0.95, 1.05, 0.9);
     chestMesh.position.set(0, 0.14, 0.054);
     bodyPivot.add(chestMesh);
 
-    // Mikmik: 2 Distinct Sculpted Ginger Stomach/Flank Patches on the white body!
-    if (spec.coatPattern === 'calico-mikmik') {
-      const bellyPatch1 = new THREE.Mesh(new THREE.SphereGeometry(0.044, 12, 10), gingerPatchMat);
-      bellyPatch1.scale.set(1.05, 0.88, 0.55);
-      bellyPatch1.position.set(-0.048, 0.115, 0.055);
-      bellyPatch1.rotation.y = -0.48;
-      bodyPivot.add(bellyPatch1);
-
-      const bellyPatch2 = new THREE.Mesh(new THREE.SphereGeometry(0.048, 12, 10), gingerPatchMat);
-      bellyPatch2.scale.set(1.02, 0.92, 0.55);
-      bellyPatch2.position.set(0.052, 0.095, 0.042);
-      bellyPatch2.rotation.y = 0.55;
-      bodyPivot.add(bellyPatch2);
-    }
-
     const hindGroup = new THREE.Group();
     hindGroup.position.set(0, 0.065, -0.045);
-    const haunchL = new THREE.Mesh(new THREE.SphereGeometry(0.062, 12, 10), furMat);
+    const haunchL = new THREE.Mesh(new THREE.SphereGeometry(0.062, 14, 12), furMat);
     haunchL.scale.set(0.75, 1.05, 1.15);
     haunchL.position.set(-0.055, 0, 0);
     hindGroup.add(haunchL);
@@ -4864,25 +5255,14 @@ export class KlasikCafeScene3D {
     collarBell.visible = spec.hasCollar && spec.hasBell;
     bodyPivot.add(collarBell);
 
-    // Articulated Head Pivot + Ears + Expressive Eyes + Blinking Eyelids
+    // Articulated Head Pivot + Smooth UV-mapped Skull + Ears + Expressive Eyes + Blinking Eyelids
     const headPivot = new THREE.Group();
     headPivot.position.set(0, 0.245, 0.058);
     bodyPivot.add(headPivot);
 
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.072, 16, 14), furMat);
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.072, 18, 16), headFurMat);
     skull.scale.set(1.08, 0.96, 1.0);
     headPivot.add(skull);
-
-    // Mikmik: Distinct Ginger Patch on the Head (crown/forehead-ear patch)!
-    if (spec.coatPattern === 'calico-mikmik') {
-      const headPatch = new THREE.Mesh(
-        new THREE.SphereGeometry(0.052, 14, 12),
-        gingerPatchMat
-      );
-      headPatch.scale.set(1.05, 0.72, 0.96);
-      headPatch.position.set(0.024, 0.044, 0.012);
-      headPivot.add(headPatch);
-    }
 
     // Soft muzzle & nose
     const muzzleMat = spec.coatPattern === 'tuxedo-tabby' ? whiteFurMat : furMat;
@@ -5047,7 +5427,7 @@ export class KlasikCafeScene3D {
     if (prevCatGroup) {
       this.interactables = this.interactables.filter((o) => o !== prevCatGroup);
     }
-    this.registerInteractiveTool('pet-champy', catRoot, petLabel, 1, () => {
+    this.registerInteractiveTool('pet-champy', catRoot, petLabel, 2, () => {
       this.petChampy();
       this.callbacks.onPetChampy?.();
     });
@@ -5130,14 +5510,17 @@ export class KlasikCafeScene3D {
     }
   }
 
-  private triggerChampyGreeting() {
+  private triggerChampyGreeting(targetPos?: THREE.Vector3) {
     if (!this.champyRig) return;
     const rig = this.champyRig;
     if (rig.greetCooldown > 0 || rig.state === 'petted') return;
-    rig.greetCooldown = 18.0;
+    rig.greetCooldown = 14.0;
     rig.state = 'greeting';
     rig.stateTimer = 0;
-    rig.stateDuration = 2.8;
+    rig.stateDuration = 3.2;
+    if (targetPos) {
+      this.activeGreetTargetPos = targetPos.clone();
+    }
     this.callbacks.onChampyGreet?.();
   }
 
@@ -5177,6 +5560,7 @@ export class KlasikCafeScene3D {
       if (rig.state === 'petted' || rig.state === 'greeting') {
         rig.state = Math.random() < 0.35 ? 'grooming' : 'sitting';
         rig.stateDuration = 8.5 + Math.random() * 6.5;
+        this.activeGreetTargetPos = null;
       } else if (rig.state === 'sitting') {
         const roll = Math.random();
         const sleepThreshold = isCozyWeather ? 0.58 : 0.32;
@@ -5207,9 +5591,11 @@ export class KlasikCafeScene3D {
     }
 
     const t = this.elapsed;
-    const damp = 1 - Math.exp(-8.5 * dt);
+    // Phase 8: Smooth spring-damped joint interpolation (no choppy snaps!)
+    const damp = 1 - Math.exp(-8.0 * dt);
     let targetBodyY = 0;
     let targetBodyPitch = 0;
+    let targetBodyYaw = 0;
     let targetHeadX = 0;
     let targetHeadY = 0;
     let targetHeadZ = 0;
@@ -5232,14 +5618,13 @@ export class KlasikCafeScene3D {
       tailLift = -0.55;
       tailWaveAmp = 0.05;
       tailFreq = 0.55;
-      // Gentle slow chest breathing (0.45 Hz)
       rig.bodyPivot.scale.set(
         1.0 + Math.sin(t * 2.8) * 0.025,
         0.92 + Math.sin(t * 2.8) * 0.028,
         1.02
       );
       rig.sleepParticleTimer -= dt;
-      if (rig.sleepParticleTimer <= 0 && this.gameState.activeStation !== 5) {
+      if (rig.sleepParticleTimer <= 0 && this.gameState.activeStation !== 6) {
         rig.sleepParticleTimer = 1.65;
         const slot = rig.sleepParticles.find((p) => !p.active);
         if (slot) {
@@ -5258,18 +5643,30 @@ export class KlasikCafeScene3D {
       targetHeadX = 0.34 + lickPhase * 0.09;
       targetHeadY = -0.22;
       targetHeadZ = -0.14 + lickPhase * 0.06;
-      targetLid = -0.35; // Relaxed half-lidded eyes
+      targetLid = -0.35;
       targetRightLegX = -1.25 + lickPhase * 0.16;
       tailWaveAmp = 0.14;
       tailFreq = 1.2;
     } else if (rig.state === 'greeting') {
-      rig.bodyPivot.scale.set(1, 1.02 + Math.sin(t * 5.0) * 0.015, 1);
-      targetBodyPitch = -0.08;
-      targetHeadX = -0.12;
-      targetHeadY = -0.45; // Curious glance toward Slot 0 / entrance door
+      // Phase 8 Active Customer Greeting: compute live yaw from Cat Perch (-2.90, 0.24) toward incoming/counter patron!
+      let greetYaw = -0.58;
+      if (this.activeGreetTargetPos) {
+        const dx = this.activeGreetTargetPos.x - -2.9;
+        const dz = this.activeGreetTargetPos.z - 0.24;
+        const worldAngle = Math.atan2(dx, dz) - 0.24;
+        let rel = ((worldAngle + Math.PI) % (Math.PI * 2)) - Math.PI;
+        if (rel < -Math.PI) rel += Math.PI * 2;
+        greetYaw = THREE.MathUtils.clamp(rel, -1.15, 0.95);
+      }
+      rig.bodyPivot.scale.set(1, 1.025 + Math.sin(t * 5.0) * 0.015, 1);
+      targetBodyPitch = -0.09;
+      targetBodyYaw = THREE.MathUtils.clamp(greetYaw * 0.45, -0.52, 0.42);
+      targetHeadX = -0.14;
+      targetHeadY = THREE.MathUtils.clamp(greetYaw * 0.55, -0.72, 0.65);
+      targetHeadZ = Math.sin(t * 3.0) * 0.07;
       targetLid = rig.blinkDuration > 0 ? 0.05 : -1.05;
-      tailLift = 0.38; // Tall happy tail
-      tailWaveAmp = 0.32;
+      tailLift = 0.42; // Tall curved greeting tail hook
+      tailWaveAmp = 0.34;
       tailFreq = 2.8;
     } else if (rig.state === 'petted') {
       const knead = Math.sin(t * 8.2);
@@ -5285,10 +5682,9 @@ export class KlasikCafeScene3D {
       tailLift = 0.42;
       tailWaveAmp = 0.38;
       tailFreq = 3.4;
-      // Swinging gold collar bell jingle
       rig.collarBell.rotation.z = Math.sin(t * 14.0) * 0.28;
     } else {
-      // Regal sitting pose with subtle breathing, ear twitches & curious look-around
+      // Regal sitting pose with subtle breathing, ear twitches & curious look toward nearest ordering patron
       rig.bodyPivot.scale.set(1, 1 + Math.sin(t * 2.2) * 0.014, 1);
       targetHeadY = Math.sin(t * 0.52) * 0.28;
       targetHeadX = Math.sin(t * 0.37) * 0.06;
@@ -5296,6 +5692,7 @@ export class KlasikCafeScene3D {
 
     rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * damp;
     rig.bodyPivot.rotation.x += (targetBodyPitch - rig.bodyPivot.rotation.x) * damp;
+    rig.bodyPivot.rotation.y += (targetBodyYaw - rig.bodyPivot.rotation.y) * damp;
     rig.headPivot.rotation.x += (targetHeadX - rig.headPivot.rotation.x) * damp;
     rig.headPivot.rotation.y += (targetHeadY - rig.headPivot.rotation.y) * damp;
     rig.headPivot.rotation.z += (targetHeadZ - rig.headPivot.rotation.z) * damp;
@@ -5306,11 +5703,11 @@ export class KlasikCafeScene3D {
 
     // Subtle ear twitches & perk when greeting
     const twitch = Math.sin(t * 7.5) > 0.96 ? 0.18 : 0;
-    const perk = rig.state === 'greeting' ? 0.16 : 0;
-    rig.leftEar.rotation.x = perk + twitch;
-    rig.rightEar.rotation.x = perk;
+    const perk = rig.state === 'greeting' ? 0.2 : 0;
+    rig.leftEar.rotation.x += (perk + twitch - rig.leftEar.rotation.x) * damp;
+    rig.rightEar.rotation.x += (perk - rig.rightEar.rotation.x) * damp;
 
-    // Lazy S-curve across 3 tail segments
+    // Lazy S-curve across tail segments
     rig.tailBase.rotation.x += (tailLift - rig.tailBase.rotation.x) * damp;
     rig.tailBase.rotation.z = Math.sin(t * tailFreq) * tailWaveAmp;
     rig.tailMid.rotation.z = Math.sin(t * tailFreq - 0.85) * (tailWaveAmp * 1.15);
@@ -5320,8 +5717,8 @@ export class KlasikCafeScene3D {
       rig.collarBell.rotation.z *= Math.max(0, 1 - dt * 6);
     }
 
-    // Skip sprite updates when zoomed into Station 5 Vinyl (off-screen optimization)
-    if (this.gameState.activeStation === 5) return;
+    // Skip sprite updates when zoomed into Station 6 Vinyl (off-screen optimization)
+    if (this.gameState.activeStation === 6) return;
 
     for (let i = 0; i < rig.heartParticles.length; i++) {
       const p = rig.heartParticles[i];
@@ -5428,7 +5825,7 @@ export class KlasikCafeScene3D {
     spentPuck.rotation.z = 0.2;
     knockBoxGroup.add(spentPuck);
 
-    knockBoxGroup.position.set(-1.04, 1.0, 0.34);
+    knockBoxGroup.position.set(-0.98, 1.0, 0.36);
     st2Group.add(knockBoxGroup);
 
     // 2. Conical Burr Grinder at x = -0.82, z = 0.22
@@ -5530,7 +5927,7 @@ export class KlasikCafeScene3D {
       'grinder',
       this.grinderGroup,
       'Conical Burr Grinder — Click to Grind 18g Fresh Dark-Roast Beans',
-      2,
+      3,
       () => this.callbacks.onToolAction('grind')
     );
     st2Group.add(this.grinderGroup);
@@ -5580,7 +5977,7 @@ export class KlasikCafeScene3D {
       'tamper',
       tampStationGroup,
       'Calibrated Tamper & Portafilter — Click to Tamp Grounds at 30 lbs',
-      2,
+      3,
       () => this.callbacks.onToolAction('tamp')
     );
     st2Group.add(tampStationGroup);
@@ -5819,40 +6216,139 @@ export class KlasikCafeScene3D {
       'espresso',
       espressoGroup,
       'Commercial Dual-Boiler Espresso Machine — Click to Pull 9-Bar Double Shot',
-      2,
+      3,
       () => this.callbacks.onToolAction('pull_espresso')
     );
     st2Group.add(espressoGroup);
 
-    // 6. Stainless Rinse Sink at x = 0.36, y = 1.0, z = 0.26
+    // 6. Phase 4 & 5: Pressurized Flush-Mount Stainless Glass Rinser at x = 0.52, y = 1.0, z = 0.28 (clean 11cm gap from Espresso Machine!)
     const sinkGroup = new THREE.Group();
-    const sinkRim = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.025, 0.24), counterStainlessMat);
+    const sinkRim = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.024, 0.22), counterStainlessMat);
     sinkRim.position.y = 0.012;
     sinkGroup.add(sinkRim);
 
-    const sinkBasin = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.028, 0.2), matteBlackMat);
+    const sinkBasin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.027, 0.18), matteBlackMat);
     sinkBasin.position.y = 0.014;
     sinkGroup.add(sinkBasin);
 
-    const faucetArch = new THREE.Mesh(
-      new THREE.TorusGeometry(0.045, 0.009, 10, 20, Math.PI),
+    // Star-shaped spring press actuator ring in center of rinser basin
+    const starHub = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.016, 12), chromeMat);
+    starHub.position.y = 0.03;
+    sinkGroup.add(starHub);
+    for (let si = 0; si < 5; si++) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.006, 0.012), chromeMat);
+      arm.position.y = 0.032;
+      arm.rotation.y = (si / 5) * Math.PI;
+      sinkGroup.add(arm);
+    }
+
+    const faucetBaseFlange = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.018, 0.008, 12),
       chromeMat
     );
-    faucetArch.position.set(0, 0.09, -0.07);
+    faucetBaseFlange.position.set(0.04, 0.025, -0.078);
+    sinkGroup.add(faucetBaseFlange);
+
+    const faucetStem = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.0105, 0.064, 10),
+      chromeMat
+    );
+    faucetStem.position.set(0.04, 0.055, -0.078);
+    sinkGroup.add(faucetStem);
+
+    const faucetArch = new THREE.Mesh(
+      new THREE.TorusGeometry(0.04, 0.008, 10, 20, Math.PI),
+      chromeMat
+    );
+    faucetArch.position.set(0, 0.085, -0.078);
     sinkGroup.add(faucetArch);
 
-    sinkGroup.position.set(0.36, 1.0, 0.26);
+    const faucetNozzle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.007, 0.009, 0.014, 10),
+      chromeMat
+    );
+    faucetNozzle.position.set(-0.04, 0.08, -0.078);
+    sinkGroup.add(faucetNozzle);
+
+    // Pressurized upward cyan-white water spray cone + 8 splash droplets
+    this.rinserSprayConeMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.056, 0.14, 14, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xbae6fd,
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    this.rinserSprayConeMesh.rotation.x = Math.PI;
+    this.rinserSprayConeMesh.position.y = 0.098;
+    this.rinserSprayConeMesh.visible = false;
+    sinkGroup.add(this.rinserSprayConeMesh);
+
+    this.rinserMistDrops = [];
+    const mistGeo = new THREE.SphereGeometry(0.007, 6, 6);
+    const mistMat = new THREE.MeshBasicMaterial({
+      color: 0xe0f2fe,
+      transparent: true,
+      opacity: 0.85,
+    });
+    for (let di = 0; di < 8; di++) {
+      const drop = new THREE.Mesh(mistGeo, mistMat);
+      drop.visible = false;
+      sinkGroup.add(drop);
+      this.rinserMistDrops.push(drop);
+    }
+
+    sinkGroup.position.set(0.52, 1.0, 0.28);
     this.registerInteractiveTool(
       'sink',
       sinkGroup,
-      'Stainless Rinse Sink [Key R] — Click to Dump & Rinse Cup',
-      2,
+      'Pressurized Glass Rinser [Key R] — Rinse Mug/Glass or Discard Cup',
+      3,
       () => this.callbacks.onToolAction('rinse_cup')
     );
     this.toolGroups.set('rinse', sinkGroup);
     st2Group.add(sinkGroup);
 
-    // 7. Active Barista Cup with 4 Authentic Drink Vessels + Dynamic Custom ShaderMaterial Liquid
+    // 6b. Phase 5: Recessed Brushed-Stainless Barista Trash Chute at x = 0.74, y = 1.0, z = 0.28 (for Takeout Cup Disposal!)
+    this.trashChuteGroup = new THREE.Group();
+    const chuteCollar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.022, 0.18),
+      counterStainlessMat
+    );
+    chuteCollar.position.y = 0.011;
+    this.trashChuteGroup.add(chuteCollar);
+
+    const chuteDarkOpening = new THREE.Mesh(
+      new THREE.BoxGeometry(0.125, 0.025, 0.145),
+      new THREE.MeshBasicMaterial({ color: 0x09090b })
+    );
+    chuteDarkOpening.position.y = 0.012;
+    this.trashChuteGroup.add(chuteDarkOpening);
+
+    // Hinged stainless swing-flap lid (rotates down -0.85 rad when a takeout cup drops in!)
+    this.trashFlapPivot = new THREE.Group();
+    this.trashFlapPivot.position.set(0, 0.024, -0.068);
+    const flapPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.122, 0.008, 0.138),
+      counterStainlessMat
+    );
+    flapPlate.position.set(0, 0, 0.069);
+    this.trashFlapPivot.add(flapPlate);
+    this.trashChuteGroup.add(this.trashFlapPivot);
+
+    this.trashChuteGroup.position.set(0.74, 1.0, 0.28);
+    this.registerInteractiveTool(
+      'trash-chute',
+      this.trashChuteGroup,
+      'Barista Trash Chute [Key R] — Dispose Takeout Cup & Start Fresh',
+      3,
+      () => this.callbacks.onToolAction('rinse_cup')
+    );
+    st2Group.add(this.trashChuteGroup);
+
+    // 7. Active Barista Cup with 4 Authentic Drink Vessels + Dynamic Custom ShaderMaterial Liquid + Clickable Realism Serve Target
     const activeVesselRig = this.createMultiVesselRig(1.04, false);
     this.activeBaristaCupGroup = activeVesselRig.root;
     this.activeVesselVariants = activeVesselRig.variants;
@@ -5861,6 +6357,25 @@ export class KlasikCafeScene3D {
     this.activeIcedTakeoutLidMesh = activeVesselRig.icedTakeoutLid;
     this.activeIcedTakeoutLidMesh.visible = false;
     this.activeBaristaCupGroup.position.copy(this.cupCurrentPos);
+
+    // Invisible cup click-to-serve hitbox (active only when drink + pastry are ready to serve!)
+    const cupServeHitbox = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.11, 0.1, 0.22, 12),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    cupServeHitbox.position.y = 0.11;
+    this.activeBaristaCupGroup.add(cupServeHitbox);
+    this.registerInteractiveTool(
+      'serve-ready-cup',
+      cupServeHitbox,
+      'Order Ready! Tap Cup to Serve Customer [Space]',
+      5,
+      () => {
+        if (this.isServeCupClickable) {
+          this.callbacks.onToolAction('serve_drink');
+        }
+      }
+    );
 
     this.cupLiquidShaderMat = new THREE.ShaderMaterial({
       vertexShader: CUP_LIQUID_VERTEX_SHADER,
@@ -5950,10 +6465,10 @@ export class KlasikCafeScene3D {
     coasterBrassInlay.position.y = 0.017;
     assemblyCoasterGroup.add(coasterBrassInlay);
 
-    assemblyCoasterGroup.position.set(0.78, 1.0, 0.38);
+    assemblyCoasterGroup.position.set(1.18, 1.0, 0.38);
     st3Group.add(assemblyCoasterGroup);
 
-    // 1b. Kyoto Borosilicate Glass Teapot & Botanical Infuser at x = 0.78, y = 1.0, z = 0.14
+    // 1b. Kyoto Borosilicate Glass Teapot & Botanical Infuser at x = 1.18, y = 1.0, z = 0.14
     this.teaPotGroup = new THREE.Group();
     const teapotWarmerBase = new THREE.Mesh(
       new THREE.CylinderGeometry(0.075, 0.082, 0.025, 20),
@@ -6013,12 +6528,12 @@ export class KlasikCafeScene3D {
     teapotHandle.position.set(0, 0.088, -0.072);
     this.teaPotGroup.add(teapotHandle);
 
-    this.teaPotGroup.position.set(0.78, 1.0, 0.14);
+    this.teaPotGroup.position.set(1.18, 1.0, 0.14);
     this.registerInteractiveTool(
       'tea',
       this.teaPotGroup,
       'Kyoto Borosilicate Glass Teapot — Click to Steep Artisanal Tea & Botanicals',
-      3,
+      4,
       () => this.callbacks.onToolAction('steep_tea')
     );
     st3Group.add(this.teaPotGroup);
@@ -6034,7 +6549,7 @@ export class KlasikCafeScene3D {
     this.teaPourStreamMesh.visible = false;
     st3Group.add(this.teaPourStreamMesh);
 
-    // 2. Stainless Milk Pitcher at x = 0.56, y = 1.0, z = 0.36
+    // 2. Stainless Milk Pitcher at x = 0.96, y = 1.0, z = 0.38
     this.milkPitcherGroup = new THREE.Group();
     const pitcherBody = new THREE.Mesh(
       new THREE.CylinderGeometry(0.064, 0.076, 0.175, 24, 1, true),
@@ -6082,12 +6597,12 @@ export class KlasikCafeScene3D {
     tempBand.position.y = 0.062;
     this.milkPitcherGroup.add(tempBand);
 
-    this.milkPitcherGroup.position.set(0.56, 1.0, 0.36);
+    this.milkPitcherGroup.position.set(0.96, 1.0, 0.38);
     this.registerInteractiveTool(
       'milk',
       this.milkPitcherGroup,
       'Stainless Frothing Pitcher — Click to Steam 65°C Microfoam & Pour Latte Art',
-      3,
+      4,
       () => this.callbacks.onToolAction('steam_milk')
     );
     st3Group.add(this.milkPitcherGroup);
@@ -6103,7 +6618,7 @@ export class KlasikCafeScene3D {
     this.milkPourStreamMesh.visible = false;
     st3Group.add(this.milkPourStreamMesh);
 
-    // 3. Recessed Polycarbonate Ice Bin at x = 0.98, y = 1.0, z = 0.16
+    // 3. Recessed Polycarbonate Ice Bin at x = 1.44, y = 1.0, z = 0.16
     const iceBinGroup = new THREE.Group();
     const binRim = new THREE.Mesh(
       new THREE.BoxGeometry(0.28, 0.035, 0.22),
@@ -6152,22 +6667,22 @@ export class KlasikCafeScene3D {
     this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
     iceBinGroup.add(this.iceScoopGroup);
 
-    iceBinGroup.position.set(0.98, 1.0, 0.16);
+    iceBinGroup.position.set(1.44, 1.0, 0.16);
     this.registerInteractiveTool(
       'ice',
       iceBinGroup,
       'Recessed Polycarbonate Ice Bin & Scoop — Click to Scoop Crystal Ice Cubes',
-      3,
+      4,
       () => this.callbacks.onToolAction('add_ice')
     );
     st3Group.add(iceBinGroup);
 
-    // 4. Tiered Wooden Syrup Rack at x = 1.32, y = 1.0, z = 0.18 (Vanilla, Caramel, Chocolate)
+    // 4. Tiered Wooden Syrup Rack at x = 1.78, y = 1.0, z = 0.18 (Vanilla, Caramel, Chocolate)
     const rackStep = new THREE.Mesh(
       new THREE.BoxGeometry(0.42, 0.045, 0.18),
       this.counterWoodMat
     );
-    rackStep.position.set(1.32, 1.022, 0.18);
+    rackStep.position.set(1.78, 1.022, 0.18);
     st3Group.add(rackStep);
 
     const syrups: Array<{
@@ -6188,7 +6703,7 @@ export class KlasikCafeScene3D {
         color: 0xfde68a,
         bgHex: '#fef9c3',
         borderHex: '#d97706',
-        x: 1.20,
+        x: 1.66,
       },
       {
         flavor: 'caramel',
@@ -6198,7 +6713,7 @@ export class KlasikCafeScene3D {
         color: 0xd97706,
         bgHex: '#ffedd5',
         borderHex: '#b45309',
-        x: 1.32,
+        x: 1.78,
       },
       {
         flavor: 'chocolate',
@@ -6208,7 +6723,7 @@ export class KlasikCafeScene3D {
         color: 0x451a03,
         bgHex: '#f5f5f4',
         borderHex: '#78350f',
-        x: 1.44,
+        x: 1.9,
       },
     ];
 
@@ -6271,13 +6786,13 @@ export class KlasikCafeScene3D {
         `syrup-${s.flavor}`,
         bottleGroup,
         `${s.labelText} — Click to Pump into Cup on Assembly Coaster`,
-        3,
+        4,
         () => this.callbacks.onToolAction('add_syrup', s.flavor)
       );
       st3Group.add(bottleGroup);
     });
 
-    // 5. Ceramic Matcha Chawan Bowl & Bamboo Whisk at x = 1.56, y = 1.0, z = 0.36
+    // 5. Ceramic Matcha Chawan Bowl & Bamboo Whisk at x = 1.96, y = 1.0, z = 0.38
     const matchaGroup = new THREE.Group();
     const chawanMat = new THREE.MeshStandardMaterial({
       color: 0x292524,
@@ -6317,12 +6832,12 @@ export class KlasikCafeScene3D {
     this.matchaWhiskGroup.add(whiskTines);
 
     matchaGroup.add(this.matchaWhiskGroup);
-    matchaGroup.position.set(1.56, 1.0, 0.36);
+    matchaGroup.position.set(1.96, 1.0, 0.38);
     this.registerInteractiveTool(
       'syrup-matcha',
       matchaGroup,
       'Ceremonial Matcha Chawan & Bamboo Whisk — Click to Whisk & Pour Uji Matcha',
-      3,
+      4,
       () => this.callbacks.onToolAction('add_syrup', 'matcha')
     );
     st3Group.add(matchaGroup);
@@ -6362,21 +6877,53 @@ export class KlasikCafeScene3D {
       metalness: 0.9,
     });
 
-    // 1. Elevated Walnut Pickup Coaster at (-1.32, 1.0, 0.34) & Brass Service Bell at (-1.48, 1.0, 0.38)
+    // 1. Elevated Dark-Walnut & Brass Pickup Coaster at (-1.32, 1.0, 0.34) & Grounded Brass Service Bell at (-1.48, 1.0, 0.38)
     const serveTrayGroup = new THREE.Group();
+    const coasterWoodMat = new THREE.MeshStandardMaterial({
+      color: 0x3b2314,
+      roughness: 0.48,
+      metalness: 0.06,
+    });
+    const bellBaseMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.38,
+      metalness: 0.65,
+    });
     const trayBase = new THREE.Mesh(
       new THREE.CylinderGeometry(0.14, 0.15, 0.03, 24),
-      this.counterWoodMat
+      coasterWoodMat
     );
     trayBase.position.y = 0.015;
     serveTrayGroup.add(trayBase);
 
-    const bellDome = new THREE.Mesh(
-      new THREE.SphereGeometry(0.034, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    const trayBrassRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.141, 0.0045, 8, 28),
       brassMat
     );
-    bellDome.position.set(-0.16, 0.03, 0.04);
+    trayBrassRim.rotation.x = Math.PI / 2;
+    trayBrassRim.position.y = 0.031;
+    serveTrayGroup.add(trayBrassRim);
+
+    const bellFoot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.043, 0.014, 18),
+      bellBaseMat
+    );
+    bellFoot.position.set(-0.16, 0.007, 0.04);
+    serveTrayGroup.add(bellFoot);
+
+    const bellDome = new THREE.Mesh(
+      new THREE.SphereGeometry(0.034, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
+      brassMat
+    );
+    bellDome.position.set(-0.16, 0.014, 0.04);
     serveTrayGroup.add(bellDome);
+
+    const bellPlunger = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.007, 0.007, 0.009, 10),
+      brassMat
+    );
+    bellPlunger.position.set(-0.16, 0.051, 0.04);
+    serveTrayGroup.add(bellPlunger);
 
     // Expanding Golden Bell Ring Ripple Mesh
     this.bellRippleRingMesh = new THREE.Mesh(
@@ -6400,15 +6947,76 @@ export class KlasikCafeScene3D {
     this.ghostCupMesh.position.y = 0.095;
     serveTrayGroup.add(this.ghostCupMesh);
 
+    // Phase 4: Pulsing Golden-Emerald Ready-to-Serve Halo around Pickup Coaster (works in Realism Mode too!)
+    this.serveReadyHaloMat = new THREE.MeshBasicMaterial({
+      color: 0x34d399,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.serveReadyHaloMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.145, 0.195, 28),
+      this.serveReadyHaloMat
+    );
+    this.serveReadyHaloMesh.rotation.x = -Math.PI / 2;
+    this.serveReadyHaloMesh.position.y = 0.036;
+    this.serveReadyHaloMesh.visible = false;
+    serveTrayGroup.add(this.serveReadyHaloMesh);
+
     serveTrayGroup.position.set(-1.32, 1.0, 0.34);
     this.registerInteractiveTool(
       'serve',
       serveTrayGroup,
-      'Customer Pickup Coaster & Service Bell — Click to Ring Bell & Handoff Drink [Space]',
-      4,
+      'Customer Pickup Coaster & Service Bell — Click to Ring Bell & Handoff Order [Space]',
+      5,
       () => this.callbacks.onToolAction('serve_drink')
     );
     st4Group.add(serveTrayGroup);
+
+    // Phase 6: Staged Prepared Pastry beside Serve Coaster (Mini Porcelain Plate for Dine-in OR Kraft Bakery Bag for Takeout!)
+    this.preparedPastryStageGroup = new THREE.Group();
+    this.preparedPastryStageGroup.position.set(-1.24, 1.0, 0.08);
+    this.preparedPastryStageGroup.visible = false;
+
+    this.preparedPlateGroup = new THREE.Group();
+    const miniPlateBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.072, 0.056, 0.012, 20),
+      this.ceramicMugMat
+    );
+    miniPlateBase.position.y = 0.006;
+    this.preparedPlateGroup.add(miniPlateBase);
+    const miniPlateRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.07, 0.004, 8, 22),
+      brassMat
+    );
+    miniPlateRim.rotation.x = Math.PI / 2;
+    miniPlateRim.position.y = 0.012;
+    this.preparedPlateGroup.add(miniPlateRim);
+
+    const pDonut = this.buildSculptedPastryMesh('daisy-donut', 0.92);
+    pDonut.position.y = 0.012;
+    pDonut.visible = false;
+    const pMiata = this.buildSculptedPastryMesh('miata-cake', 0.92);
+    pMiata.position.y = 0.012;
+    pMiata.visible = false;
+    const pCroissant = this.buildSculptedPastryMesh('croissant', 0.96);
+    pCroissant.position.y = 0.012;
+    pCroissant.visible = false;
+    this.preparedPlateGroup.add(pDonut, pMiata, pCroissant);
+    this.preparedPlatePastryMeshes = {
+      'daisy-donut': pDonut,
+      'miata-cake': pMiata,
+      croissant: pCroissant,
+    };
+    this.preparedPastryStageGroup.add(this.preparedPlateGroup);
+
+    // Folded Kraft Paper Takeout Bakery Bag with Klasik crest stamp
+    this.preparedBagGroup = this.buildKraftPastryBagMesh(1.0);
+    this.preparedBagGroup.visible = false;
+    this.preparedPastryStageGroup.add(this.preparedBagGroup);
+    st4Group.add(this.preparedPastryStageGroup);
 
     // 2. 4 Modern Architectural Bistro Tables Strictly Relocated to Center-Right Lounge Zone (Zero Miata Collision!)
     const ironMat = new THREE.MeshStandardMaterial({
@@ -6690,17 +7298,17 @@ export class KlasikCafeScene3D {
     tabletScreen.rotation.x = -0.45;
     tabletGroup.add(tabletScreen);
 
-    tabletGroup.position.set(1.84, 1.0, 0.32);
+    tabletGroup.position.set(2.2, 1.0, 0.32);
     this.registerInteractiveTool(
       'upgrade-tablet',
       tabletGroup,
       'Shop Management Tablet — Click to Buy Cafe Upgrades',
-      5,
+      6,
       () => this.callbacks.onToolAction('open_upgrades_modal')
     );
     st5Group.add(tabletGroup);
 
-    // 2. 3D Vinyl Turntable + Album Sleeve Stand at x = 2.22, y = 1.0, z = 0.24
+    // 2. 3D Vinyl Turntable + Album Sleeve Stand at x = 2.54, y = 1.0, z = 0.24
     const turntableGroup = new THREE.Group();
     const plinth = new THREE.Mesh(
       new THREE.BoxGeometry(0.46, 0.065, 0.38),
@@ -6785,12 +7393,12 @@ export class KlasikCafeScene3D {
 
     turntableGroup.add(this.vinylTonearmPivot);
 
-    turntableGroup.position.set(2.22, 1.0, 0.24);
+    turntableGroup.position.set(2.54, 1.0, 0.24);
     this.registerInteractiveTool(
       'vinyl-turntable',
       turntableGroup,
       '3D Vinyl Turntable [Key M] — Click to Drop/Lift Needle (Play/Pause)',
-      5,
+      6,
       () => this.callbacks.onToolAction('toggle_vinyl')
     );
     st5Group.add(turntableGroup);
@@ -6808,18 +7416,48 @@ export class KlasikCafeScene3D {
     this.vinylSleeveMesh.rotation.x = -0.18;
     sleeveStandGroup.add(this.vinylSleeveMesh);
 
-    sleeveStandGroup.position.set(2.52, 1.0, 0.12);
+    sleeveStandGroup.position.set(2.82, 1.0, 0.12);
     sleeveStandGroup.rotation.y = -0.45;
     this.registerInteractiveTool(
       'vinyl-sleeve',
       sleeveStandGroup,
       'Now-Playing Vinyl Sleeve — Click to Configure Spotify & Tracks',
-      5,
+      6,
       () => this.callbacks.onToolAction('open_spotify_modal')
     );
     st5Group.add(sleeveStandGroup);
 
     this.scene.add(st5Group);
+  }
+
+  private buildKraftPastryBagMesh(scale = 1.0): THREE.Group {
+    const bagGroup = new THREE.Group();
+    bagGroup.scale.setScalar(scale);
+    const kraftMat = new THREE.MeshStandardMaterial({ color: 0xc89d66, roughness: 0.86 });
+    const foldMat = new THREE.MeshStandardMaterial({ color: 0xa67c46, roughness: 0.88 });
+    const bagBody = new THREE.Mesh(new THREE.BoxGeometry(0.092, 0.128, 0.052), kraftMat);
+    bagBody.position.y = 0.064;
+    bagGroup.add(bagBody);
+
+    const topFold = new THREE.Mesh(new THREE.BoxGeometry(0.094, 0.022, 0.056), foldMat);
+    topFold.position.set(0, 0.128, 0.002);
+    topFold.rotation.x = 0.14;
+    bagGroup.add(topFold);
+
+    const seal = new THREE.Mesh(
+      new THREE.CircleGeometry(0.018, 12),
+      new THREE.MeshStandardMaterial({ color: 0x242b2e, roughness: 0.45 })
+    );
+    seal.position.set(0, 0.072, 0.027);
+    bagGroup.add(seal);
+    const sealGold = new THREE.Mesh(
+      new THREE.RingGeometry(0.015, 0.018, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
+    );
+    sealGold.position.set(0, 0.072, 0.028);
+    bagGroup.add(sealGold);
+
+    return bagGroup;
   }
 
   // Visible 3D Counter & Showroom Props for Installed Shop Upgrades
@@ -6869,7 +7507,7 @@ export class KlasikCafeScene3D {
       vacuumTube.position.set(tx, 0.09, -0.01);
       this.upgradeTubePreampGroup.add(vacuumTube);
     });
-    this.upgradeTubePreampGroup.position.set(1.94, 1.0, 0.1);
+    this.upgradeTubePreampGroup.position.set(2.22, 1.0, 0.08);
     this.upgradeTubePreampGroup.visible = false;
     this.scene.add(this.upgradeTubePreampGroup);
 
@@ -6929,7 +7567,7 @@ export class KlasikCafeScene3D {
       pad.position.set(fx, fy, fz);
       this.upgradeBonsaiTerrariumGroup.add(pad);
     });
-    this.upgradeBonsaiTerrariumGroup.position.set(1.62, 1.0, 0.22);
+    this.upgradeBonsaiTerrariumGroup.position.set(2.02, 1.0, 0.08);
     this.upgradeBonsaiTerrariumGroup.visible = false;
     this.scene.add(this.upgradeBonsaiTerrariumGroup);
 
@@ -7483,12 +8121,20 @@ export class KlasikCafeScene3D {
     seed: number,
     avatarColor: string,
     shirtColor: string,
-    skinPackId: CustomerSkinPackId = 'casual-garden'
+    skinPackId: CustomerSkinPackId = 'casual-garden',
+    deliveryRiderVariant?: DeliveryRiderVariant
   ): Omit<
     ArticulatedCustomerActor,
     'currentPos' | 'lastPos' | 'waypoints' | 'finalGoalKey' | 'walkPhase' | 'walkBlend' | 'seatedBlend' | 'facingAngle'
   > {
     const group = new THREE.Group();
+    const isRider = Boolean(deliveryRiderVariant);
+    const riderHex =
+      deliveryRiderVariant === 'blue'
+        ? 0x2563eb
+        : deliveryRiderVariant === 'green'
+        ? 0x16a34a
+        : 0xdc2626;
 
     const skinMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(avatarColor),
@@ -7496,9 +8142,9 @@ export class KlasikCafeScene3D {
       metalness: 0.02,
     });
     const jacketMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(shirtColor),
-      roughness: skinPackId === 'cyber-neon-night' ? 0.32 : 0.58,
-      metalness: skinPackId === 'cyber-neon-night' ? 0.45 : 0.06,
+      color: isRider ? riderHex : new THREE.Color(shirtColor),
+      roughness: isRider ? 0.42 : skinPackId === 'cyber-neon-night' ? 0.32 : 0.58,
+      metalness: isRider ? 0.12 : skinPackId === 'cyber-neon-night' ? 0.45 : 0.06,
     });
     const innerShirtMat = new THREE.MeshStandardMaterial({
       color:
@@ -7679,36 +8325,89 @@ export class KlasikCafeScene3D {
       );
       turtleneck.position.set(0, 0.49, 0.01);
       torsoGroup.add(turtleneck);
+    } else if (isRider) {
+      // Phase 7 Delivery Rider Uniform: High-Visibility Reflective Chest Strips + Insulated Delivery Backpack!
+      const reflectiveMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        emissive: 0xcbd5e1,
+        emissiveIntensity: 0.45,
+        roughness: 0.22,
+        metalness: 0.65,
+      });
+      const chestStripeH = new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.032, 0.27), reflectiveMat);
+      chestStripeH.position.set(0, 0.22, 0.005);
+      torsoGroup.add(chestStripeH);
+
+      [-0.085, 0.085].forEach((sx) => {
+        const chestStripeV = new THREE.Mesh(
+          new THREE.BoxGeometry(0.026, 0.26, 0.27),
+          reflectiveMat
+        );
+        chestStripeV.position.set(sx, 0.34, 0.005);
+        torsoGroup.add(chestStripeV);
+      });
+
+      // Large Square Insulated Delivery Backpack on back with silver reflector trim
+      const packBody = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.38, 0.22), jacketMat);
+      packBody.position.set(0, 0.25, -0.24);
+      packBody.castShadow = true;
+      torsoGroup.add(packBody);
+
+      const packTrim = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.036, 0.23), reflectiveMat);
+      packTrim.position.set(0, 0.25, -0.24);
+      torsoGroup.add(packTrim);
     } else if (skinPackId === 'botanical-artists') {
-      // Wrap-Around Canvas Studio Apron + Front Tool Pocket
+      // Phase 8 Polished Studio Apron + Front Tool Pocket + 2 Colorful Paintbrushes!
       const apronMat = new THREE.MeshStandardMaterial({
         color: seed % 2 === 0 ? 0xf5f5f4 : 0xd97706,
         roughness: 0.82,
       });
       const apronBib = new THREE.Mesh(
-        new THREE.BoxGeometry(0.24, 0.38, 0.025),
+        new THREE.BoxGeometry(0.22, 0.36, 0.02),
         apronMat
       );
-      apronBib.position.set(0, 0.19, 0.148);
+      apronBib.position.set(0, 0.19, 0.142);
       torsoGroup.add(apronBib);
 
       const apronSkirt = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.165, 0.175, 0.22, 16, 1, false, -Math.PI * 0.45, Math.PI * 0.9),
+        new THREE.CylinderGeometry(0.162, 0.17, 0.21, 16, 1, false, -Math.PI * 0.45, Math.PI * 0.9),
         apronMat
       );
-      apronSkirt.scale.set(1.12, 1, 0.82);
+      apronSkirt.scale.set(1.12, 1, 0.8);
       apronSkirt.position.set(0, -0.05, 0.01);
       torsoGroup.add(apronSkirt);
 
       const apronPocket = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.11, 0.022),
+        new THREE.BoxGeometry(0.13, 0.1, 0.02),
         new THREE.MeshStandardMaterial({
           color: seed % 2 === 0 ? 0xd6d3d1 : 0xb45309,
           roughness: 0.85,
         })
       );
-      apronPocket.position.set(0, 0.13, 0.162);
+      apronPocket.position.set(0, 0.13, 0.156);
       torsoGroup.add(apronPocket);
+
+      // 2 Paintbrushes tucked neatly into front apron pocket
+      const brushWoodMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.55 });
+      [
+        [-0.03, 0.16, 0x2563eb],
+        [0.025, -0.14, 0xdc2626],
+      ].forEach(([bx, rotZ, tipHex]) => {
+        const handle = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.005, 0.006, 0.11, 6),
+          brushWoodMat
+        );
+        handle.position.set(bx as number, 0.2, 0.162);
+        handle.rotation.z = rotZ as number;
+        torsoGroup.add(handle);
+        const tip = new THREE.Mesh(
+          new THREE.ConeGeometry(0.008, 0.022, 6),
+          new THREE.MeshStandardMaterial({ color: tipHex as number, roughness: 0.4 })
+        );
+        tip.position.set((bx as number) - Math.sin(rotZ as number) * 0.058, 0.258, 0.162);
+        tip.rotation.z = rotZ as number;
+        torsoGroup.add(tip);
+      });
     } else if (skinPackId === 'cyber-neon-night') {
       // Glowing Emissive Neon Techwear Collar & Chest Conduits
       const neonMat = new THREE.MeshStandardMaterial({
@@ -7923,13 +8622,59 @@ export class KlasikCafeScene3D {
       neckJoint.add(curvedVisor);
     };
 
-    // Pack-Specific & Seed-Specific Full 3D Headgear & Hairstyles
-    if (skinPackId === 'miata-track-club') {
-      // Every Miata Pit-Crew member wears a Full 3D Racing Cap (Red/Navy/British Green + Gold/White Visor)
+    // Pack-Specific, Rider & Seed-Specific Full 3D Headgear & Hairstyles (with zero hair-through-hat clipping!)
+    if (isRider) {
+      // Phase 7: Open-Face Color-Matched Scooter Helmet + Dark Tinted Flip-Visor (hides hairCrown cleanly!)
+      hairCrown.visible = false;
+      const helmetMat = new THREE.MeshStandardMaterial({
+        color: riderHex,
+        roughness: 0.24,
+        metalness: 0.25,
+      });
+      const visorMat = new THREE.MeshStandardMaterial({
+        color: 0x0f172a,
+        roughness: 0.1,
+        metalness: 0.55,
+        transparent: true,
+        opacity: 0.82,
+      });
+      const helmetShell = new THREE.Mesh(
+        new THREE.SphereGeometry(0.186, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.64),
+        helmetMat
+      );
+      helmetShell.position.set(0, 0.215, -0.006);
+      helmetShell.rotation.x = -0.1;
+      neckJoint.add(helmetShell);
+
+      const helmetRim = new THREE.Mesh(
+        new THREE.TorusGeometry(0.178, 0.014, 8, 22),
+        new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.5 })
+      );
+      helmetRim.rotation.x = Math.PI / 2 - 0.1;
+      helmetRim.position.set(0, 0.21, -0.004);
+      neckJoint.add(helmetRim);
+
+      const flipVisor = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+          0.188,
+          0.188,
+          0.075,
+          20,
+          1,
+          true,
+          -Math.PI * 0.34,
+          Math.PI * 0.68
+        ),
+        visorMat
+      );
+      flipVisor.position.set(0, 0.23, 0.008);
+      neckJoint.add(flipVisor);
+    } else if (skinPackId === 'miata-track-club') {
+      hairCrown.visible = false;
       const capColor = new THREE.Color(shirtColor).getHex();
       addFull3DCap(capColor, 0xfefce8);
     } else if (skinPackId === 'vinyl-jazz-collectors') {
-      // Full 3D Classic Jazz Fedora Hat + Gold-Rimmed Jazz Glasses
+      hairCrown.visible = false;
       const fedoraMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.65 });
       const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.4 });
       const fedoraBrim = new THREE.Mesh(
@@ -7970,33 +8715,37 @@ export class KlasikCafeScene3D {
         neckJoint.add(rim);
       });
     } else if (skinPackId === 'botanical-artists') {
-      // Full 3D French Painter Beret + Side Locks
+      // Phase 8: Snug French Artist Beret (hides top hairCrown so zero hair clips through!)
+      hairCrown.visible = false;
       const beretMat = new THREE.MeshStandardMaterial({
         color: seed % 2 === 0 ? 0x991b1b : 0x15803d,
-        roughness: 0.78,
+        roughness: 0.84,
       });
+      // Snug beret headband hugging head at y = 0.238
       const beretBand = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.164, 0.164, 0.028, 20),
+        new THREE.TorusGeometry(0.162, 0.011, 8, 22),
         beretMat
       );
-      beretBand.position.set(0, 0.25, 0);
+      beretBand.rotation.x = Math.PI / 2 - 0.12;
+      beretBand.position.set(0, 0.238, -0.004);
       neckJoint.add(beretBand);
 
-      const beretDisc = new THREE.Mesh(new THREE.SphereGeometry(0.195, 18, 12), beretMat);
-      beretDisc.scale.set(1.08, 0.36, 1.05);
-      beretDisc.position.set(0.028, 0.295, -0.01);
-      beretDisc.rotation.z = -0.18;
+      // Soft angled wool beret crown resting naturally on the skull (rotation.z = 0.16)
+      const beretDisc = new THREE.Mesh(new THREE.SphereGeometry(0.188, 18, 12), beretMat);
+      beretDisc.scale.set(1.08, 0.42, 1.06);
+      beretDisc.position.set(0.018, 0.285, -0.008);
+      beretDisc.rotation.z = 0.16;
       neckJoint.add(beretDisc);
 
+      // Authentic tiny centered beret stem nub
       const beretStem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.008, 0.008, 0.032, 8),
+        new THREE.CylinderGeometry(0.006, 0.009, 0.028, 6),
         beretMat
       );
-      beretStem.position.set(0.035, 0.36, -0.01);
-      beretStem.rotation.z = -0.18;
+      beretStem.position.set(0.004, 0.365, -0.008);
+      beretStem.rotation.z = 0.16;
       neckJoint.add(beretStem);
     } else if (skinPackId === 'cyber-neon-night') {
-      // Glowing Translucent Cyber LED Visor across the eyes + Spiky/Bun Tech Hair
       const visorGlowMat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(shirtColor),
         emissive: new THREE.Color(shirtColor),
@@ -8025,7 +8774,7 @@ export class KlasikCafeScene3D {
       topBun.position.set(0, 0.38, -0.05);
       neckJoint.add(topBun);
     } else if (skinPackId === 'tokyo-streetwear' && seed % 2 === 0) {
-      // Full 3D Harajuku Streetwear Bucket Hat
+      hairCrown.visible = false;
       const bucketMat = new THREE.MeshStandardMaterial({
         color: 0xf5f5f4,
         roughness: 0.72,
@@ -8051,7 +8800,7 @@ export class KlasikCafeScene3D {
         topBun.position.set(0, 0.38, -0.05);
         neckJoint.add(topBun);
       } else if (styleVariant === 1) {
-        // Full 3D Knit Beanie with Ribbed Dome, Thick Folded Cuff & Fluffy Top Pom-Pom
+        hairCrown.visible = false;
         const beanieMat = new THREE.MeshStandardMaterial({
           color: 0xd97706,
           roughness: 0.85,
@@ -8095,7 +8844,6 @@ export class KlasikCafeScene3D {
           neckJoint.add(rim);
         });
       } else if (styleVariant === 3) {
-        // Curly Volumetric Afro (kept behind z = -0.01 so forehead & eyes are 100% unobstructed)
         [
           [0, 0.34, -0.02],
           [-0.115, 0.29, -0.01],
@@ -8112,19 +8860,24 @@ export class KlasikCafeScene3D {
         pony.rotation.x = -0.65;
         neckJoint.add(pony);
       } else {
-        // Full 3D Baseball Cap (Crown Dome + Band + Top Button + Curved Visor)
+        hairCrown.visible = false;
         addFull3DCap(0x1e3a8a, 0x172554);
       }
     }
 
     const sleeveMat =
-      skinPackId === 'tokyo-streetwear'
+      !isRider && skinPackId === 'tokyo-streetwear'
         ? new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.55 })
         : jacketMat;
 
     const buildArm = (sideX: number) => {
       const shoulderJoint = new THREE.Group();
       shoulderJoint.position.set(sideX, 0.44, 0);
+
+      // Phase 8: Sculpted Rounded Shoulder Cap matching sleeve/jacket so arms join torso seamlessly!
+      const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.056, 10, 8), sleeveMat);
+      shoulderCap.position.set(sideX < 0 ? 0.012 : -0.012, -0.008, 0);
+      shoulderJoint.add(shoulderCap);
 
       const upperArm = new THREE.Mesh(
         new THREE.CylinderGeometry(0.052, 0.044, 0.23, 12),
@@ -8212,6 +8965,41 @@ export class KlasikCafeScene3D {
     heldCup.visible = false;
     rightArm.elbowJoint.add(heldCup);
 
+    // Phase 6: Held Artisanal Pastry in Left Hand (Mini Porcelain Plate for Dine-In OR Kraft Paper Bag for Takeout/Delivery!)
+    const heldPastryGroup = new THREE.Group();
+    heldPastryGroup.position.set(0, -0.24, 0.075);
+    heldPastryGroup.rotation.x = Math.PI / 2;
+    heldPastryGroup.visible = false;
+
+    const heldPastryPlateGroup = new THREE.Group();
+    const hpPlate = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.068, 0.052, 0.011, 16),
+      this.ceramicMugMat
+    );
+    hpPlate.position.y = 0.0055;
+    heldPastryPlateGroup.add(hpPlate);
+    const hpDonut = this.buildSculptedPastryMesh('daisy-donut', 0.85);
+    hpDonut.position.y = 0.011;
+    hpDonut.visible = false;
+    const hpMiata = this.buildSculptedPastryMesh('miata-cake', 0.85);
+    hpMiata.position.y = 0.011;
+    hpMiata.visible = false;
+    const hpCroissant = this.buildSculptedPastryMesh('croissant', 0.88);
+    hpCroissant.position.y = 0.011;
+    hpCroissant.visible = false;
+    heldPastryPlateGroup.add(hpDonut, hpMiata, hpCroissant);
+    const heldPastryPlateItems: Record<PastryId, THREE.Group> = {
+      'daisy-donut': hpDonut,
+      'miata-cake': hpMiata,
+      croissant: hpCroissant,
+    };
+    heldPastryGroup.add(heldPastryPlateGroup);
+
+    const heldPastryBagGroup = this.buildKraftPastryBagMesh(0.88);
+    heldPastryBagGroup.visible = false;
+    heldPastryGroup.add(heldPastryBagGroup);
+    leftArm.elbowJoint.add(heldPastryGroup);
+
     // Overhead Social Activity Badge Sprite (Offline Vector Canvas Icon)
     const actCanvas = document.createElement('canvas');
     actCanvas.width = 128;
@@ -8244,6 +9032,11 @@ export class KlasikCafeScene3D {
       heldCup,
       heldVesselVariants: heldVesselRig.variants,
       appliedVesselType: 'hot-mug' as CupVesselType,
+      heldPastryGroup,
+      heldPastryPlateGroup,
+      heldPastryBagGroup,
+      heldPastryPlateItems,
+      appliedPastryId: null,
       umbrellaGroup,
       phoneMesh,
       activitySprite,
@@ -8257,6 +9050,9 @@ export class KlasikCafeScene3D {
       stuckAnchorPos: new THREE.Vector3(),
       ghostPassTimer: 0,
       counterArrivedSignaled: false,
+      isDeliveryRider: isRider,
+      riderVariant: deliveryRiderVariant,
+      scooterStowTimer: 0,
     };
   }
 
@@ -8278,7 +9074,6 @@ export class KlasikCafeScene3D {
       side: THREE.DoubleSide,
     });
 
-    // Curved J-handle seated in character hand (y = 0)
     const handleHook = new THREE.Mesh(
       new THREE.TorusGeometry(0.034, 0.011, 6, 10, Math.PI),
       handleMat
@@ -8287,12 +9082,10 @@ export class KlasikCafeScene3D {
     handleHook.position.set(0.034, -0.025, 0);
     uGroup.add(handleHook);
 
-    // Slim vertical shaft extending cleanly above head & hat
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.78, 6), shaftMat);
     shaft.position.y = 0.39;
     uGroup.add(shaft);
 
-    // 8-segment curved canopy dome
     const canopy = new THREE.Mesh(
       new THREE.ConeGeometry(0.46, 0.17, 8, 1, true),
       canopyMat
@@ -8300,12 +9093,169 @@ export class KlasikCafeScene3D {
     canopy.position.y = 0.75;
     uGroup.add(canopy);
 
-    // Metallic top tip ferrule
     const ferrule = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.016, 0.06, 6), shaftMat);
     ferrule.position.y = 0.855;
     uGroup.add(ferrule);
 
     return uGroup;
+  }
+
+  // Phase 7: Procedural 3D Delivery Scooter Rig (Color-matched Blue/Green/Red fairing, headlight, spinning wheels & hinged insulated top-box!)
+  private createDeliveryScooterRig(
+    customerId: string,
+    variant: DeliveryRiderVariant
+  ): DeliveryScooterController {
+    const bodyHex = variant === 'blue' ? 0x2563eb : variant === 'green' ? 0x16a34a : 0xdc2626;
+    const root = new THREE.Group();
+    // Scooter faces -X (arriving from x=+16 -> parked at x=+2.45 -> departing to x=-18)
+    root.position.set(16.0, 0.08, -7.65);
+
+    const paintMat = new THREE.MeshStandardMaterial({
+      color: bodyHex,
+      roughness: 0.28,
+      metalness: 0.35,
+    });
+    const darkMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.55,
+      metalness: 0.2,
+    });
+    const chromeMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.18,
+      metalness: 0.88,
+    });
+    const headlightMat = new THREE.MeshStandardMaterial({
+      color: 0xfef9c3,
+      emissive: 0xfef08a,
+      emissiveIntensity: 1.8,
+      roughness: 0.15,
+    });
+    const taillightMat = new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      emissive: 0xdc2626,
+      emissiveIntensity: 1.5,
+      roughness: 0.2,
+    });
+    const reflectMat = new THREE.MeshStandardMaterial({
+      color: 0xf1f5f9,
+      emissive: 0xe2e8f0,
+      emissiveIntensity: 0.4,
+      roughness: 0.2,
+    });
+
+    // Ground contact shadow
+    const shadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.55, 0.65),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.36,
+        depthWrite: false,
+      })
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.015;
+    root.add(shadow);
+
+    // Front & Rear Spinning Scooter Wheels (along -X front, +X rear)
+    const wheels: THREE.Object3D[] = [];
+    const tireGeo = new THREE.TorusGeometry(0.16, 0.055, 8, 18);
+    const hubGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.06, 12);
+    [-0.52, 0.48].forEach((wx) => {
+      const wp = new THREE.Group();
+      wp.position.set(wx, 0.21, 0);
+      const tire = new THREE.Mesh(tireGeo, darkMat);
+      const hub = new THREE.Mesh(hubGeo, chromeMat);
+      hub.rotation.x = Math.PI / 2;
+      wp.add(tire, hub);
+      root.add(wp);
+      wheels.push(wp);
+    });
+
+    // Step-through floorboard & rear fairing
+    const floorboard = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.08, 0.36), darkMat);
+    floorboard.position.set(-0.04, 0.24, 0);
+    root.add(floorboard);
+
+    const rearBody = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.32, 0.4), paintMat);
+    rearBody.position.set(0.32, 0.44, 0);
+    root.add(rearBody);
+
+    const seatMesh = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.11, 0.32), darkMat);
+    seatMesh.position.set(0.22, 0.65, 0);
+    root.add(seatMesh);
+
+    // Front leg shield & handlebar stem
+    const frontShield = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.56, 0.38), paintMat);
+    frontShield.position.set(-0.44, 0.54, 0);
+    frontShield.rotation.z = -0.18;
+    root.add(frontShield);
+
+    const frontFender = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.16), paintMat);
+    frontFender.position.set(-0.54, 0.38, 0);
+    root.add(frontFender);
+
+    // Handlebars, grips & twin mirrors
+    const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.58, 10), chromeMat);
+    handleBar.rotation.x = Math.PI / 2;
+    handleBar.position.set(-0.38, 0.88, 0);
+    root.add(handleBar);
+
+    const headlight = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.068, 0.06, 14), headlightMat);
+    headlight.rotation.z = Math.PI / 2;
+    headlight.position.set(-0.52, 0.82, 0);
+    root.add(headlight);
+
+    const taillight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.16), taillightMat);
+    taillight.position.set(0.66, 0.52, 0);
+    root.add(taillight);
+
+    // Hinged Color-Matched Insulated Delivery Top-Box behind seat
+    const topBoxBase = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 0.4), paintMat);
+    topBoxBase.position.set(0.58, 0.84, 0);
+    root.add(topBoxBase);
+
+    const topBoxStripe = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.042, 0.41), reflectMat);
+    topBoxStripe.position.set(0.58, 0.84, 0);
+    root.add(topBoxStripe);
+
+    const topBoxLidPivot = new THREE.Group();
+    topBoxLidPivot.position.set(0.37, 1.02, 0);
+    const lidMesh = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.05, 0.41), paintMat);
+    lidMesh.position.set(0.21, 0.025, 0);
+    topBoxLidPivot.add(lidMesh);
+    root.add(topBoxLidPivot);
+
+    this.scene.add(root);
+
+    return {
+      customerId,
+      variant,
+      root,
+      wheels,
+      topBoxLidPivot,
+      headlightMat,
+      phase: 'arriving',
+      x: 16.0,
+      stowTimer: 0,
+      arrivedSoundPlayed: false,
+      departSoundPlayed: false,
+    };
+  }
+
+  private disposeDeliveryScooter() {
+    if (!this.deliveryScooter) return;
+    this.scene.remove(this.deliveryScooter.root);
+    this.deliveryScooter.root.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        (obj as THREE.Mesh).geometry?.dispose();
+        const m = (obj as THREE.Mesh).material;
+        if (Array.isArray(m)) m.forEach((mm) => mm.dispose());
+        else m?.dispose();
+      }
+    });
+    this.deliveryScooter = null;
   }
 
   private syncCustomerActors() {
@@ -8326,13 +9276,30 @@ export class KlasikCafeScene3D {
       }
     }
 
+    // Spawn 3D Delivery Scooter automatically when a Delivery Rider order becomes active
+    const activeRiderOrder = this.gameState.customers.find((c) => c.isDeliveryRider);
+    if (
+      activeRiderOrder &&
+      (!this.deliveryScooter || this.deliveryScooter.customerId !== activeRiderOrder.id)
+    ) {
+      this.disposeDeliveryScooter();
+      this.deliveryScooter = this.createDeliveryScooterRig(
+        activeRiderOrder.id,
+        activeRiderOrder.riderVariant || 'green'
+      );
+      this.callbacks.onScooterSound?.('arrive');
+    } else if (!activeRiderOrder && this.deliveryScooter && this.deliveryScooter.phase !== 'departing') {
+      this.deliveryScooter.phase = 'departing';
+    }
+
     let initialQueuePlacementIdx = 0;
     this.gameState.customers.forEach((cust, idx) => {
       let actor = this.customerActors.get(cust.id);
 
-      // Rebuild existing customer actor in-place if the Customer Skin Pack or shirtColor changed!
+      // Rebuild existing customer actor in-place if the Customer Skin Pack or shirtColor changed (skip for Delivery Rider uniform!)
       if (
         actor &&
+        !cust.isDeliveryRider &&
         (actor.appliedSkinPack !== activePackId || actor.appliedShirtColor !== cust.shirtColor)
       ) {
         const preservedPos = actor.currentPos.clone();
@@ -8384,14 +9351,15 @@ export class KlasikCafeScene3D {
           seed,
           cust.avatarColor,
           cust.shirtColor,
-          activePackId
+          activePackId,
+          cust.isDeliveryRider ? cust.riderVariant || 'green' : undefined
         );
-        // Opening shift patrons already waiting inside start calmly in the Ingress Queue Lane (x = -0.95, 1.00m spacing);
-        // Newly spawned customers arrive staggered outside on the sidewalk and queue single-file at the door!
-        const startPos =
-          cust.state === 'ordering' && cust.timerStarted
-            ? new THREE.Vector3(-0.95, 0, -1.45 - initialQueuePlacementIdx++ * 1.0)
-            : new THREE.Vector3(-3.1 - (idx % 3) * 0.75, 0, -7.85);
+        // Delivery Rider arrives riding their scooter at curbside bay (2.45, -7.65)!
+        const startPos = cust.isDeliveryRider
+          ? new THREE.Vector3(16.0, 0, -7.65)
+          : cust.state === 'ordering' && cust.timerStarted
+          ? new THREE.Vector3(-0.95, 0, -1.45 - initialQueuePlacementIdx++ * 1.0)
+          : new THREE.Vector3(-3.1 - (idx % 3) * 0.75, 0, -7.85);
         built.group.position.copy(startPos);
         this.customersRoot.add(built.group);
         actor = {
@@ -8403,12 +9371,15 @@ export class KlasikCafeScene3D {
           walkPhase: seed * 0.7,
           walkBlend: 0,
           seatedBlend: 0,
-          facingAngle: 0,
+          facingAngle: cust.isDeliveryRider ? -Math.PI / 2 : 0,
           moveState: cust.state === 'ordering' && cust.timerStarted ? 'idle-queue' : 'walking',
           stuckTimer: 0,
           stuckAnchorPos: startPos.clone(),
           ghostPassTimer: 0,
           counterArrivedSignaled: Boolean(cust.timerStarted),
+          isDeliveryRider: Boolean(cust.isDeliveryRider),
+          riderVariant: cust.riderVariant,
+          scooterStowTimer: 0,
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -8420,15 +9391,30 @@ export class KlasikCafeScene3D {
         this.setVesselVariantVisibility(actor.heldVesselVariants, desiredVessel);
       }
 
+      // Sync left-hand held pastry (Mini Porcelain Plate for dine-in OR Kraft Paper Bag for takeout/delivery!)
+      const desiredPastry = cust.requestedPastry || null;
+      if (actor.appliedPastryId !== desiredPastry) {
+        actor.appliedPastryId = desiredPastry;
+        (['daisy-donut', 'miata-cake', 'croissant'] as PastryId[]).forEach((pid) => {
+          actor!.heldPastryPlateItems[pid].visible = pid === desiredPastry;
+        });
+      }
+      const isTakeoutOrder = cust.orderType === 'takeout' || Boolean(cust.isDeliveryRider);
+      actor.heldPastryPlateGroup.visible = Boolean(desiredPastry) && !isTakeoutOrder;
+      actor.heldPastryBagGroup.visible = Boolean(desiredPastry) && isTakeoutOrder;
+
       if (cust.state === 'ordering') {
         actor.heldCup.visible = false;
+        actor.heldPastryGroup.visible = false;
         actor.activitySprite.visible = false;
       } else {
         const isPickingUpStage1 =
           this.stepAnim?.type === 'serve_drink' &&
           this.stepAnim.servedCustomerId === cust.id &&
           this.stepAnim.progress < 0.55;
-        actor.heldCup.visible = !isPickingUpStage1;
+        actor.heldCup.visible = !isPickingUpStage1 && !cust.expired;
+        actor.heldPastryGroup.visible =
+          !isPickingUpStage1 && !cust.expired && Boolean(desiredPastry);
       }
     });
   }
@@ -8436,7 +9422,8 @@ export class KlasikCafeScene3D {
   public triggerStepAnimation(
     type: StepAnimType,
     flavor?: SyrupFlavor,
-    badgeText?: string
+    badgeText?: string,
+    durationOverrideSec?: number
   ) {
     const durations: Record<StepAnimType, number> = {
       grind: 1.25,
@@ -8446,7 +9433,7 @@ export class KlasikCafeScene3D {
       steam_milk: 1.55,
       add_ice: 1.15,
       add_syrup: 1.35,
-      rinse_cup: 0.75,
+      rinse_cup: 0.85,
       serve_drink: 1.5,
     };
 
@@ -8470,10 +9457,14 @@ export class KlasikCafeScene3D {
     this.stepAnim = {
       type,
       progress: 0,
-      duration: durations[type] || 1.2,
+      duration:
+        typeof durationOverrideSec === 'number' && durationOverrideSec > 0.2
+          ? durationOverrideSec
+          : durations[type] || 1.2,
       flavor,
       badgeText,
       servedCustomerId,
+      vesselType: this.currentActiveVesselType,
     };
 
     if (type === 'steam_milk') {
@@ -8486,6 +9477,11 @@ export class KlasikCafeScene3D {
       this.drawFloatingBadgeText('9.0 BAR · 27.4s', '#f59e0b');
     } else if (type === 'serve_drink') {
       this.drawFloatingBadgeText(badgeText || '+$8 SERVED!', '#10b981');
+    } else if (type === 'rinse_cup') {
+      const isTakeout =
+        this.currentActiveVesselType === 'hot-takeout' ||
+        this.currentActiveVesselType === 'iced-takeout';
+      this.drawFloatingBadgeText(isTakeout ? 'CUP DISPOSED' : 'GLASS RINSED', '#38bdf8');
     }
   }
 
@@ -8548,7 +9544,64 @@ export class KlasikCafeScene3D {
       }
     };
 
-    if (weather === 'morning') {
+    const timeOfDay = extractTimeOfDayFromWeather(weather);
+    const isRaining = isRainyWeather(weather);
+
+    // 1. Base Time-of-Day Sky, Sun, Fog & Architectural Lighting (5 authentic presets)
+    if (timeOfDay === 'dawn') {
+      // Phase 2 Dawn: Peach/Lavender twilight sky, cool-peach east sunrise light (+12, 4.4, -13), zero overhead sun glare
+      bgCol.setHex(0x8e647a);
+      fog.color.setHex(0xc78f85);
+      fog.density = 0.014;
+      this.scene.environmentIntensity = 0.68;
+      this.sunLight.position.set(12.0, 4.4, -13.0);
+      this.sunLight.color.setHex(0xffc9a3);
+      this.sunLight.intensity = 1.95;
+      this.hemiLight.color.setHex(0xdfb2c8);
+      this.hemiLight.groundColor.setHex(0x3a2e4c);
+      this.hemiLight.intensity = 0.86;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.9;
+      if (this.neonSignLight) this.neonSignLight.intensity = 1.45;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x473669);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0xc07a84);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0xf4a261);
+        this.skyDomeMat.uniforms.uSunDir.value.set(0.62, 0.16, -0.76).normalize();
+        this.skyDomeMat.uniforms.uSunColor.value.setHex(0xffd2a1);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 0.18;
+      }
+      if (this.godRaysGroup) this.godRaysGroup.visible = true;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = true;
+      if (this.godRayMat) {
+        this.godRayMat.uniforms.uColor.value.setHex(0xf6b99c);
+        this.godRayMat.uniforms.uOpacity.value = 0.16;
+      }
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.8;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.76;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0xfde2d2);
+        this.skylightPaneMat.emissive.setHex(0xd88c9a);
+        this.skylightPaneMat.emissiveIntensity = 0.62;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0xf3d5c0);
+        this.garageGlassMat.opacity = 0.19;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfde68a);
+        m.emissiveIntensity = 2.2;
+      });
+      this.streetLampBulbMats.forEach((m) => {
+        m.emissiveIntensity = 1.95;
+      });
+      setStreetlampGlow(true, 0.08, 0.11);
+      setCityWindows(0.65, 0.35, 1.05);
+      setVehicleBeams(true, 0.08);
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 1.95;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 1.85;
+    } else if (timeOfDay === 'morning') {
       bgCol.setHex(0xbae6fd);
       fog.color.setHex(0xdbeafe);
       fog.density = 0.011;
@@ -8571,9 +9624,6 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uSunIntensity.value = 0.72;
         this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
-      if (this.gpuRainLines) this.gpuRainLines.visible = false;
-      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
-      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
       if (this.godRaysGroup) this.godRaysGroup.visible = true;
       if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
       if (this.godRayMat) {
@@ -8603,12 +9653,64 @@ export class KlasikCafeScene3D {
       setVehicleBeams(false, 0.0);
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 0.6;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 0.85;
-    } else if (weather === 'golden') {
+    } else if (timeOfDay === 'noon') {
+      // Phase 2 Noon: Crisp high-overhead bright sunlight (1.5, 16.5, -6.0), vivid blue sky, streetlamps off!
+      bgCol.setHex(0x60a5fa);
+      fog.color.setHex(0xe0f2fe);
+      fog.density = 0.0085;
+      this.scene.environmentIntensity = 1.12;
+      this.sunLight.position.set(1.5, 16.5, -6.0);
+      this.sunLight.color.setHex(0xfffdf5);
+      this.sunLight.intensity = 2.95;
+      this.hemiLight.color.setHex(0xe0f2fe);
+      this.hemiLight.groundColor.setHex(0x785a46);
+      this.hemiLight.intensity = 1.24;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.15;
+      if (this.neonSignLight) this.neonSignLight.intensity = 0.85;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x2563eb);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0x60a5fa);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0xe0f2fe);
+        this.skyDomeMat.uniforms.uSunDir.value.set(0.1, 0.92, -0.36).normalize();
+        this.skyDomeMat.uniforms.uSunColor.value.setHex(0xffffff);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 0.85;
+        this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
+      }
+      if (this.godRaysGroup) this.godRaysGroup.visible = true;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
+      if (this.godRayMat) {
+        this.godRayMat.uniforms.uColor.value.setHex(0xffffff);
+        this.godRayMat.uniforms.uOpacity.value = 0.06;
+      }
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.88;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.8;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0xffffff);
+        this.skylightPaneMat.emissive.setHex(0xe0f2fe);
+        this.skylightPaneMat.emissiveIntensity = 0.95;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0xe0f2fe);
+        this.garageGlassMat.opacity = 0.14;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfef3c7);
+        m.emissiveIntensity = 1.1;
+      });
+      this.streetLampBulbMats.forEach((m) => {
+        m.emissiveIntensity = 0.15;
+      });
+      setStreetlampGlow(false, 0.0, 0.0);
+      setCityWindows(0.04, 0.04, 0.2);
+      setVehicleBeams(false, 0.0);
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 0.35;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 0.7;
+    } else if (timeOfDay === 'golden') {
       bgCol.setHex(0xc96859);
       fog.color.setHex(0xd98a5b);
       fog.density = 0.014;
       this.scene.environmentIntensity = 0.8;
-      // Low dramatic sun streaming through front glass bays with warm key / cool twilight shadow contrast
       this.sunLight.position.set(-10.5, 4.6, -13.5);
       this.sunLight.color.setHex(0xffba6b);
       this.sunLight.intensity = 2.85;
@@ -8627,9 +9729,6 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uSunIntensity.value = 1.45;
         this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
-      if (this.gpuRainLines) this.gpuRainLines.visible = false;
-      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
-      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
       if (this.godRaysGroup) this.godRaysGroup.visible = true;
       if (this.goldenDustInstanced) this.goldenDustInstanced.visible = true;
       if (this.godRayMat) {
@@ -8659,65 +9758,8 @@ export class KlasikCafeScene3D {
       setVehicleBeams(true, 0.09);
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.15;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.05;
-    } else if (weather === 'rainy') {
-      bgCol.setHex(0x1e293b);
-      fog.color.setHex(0x334155);
-      fog.density = 0.02;
-      this.scene.environmentIntensity = 0.56;
-      this.sunLight.position.set(-3.0, 8.2, -6.5);
-      this.sunLight.color.setHex(0x93c5fd);
-      this.sunLight.intensity = 1.05;
-      this.hemiLight.color.setHex(0x7dd3fc);
-      this.hemiLight.groundColor.setHex(0x1e1b4b);
-      this.hemiLight.intensity = 0.72;
-      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.1;
-      if (this.neonSignLight) this.neonSignLight.intensity = 1.5;
-
-      if (this.skyDomeMat) {
-        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x1e293b);
-        this.skyDomeMat.uniforms.uMidColor.value.setHex(0x475569);
-        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0x64748b);
-        this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
-        this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
-      }
-      if (this.gpuRainLines) this.gpuRainLines.visible = true;
-      if (this.gpuRainMat) {
-        this.gpuRainMat.uniforms.uColor.value.setHex(0xe2e8f0);
-        this.gpuRainMat.uniforms.uOpacity.value = 0.48;
-      }
-      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = true;
-      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
-      if (this.godRaysGroup) this.godRaysGroup.visible = false;
-      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
-      if (this.godRayMat) {
-        this.godRayMat.uniforms.uOpacity.value = 0.0;
-      }
-      // Wet reflective outdoor asphalt & cobblestone during Rainy Roof
-      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.22;
-      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.24;
-      if (this.skylightPaneMat) {
-        this.skylightPaneMat.color.setHex(0x94a3b8);
-        this.skylightPaneMat.emissive.setHex(0x38bdf8);
-        this.skylightPaneMat.emissiveIntensity = 0.48;
-      }
-      if (this.garageGlassMat) {
-        this.garageGlassMat.color.setHex(0x93c5fd);
-        this.garageGlassMat.opacity = 0.28;
-      }
-      this.pendantBulbMats.forEach((m) => {
-        m.emissive.setHex(0xfde68a);
-        m.emissiveIntensity = 2.75;
-      });
-      this.streetLampBulbMats.forEach((m) => {
-        m.emissiveIntensity = 2.65;
-      });
-      setStreetlampGlow(true, 0.13, 0.16);
-      setCityWindows(0.85, 0.55, 1.35);
-      setVehicleBeams(true, 0.14);
-      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.45;
-      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.25;
-    } else if (weather === 'night') {
-      // Phase 7: Clear Starry Night Shift (Cozy Warm Interior Sanctuary vs Indigo Moonlight Street!)
+    } else {
+      // Night Shift: Clear Starry Night Sanctuary
       bgCol.setHex(0x070d1d);
       fog.color.setHex(0x0b132b);
       fog.density = 0.017;
@@ -8738,13 +9780,9 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
         this.skyDomeMat.uniforms.uStarIntensity.value = 1.0;
       }
-      if (this.gpuRainLines) this.gpuRainLines.visible = false;
-      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
-      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
       if (this.godRaysGroup) this.godRaysGroup.visible = false;
       if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
       if (this.godRayMat) this.godRayMat.uniforms.uOpacity.value = 0.0;
-
       if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.62;
       if (this.patioFloorMat) this.patioFloorMat.roughness = 0.58;
       if (this.skylightPaneMat) {
@@ -8768,32 +9806,32 @@ export class KlasikCafeScene3D {
       setVehicleBeams(true, 0.24);
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 3.5;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 3.0;
-    } else {
-      // Phase 7: Rainy Night — Midnight Storm, Glistening Outdoor Rain, Mirror-Wet Street, Lit Windows & Umbrellas!
-      bgCol.setHex(0x050811);
-      fog.color.setHex(0x0f172a);
-      fog.density = 0.022;
-      this.scene.environmentIntensity = 0.2;
-      this.sunLight.position.set(-2.5, 8.5, -8.0);
-      this.sunLight.color.setHex(0x64748b);
-      this.sunLight.intensity = 0.38;
-      this.hemiLight.color.setHex(0x1e293b);
-      this.hemiLight.groundColor.setHex(0x1a120c);
-      this.hemiLight.intensity = 0.36;
-      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.95;
-      if (this.neonSignLight) this.neonSignLight.intensity = 2.15;
+    }
+
+    // 2. Universal Rain Overlay (works identically across Dawn, Morning, Noon, Golden & Night!)
+    if (isRaining) {
+      const isDark = timeOfDay === 'night';
+      const rainTint = isDark ? 0x0f172a : 0x334155;
+      bgCol.lerp(_targetColor.setHex(rainTint), isDark ? 0.55 : 0.62);
+      fog.color.lerp(_targetColor.setHex(isDark ? 0x0f172a : 0x475569), 0.65);
+      fog.density = Math.max(fog.density, isDark ? 0.022 : 0.019);
+      this.scene.environmentIntensity *= 0.65;
+      this.sunLight.intensity *= isDark ? 0.82 : 0.45;
+      this.hemiLight.intensity *= 0.78;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = Math.max(this.cafeWarmLight.intensity, 2.25);
+      if (this.neonSignLight) this.neonSignLight.intensity = Math.max(this.neonSignLight.intensity, 1.65);
 
       if (this.skyDomeMat) {
-        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x040711);
-        this.skyDomeMat.uniforms.uMidColor.value.setHex(0x0f172a);
-        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0x1e293b);
+        this.skyDomeMat.uniforms.uTopColor.value.lerp(_targetColor.setHex(isDark ? 0x040711 : 0x1e293b), 0.72);
+        this.skyDomeMat.uniforms.uMidColor.value.lerp(_targetColor.setHex(isDark ? 0x0f172a : 0x475569), 0.68);
+        this.skyDomeMat.uniforms.uHorizonColor.value.lerp(_targetColor.setHex(isDark ? 0x1e293b : 0x64748b), 0.64);
         this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
         this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
       if (this.gpuRainLines) this.gpuRainLines.visible = true;
       if (this.gpuRainMat) {
-        this.gpuRainMat.uniforms.uColor.value.setHex(0xfef3c7);
-        this.gpuRainMat.uniforms.uOpacity.value = 0.56;
+        this.gpuRainMat.uniforms.uColor.value.setHex(isDark ? 0xfef3c7 : 0xe2e8f0);
+        this.gpuRainMat.uniforms.uOpacity.value = isDark ? 0.56 : 0.48;
       }
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = true;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
@@ -8801,30 +9839,27 @@ export class KlasikCafeScene3D {
       if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
       if (this.godRayMat) this.godRayMat.uniforms.uOpacity.value = 0.0;
 
-      // Mirror-wet night street asphalt catching streetlamp & headlight reflections
-      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.16;
-      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.18;
-      if (this.skylightPaneMat) {
-        this.skylightPaneMat.color.setHex(0x0f172a);
-        this.skylightPaneMat.emissive.setHex(0x1e3a8a);
-        this.skylightPaneMat.emissiveIntensity = 0.25;
-      }
+      // Mirror-wet reflective street asphalt & patio cobbles
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = isDark ? 0.16 : 0.22;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = isDark ? 0.18 : 0.24;
       if (this.garageGlassMat) {
-        this.garageGlassMat.color.setHex(0x334155);
-        this.garageGlassMat.opacity = 0.3;
+        this.garageGlassMat.opacity = Math.max(this.garageGlassMat.opacity, 0.28);
       }
       this.pendantBulbMats.forEach((m) => {
-        m.emissive.setHex(0xfbbf24);
-        m.emissiveIntensity = 3.45;
+        m.emissiveIntensity = Math.max(m.emissiveIntensity, isDark ? 3.45 : 2.75);
       });
       this.streetLampBulbMats.forEach((m) => {
-        m.emissiveIntensity = 3.6;
+        m.emissiveIntensity = Math.max(m.emissiveIntensity, isDark ? 3.6 : 2.65);
       });
-      setStreetlampGlow(true, 0.26, 0.3);
-      setCityWindows(1.85, 1.15, 2.15);
-      setVehicleBeams(true, 0.28);
-      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 3.6;
-      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 3.1;
+      setStreetlampGlow(true, isDark ? 0.26 : 0.13, isDark ? 0.3 : 0.16);
+      setCityWindows(isDark ? 1.85 : 0.85, isDark ? 1.15 : 0.55, isDark ? 2.15 : 1.35);
+      setVehicleBeams(true, isDark ? 0.28 : 0.14);
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = Math.max(this.vehicleHeadlightMat.emissiveIntensity, 2.45);
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = Math.max(this.vehicleTaillightMat.emissiveIntensity, 2.25);
+    } else {
+      if (this.gpuRainLines) this.gpuRainLines.visible = false;
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
     }
   }
 
@@ -9010,9 +10045,9 @@ export class KlasikCafeScene3D {
       this.setVesselVariantVisibility(this.activeVesselVariants, nextVessel);
     }
 
-    // Snap takeout lids (black sip lid / clear dome lid + emerald straw) ONLY when moving to Pickup Counter / serving!
+    // Snap takeout lids (black sip lid / clear dome lid + emerald straw) ONLY when moving to Pickup Counter (Station 5) / serving!
     const isServingLidReady =
-      (this.gameState.activeStation === 4 || this.stepAnim?.type === 'serve_drink') &&
+      (this.gameState.activeStation === 5 || this.stepAnim?.type === 'serve_drink') &&
       hasAnyLiquid;
     if (this.activeHotTakeoutLidMesh) {
       this.activeHotTakeoutLidMesh.visible =
@@ -9037,23 +10072,66 @@ export class KlasikCafeScene3D {
       else if (cup.syrup === 'matcha') dMat.color.setHex(0x65a30d);
     }
 
+    // Phase 4 Pull-Shot Cooldown Sync: keep cup locked on espresso drip tray during active pull_espresso lock!
+    const isPullShotLocked =
+      (this.stepAnim?.type === 'pull_espresso' && this.stepAnim.progress < 0.86) ||
+      (isStepLockActive(this.gameState.activeStepLock) &&
+        this.gameState.activeStepLock?.actionType === 'pull_espresso');
+
     const isStageB =
       cup.hasEspresso ||
       cup.hasSteepedTea ||
       cup.hasSteamedMilk ||
       cup.hasIce ||
       cup.syrup !== 'none' ||
-      this.gameState.activeStation === 3;
+      this.gameState.activeStation === 4;
 
-    if (this.gameState.activeStation === 4 && hasAnyLiquid) {
+    if (isPullShotLocked) {
+      this.cupTargetPos.set(-0.16, 1.055, 0.30);
+    } else if (this.gameState.activeStation === 5 && hasAnyLiquid) {
       this.cupTargetPos.set(-1.32, 1.03, 0.34);
     } else if (isStageB) {
-      this.cupTargetPos.set(0.78, 1.01, 0.38);
+      this.cupTargetPos.set(1.18, 1.01, 0.38);
     } else {
       this.cupTargetPos.set(-0.16, 1.055, 0.30);
     }
 
     this.ghostCupMesh.visible = hasAnyLiquid && this.gameState.phase === 'playing';
+
+    // Phase 4: Pulsing golden-emerald clickable Serve-Ready Halo around the completed cup (also works in Realism Mode!)
+    const readyToServe =
+      this.gameState.phase === 'playing' &&
+      Boolean(
+        pinnedOrder &&
+          isOrderReadyToServe(
+            this.gameState.currentCup,
+            this.gameState.preparedPastry,
+            pinnedOrder
+          ).ready
+      );
+    this.isServeCupClickable = readyToServe;
+    if (this.serveReadyHaloMesh) {
+      this.serveReadyHaloMesh.visible = readyToServe;
+    }
+
+    // Phase 6: Stage prepared Pastry beside Serve Coaster on Mini Porcelain Plate (dine-in) or Kraft Paper Bag (takeout/delivery)!
+    if (this.preparedPastryStageGroup && this.preparedPlateGroup && this.preparedBagGroup) {
+      const prepared = this.gameState.preparedPastry;
+      if (prepared && this.gameState.phase === 'playing') {
+        const isTakeout =
+          pinnedOrder?.orderType === 'takeout' || Boolean(pinnedOrder?.isDeliveryRider);
+        this.preparedPastryStageGroup.visible = true;
+        this.preparedPlateGroup.visible = !isTakeout;
+        this.preparedBagGroup.visible = isTakeout;
+        if (this.preparedPlatePastryMeshes) {
+          (['daisy-donut', 'miata-cake', 'croissant'] as PastryId[]).forEach((pid) => {
+            this.preparedPlatePastryMeshes[pid].visible = pid === prepared;
+          });
+        }
+      } else {
+        this.preparedPastryStageGroup.visible = false;
+      }
+    }
   }
 
   private bindEvents() {
@@ -9401,9 +10479,10 @@ export class KlasikCafeScene3D {
     this.tamperMeshGroup.position.set(-0.075, 0.02, -0.02);
     this.tamperMeshGroup.rotation.set(0, 0, 0);
 
-    this.milkPitcherGroup.position.set(0.56, 1.0, 0.36);
+    // Station 4 Shifted Rest Coords (clear of Rinser at 0.52 & Trash Chute at 0.74)
+    this.milkPitcherGroup.position.set(0.96, 1.0, 0.38);
     this.milkPitcherGroup.rotation.set(0, 0, 0);
-    this.teaPotGroup.position.set(0.78, 1.0, 0.14);
+    this.teaPotGroup.position.set(1.18, 1.0, 0.14);
     this.teaPotGroup.rotation.set(0, 0, 0);
     this.steamWandPivot.rotation.set(0, 0, 0);
     this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
@@ -9411,11 +10490,18 @@ export class KlasikCafeScene3D {
     this.matchaWhiskGroup.position.set(0, 0.095, 0);
     this.matchaWhiskGroup.rotation.set(0, 0, 0);
 
+    // Reset Phase 5 Rinser Spray & Trash Chute Flap
+    if (this.rinserSprayConeMesh) this.rinserSprayConeMesh.visible = false;
+    for (let mi = 0; mi < this.rinserMistDrops.length; mi++) {
+      this.rinserMistDrops[mi].visible = false;
+    }
+    if (this.trashFlapPivot) this.trashFlapPivot.rotation.x = 0;
+
     for (const pump of this.syrupPumpHeads.values()) {
       pump.position.y = 0.27;
     }
     for (const [flKey, bGroup] of this.syrupBottleGroups.entries()) {
-      const bx = this.syrupBottleBaseX.get(flKey) ?? 1.32;
+      const bx = this.syrupBottleBaseX.get(flKey) ?? 1.78;
       bGroup.position.set(bx, 1.045, 0.18);
       bGroup.rotation.set(0, 0, 0);
     }
@@ -9436,6 +10522,7 @@ export class KlasikCafeScene3D {
 
     this.cupCurrentPos.lerp(this.cupTargetPos, damp);
     this.activeBaristaCupGroup.position.copy(this.cupCurrentPos);
+    this.activeBaristaCupGroup.rotation.set(0, 0, 0);
     this.activeBaristaCupGroup.visible = true;
 
     this.gaugeNeedles.forEach((n) => {
@@ -9517,9 +10604,9 @@ export class KlasikCafeScene3D {
         this.tampedPuckMesh.visible = true;
       }
     } else if (this.stepAnim.type === 'pull_espresso') {
-      // Phase 1 (0..0.24): Portafilter lifts along a quadratic curve from tamping mat (-0.43) into grouphead (-0.16) and twists 45 deg
-      if (p < 0.24) {
-        const lockT = easeInOutCubic(p / 0.24);
+      // Phase 1 (0..0.18): Portafilter locks into grouphead (-0.16)
+      if (p < 0.18) {
+        const lockT = easeInOutCubic(p / 0.18);
         this.portafilterGroup.position.set(
           evalQuadBezier(-0.43, -0.28, -0.16, lockT),
           evalQuadBezier(1.05, 1.28, 1.26, lockT),
@@ -9532,15 +10619,14 @@ export class KlasikCafeScene3D {
       }
       this.tampedPuckMesh.visible = true;
 
-      // Phase 2 (0.24..0.78): Dual espresso stream pours into cup on drip tray (-0.16, 1.055, 0.30)
-      // Phase 3 (0.78..1.0): Cup glides smoothly along a quadratic curve onto Station 3 Assembly Coaster (0.78, 1.01, 0.38)
-      if (p < 0.78) {
+      // Phase 4 Pull-Shot Cooldown Sync: Cup stays firmly on Espresso Drip Tray (-0.16, 1.055, 0.30) until p >= 0.86!
+      if (p < 0.86) {
         this.activeBaristaCupGroup.position.set(-0.16, 1.055, 0.30);
       } else {
-        const glide = easeInOutCubic((p - 0.78) / 0.22);
+        const glide = easeInOutCubic((p - 0.86) / 0.14);
         this.activeBaristaCupGroup.position.set(
-          evalQuadBezier(-0.16, 0.31, 0.78, glide),
-          evalQuadBezier(1.055, 1.11, 1.01, glide),
+          evalQuadBezier(-0.16, 0.51, 1.18, glide),
+          evalQuadBezier(1.055, 1.12, 1.01, glide),
           evalQuadBezier(0.30, 0.42, 0.38, glide)
         );
       }
@@ -9551,57 +10637,54 @@ export class KlasikCafeScene3D {
         n.rotation.z = needleAngle + Math.sin(this.elapsed * 30) * 0.03;
       });
 
-      if (p > 0.22 && p < 0.8) {
+      if (p > 0.16 && p < 0.86) {
         this.espressoStreamsGroup.visible = true;
         this.floatingBadgeSprite.visible = true;
         this.floatingBadgeSprite.position.set(-0.16, 1.54, 0.32);
       }
     } else if (this.stepAnim.type === 'steam_milk') {
-      // 3-Phase Bezier Steamed Milk & Rosetta Latte Art Pour (1.55s)
-      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
+      // 3-Phase Bezier Steamed Milk & Rosetta Latte Art Pour over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
+      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
       if (p < 0.45) {
-        // Phase 1 (0.0 - 0.45): Pitcher slides smoothly under steam wand (x = 0.26, y = 1.12), wand pivots down, microfoam swirls
         const sub = Math.sin((p / 0.45) * Math.PI);
         this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.56, 0.41, 0.26, sub),
+          evalQuadBezier(0.96, 0.61, 0.26, sub),
           evalQuadBezier(1.0, 1.08, 1.12, sub),
-          0.36
+          0.38
         );
         this.steamWandPivot.rotation.z = -0.36 * sub;
         this.pitcherMilkMesh.rotation.y += dt * 14;
         this.floatingBadgeSprite.visible = true;
         this.floatingBadgeSprite.position.set(0.26, 1.38, 0.36);
       } else if (p < 0.85) {
-        // Phase 2 (0.45 - 0.85): Pitcher lifts along a quadratic curve over the cup (0.67, 1.24, 0.38), tilts to 62 deg (1.08 rad)
         const pourT = easeInOutCubic((p - 0.45) / 0.4);
         const hoverArc = Math.sin(pourT * Math.PI);
         const wiggleZ = Math.sin(this.elapsed * 28) * 0.015;
         this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.32, 0.56, 0.67, Math.min(1, pourT * 1.4)),
+          evalQuadBezier(0.58, 0.88, 1.07, Math.min(1, pourT * 1.4)),
           1.24 + hoverArc * 0.03,
           0.38 + wiggleZ
         );
         this.milkPitcherGroup.rotation.z = -1.08 * Math.min(1, Math.sin(pourT * Math.PI) * 1.35);
         this.milkPitcherGroup.rotation.x = wiggleZ * 2.5;
         this.milkPourStreamMesh.visible = true;
-        this.milkPourStreamMesh.position.set(0.76, 1.18, 0.38 + wiggleZ * 0.6);
+        this.milkPourStreamMesh.position.set(1.16, 1.18, 0.38 + wiggleZ * 0.6);
       } else {
-        // Phase 3 (0.85 - 1.0): Stream tapers off and pitcher arcs gracefully back to rest (0.56, 1.0, 0.36)
         const restT = easeInOutCubic((p - 0.85) / 0.15);
         this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.67, 0.61, 0.56, restT),
+          evalQuadBezier(1.07, 1.01, 0.96, restT),
           evalQuadBezier(1.24, 1.12, 1.0, restT),
-          THREE.MathUtils.lerp(0.38, 0.36, restT)
+          0.38
         );
         this.milkPitcherGroup.rotation.z = THREE.MathUtils.lerp(-0.95, 0, restT);
         this.milkPourStreamMesh.visible = false;
       }
     } else if (this.stepAnim.type === 'add_ice') {
-      // Ice Scoop dips into bin, lifts along a quadratic arc over the cup, and tips translucent ice cubes in
-      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
+      // Ice Scoop dips into bin (1.44, 0.16), arcs over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
+      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
       const arc = Math.sin(p * Math.PI);
       this.iceScoopGroup.position.set(
-        evalQuadBezier(0.02, -0.1, -0.2, arc),
+        evalQuadBezier(0.02, -0.13, -0.26, arc),
         evalQuadBezier(0.065, 0.28, 0.24, arc),
         evalQuadBezier(0.01, 0.14, 0.22, arc)
       );
@@ -9612,7 +10695,7 @@ export class KlasikCafeScene3D {
         cube.position.y = 0.132 + dropH + idx * 0.018 * (1 - smoothP);
       });
     } else if (this.stepAnim.type === 'add_syrup') {
-      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
+      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
       const fl = this.stepAnim.flavor || 'vanilla';
       const rMat = this.syrupRibbonMesh.material as THREE.MeshStandardMaterial;
 
@@ -9622,23 +10705,21 @@ export class KlasikCafeScene3D {
         this.matchaWhiskGroup.position.z = Math.sin(p * Math.PI * 4) * 0.022;
         this.matchaWhiskGroup.rotation.z = Math.cos(p * Math.PI * 8) * 0.18;
         this.syrupRibbonMesh.visible = true;
-        this.syrupRibbonMesh.position.set(0.78, 1.21, 0.38);
+        this.syrupRibbonMesh.position.set(1.18, 1.21, 0.38);
         this.syrupRibbonMesh.scale.set(1, 1, 1);
         this.activeCupDrizzleRing.visible = true;
         this.activeCupDrizzleRing.scale.setScalar(0.35 + p * 0.65);
         this.activeCupDrizzleRing.rotation.z = p * Math.PI * 4;
       } else {
-        // Phase 3: Physical Syrup Bottle Lift -> Double-Pump Spout Pour -> Falling Droplets -> Smooth Return!
         if (fl === 'vanilla') rMat.color.setHex(0xfde68a);
         else if (fl === 'caramel') rMat.color.setHex(0xd97706);
         else rMat.color.setHex(0x451a03);
 
         const bottle = this.syrupBottleGroups.get(fl);
-        const baseX = this.syrupBottleBaseX.get(fl) ?? 1.32;
+        const baseX = this.syrupBottleBaseX.get(fl) ?? 1.78;
         const pump = this.syrupPumpHeads.get(fl);
-        // Side-offset pour pose to the RIGHT of the open cup (0.78, 1.01, 0.38): zero bottle/cup clipping!
-        // With rotation (0.20, -PI/2, 0), the brass spout tip extends cleanly over cup center at ~(0.795, 1.395, 0.38)
-        const pourX = 0.922;
+        // Side-offset pour pose to the RIGHT of the open cup (1.18, 1.01, 0.38)
+        const pourX = 1.322;
         const pourY = 1.13;
         const pourZ = 0.38;
         const drizzleBaseScale = this.currentActiveVesselType !== 'hot-mug' ? 0.78 : 0.96;
@@ -9654,38 +10735,35 @@ export class KlasikCafeScene3D {
             bottle.rotation.set(0.2 * liftT, -Math.PI * 0.5 * liftT, 0);
           }
         } else if (p < 0.8) {
-          const subP = (p - 0.22) / 0.58; // 0..1 across two distinct pump strokes
+          const subP = (p - 0.22) / 0.58;
           if (bottle) {
             bottle.position.set(pourX, pourY, pourZ);
             bottle.rotation.set(0.2, -Math.PI * 0.5, 0);
           }
-          // Two crisp downward pump presses (0..0.46 and 0.52..0.98)
           const cyclePhase = (subP * 2) % 1;
           const press = cyclePhase < 0.88 ? Math.sin((cyclePhase / 0.88) * Math.PI) : 0;
           if (pump) {
             pump.position.y = 0.27 - press * 0.036;
           }
 
-          // Glossy colored stream shooting vertically from spout tip (~0.794, 1.385, 0.38) straight into open cup!
           const streamTopY = 1.385 - press * 0.032;
           const liquidWorldY = 1.01 + this.activeCupDrizzleRing.position.y;
           const streamMidY = (streamTopY + liquidWorldY) * 0.5;
           const streamHeight = Math.max(0.08, streamTopY - liquidWorldY);
           this.syrupRibbonMesh.visible = press > 0.14;
-          this.syrupRibbonMesh.position.set(0.792, streamMidY, 0.38);
+          this.syrupRibbonMesh.position.set(1.192, streamMidY, 0.38);
           this.syrupRibbonMesh.scale.set(
             0.78 + press * 0.32,
             streamHeight / 0.22,
             0.78 + press * 0.32
           );
 
-          // Falling glossy syrup droplets along the exact spout-to-liquid column
           for (let di = 0; di < this.syrupDroplets.length; di++) {
             const drop = this.syrupDroplets[di];
             const dtPhase = (subP * 3.2 + di * 0.33) % 1;
             drop.visible = true;
             drop.position.set(
-              0.792 + Math.sin(dtPhase * 8 + di) * 0.003,
+              1.192 + Math.sin(dtPhase * 8 + di) * 0.003,
               THREE.MathUtils.lerp(streamTopY - 0.01, liquidWorldY + 0.01, dtPhase),
               0.38 + Math.cos(dtPhase * 7 + di) * 0.003
             );
@@ -9710,27 +10788,116 @@ export class KlasikCafeScene3D {
         }
       }
     } else if (this.stepAnim.type === 'steep_tea') {
-      // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over the cup on Assembly Coaster (0.78, 1.01, 0.38)
-      this.activeBaristaCupGroup.position.set(0.78, 1.01, 0.38);
+      // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
+      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
       const arc = Math.sin(p * Math.PI);
       this.teaPotGroup.position.set(
-        0.78,
+        1.18,
         evalQuadBezier(1.0, 1.26, 1.22, arc),
         evalQuadBezier(0.14, 0.24, 0.26, arc)
       );
       this.teaPotGroup.rotation.x = arc * 0.85;
       if (p > 0.2 && p < 0.85) {
         this.teaPourStreamMesh.visible = true;
-        this.teaPourStreamMesh.position.set(0.78, 1.18, 0.36);
+        this.teaPourStreamMesh.position.set(1.18, 1.18, 0.36);
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(0.78, 1.44 + p * 0.05, 0.28);
+        this.floatingBadgeSprite.position.set(1.18, 1.44 + p * 0.05, 0.28);
+      }
+    } else if (this.stepAnim.type === 'rinse_cup') {
+      // Phase 5 Vessel-Aware Rinse & Disposal:
+      // Takeout Paper/Plastic -> Arc into Barista Trash Chute (0.74, 1.02, 0.28) with hinged flap!
+      // Dine-In Mug / Iced Glass -> Invert upside down (rotation.x = PI) onto Pressurized Glass Rinser (0.52, 1.02, 0.28) with spray cone & mist!
+      const vType = this.stepAnim.vesselType || this.currentActiveVesselType;
+      const isTakeoutDisposal = vType === 'hot-takeout' || vType === 'iced-takeout';
+
+      if (isTakeoutDisposal) {
+        if (p < 0.45) {
+          const arcT = easeInOutCubic(p / 0.45);
+          this.activeBaristaCupGroup.position.set(
+            evalQuadBezier(this.cupCurrentPos.x, 0.55, 0.74, arcT),
+            evalQuadBezier(this.cupCurrentPos.y, 1.32, 1.1, arcT),
+            evalQuadBezier(this.cupCurrentPos.z, 0.34, 0.28, arcT)
+          );
+          this.activeBaristaCupGroup.rotation.set(arcT * 0.65, 0, arcT * 0.35);
+          if (this.trashFlapPivot && p > 0.3) {
+            const openT = (p - 0.3) / 0.15;
+            this.trashFlapPivot.rotation.x = -0.85 * openT;
+          }
+        } else if (p < 0.76) {
+          const dropT = (p - 0.45) / 0.31;
+          this.activeBaristaCupGroup.position.set(0.74, THREE.MathUtils.lerp(1.1, 0.82, dropT), 0.28);
+          this.activeBaristaCupGroup.rotation.set(0.65 + dropT * 0.9, 0, 0.35);
+          this.activeBaristaCupGroup.visible = dropT < 0.48;
+          if (this.trashFlapPivot) {
+            this.trashFlapPivot.rotation.x = -0.85 * (1 - Math.max(0, (dropT - 0.35) / 0.65));
+          }
+        } else {
+          const respawnT = easeInOutCubic((p - 0.76) / 0.24);
+          this.activeBaristaCupGroup.visible = true;
+          this.activeBaristaCupGroup.position.set(
+            this.cupTargetPos.x,
+            THREE.MathUtils.lerp(1.18, this.cupTargetPos.y, respawnT),
+            this.cupTargetPos.z
+          );
+          this.activeBaristaCupGroup.rotation.set(0, 0, 0);
+        }
+        this.floatingBadgeSprite.visible = p > 0.35;
+        this.floatingBadgeSprite.position.set(0.74, 1.34 + p * 0.1, 0.28);
+      } else {
+        // Ceramic Mug / Iced Glass: Flip upside down onto star actuator at (0.52, 0.28) + pressurized jet spray!
+        const rinserX = 0.52;
+        const rinserZ = 0.28;
+        if (p < 0.26) {
+          const t1 = easeInOutCubic(p / 0.26);
+          this.activeBaristaCupGroup.position.set(
+            evalQuadBezier(this.cupCurrentPos.x, (this.cupCurrentPos.x + rinserX) * 0.5, rinserX, t1),
+            evalQuadBezier(this.cupCurrentPos.y, 1.28, 1.18, t1),
+            evalQuadBezier(this.cupCurrentPos.z, 0.34, rinserZ, t1)
+          );
+          this.activeBaristaCupGroup.rotation.set(Math.PI * t1, 0, 0);
+        } else if (p < 0.76) {
+          const sub = (p - 0.26) / 0.5;
+          const pressPulse = Math.sin(sub * Math.PI);
+          this.activeBaristaCupGroup.position.set(rinserX, 1.175 - pressPulse * 0.018, rinserZ);
+          this.activeBaristaCupGroup.rotation.set(Math.PI, 0, Math.sin(this.elapsed * 32) * 0.025);
+          if (this.rinserSprayConeMesh) {
+            this.rinserSprayConeMesh.visible = true;
+            this.rinserSprayConeMesh.scale.set(
+              0.85 + Math.sin(this.elapsed * 45) * 0.16,
+              0.8 + pressPulse * 0.38,
+              0.85 + Math.cos(this.elapsed * 45) * 0.16
+            );
+          }
+          for (let mi = 0; mi < this.rinserMistDrops.length; mi++) {
+            const drop = this.rinserMistDrops[mi];
+            const mPhase = (sub * 2.8 + mi * 0.19) % 1;
+            const ang = mi * ((Math.PI * 2) / Math.max(1, this.rinserMistDrops.length)) + this.elapsed * 6.0;
+            const r = 0.022 + mPhase * 0.055;
+            drop.visible = true;
+            drop.position.set(
+              rinserX + Math.cos(ang) * r,
+              1.035 + Math.sin(mPhase * Math.PI) * 0.105,
+              rinserZ + Math.sin(ang) * r
+            );
+          }
+        } else {
+          const t3 = easeInOutCubic((p - 0.76) / 0.24);
+          this.activeBaristaCupGroup.position.set(
+            evalQuadBezier(rinserX, (rinserX + this.cupTargetPos.x) * 0.5, this.cupTargetPos.x, t3),
+            evalQuadBezier(1.18, 1.28, this.cupTargetPos.y, t3),
+            evalQuadBezier(rinserZ, 0.34, this.cupTargetPos.z, t3)
+          );
+          this.activeBaristaCupGroup.rotation.set(Math.PI * (1 - t3), 0, 0);
+        }
+        this.floatingBadgeSprite.visible = p > 0.24;
+        this.floatingBadgeSprite.position.set(rinserX, 1.38 + p * 0.08, rinserZ);
       }
     } else if (this.stepAnim.type === 'serve_drink') {
-      // 2-Stage Physical Pickup Choreography at Station 4 Walnut Pickup Coaster (-1.32, 1.03, 0.34)
+      // 2-Stage Physical Pickup Choreography at Station 5 Walnut Pickup Coaster (-1.32, 1.03, 0.34)
       if (p < 0.48) {
         const s1 = easeInOutCubic(p / 0.48);
         this.activeBaristaCupGroup.position.set(
-          evalQuadBezier(0.78, -0.25, -1.32, s1),
+          evalQuadBezier(1.18, -0.05, -1.32, s1),
           evalQuadBezier(1.01, 1.14, 1.03, s1),
           evalQuadBezier(0.38, 0.36, 0.34, s1)
         );
@@ -9779,7 +10946,7 @@ export class KlasikCafeScene3D {
       _targetPos.y += 0.015;
       _targetLook.copy(_codexCenter);
     } else {
-      const preset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[2];
+      const preset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[3];
       _targetPos.copy(preset.pos);
       _targetLook.copy(preset.look);
 
@@ -9797,13 +10964,16 @@ export class KlasikCafeScene3D {
           const trackX = THREE.MathUtils.lerp(-0.16, cupPos.x, 0.75);
           _targetPos.set(trackX, 1.46, 1.28);
           _targetLook.set(cupPos.x, 1.08, 0.32);
+        } else if (t === 'rinse_cup') {
+          _targetPos.set(0.62, 1.48, 1.24);
+          _targetLook.set(0.62, 1.08, 0.28);
         } else if (
           t === 'steam_milk' ||
           t === 'steep_tea' ||
           t === 'add_ice' ||
           t === 'add_syrup'
         ) {
-          _targetPos.set(0.82, 1.46, 1.3);
+          _targetPos.set(1.24, 1.46, 1.32);
           _targetLook.set(cupPos.x, 1.1, 0.36);
         } else if (t === 'serve_drink') {
           _targetPos.set(-1.32, 1.54, 1.38);
@@ -9832,12 +11002,16 @@ export class KlasikCafeScene3D {
       this.hangingSignGroup.rotation.x = Math.cos(this.elapsed * 0.95) * 0.012;
     }
 
-    // 3a. Swinging Glass Entrance Door & Shopkeeper Bell Proximity Trigger
+    // 3a. Swinging Glass Entrance Door & Shopkeeper Bell Proximity Trigger (+ Active Cat Greeting Target!)
     if (this.entranceDoorPivot) {
       let minDoorDist = 99;
+      let doorActorPos: THREE.Vector3 | null = null;
       for (const actor of this.customerActors.values()) {
         const d = Math.hypot(actor.currentPos.x - -1.15, actor.currentPos.z - -6.2);
-        if (d < minDoorDist) minDoorDist = d;
+        if (d < minDoorDist) {
+          minDoorDist = d;
+          doorActorPos = actor.currentPos;
+        }
       }
       const shouldOpen = minDoorDist < 1.65;
       const targetDoorAngle = shouldOpen ? 1.38 : 0.0;
@@ -9847,7 +11021,7 @@ export class KlasikCafeScene3D {
       this.doorChimeCooldown = Math.max(0, this.doorChimeCooldown - dt);
       if (shouldOpen && !this.doorWasOpen && this.doorChimeCooldown <= 0) {
         this.callbacks.onDoorOpen?.();
-        this.triggerChampyGreeting();
+        this.triggerChampyGreeting(doorActorPos || undefined);
         this.doorChimeCooldown = 1.8;
       }
       this.doorWasOpen = shouldOpen;
@@ -9877,7 +11051,7 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 3a-iii. Phase 5: Update Champy the Cafe Cat Autonomous Animation State Machine
+    // 3a-iii. Phase 8: Update Cafe Cat Autonomous Animation & Live Customer Tracking
     this.updateChampy(dt);
 
     // 3b. 1990 Mazda Miata MX-5 Pop-Up Headlight Wink & Illumination
@@ -9885,7 +11059,8 @@ export class KlasikCafeScene3D {
       const isNightOrRain =
         isRainyWeather(this.gameState.weather) ||
         isNightWeather(this.gameState.weather) ||
-        this.gameState.weather === 'golden';
+        this.gameState.weather === 'golden' ||
+        this.gameState.weather === 'dawn';
       const winkCycle = this.elapsed % 9.0;
       const isWinking = winkCycle > 7.8 && winkCycle < 8.4;
       const baseAngle = isNightOrRain ? 0.0 : -0.08;
@@ -9935,13 +11110,18 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 5. Subtle & Aesthetic Diegetic Step Halo Ring + Gentle Warm Rim Sheen (or Crimson Rinse Warning)
+    // 5. Subtle & Aesthetic Diegetic Step Halo Ring + Serve-Ready Glow + Pastry Display Halos
     const pinnedOrder =
       this.gameState.customers.find(
         (c) => c.id === this.gameState.pinnedOrderId && c.state === 'ordering'
       ) || this.gameState.customers.find((c) => c.state === 'ordering');
     const recipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : null;
-    const nextStep = getNextRecommendedStep(this.gameState.currentCup, recipe, pinnedOrder);
+    const nextStep = getNextRecommendedStep(
+      this.gameState.currentCup,
+      recipe,
+      pinnedOrder,
+      this.gameState.preparedPastry
+    );
     const effectiveSyrup = pinnedOrder?.customSyrup || recipe?.syrup || 'vanilla';
     const recommendedToolKey = this.gameState.realismMode
       ? null
@@ -9949,19 +11129,50 @@ export class KlasikCafeScene3D {
       ? `syrup-${effectiveSyrup}`
       : nextStep.toolKey;
 
+    // Pulse golden-emerald Serve-Ready Halo around clickable cup (visible even in Realism Mode!)
+    if (this.serveReadyHaloMesh && this.serveReadyHaloMat) {
+      if (this.isServeCupClickable) {
+        const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 5.2);
+        this.serveReadyHaloMesh.visible = true;
+        this.serveReadyHaloMat.opacity = 0.36 + pulse * 0.42;
+        this.serveReadyHaloMat.color.setHex(pulse > 0.5 ? 0x34d399 : 0xfbbf24);
+        this.serveReadyHaloMesh.scale.setScalar(0.94 + pulse * 0.14);
+      } else {
+        this.serveReadyHaloMesh.visible = false;
+      }
+    }
+
+    // Pulse Pastry Display Case shelf halos when pinned customer requests a pastry
+    const neededPastry =
+      this.gameState.phase === 'playing' &&
+      pinnedOrder?.requestedPastry &&
+      this.gameState.preparedPastry !== pinnedOrder.requestedPastry
+        ? pinnedOrder.requestedPastry
+        : null;
+    for (const [pid, hMat] of this.pastryCaseHaloMats.entries()) {
+      if (pid === neededPastry && !this.gameState.realismMode) {
+        hMat.opacity = 0.35 + (0.5 + 0.5 * Math.sin(this.elapsed * 4.5)) * 0.42;
+      } else {
+        hMat.opacity = 0.0;
+      }
+    }
+
     const haloCoords: Record<string, [number, number]> = {
+      'pastry-daisy-donut': [-2.12, 0.22],
+      'pastry-miata-cake': [-1.86, 0.22],
+      'pastry-croissant': [-1.6, 0.22],
       grinder: [-0.78, 0.22],
       tamper: [-0.48, 0.36],
       espresso: [-0.16, 0.30],
-      rinse: [0.36, 0.26],
-      sink: [0.36, 0.26],
-      tea: [0.78, 0.14],
-      milk: [0.56, 0.36],
-      ice: [0.98, 0.16],
-      'syrup-vanilla': [1.20, 0.18],
-      'syrup-caramel': [1.32, 0.18],
-      'syrup-chocolate': [1.44, 0.18],
-      'syrup-matcha': [1.56, 0.36],
+      rinse: [0.52, 0.28],
+      sink: [0.52, 0.28],
+      tea: [1.18, 0.14],
+      milk: [0.96, 0.38],
+      ice: [1.44, 0.16],
+      'syrup-vanilla': [1.66, 0.18],
+      'syrup-caramel': [1.78, 0.18],
+      'syrup-chocolate': [1.9, 0.18],
+      'syrup-matcha': [1.96, 0.38],
       serve: [-1.32, 0.34],
     };
 
@@ -10062,13 +11273,13 @@ export class KlasikCafeScene3D {
     }
     this.steamParticlesInstanced.instanceMatrix.needsUpdate = true;
 
-    // 7. Animate Floating Musical Note Particles above Vinyl Turntable
+    // 7. Animate Floating Musical Note Particles above shifted Station 6 Vinyl Turntable (x = 2.54)
     this.musicNotesInstanced.visible = this.spotifyState.isPlaying;
     if (this.spotifyState.isPlaying) {
       for (let i = 0; i < 12; i++) {
         const t = (this.elapsed * 0.45 + i * 0.25) % 1;
         _dummyObj.position.set(
-          2.22 + Math.sin(t * 5 + i) * 0.16,
+          2.54 + Math.sin(t * 5 + i) * 0.16,
           1.18 + t * 0.5,
           0.24 + Math.cos(t * 4 + i) * 0.14
         );
@@ -10182,7 +11393,57 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 9. Animate Articulated 3D Customers (Phase 1 Doorway Reservation Lock & Anti-Jitter Queue + Phase 2 Takeout Walk-Out + Phase 6 Umbrellas)
+    // 8d. Phase 7 Rare 3D Delivery Scooter Arrival, Curbside Park (2.45, -7.65), Top-Box Stow & Departure
+    if (this.deliveryScooter) {
+      const sc = this.deliveryScooter;
+      const isNightOrRainScooter =
+        isRainyWeather(this.gameState.weather) || isNightWeather(this.gameState.weather);
+      sc.headlightMat.emissiveIntensity = isNightOrRainScooter ? 3.2 : 1.6;
+
+      if (sc.phase === 'arriving') {
+        const speed = 5.4;
+        sc.x = Math.max(2.45, sc.x - speed * dt);
+        sc.root.position.set(sc.x, 0.04, -7.65);
+        for (let wi = 0; wi < sc.wheels.length; wi++) {
+          sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
+        }
+        if (sc.x <= 2.46) {
+          sc.x = 2.45;
+          sc.phase = 'parked';
+          const riderActor = this.customerActors.get(sc.customerId);
+          if (riderActor) {
+            riderActor.currentPos.set(2.45, 0, -7.25);
+            riderActor.lastPos.copy(riderActor.currentPos);
+            riderActor.group.position.copy(riderActor.currentPos);
+            riderActor.finalGoalKey = '';
+          }
+        }
+      } else if (sc.phase === 'stowing') {
+        sc.stowTimer += dt;
+        const u = Math.min(1, sc.stowTimer / 0.6);
+        sc.topBoxLidPivot.rotation.z = Math.sin(u * Math.PI) * 1.12;
+        if (u >= 1) {
+          sc.topBoxLidPivot.rotation.z = 0;
+          sc.phase = 'departing';
+          if (!sc.departSoundPlayed) {
+            sc.departSoundPlayed = true;
+            this.callbacks.onScooterSound?.('depart');
+          }
+        }
+      } else if (sc.phase === 'departing') {
+        const speed = 6.2;
+        sc.x -= speed * dt;
+        sc.root.position.set(sc.x, 0.04, -7.65);
+        for (let wi = 0; wi < sc.wheels.length; wi++) {
+          sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
+        }
+        if (sc.x < -18.0) {
+          this.disposeDeliveryScooter();
+        }
+      }
+    }
+
+    // 9. Animate Articulated 3D Customers (Doorway Airlock, Delivery Scooter Rider, Two-Handed Pastry Carry & Umbrellas)
     const shortestAngleDelta = (current: number, target: number): number => {
       let diff = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
       if (diff < -Math.PI) diff += Math.PI * 2;
@@ -10269,7 +11530,6 @@ export class KlasikCafeScene3D {
           pts.push(new THREE.Vector3(doorX, 0, -7.35));
           pts.push(new THREE.Vector3(doorX, 0, -4.95));
         } else if (from.x < -0.25 && from.z > -3.8) {
-          // Mandatory post-serve right sidestep out of Ingress Queue Lane first!
           pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
           pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, -3.25));
         }
@@ -10282,7 +11542,6 @@ export class KlasikCafeScene3D {
           pts.push(new THREE.Vector3(doorX, 0, -7.35));
           pts.push(new THREE.Vector3(doorX, 0, -4.95));
         }
-        // Mandatory Waypoint 1: Immediate right-hand sidestep into Egress Lane (x = +0.28) to clear the queue column!
         if (from.x < EGRESS_LANE_X - 0.15) {
           pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
         }
@@ -10299,8 +11558,7 @@ export class KlasikCafeScene3D {
         return pts;
       }
 
-      // Exit (Takeout / Expired Walkout / Finished Dine-In):
-      // Mandatory right-hand sidestep into Egress Lane (x = +0.28) -> Interior Hold (-0.45, -4.75) -> Glass Door -> Sidewalk!
+      // Exit (Takeout / Delivery Rider / Expired Walkout / Finished Dine-In)
       if (from.z > -4.6) {
         if (from.x < EGRESS_LANE_X - 0.15) {
           pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
@@ -10319,6 +11577,48 @@ export class KlasikCafeScene3D {
       const actor = this.customerActors.get(cust.id);
       if (!actor) return;
 
+      // Phase 7: Delivery Rider seated on moving 3D Delivery Scooter during Arrival / Departure!
+      const scooter =
+        this.deliveryScooter && this.deliveryScooter.customerId === cust.id
+          ? this.deliveryScooter
+          : null;
+      if (scooter && (scooter.phase === 'arriving' || scooter.phase === 'departing')) {
+        actor.currentPos.set(scooter.x + 0.12, 0.24, -7.65);
+        actor.group.position.copy(actor.currentPos);
+        actor.group.rotation.y = -Math.PI / 2;
+        actor.pelvisGroup.position.y = 0.44;
+        actor.leftHipJoint.rotation.x = -1.15;
+        actor.rightHipJoint.rotation.x = -1.15;
+        actor.leftKneeJoint.rotation.x = 1.15;
+        actor.rightKneeJoint.rotation.x = 1.15;
+        actor.leftShoulderJoint.rotation.x = -0.78;
+        actor.rightShoulderJoint.rotation.x = -0.78;
+        actor.leftElbowJoint.rotation.x = -0.35;
+        actor.rightElbowJoint.rotation.x = -0.35;
+        actor.heldCup.visible = false;
+        actor.heldPastryGroup.visible = false;
+        actor.umbrellaGroup.visible = false;
+        actor.activitySprite.visible = false;
+        return;
+      }
+      if (scooter && scooter.phase === 'stowing') {
+        actor.currentPos.set(2.45, 0, -7.25);
+        actor.group.position.copy(actor.currentPos);
+        actor.group.rotation.y = Math.PI;
+        actor.pelvisGroup.position.y = 0.58;
+        actor.leftHipJoint.rotation.x = 0;
+        actor.rightHipJoint.rotation.x = 0;
+        actor.leftKneeJoint.rotation.x = 0;
+        actor.rightKneeJoint.rotation.x = 0;
+        actor.leftShoulderJoint.rotation.x = -1.05;
+        actor.rightShoulderJoint.rotation.x = -1.05;
+        actor.heldCup.visible = scooter.stowTimer < 0.28;
+        actor.heldPastryGroup.visible = scooter.stowTimer < 0.28 && Boolean(cust.requestedPastry);
+        actor.umbrellaGroup.visible = false;
+        actor.activitySprite.visible = false;
+        return;
+      }
+
       const isPickingUpDrink =
         this.activePickupCustomerId === cust.id &&
         this.stepAnim?.type === 'serve_drink' &&
@@ -10334,10 +11634,11 @@ export class KlasikCafeScene3D {
         _targetPos.set(-1.18, 0, -0.82);
         targetFacing = 0;
         actor.heldCup.visible = (this.stepAnim?.progress || 0) >= 0.55;
+        actor.heldPastryGroup.visible =
+          (this.stepAnim?.progress || 0) >= 0.55 && Boolean(cust.requestedPastry);
       } else if (cust.state === 'ordering') {
         goalKind = 'queue';
         goalKey = `queue-${orderQueueIdx}`;
-        // Dedicated One-Way Ingress Queue Lane along x = -0.95 with generous 1.00m spacing!
         _targetPos.set(INGRESS_LANE_X, 0, -1.45 - orderQueueIdx * 1.0);
         targetFacing = 0;
         orderQueueIdx++;
@@ -10347,6 +11648,7 @@ export class KlasikCafeScene3D {
         _targetPos.set(-1.75, 0, -3.25);
         targetFacing = -1.15;
         actor.heldCup.visible = true;
+        actor.heldPastryGroup.visible = Boolean(cust.requestedPastry);
       } else if (cust.state === 'seated' && cust.seatIndex !== null) {
         goalKind = 'seat';
         const seatIdx = cust.seatIndex % LOUNGE_SEAT_COORDS.length;
@@ -10355,18 +11657,26 @@ export class KlasikCafeScene3D {
         _targetPos.set(seat.x, 0, seat.z);
         targetFacing = seat.facingRotY;
         actor.heldCup.visible = true;
+        actor.heldPastryGroup.visible = Boolean(cust.requestedPastry);
       } else {
-        // Departing (Takeout walk-out, Expired walk-out, or finished Dine-In exit)
+        // Departing (Delivery Rider returns to parked scooter at (2.45, -7.25); others exit along sidewalk)
         goalKind = 'exit';
-        const exitDir = actor.seed % 2 === 0 ? -1 : 1;
-        goalKey = `exit-${exitDir}`;
-        _targetPos.set(exitDir * 9.2, 0, -8.15);
-        targetFacing = exitDir === 1 ? Math.PI / 2 : -Math.PI / 2;
-        actor.heldCup.visible = !cust.expired;
+        if (actor.isDeliveryRider && scooter && scooter.phase === 'parked') {
+          goalKey = 'exit-scooter';
+          _targetPos.set(2.45, 0, -7.25);
+          targetFacing = Math.PI;
+          actor.heldCup.visible = !cust.expired;
+          actor.heldPastryGroup.visible = !cust.expired && Boolean(cust.requestedPastry);
+        } else {
+          const exitDir = actor.seed % 2 === 0 ? -1 : 1;
+          goalKey = `exit-${exitDir}`;
+          _targetPos.set(exitDir * 9.2, 0, -8.15);
+          targetFacing = exitDir === 1 ? Math.PI / 2 : -Math.PI / 2;
+          actor.heldCup.visible = !cust.expired;
+          actor.heldPastryGroup.visible = !cust.expired && Boolean(cust.requestedPastry);
+        }
       }
 
-      // Show frustrated red X overhead icon if customer walked out due to 0 mood,
-      // OR show a friendly glowing amber "ORDER !" badge while waiting unaccepted in line!
       if ((cust.expired || cust.moodExpired) && cust.state === 'departing') {
         actor.activitySprite.visible = true;
         if (actor.lastActivityLabel !== 'LEFT X') {
@@ -10375,9 +11685,10 @@ export class KlasikCafeScene3D {
         }
       } else if (cust.state === 'ordering' && !cust.orderAccepted) {
         actor.activitySprite.visible = true;
-        if (actor.lastActivityLabel !== 'ORDER !') {
-          actor.lastActivityLabel = 'ORDER !';
-          this.drawCustomerActivityBadge(actor.activityTexture, 'ORDER !');
+        const badgeLabel = cust.isDeliveryRider ? 'DELIVERY !' : 'ORDER !';
+        if (actor.lastActivityLabel !== badgeLabel) {
+          actor.lastActivityLabel = badgeLabel;
+          this.drawCustomerActivityBadge(actor.activityTexture, badgeLabel);
         }
       } else if (cust.state === 'ordering' && cust.orderAccepted) {
         actor.activitySprite.visible = false;
@@ -10395,7 +11706,20 @@ export class KlasikCafeScene3D {
       actor.lastPos.copy(actor.currentPos);
       let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
 
-      // Signal fair order-timer start the moment an arriving patron settles into their counter queue slot!
+      // Delivery Rider arrives back at parked scooter -> trigger 0.6s Top-Box Lid Stow!
+      if (
+        actor.isDeliveryRider &&
+        cust.state === 'departing' &&
+        scooter &&
+        scooter.phase === 'parked' &&
+        remainingDistToFinal < 0.35
+      ) {
+        scooter.phase = 'stowing';
+        scooter.stowTimer = 0;
+        return;
+      }
+
+      // Signal fair order-timer start + Active Cat Greeting turning head toward patron!
       if (
         goalKind === 'queue' &&
         !actor.counterArrivedSignaled &&
@@ -10404,7 +11728,7 @@ export class KlasikCafeScene3D {
       ) {
         actor.counterArrivedSignaled = true;
         this.callbacks.onCustomerReachedCounter?.(cust.id);
-        this.triggerChampyGreeting();
+        this.triggerChampyGreeting(actor.currentPos);
       }
 
       // Phase 1 Hysteresis: Once settled at a queue slot (< 0.08m), stay completely calm until slot moves > 0.22m!
@@ -10599,12 +11923,13 @@ export class KlasikCafeScene3D {
       actor.leftEyeMesh.scale.y = eyeScaleY;
       actor.rightEyeMesh.scale.y = eyeScaleY;
 
-      // Phase 6: Customer Rainy-Day 3D Umbrella — open outdoors (z < -6.25), automatically folded/hidden indoors!
-      const customerNeedsUmbrella = isRainActive && actor.currentPos.z < -6.25;
+      // Phase 6 & 7: Customer Rainy-Day 3D Umbrella — open outdoors (z < -6.25), NEVER on Delivery Riders (they wear helmet + weather jacket!)
+      const customerNeedsUmbrella =
+        isRainActive && actor.currentPos.z < -6.25 && !actor.isDeliveryRider;
       actor.umbrellaGroup.visible = customerNeedsUmbrella;
 
       if (isPickingUpDrink && remainingDistToFinal <= 0.18) {
-        // Stage 2 Customer Pickup Pose at counter: both articulated arms reach forward to lift the cup!
+        // Stage 2 Customer Pickup Pose at counter: both articulated arms reach forward to lift the cup & pastry!
         actor.pelvisGroup.position.y = 0.58;
         actor.pelvisGroup.rotation.z = 0;
         actor.torsoGroup.rotation.y = 0;
@@ -10622,7 +11947,7 @@ export class KlasikCafeScene3D {
         actor.neckJoint.rotation.y = 0;
         actor.activitySprite.visible = false;
       } else if (actor.walkBlend > 0.14) {
-        // Speed-Synchronized Fluid Bipedal Walk Cycle (zero ice-skating, natural arm swing, umbrella & cup carry!)
+        // Speed-Synchronized Fluid Bipedal Walk Cycle + Two-Handed Carry (Coffee Right Hand + Pastry Plate/Bag Left Hand!)
         const wb = actor.walkBlend;
         const s = Math.sin(actor.walkPhase);
         const c = Math.cos(actor.walkPhase);
@@ -10651,6 +11976,16 @@ export class KlasikCafeScene3D {
         if (customerNeedsUmbrella) {
           actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03 * wb;
           actor.leftElbowJoint.rotation.x = -0.3;
+        } else if (actor.heldPastryGroup.visible) {
+          if (actor.heldPastryPlateGroup.visible) {
+            // Level tray/plate carry pose on left forearm
+            actor.leftShoulderJoint.rotation.x = -0.82 + Math.abs(s) * 0.03 * wb;
+            actor.leftElbowJoint.rotation.x = -0.72;
+          } else {
+            // Relaxed Kraft Paper Bag carry pose on left hand
+            actor.leftShoulderJoint.rotation.x = -0.42 + Math.abs(s) * 0.04 * wb;
+            actor.leftElbowJoint.rotation.x = -0.48;
+          }
         } else {
           actor.leftShoulderJoint.rotation.x = -s * 0.4 * wb;
           actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.25 * wb;
@@ -10853,6 +12188,9 @@ export class KlasikCafeScene3D {
     this.windowRainTexture?.dispose();
     this.ticketTextures.forEach((t) => t.dispose());
     this.ticketGlowMats.forEach((m) => m.dispose());
+    this.serveReadyHaloMat?.dispose();
+    this.pastryCaseHaloMats.forEach((m) => m.dispose());
+    this.disposeDeliveryScooter();
     if (this.champyRig) {
       this.champyRig.heartTexture.dispose();
       this.champyRig.zzzTexture.dispose();

@@ -54,6 +54,23 @@ import {
   purchaseOrEquipCafeCat,
   syncCatUnlocks,
   unlockAllEverythingCheat,
+  DAILY_REALTIME_CUP_QUOTA,
+  DAILY_QUOTA_COMPLETION_BONUS,
+  DELIVERY_PARTNER_BONUS,
+  DELIVERY_RIDER_MIN_REGULAR_COOLDOWN,
+  PASTRY_CATALOG,
+  cycleGraphicsQuality,
+  resolveDeviceTimeOfDay,
+  resolveCompositeWeather,
+  applyWeatherPreferences,
+  syncDailyQuotaForDate,
+  canClaimLoginReward,
+  getLocalDateKey,
+  getTimeUntilMidnightLabel,
+  formatLocalClock,
+  preparePastry,
+  isOrderReadyToServe,
+  spawnDeliveryRiderOrder,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -88,13 +105,12 @@ test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal t
   assert.equal(teaResult.isPerfect, true);
 });
 
-test('getDailyOrderQuota scales from 30 orders on Day 1 to 50 orders on Day 5+', () => {
-  assert.equal(getDailyOrderQuota(1), 30);
+test('getDailyOrderQuota returns the unified 35-cup daily real-time owner quota', () => {
+  assert.equal(DAILY_REALTIME_CUP_QUOTA, 35);
+  assert.equal(DAILY_QUOTA_COMPLETION_BONUS, 120);
+  assert.equal(getDailyOrderQuota(1), 35);
   assert.equal(getDailyOrderQuota(2), 35);
-  assert.equal(getDailyOrderQuota(3), 40);
-  assert.equal(getDailyOrderQuota(4), 45);
-  assert.equal(getDailyOrderQuota(5), 50);
-  assert.equal(getDailyOrderQuota(8), 50);
+  assert.equal(getDailyOrderQuota(5), 35);
 });
 
 test('performCupAction enforces strict sequential step order and blocks premature serve cash exploit', () => {
@@ -113,24 +129,24 @@ test('performCupAction enforces strict sequential step order and blocks prematur
   state = performCupAction(state, 'pull_espresso');
   assert.equal(state.currentCup.hasEspresso, false);
 
-  // 3. Valid sequential steps via quick_brew_step
+  // 3. Valid sequential steps via quick_brew_step (6-station layout: 3=Espresso, 4=Tea&Milk, 5=Serve)
   state = performCupAction(state, 'quick_brew_step'); // grind
   assert.equal(state.currentCup.hasGrounds, true);
-  assert.equal(state.activeStation, 2);
+  assert.equal(state.activeStation, 3);
 
   state = performCupAction(state, 'quick_brew_step'); // tamp
   assert.equal(state.currentCup.isTamped, true);
 
-  state = performCupAction(state, 'quick_brew_step'); // pull espresso -> auto-syncs to Station 3
+  state = performCupAction(state, 'quick_brew_step'); // pull espresso -> stays at Station 3 until milk step
   assert.equal(state.currentCup.hasEspresso, true);
-  assert.equal(state.activeStation, 3);
 
-  state = performCupAction(state, 'quick_brew_step'); // steam milk
+  state = performCupAction(state, 'quick_brew_step'); // steam milk at Station 4
   assert.equal(state.currentCup.hasSteamedMilk, true);
-
-  state = performCupAction(state, 'quick_brew_step'); // serve drink -> auto-syncs to Station 4
-  assert.equal(state.cupsServedToday, 1);
   assert.equal(state.activeStation, 4);
+
+  state = performCupAction(state, 'quick_brew_step'); // serve drink -> auto-syncs to Station 5
+  assert.equal(state.cupsServedToday, 1);
+  assert.equal(state.activeStation, 5);
   assert.ok(state.cash > initialCash);
   assert.deepEqual(state.currentCup, createEmptyCup());
 });
@@ -192,9 +208,9 @@ test('performCupAction steep_tea brews Artisanal Tea & Cold Refreshers step-by-s
   // Pin Customer 3 (Sora - ordering Earl Grey Vanilla London Fog)
   state.pinnedOrderId = 'cust-initial-3';
 
-  state = performCupAction(state, 'quick_brew_step'); // steep_tea at Station 3
+  state = performCupAction(state, 'quick_brew_step'); // steep_tea at Station 4
   assert.equal(state.currentCup.hasSteepedTea, true);
-  assert.equal(state.activeStation, 3);
+  assert.equal(state.activeStation, 4);
 
   state = performCupAction(state, 'quick_brew_step'); // add vanilla syrup
   assert.equal(state.currentCup.syrup, 'vanilla');
@@ -230,21 +246,31 @@ test('Golden Espresso Machine requires 150k gross income and doubles (2x) all dr
   assert.equal(goldenPayout.totalPayout, normalPayout.totalPayout * 2);
 });
 
-test('claimLoginReward blocks premature claiming and grants cash & skins once active shift time and order milestones are met', () => {
+test('claimLoginReward enforces strict once-per-24h real-calendar claiming and advances streak on consecutive local days', () => {
   let state = createInitialGameState();
   const initialCash = state.cash;
+  const day1 = new Date(2026, 4, 10, 10, 0, 0);
+  const sameDayLater = new Date(2026, 4, 10, 22, 30, 0);
+  const day2 = new Date(2026, 4, 11, 8, 15, 0);
 
-  // Attempt to claim Tier 2 before meeting 25m (1500s) active shift play & 45 orders served -> blocked!
-  state = claimLoginReward(state, 2);
-  assert.equal(state.cash, initialCash);
-  assert.ok(state.lastActionFeedback.includes('Locked!'));
+  assert.equal(canClaimLoginReward(state, day1), true);
+  state = claimLoginReward(state, 1, day1);
+  assert.ok(state.cash > initialCash);
+  assert.equal(state.dailyLogin.lastClaimDateKey, getLocalDateKey(day1));
+  assert.equal(state.dailyLogin.claimedToday, true);
+  assert.equal(canClaimLoginReward(state, sameDayLater), false);
 
-  // Meet verifiable playtime & orders milestone
-  state.activeShiftSeconds = 1600;
-  state.totalCupsServed = 50;
-  state = claimLoginReward(state, 2); // Tier 2 unlocks tokyo-streetwear + $200
-  assert.equal(state.cash, initialCash + 200);
-  const pack = state.customerSkinPacks.find((p) => p.id === 'tokyo-streetwear');
+  // Attempting a second claim on the same real calendar day MUST be blocked!
+  const cashAfterDay1 = state.cash;
+  const blockedSameDay = claimLoginReward(state, 2, sameDayLater);
+  assert.equal(blockedSameDay.cash, cashAfterDay1);
+  assert.ok(blockedSameDay.lastActionFeedback.includes('Already claimed'));
+
+  // Next local calendar day allows Day 2 claim (unlocks tokyo-streetwear + $200)
+  assert.equal(canClaimLoginReward(state, day2), true);
+  const day2State = claimLoginReward(state, 2, day2);
+  assert.equal(day2State.cash, cashAfterDay1 + 200);
+  const pack = day2State.customerSkinPacks.find((p) => p.id === 'tokyo-streetwear');
   assert.equal(pack?.unlocked, true);
 });
 
@@ -260,7 +286,7 @@ test('catalog contains 50+ unique recipes, upgrades, equipment skins, customer p
   assert.ok(totalUniqueItems >= 55, `Expected 55+ items, got ${totalUniqueItems}`);
 });
 
-test('serveCurrentCupToCustomer seats the served customer at a Garage Garden table and awards +$50 quota bonus on completion', () => {
+test('serveCurrentCupToCustomer seats the served customer at a Garage Garden table and awards +$120 daily quota bonus on 35th cup', () => {
   let state = createInitialGameState();
   state.cupsServedToday = state.dailyOrderQuota - 1;
   state.currentCup = {
@@ -278,7 +304,7 @@ test('serveCurrentCupToCustomer seats the served customer at a Garage Garden tab
   assert.equal(seatedCustomers.length, 1);
   assert.equal(seatedCustomers[0].seatIndex, 0);
   assert.equal(nextState.quotaBonusAwarded, true);
-  assert.ok(nextState.cash >= prevCash + 50);
+  assert.ok(nextState.cash >= prevCash + DAILY_QUOTA_COMPLETION_BONUS);
 });
 
 test('spawnCustomerOrder generates natural dialogue, custom add-on badges, and social behavior including car_selfie', () => {
@@ -501,14 +527,18 @@ test('stripKeyboardShortcutsForApk removes bracketed keyboard hints only for And
   );
 });
 
-test('Phase 3: graphicsQuality defaults to low on fresh startup and normalizes unknown values to low', () => {
+test('Phase 3: graphicsQuality defaults to low on fresh startup and supports calibrated 3-tier LOW -> MEDIUM -> MAX cycle', () => {
   const initial = createInitialGameState();
   assert.equal(initial.graphicsQuality, 'low');
   assert.equal(STORAGE_GFX_KEY, 'klasik3d_gfx_quality_v2');
   assert.equal(normalizeGraphicsQuality(undefined), 'low');
-  assert.equal(normalizeGraphicsQuality('medium'), 'low');
+  assert.equal(normalizeGraphicsQuality('medium'), 'medium');
   assert.equal(normalizeGraphicsQuality('low'), 'low');
   assert.equal(normalizeGraphicsQuality('max'), 'max');
+  assert.equal(normalizeGraphicsQuality('unknown'), 'low');
+  assert.equal(cycleGraphicsQuality('low'), 'medium');
+  assert.equal(cycleGraphicsQuality('medium'), 'max');
+  assert.equal(cycleGraphicsQuality('max'), 'low');
 });
 
 test('Phase 2: resolveShouldShowLandscapeCue gates the 1s landscape indicator to mobile/PWA/APK only', () => {
@@ -745,12 +775,12 @@ test('Phase 7: Night Shift & Rainy Night weather modes round-trip through save i
 
   // Save/Import round-trip for rainy-night & night
   let state = createInitialGameState();
-  state.weather = 'rainy-night';
+  state = applyWeatherPreferences(state, 'night', 'rain');
   const restored = importSaveJson(exportSaveJson(state));
   assert.ok(restored);
   assert.equal(restored.weather, 'rainy-night');
 
-  state.weather = 'night';
+  state = applyWeatherPreferences(state, 'night', 'clear');
   const restoredNight = importSaveJson(exportSaveJson(state));
   assert.ok(restoredNight);
   assert.equal(restoredNight.weather, 'night');
@@ -1043,6 +1073,132 @@ test('Phase 4 & 5: 7-Cookie Jar cheat unlocks ALL upgrades, skins (incl. Golden 
   assert.equal(restored.equippedMachineSkin, 'golden-espresso-machine');
   assert.equal(restored.equippedCatId, 'lilo');
   assert.equal(restored.unlockedCats.length, 9);
+});
+
+test('V2 Phase 1: 24h Owner Loop never triggers forced 5-min gameover and resets daily 35-cup quota at local midnight', () => {
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.mode = 'career';
+  state.shiftTimeRemaining = 0.1;
+  state.cupsServedToday = 19;
+  state.quotaBonusAwarded = false;
+
+  // Advancing past 0s shiftTimeRemaining MUST keep store open (no forced gameover!)
+  const afterTick = advanceSimulationTick(state, 0.5);
+  assert.equal(afterTick.phase, 'playing');
+
+  // Local midnight rollover resets daily quota cleanly
+  const today = new Date(2026, 4, 15, 23, 55, 0);
+  const tomorrow = new Date(2026, 4, 16, 0, 5, 0);
+  const syncedToday = syncDailyQuotaForDate(
+    {
+      ...afterTick,
+      dailyQuota: {
+        dateKey: getLocalDateKey(today),
+        cupsServedToday: 35,
+        dailyCupQuota: 35,
+        quotaBonusClaimed: true,
+      },
+      cupsServedToday: 35,
+      quotaBonusAwarded: true,
+    },
+    tomorrow
+  );
+  assert.equal(syncedToday.cupsServedToday, 0);
+  assert.equal(syncedToday.quotaBonusAwarded, false);
+  assert.equal(syncedToday.dailyQuota.dateKey, getLocalDateKey(tomorrow));
+  assert.ok(formatLocalClock(tomorrow).length >= 6);
+  assert.ok(getTimeUntilMidnightLabel(today).includes('Next'));
+});
+
+test('V2 Phase 2: Device-clock Time Realism maps all 5 time bands and combines cleanly with independent Rain into 10 atmospheres', () => {
+  assert.equal(resolveDeviceTimeOfDay(new Date(2026, 4, 10, 5, 30)), 'dawn');
+  assert.equal(resolveDeviceTimeOfDay(new Date(2026, 4, 10, 9, 0)), 'morning');
+  assert.equal(resolveDeviceTimeOfDay(new Date(2026, 4, 10, 13, 15)), 'noon');
+  assert.equal(resolveDeviceTimeOfDay(new Date(2026, 4, 10, 17, 45)), 'golden');
+  assert.equal(resolveDeviceTimeOfDay(new Date(2026, 4, 10, 22, 0)), 'night');
+  assert.equal(resolveDeviceTimeOfDay(new Date(2026, 4, 10, 2, 0)), 'night');
+
+  assert.equal(resolveCompositeWeather('dawn', false), 'dawn');
+  assert.equal(resolveCompositeWeather('dawn', true), 'rainy-dawn');
+  assert.equal(resolveCompositeWeather('noon', false), 'noon');
+  assert.equal(resolveCompositeWeather('noon', true), 'rainy-noon');
+  assert.equal(resolveCompositeWeather('golden', true), 'rainy-golden');
+  assert.equal(isRainyWeather('rainy-dawn'), true);
+  assert.equal(isRainyWeather('rainy-noon'), true);
+  assert.equal(isRainyWeather('rainy-golden'), true);
+
+  let state = createInitialGameState();
+  state = applyWeatherPreferences(state, 'dawn', 'rain', new Date(2026, 4, 10, 12, 0));
+  assert.equal(state.weather, 'rainy-dawn');
+  assert.equal(state.isRaining, true);
+  state = applyWeatherPreferences(state, 'auto', 'clear', new Date(2026, 4, 10, 13, 0));
+  assert.equal(state.weather, 'noon');
+  assert.equal(state.isRaining, false);
+});
+
+test('V2 Phase 6: Pastries catalog has 3 pastries and preparePastry is 100% decoupled from active coffee cup steps', () => {
+  assert.equal(PASTRY_CATALOG.length, 3);
+  let state = createInitialGameState();
+  // Start brewing coffee (Grind + Tamp)
+  state = performCupAction(state, 'grind');
+  state = performCupAction(state, 'tamp');
+  assert.equal(state.currentCup.hasGrounds, true);
+  assert.equal(state.currentCup.isTamped, true);
+
+  // Grab Miata Cake mid-brew -> MUST NOT reset or alter currentCup!
+  state = preparePastry(state, 'miata-cake');
+  assert.equal(state.preparedPastry, 'miata-cake');
+  assert.equal(state.currentCup.hasGrounds, true);
+  assert.equal(state.currentCup.isTamped, true);
+  assert.equal(state.currentCup.hasEspresso, false);
+
+  // Order requesting Daisy Donut is not ready until Daisy Donut is staged
+  const orderWithPastry = { ...state.customers[0], requestedPastry: 'daisy-donut' as const };
+  const completeCup = {
+    hasGrounds: true,
+    isTamped: true,
+    hasEspresso: true,
+    hasSteepedTea: false,
+    hasSteamedMilk: true,
+    hasIce: false,
+    syrup: 'none' as const,
+  };
+  assert.equal(isOrderReadyToServe(completeCup, 'miata-cake', orderWithPastry).ready, false);
+  assert.equal(isOrderReadyToServe(completeCup, 'daisy-donut', orderWithPastry).ready, true);
+});
+
+test('V2 Phase 7: Delivery Rider spawns as takeout + pastry + variant uniform and pays +$3 Delivery Partner Bonus', () => {
+  assert.equal(DELIVERY_PARTNER_BONUS, 3);
+  assert.equal(DELIVERY_RIDER_MIN_REGULAR_COOLDOWN, 3);
+
+  const rider = spawnDeliveryRiderOrder(1, 0, undefined, () => 0.4);
+  assert.equal(rider.isDeliveryRider, true);
+  assert.equal(rider.orderType, 'takeout');
+  assert.ok(rider.requestedPastry !== null);
+  assert.ok(['blue', 'green', 'red'].includes(rider.riderVariant!));
+
+  let state = createInitialGameState();
+  const riderAccepted = { ...rider, orderAccepted: true, arrivedAtCounter: true };
+  state.customers = [riderAccepted];
+  state.pinnedOrderId = riderAccepted.id;
+  const rec = getRecipeById(riderAccepted.recipeId);
+  state.currentCup = {
+    hasGrounds: rec.needsEspresso,
+    isTamped: rec.needsEspresso,
+    hasEspresso: rec.needsEspresso,
+    hasSteepedTea: rec.needsTeaSteep,
+    hasSteamedMilk: rec.needsSteamedMilk,
+    hasIce: rec.needsIce,
+    syrup: rec.syrup,
+  };
+  state = preparePastry(state, riderAccepted.requestedPastry!);
+  const cashBefore = state.cash;
+  const served = serveCurrentCupToCustomer(state);
+  const servedRider = served.customers.find((c) => c.id === riderAccepted.id);
+  assert.equal(servedRider?.state, 'departing');
+  assert.equal(served.preparedPastry, null);
+  assert.ok(served.cash >= cashBefore + rec.price + 4 + DELIVERY_PARTNER_BONUS);
 });
 
 

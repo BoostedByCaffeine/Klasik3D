@@ -20,17 +20,23 @@ import {
   GameMode,
   GraphicsQuality,
   KlasikGameState,
+  PastryId,
   RECIPES,
+  RainPreference,
   SyrupFlavor,
-  WeatherMode,
+  TimeOfDayMode,
   acceptCustomerOrder,
   advanceSimulationTick,
+  applyWeatherPreferences,
   claimLoginReward,
   createActiveStepLock,
   createInitialGameState,
+  formatLocalClock,
   getCafeCatSpec,
   getEffectiveRecipeForOrder,
   getNextRecommendedStep,
+  getOrderVesselType,
+  getPastryById,
   getRecipeById,
   getStepDurationMs,
   isStepLockActive,
@@ -38,12 +44,15 @@ import {
   loadSavedGraphicsQuality,
   markCustomerAtCounter,
   performCupAction,
+  preparePastry,
   purchaseOrEquipCafeCat,
   purchaseUpgrade,
+  rollAutoRain,
   saveGameToStorage,
   saveGraphicsQuality,
   serveCurrentCupToCustomer,
   startNextDayShift,
+  syncDailyQuotaForDate,
   unlockAllEverythingCheat,
   unlockOrEquipCustomerSkinPack,
   unlockOrEquipEquipmentSkin,
@@ -81,16 +90,29 @@ export default function App() {
     typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false
   );
   const [gameState, setGameState] = useState<KlasikGameState>(() => {
+    const now = new Date();
     const saved = loadGameFromStorage();
-    const initial = saved || createInitialGameState();
-    // Fresh launch defaults to 'low'; explicit user toggles persist via STORAGE_GFX_KEY
+    const base = saved || createInitialGameState();
+    const syncedQuota = syncDailyQuotaForDate(base, now);
+    const syncedWeather = applyWeatherPreferences(
+      syncedQuota,
+      syncedQuota.timeOfDayMode || 'auto',
+      syncedQuota.rainPreference || 'auto',
+      now
+    );
+    // Fresh launch defaults to 'low'; explicit user selections persist via STORAGE_GFX_KEY
     const savedGfx = loadSavedGraphicsQuality();
-    const withGfx = { ...initial, graphicsQuality: savedGfx, activeStepLock: null };
+    const withGfx: KlasikGameState = {
+      ...syncedWeather,
+      graphicsQuality: savedGfx,
+      activeStepLock: null,
+    };
     if (isAutostart) {
-      return { ...withGfx, phase: 'playing' };
+      return { ...withGfx, phase: 'playing', activeStation: 3 };
     }
     return { ...withGfx, phase: 'title' };
   });
+  const [liveClockLabel, setLiveClockLabel] = useState<string>(() => formatLocalClock());
 
   const [spotifyState, setSpotifyState] = useState<SpotifyVinylState>(() =>
     spotifyManager.getState()
@@ -185,6 +207,43 @@ export default function App() {
       if (animTimerRef.current) window.clearTimeout(animTimerRef.current);
       if (stepCommitTimerRef.current) window.clearTimeout(stepCommitTimerRef.current);
       if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
+    };
+  }, []);
+
+  // Real-time 24h device clock sync (30s interval): updates clock readout, local-midnight quota reset, and Auto time-of-day sky
+  useEffect(() => {
+    const syncClockAndWorld = () => {
+      const now = new Date();
+      setLiveClockLabel(formatLocalClock(now));
+      setGameState((prev) => {
+        const afterQuota = syncDailyQuotaForDate(prev, now);
+        if (afterQuota.timeOfDayMode === 'auto') {
+          const afterWeather = applyWeatherPreferences(
+            afterQuota,
+            afterQuota.timeOfDayMode,
+            afterQuota.rainPreference,
+            now
+          );
+          if (afterWeather.weather !== prev.weather || afterQuota !== prev) {
+            return afterWeather;
+          }
+        }
+        return afterQuota;
+      });
+    };
+    syncClockAndWorld();
+    const clockInterval = window.setInterval(syncClockAndWorld, 30_000);
+    // Periodic Auto-Rain roll every 8 minutes when Rain Preference is Auto
+    const rainInterval = window.setInterval(() => {
+      const now = new Date();
+      setGameState((prev) => {
+        if (prev.rainPreference !== 'auto') return prev;
+        return applyWeatherPreferences(prev, prev.timeOfDayMode, prev.rainPreference, now, rollAutoRain());
+      });
+    }, 8 * 60_000);
+    return () => {
+      window.clearInterval(clockInterval);
+      window.clearInterval(rainInterval);
     };
   }, []);
 
@@ -335,6 +394,34 @@ export default function App() {
     [flashAnimBanner]
   );
 
+  // Decoupled Pastry Grab (Station 1 Showcase) — NEVER resets or touches currentCup!
+  const handleGrabPastry = useCallback(
+    (pastryId: PastryId) => {
+      soundEngine.init();
+      const spec = getPastryById(pastryId);
+      if (!spec) return;
+      soundEngine.playPastryTong();
+      triggerBaristaHaptic('pin_ticket', pwaManager.getStatus().appVersion);
+      setGameState((prev) => {
+        const next = preparePastry(prev, pastryId);
+        sceneRef.current?.updateGameState(next);
+        return next;
+      });
+      const activeOrder =
+        gameStateRef.current.customers.find(
+          (c) => c.id === gameStateRef.current.pinnedOrderId && c.state === 'ordering'
+        ) || gameStateRef.current.customers.find((c) => c.state === 'ordering');
+      const isTakeout =
+        activeOrder?.orderType === 'takeout' || Boolean(activeOrder?.isDeliveryRider);
+      flashAnimBanner(
+        `Staged ${spec.name} in ${isTakeout ? 'Kraft Paper Bag' : 'Mini Porcelain Plate'} (+$${spec.price})`,
+        1500,
+        false
+      );
+    },
+    [flashAnimBanner]
+  );
+
   const handleServeCustomer = useCallback(
     (customerId?: string) => {
       soundEngine.init();
@@ -386,8 +473,8 @@ export default function App() {
       const lock: ActiveStepAction = createActiveStepLock(
         prev,
         'serve_drink',
-        4,
-        'Serving Drink...',
+        5,
+        'Serving Order...',
         now
       );
 
@@ -397,7 +484,7 @@ export default function App() {
 
       const lockedState: KlasikGameState = {
         ...prev,
-        activeStation: 4,
+        activeStation: 5,
         activeStepLock: lock,
       };
       setGameState(lockedState);
@@ -405,9 +492,10 @@ export default function App() {
       sceneRef.current?.triggerStepAnimation(
         'serve_drink',
         undefined,
-        earned > 0 ? `+$${earned} SERVED!` : 'SERVED!'
+        earned > 0 ? `+$${earned} SERVED!` : 'SERVED!',
+        serveDuration / 1000
       );
-      flashAnimBanner('Plating & Serving Completed Drink...', serveDuration, true);
+      flashAnimBanner('Plating & Serving Completed Order...', serveDuration, true);
 
       if (stepCommitTimerRef.current) {
         window.clearTimeout(stepCommitTimerRef.current);
@@ -483,9 +571,15 @@ export default function App() {
         const step = getNextRecommendedStep(
           curState.currentCup,
           targetRecipe,
-          pinnedOrder
+          pinnedOrder,
+          curState.preparedPastry
         );
         targetStation = step.station;
+        if (step.toolKey === 'pastry' && pinnedOrder?.requestedPastry) {
+          handleSelectStation(1);
+          handleGrabPastry(pinnedOrder.requestedPastry);
+          return;
+        }
         if (step.toolKey === 'serve') {
           handleServeCustomer();
           return;
@@ -505,9 +599,9 @@ export default function App() {
       } else {
         resolvedStep = action;
         if (action === 'grind' || action === 'tamp' || action === 'pull_espresso' || action === 'rinse_cup') {
-          targetStation = 2;
-        } else {
           targetStation = 3;
+        } else {
+          targetStation = 4;
         }
       }
 
@@ -534,6 +628,18 @@ export default function App() {
 
       const stepDur = getStepDurationMs(curState, resolvedStep as BaristaStepActionType);
 
+      // Determine vessel type for vessel-aware rinse vs trash chute disposal feedback & audio
+      const activeRinseOrder =
+        curState.customers.find(
+          (c) => c.id === curState.pinnedOrderId && c.state === 'ordering'
+        ) || curState.customers.find((c) => c.state === 'ordering');
+      const activeVessel = getOrderVesselType(
+        activeRinseOrder,
+        activeRinseOrder ? getRecipeById(activeRinseOrder.recipeId) : null
+      );
+      const isTakeoutVessel =
+        activeVessel === 'hot-takeout' || activeVessel === 'iced-takeout';
+
       const shortLabels: Record<BaristaStepActionType, string> = {
         grind: 'Grinding...',
         tamp: 'Tamping...',
@@ -542,7 +648,7 @@ export default function App() {
         steam_milk: 'Steaming Milk...',
         add_ice: 'Adding Ice...',
         add_syrup: resolvedFlavor === 'matcha' ? 'Whisking...' : 'Pumping Syrup...',
-        rinse_cup: 'Rinsing...',
+        rinse_cup: isTakeoutVessel ? 'Discarding...' : 'Rinsing...',
         serve_drink: 'Serving...',
       };
       const bannerLabels: Record<BaristaStepActionType, string> = {
@@ -556,8 +662,10 @@ export default function App() {
           resolvedFlavor === 'matcha'
             ? 'Whisking Ceremonial Uji Matcha in Chawan...'
             : `Pumping ${resolvedFlavor || 'Artisan'} Syrup Infusion...`,
-        rinse_cup: 'Rinsing Cup & Knocking Spent Puck into Knock Box...',
-        serve_drink: 'Serving Completed Drink...',
+        rinse_cup: isTakeoutVessel
+          ? 'Discarding Takeout Cup into Barista Trash Chute...'
+          : 'Pressurized Glass Rinser Spraying Cup Clean...',
+        serve_drink: 'Serving Completed Order...',
       };
 
       // Phase 1 (Start): Lock immediately, trigger 3D machine animation, sound & live progress bar
@@ -595,7 +703,11 @@ export default function App() {
           appVersion
         );
       } else {
-        soundEngine.playCeramicClink(1.0);
+        if (isTakeoutVessel) {
+          soundEngine.playTrashDrop();
+        } else {
+          soundEngine.playGlassRinserSpray();
+        }
         triggerBaristaHaptic('rinse_cup', appVersion);
       }
 
@@ -606,7 +718,12 @@ export default function App() {
       };
       setGameState(lockedState);
       sceneRef.current?.updateGameState(lockedState);
-      sceneRef.current?.triggerStepAnimation(resolvedStep, resolvedFlavor);
+      sceneRef.current?.triggerStepAnimation(
+        resolvedStep,
+        resolvedFlavor,
+        undefined,
+        stepDur / 1000
+      );
       flashAnimBanner(
         bannerLabels[resolvedStep as BaristaStepActionType],
         stepDur,
@@ -639,7 +756,7 @@ export default function App() {
         });
       }, stepDur);
     },
-    [flashAnimBanner, handleServeCustomer]
+    [flashAnimBanner, handleGrabPastry, handleSelectStation, handleServeCustomer]
   );
 
   const handleStartShift = useCallback((mode: GameMode) => {
@@ -648,7 +765,6 @@ export default function App() {
     soundEngine.playCustomerBell();
     const spState = spotifyManager.getState();
     soundEngine.setLofiSynthActive(spState.isPlaying && spState.internalSynthEnabled);
-    soundEngine.setRainAmbience(true, gameStateRef.current.weather);
     sceneRef.current?.resetCameraOffsets();
     document.body.dataset.state = 'playing';
 
@@ -666,13 +782,26 @@ export default function App() {
       // Fallback handled automatically by .klasik-root-portrait-rotated
     }
 
-    setGameState((prev) => ({
-      ...prev,
-      phase: 'playing',
-      mode,
-      activeStation: 2,
-      shiftTimeRemaining: 300,
-    }));
+    const now = new Date();
+    setLiveClockLabel(formatLocalClock(now));
+    setGameState((prev) => {
+      const synced = syncDailyQuotaForDate(prev, now);
+      const rolledRain = synced.rainPreference === 'auto' ? rollAutoRain() : undefined;
+      const withWeather = applyWeatherPreferences(
+        synced,
+        synced.timeOfDayMode,
+        synced.rainPreference,
+        now,
+        rolledRain
+      );
+      soundEngine.setRainAmbience(true, withWeather.weather);
+      return {
+        ...withWeather,
+        phase: 'playing',
+        mode,
+        activeStation: 3,
+      };
+    });
   }, []);
 
   const handleRequestFullscreenLandscape = useCallback(() => {
@@ -761,6 +890,13 @@ export default function App() {
             if (gameStateRef.current.phase !== 'playing') return;
             soundEngine.playChampyMeow('greet');
           },
+          onGrabPastry: (pastryId) => {
+            handleGrabPastry(pastryId);
+          },
+          onScooterSound: (mode) => {
+            if (gameStateRef.current.phase !== 'playing') return;
+            soundEngine.playScooterPurr(mode);
+          },
         }
       );
       sceneRef.current = scene;
@@ -791,6 +927,7 @@ export default function App() {
     handleAcceptOrder,
     handleCookieJarTap,
     handleCupAction,
+    handleGrabPastry,
     handleSelectStation,
     handleServeCustomer,
   ]);
@@ -881,13 +1018,14 @@ export default function App() {
       else if (e.code === 'Digit3') handleSelectStation(3);
       else if (e.code === 'Digit4') handleSelectStation(4);
       else if (e.code === 'Digit5') handleSelectStation(5);
+      else if (e.code === 'Digit6') handleSelectStation(6);
       else if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
         const cur = gameStateRef.current.activeStation;
-        const prevSt = (cur > 1 ? cur - 1 : 5) as BaristaStationId;
+        const prevSt = (cur > 1 ? cur - 1 : 6) as BaristaStationId;
         handleSelectStation(prevSt);
       } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
         const cur = gameStateRef.current.activeStation;
-        const nextSt = (cur < 5 ? cur + 1 : 1) as BaristaStationId;
+        const nextSt = (cur < 6 ? cur + 1 : 1) as BaristaStationId;
         handleSelectStation(nextSt);
       } else if (e.code === 'Space') {
         if (gameStateRef.current.realismMode || activeModal) return;
@@ -938,11 +1076,33 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeModal, handleCupAction, handleSelectStation, handleStartShift, pwaStatus.appVersion]);
 
-  const handleChangeWeather = (weather: WeatherMode) => {
+  const handleChangeTimeOfDay = (timeOfDayMode: TimeOfDayMode) => {
     soundEngine.init();
     soundEngine.playCeramicClink(1.05);
-    soundEngine.setRainAmbience(true, weather);
-    setGameState((prev) => ({ ...prev, weather }));
+    const now = new Date();
+    setGameState((prev) => {
+      const next = applyWeatherPreferences(prev, timeOfDayMode, prev.rainPreference, now);
+      soundEngine.setRainAmbience(next.phase === 'playing', next.weather);
+      return next;
+    });
+  };
+
+  const handleChangeRainPreference = (rainPreference: RainPreference) => {
+    soundEngine.init();
+    soundEngine.playCeramicClink(1.08);
+    const now = new Date();
+    const rolledRain = rainPreference === 'auto' ? rollAutoRain() : undefined;
+    setGameState((prev) => {
+      const next = applyWeatherPreferences(
+        prev,
+        prev.timeOfDayMode,
+        rainPreference,
+        now,
+        rolledRain
+      );
+      soundEngine.setRainAmbience(next.phase === 'playing', next.weather);
+      return next;
+    });
   };
 
   const handleUpdateDecor = (decor: DecorCustomization) => {
@@ -1049,12 +1209,18 @@ export default function App() {
         <TitleScreen
           day={gameState.day}
           cash={gameState.cash}
+          cupsServedToday={gameState.cupsServedToday}
+          dailyOrderQuota={gameState.dailyOrderQuota}
+          liveClockLabel={liveClockLabel}
           weather={gameState.weather}
+          timeOfDayMode={gameState.timeOfDayMode}
+          rainPreference={gameState.rainPreference}
           graphicsQuality={gameState.graphicsQuality}
           pwaStatus={pwaStatus}
           spotifyTrackTitle={spotifyState.currentTrack.title}
           onStartShift={handleStartShift}
-          onChangeWeather={handleChangeWeather}
+          onChangeTimeOfDay={handleChangeTimeOfDay}
+          onChangeRainPreference={handleChangeRainPreference}
           onChangeGraphics={handleChangeGraphics}
           onOpenSpotifyModal={() => setActiveModal('spotify')}
           onOpenPwaModal={() => setActiveModal('pwa')}
@@ -1068,6 +1234,7 @@ export default function App() {
           gameState={gameState}
           spotifyState={spotifyState}
           appVersion={pwaStatus.appVersion}
+          liveClockLabel={liveClockLabel}
           isMuted={isMuted}
           hoveredToolLabel={hoveredToolLabel}
           fps={fps}
@@ -1090,6 +1257,7 @@ export default function App() {
             setGameState((prev) => ({ ...prev, pinnedOrderId: orderId }))
           }
           onAcceptOrder={handleAcceptOrder}
+          onGrabPastry={handleGrabPastry}
           onCupAction={handleCupAction}
           onServeCustomer={handleServeCustomer}
           onToggleMute={handleToggleMute}
@@ -1184,10 +1352,13 @@ export default function App() {
         <CustomizeModal
           decor={gameState.decor}
           weather={gameState.weather}
+          timeOfDayMode={gameState.timeOfDayMode}
+          rainPreference={gameState.rainPreference}
           equippedCatName={getCafeCatSpec(gameState.equippedCatId).name}
           unlockedCatsCount={gameState.unlockedCats.length}
           onUpdateDecor={handleUpdateDecor}
-          onUpdateWeather={handleChangeWeather}
+          onUpdateTimeOfDay={handleChangeTimeOfDay}
+          onUpdateRainPreference={handleChangeRainPreference}
           onOpenCafeCats={() => {
             setUpgradesInitialTab('cafe_cats');
             setActiveModal('upgrades');

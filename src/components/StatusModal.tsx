@@ -1,6 +1,10 @@
 import React from 'react';
-import { Award, Home, Play, RotateCcw, Save } from 'lucide-react';
-import { DAILY_QUOTA_COMPLETION_BONUS, KlasikGameState } from '../game/rules';
+import { Award, Home, Play, Save } from 'lucide-react';
+import {
+  DAILY_QUOTA_COMPLETION_BONUS,
+  KlasikGameState,
+  getTimeUntilMidnightLabel,
+} from '../game/rules';
 import { AppRuntimeVersion } from '../pwa/pwaManager';
 
 interface StatusModalProps {
@@ -22,8 +26,8 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 }) => {
   const isPaused = gameState.phase === 'paused';
   const quotaMet = gameState.cupsServedToday >= gameState.dailyOrderQuota;
-  const goalMet = gameState.dailyRevenue >= gameState.dailyGoal || quotaMet;
   const isApkVersion = appVersion === 'apk';
+  const midnightLabel = getTimeUntilMidnightLabel();
 
   return (
     <div
@@ -35,34 +39,29 @@ export const StatusModal: React.FC<StatusModalProps> = ({
       <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 text-center">
         <div className="space-y-1">
           <div className="text-[11px] font-mono uppercase tracking-wider text-amber-300 glass-text-crisp">
-            {isPaused
-              ? `DAY ${gameState.day} SHIFT PAUSED`
-              : goalMet
-              ? `DAY ${gameState.day} SHIFT COMPLETE!`
-              : `DAY ${gameState.day} SHIFT ENDED`}
+            {isPaused ? `STORE PAUSED · DAY ${gameState.day}` : `DAILY SUMMARY · DAY ${gameState.day}`}
           </div>
-          <h2 id="status-modal-title" className="text-xl font-bold font-display text-[#FAF5EE] glass-text-crisp">
+          <h2
+            id="status-modal-title"
+            className="text-xl font-bold font-display text-[#FAF5EE] glass-text-crisp"
+          >
             {isPaused
               ? 'Take a Breather Behind the Bar'
-              : goalMet
-              ? 'Neighborhood Favorite Roaster!'
-              : 'Keep Practicing Your Extraction'}
+              : quotaMet
+              ? 'Daily Owner Quota Crushed!'
+              : 'Your 24h Garage Cafe Never Closes'}
           </h2>
           <p className="text-xs text-[#E7D7C1]">
-            {isPaused
-              ? `Daily Quota: ${gameState.cupsServedToday} / ${gameState.dailyOrderQuota} Orders (+$${DAILY_QUOTA_COMPLETION_BONUS} Quota Completion Bonus).`
-              : quotaMet
-              ? `You crushed the ${gameState.dailyOrderQuota}-Order Daily Quota and earned the +$${DAILY_QUOTA_COMPLETION_BONUS} Completion Bonus!`
-              : `You served ${gameState.cupsServedToday} / ${gameState.dailyOrderQuota} orders and reached $${Math.round(
-                  gameState.dailyRevenue
-                )} of the $${Math.round(gameState.dailyGoal)} target.`}
+            {quotaMet
+              ? `You served ${Math.round(gameState.cupsServedToday)} / ${gameState.dailyOrderQuota} cups today and claimed the +$${DAILY_QUOTA_COMPLETION_BONUS} Quota Bonus! Quota resets at local midnight (${midnightLabel}).`
+              : `Daily Quota: ${Math.round(gameState.cupsServedToday)} / ${gameState.dailyOrderQuota} Cups (+$${DAILY_QUOTA_COMPLETION_BONUS} Completion Bonus). Resets at local midnight (${midnightLabel}).`}
           </p>
         </div>
 
         {/* 3 Tabular-Nums Stat Tiles */}
         <div className="grid grid-cols-3 gap-2">
           <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
-            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">SHIFT REVENUE</div>
+            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">TODAY&apos;S REVENUE</div>
             <div className="text-base font-bold font-mono tabular-nums text-emerald-300 mt-0.5 glass-text-crisp">
               ${Math.round(gameState.dailyRevenue)}
             </div>
@@ -87,7 +86,7 @@ export const StatusModal: React.FC<StatusModalProps> = ({
           <div className="p-2 rounded-xl bg-emerald-950/65 border border-emerald-400/40 text-xs font-semibold text-emerald-300 flex items-center justify-center gap-1.5">
             <Award className="w-4 h-4 shrink-0" strokeWidth={2.2} />
             <span>
-              Daily Order Quota ({gameState.dailyOrderQuota} Orders) Completed — +$
+              Daily Quota ({gameState.dailyOrderQuota} Cups) Completed — +$
               {DAILY_QUOTA_COMPLETION_BONUS} Bonus Awarded!
             </span>
           </div>
@@ -95,34 +94,21 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 
         {/* Action Buttons */}
         <div className="space-y-2">
-          {isPaused ? (
-            <button
-              type="button"
-              onClick={onResume}
-              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs sm:text-sm cursor-pointer shadow-[0_8px_22px_-6px_rgba(245,158,11,0.6)] flex items-center justify-center gap-1.5"
-            >
-              <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
-              <span>{isApkVersion ? 'Resume Shift' : 'Resume Shift [Esc / P]'}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-start="true"
-              onClick={onNextDayOrRetry}
-              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs sm:text-sm cursor-pointer shadow-[0_8px_22px_-6px_rgba(245,158,11,0.6)] flex items-center justify-center gap-1.5"
-            >
-              {goalMet ? (
-                <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
-              ) : (
-                <RotateCcw className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-              )}
-              <span>
-                {goalMet
-                  ? `Start Day ${gameState.day + 1} Shift`
-                  : `Retry Day ${gameState.day} Shift`}
-              </span>
-            </button>
-          )}
+          <button
+            type="button"
+            data-start="true"
+            onClick={isPaused ? onResume : onNextDayOrRetry}
+            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs sm:text-sm cursor-pointer shadow-[0_8px_22px_-6px_rgba(245,158,11,0.6)] flex items-center justify-center gap-1.5"
+          >
+            <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
+            <span>
+              {isPaused
+                ? isApkVersion
+                  ? 'Resume Store'
+                  : 'Resume Store [Esc / P]'
+                : 'Continue Operating Store'}
+            </span>
+          </button>
 
           <div className="grid grid-cols-2 gap-2">
             <button

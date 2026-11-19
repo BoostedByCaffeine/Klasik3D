@@ -1,7 +1,8 @@
 import React from 'react';
 import {
-  CloudLightning,
+  Clock,
   CloudRain,
+  CloudSun,
   Disc3,
   Download,
   Globe,
@@ -12,22 +13,36 @@ import {
   Smartphone,
   Sparkles,
   Sun,
+  Sunrise,
   Sunset,
 } from 'lucide-react';
 import { KlasikGameLogo } from './KlasikGameLogo';
 import { StudioLogo } from './StudioLogo';
-import { GameMode, GraphicsQuality, WeatherMode } from '../game/rules';
+import {
+  GameMode,
+  GraphicsQuality,
+  RainPreference,
+  TimeOfDayMode,
+  WeatherMode,
+  cycleGraphicsQuality,
+} from '../game/rules';
 import { PwaEnvironmentStatus } from '../pwa/pwaManager';
 
 interface TitleScreenProps {
   day: number;
   cash: number;
+  cupsServedToday: number;
+  dailyOrderQuota: number;
+  liveClockLabel: string;
   weather: WeatherMode;
+  timeOfDayMode: TimeOfDayMode;
+  rainPreference: RainPreference;
   graphicsQuality: GraphicsQuality;
   pwaStatus: PwaEnvironmentStatus;
   spotifyTrackTitle: string;
   onStartShift: (mode: GameMode) => void;
-  onChangeWeather: (weather: WeatherMode) => void;
+  onChangeTimeOfDay: (mode: TimeOfDayMode) => void;
+  onChangeRainPreference: (rain: RainPreference) => void;
   onChangeGraphics: (quality: GraphicsQuality) => void;
   onOpenSpotifyModal: () => void;
   onOpenPwaModal: () => void;
@@ -37,18 +52,25 @@ interface TitleScreenProps {
 export const TitleScreen: React.FC<TitleScreenProps> = ({
   day,
   cash,
+  cupsServedToday,
+  dailyOrderQuota,
+  liveClockLabel,
   weather,
+  timeOfDayMode,
+  rainPreference,
   graphicsQuality,
   pwaStatus,
   spotifyTrackTitle,
   onStartShift,
-  onChangeWeather,
+  onChangeTimeOfDay,
+  onChangeRainPreference,
   onChangeGraphics,
   onOpenSpotifyModal,
   onOpenPwaModal,
   onOpenCodeExportModal,
 }) => {
-  const isMaxGraphics = graphicsQuality !== 'low';
+  const gfxLabel =
+    graphicsQuality === 'max' ? 'MAX' : graphicsQuality === 'medium' ? 'MED' : 'LOW';
   const isApkVersion = pwaStatus.appVersion === 'apk';
   const isPwaVersion = pwaStatus.appVersion === 'pwa';
 
@@ -102,16 +124,19 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2">
           <button
             type="button"
-            onClick={() => onChangeGraphics(isMaxGraphics ? 'low' : 'max')}
+            data-testid="title-gfx-toggle"
+            onClick={() => onChangeGraphics(cycleGraphicsQuality(graphicsQuality))}
             className={`glass-hud-btn px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-mono font-bold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-              isMaxGraphics
-                ? '!border-amber-400/75 text-amber-200'
+              graphicsQuality === 'max'
+                ? '!border-amber-400/80 text-amber-200'
+                : graphicsQuality === 'medium'
+                ? '!border-sky-400/70 text-sky-200'
                 : 'text-[#E7D7C1]'
             }`}
-            title="Toggle 3D Graphics Quality (LOW or MAX)"
+            title="Cycle 3D Graphics Quality (LOW → MED → MAX)"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
-            <span>GFX: {isMaxGraphics ? 'MAX' : 'LOW'}</span>
+            <span>GFX: {gfxLabel}</span>
           </button>
 
           {/* Install APK / PWA Button is REMOVED for APK versions; shown ONLY for Web and PWA versions */}
@@ -139,12 +164,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       </div>
 
       {/* Left-Third High-Legibility Espresso Glassmorphism Title Card (Leaves right 65% of 3D Diorama unobstructed) */}
-      <div className="my-auto max-w-[340px] sm:max-w-md w-full max-h-[calc(100%-76px)] overflow-y-auto no-scrollbar pointer-events-auto glass-panel rounded-2xl px-3.5 py-2.5 sm:p-4 space-y-2 sm:space-y-3">
+      <div className="my-auto max-w-[355px] sm:max-w-md w-full max-h-[calc(100%-76px)] overflow-y-auto no-scrollbar pointer-events-auto glass-panel rounded-2xl px-3.5 py-2.5 sm:p-4 space-y-2 sm:space-y-3">
         <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-[#E7D7C1] font-medium glass-text-crisp">
-            <span>BoostedByCaffeine Studios</span>
+          <div className="flex items-center flex-wrap gap-1.5 text-[10px] sm:text-[11px] text-[#E7D7C1] font-medium glass-text-crisp">
+            <span>BoostedByCaffeine</span>
             <span aria-hidden="true">·</span>
-            <span className="font-mono tabular-nums text-amber-300">Day {day}</span>
+            <span className="font-mono tabular-nums text-amber-300 inline-flex items-center gap-1">
+              <Clock className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+              <span>{liveClockLabel}</span>
+            </span>
             <span aria-hidden="true">·</span>
             <span className="font-mono tabular-nums text-emerald-300">${Math.round(cash)} Reserve</span>
           </div>
@@ -166,8 +194,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </div>
 
           <p className="hidden sm:block text-[11px] sm:text-xs text-[#E7D7C1] leading-snug line-clamp-2 glass-text-crisp">
-            Step behind the commercial walnut espresso bar. Grind fresh dark-roast beans, steam
-            velvety microfoam, spin vinyl records, and serve the neighborhood.
+            Open your 24h garage garden cafe. Pull espresso, plate artisan pastries, greet delivery
+            riders, and spin vinyl at your own pace.
           </p>
         </div>
 
@@ -181,17 +209,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               e.currentTarget.blur();
               handleTriggerShift('career');
             }}
-            className="w-full py-2 sm:py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 active:brightness-95 text-[#160E09] font-bold text-xs sm:text-sm shadow-[0_8px_24px_-6px_rgba(245,158,11,0.6)] transition-all active:scale-[0.99] cursor-pointer flex items-center justify-between"
+            className="w-full py-2 sm:py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 active:brightness-95 text-[#160E09] font-bold text-xs sm:text-sm shadow-[0_8px_24px_-6px_rgba(245,158,11,0.6)] transition-all active:scale-[0.99] cursor-pointer flex items-center justify-between gap-2"
           >
             <span className="flex items-center gap-1.5">
               <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
-              <span>Start Shift (Day {day})</span>
+              <span>Enter Store</span>
             </span>
-            {!isApkVersion && (
-              <span className="text-[10px] font-mono bg-[#160E09]/15 px-1.5 py-0.5 rounded font-bold">
-                Enter / Space
-              </span>
-            )}
+            <span className="text-[10px] font-mono bg-[#160E09]/15 px-2 py-0.5 rounded font-bold whitespace-nowrap">
+              {Math.round(cupsServedToday)} / {dailyOrderQuota} Cups · Day {day}
+            </span>
           </button>
 
           <div className="grid grid-cols-2 gap-1.5">
@@ -204,7 +230,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               }}
               className="glass-btn-inner py-1.5 px-2.5 rounded-xl font-semibold text-[11px] sm:text-xs cursor-pointer whitespace-nowrap"
             >
-              Zen Mode (Endless)
+              Zen Mode (Chill)
             </button>
 
             <button
@@ -221,45 +247,79 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </div>
         </div>
 
-        {/* Live 3D Weather & Granular Ambience Preview Selector */}
+        {/* Live 3D Device-Clock Time of Day + Independent Rain Controls */}
         <div className="pt-2 border-t border-amber-400/15 space-y-1.5">
           <div className="flex items-center justify-between gap-2 text-[10px] sm:text-[11px] text-[#E7D7C1] glass-text-crisp">
-            <span className="shrink-0">3D Lighting &amp; Weather Audio</span>
-            <span className="text-amber-300 font-mono truncate max-w-[195px]">
-              {spotifyTrackTitle}
+            <span className="shrink-0 font-medium">Time of Day &amp; Rain</span>
+            <span className="text-amber-300 font-mono uppercase tracking-wider text-[10px] shrink-0">
+              {weather.replace('-', ' · ')}
             </span>
           </div>
+
           <div
             className="grid grid-cols-3 gap-1 p-1 bg-black/30 rounded-xl border border-amber-400/20"
             role="group"
-            aria-label="Weather and Granular Ambience Preview"
+            aria-label="Time of Day Selector"
           >
             {(
               [
+                { id: 'auto', label: 'Auto', Icon: Clock },
+                { id: 'dawn', label: 'Dawn', Icon: Sunrise },
                 { id: 'morning', label: 'Morning', Icon: Sun },
-                { id: 'golden', label: 'Golden Hour', Icon: Sunset },
-                { id: 'rainy', label: 'Rainy Day', Icon: CloudRain },
-                { id: 'night', label: 'Night Shift', Icon: Moon },
-                { id: 'rainy-night', label: 'Rainy Night', Icon: CloudLightning },
+                { id: 'noon', label: 'Noon', Icon: CloudSun },
+                { id: 'golden', label: 'Golden', Icon: Sunset },
+                { id: 'night', label: 'Night', Icon: Moon },
               ] as const
-            ).map((item, idx) => {
+            ).map((item) => {
               const Icon = item.Icon;
-              const isActive = weather === item.id;
+              const isActive = timeOfDayMode === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  data-testid={`title-weather-${item.id}`}
-                  onClick={() => onChangeWeather(item.id)}
+                  data-testid={`title-time-${item.id}`}
+                  onClick={() => onChangeTimeOfDay(item.id)}
                   className={`py-1 px-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
-                    idx === 3 ? 'col-span-1' : idx === 4 ? 'col-span-2' : ''
-                  } ${
                     isActive
                       ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow-[0_4px_12px_-3px_rgba(245,158,11,0.55)]'
                       : 'glass-btn-inner border-transparent bg-transparent hover:bg-amber-400/15 text-[#E7D7C1]'
                   }`}
                 >
                   <Icon className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            className="grid grid-cols-3 gap-1 p-1 bg-black/30 rounded-xl border border-amber-400/20"
+            role="group"
+            aria-label="Rain Weather Selector"
+          >
+            {(
+              [
+                { id: 'auto', label: 'Rain: Auto' },
+                { id: 'clear', label: 'Clear Sky' },
+                { id: 'rain', label: 'Rainy' },
+              ] as const
+            ).map((item) => {
+              const isActive = rainPreference === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`title-rain-${item.id}`}
+                  onClick={() => onChangeRainPreference(item.id)}
+                  className={`py-1 px-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
+                    isActive
+                      ? item.id === 'rain'
+                        ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-[#0c1220] font-bold shadow'
+                        : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow'
+                      : 'glass-btn-inner border-transparent bg-transparent hover:bg-amber-400/15 text-[#E7D7C1]'
+                  }`}
+                >
+                  {item.id === 'rain' && <CloudRain className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
                   <span>{item.label}</span>
                 </button>
               );
@@ -275,11 +335,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       >
         <span className="truncate">
           {isApkVersion
-            ? 'Use <- Station -> Pill to Switch Stations · Touch 3D Equipment or Bottom Bar to Brew & Serve'
-            : '1–5 or A/D Switch Stations · Space Brew Next Step · R Rinse · M Vinyl · H Hide HUD'}
+            ? 'Use <- Station -> Pill to Switch Stations · Touch 3D Pastries & Equipment to Brew & Serve'
+            : '1–6 or A/D Switch Stations · Space Next Step · R Rinse/Discard · M Vinyl · H Hide HUD'}
         </span>
         <span className="font-mono text-amber-300 hidden sm:inline shrink-0">
-          {isApkVersion ? '100% Offline APK Ready' : 'Landscape 3D Barista Sim'}
+          {isApkVersion ? '100% Offline APK Ready' : '24h Real-Time Barista Sim'}
         </span>
       </div>
       </div>

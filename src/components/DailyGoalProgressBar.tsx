@@ -1,6 +1,6 @@
 import React from 'react';
-import { Banknote, Clock, Coffee, Sparkles } from 'lucide-react';
-import { GameMode } from '../game/rules';
+import { Award, Banknote, Clock, Coffee, Sparkles } from 'lucide-react';
+import { DAILY_QUOTA_COMPLETION_BONUS, GameMode } from '../game/rules';
 
 interface DailyGoalProgressBarProps {
   day: number;
@@ -11,26 +11,20 @@ interface DailyGoalProgressBarProps {
   dailyOrderQuota: number;
   cupsServedToday: number;
   satisfactionScore: number;
-  shiftTimeRemaining: number;
+  liveClockLabel: string;
 }
 
 export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
   day,
   mode,
   cash,
-  dailyRevenue,
-  dailyGoal,
   dailyOrderQuota,
   cupsServedToday,
   satisfactionScore,
-  shiftTimeRemaining,
+  liveClockLabel,
 }) => {
-  const goalPct = Math.min(100, Math.round((dailyRevenue / Math.max(1, dailyGoal)) * 100));
+  const quotaPct = Math.min(100, Math.round((cupsServedToday / Math.max(1, dailyOrderQuota)) * 100));
   const quotaMet = cupsServedToday >= dailyOrderQuota;
-  const mins = Math.floor(shiftTimeRemaining / 60);
-  const secs = Math.floor(shiftTimeRemaining % 60);
-  const formattedTime =
-    mode === 'zen' ? 'ZEN' : `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 
   return (
     <div className="flex items-center gap-2 sm:gap-2.5 text-xs font-mono tabular-nums whitespace-nowrap shrink-0 glass-text-crisp">
@@ -44,38 +38,37 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
         |
       </span>
 
-      {/* Compact Inline Goal Bar */}
-      <div className="flex items-center gap-1.5">
+      {/* Daily 35-Cup Quota Progress Bar (+$120 Bonus) */}
+      <div
+        className={`flex items-center gap-1.5 font-semibold ${
+          quotaMet ? 'text-emerald-300' : 'text-[#FAF5EE]'
+        }`}
+        title={`Daily Owner Quota: ${Math.round(cupsServedToday)} / ${dailyOrderQuota} Cups (+$${DAILY_QUOTA_COMPLETION_BONUS} Bonus, resets at local midnight)`}
+        data-testid="hud-cups-served"
+      >
         <span className="text-[11px] font-sans font-semibold text-[#E7D7C1] hidden md:inline">
           D{day}
         </span>
+        <Coffee className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
         <div className="w-12 sm:w-16 h-2 rounded-full bg-black/50 border border-amber-400/25 overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 transition-all duration-200"
-            style={{ width: `${goalPct}%` }}
+            className={`h-full transition-all duration-200 ${
+              quotaMet
+                ? 'bg-gradient-to-r from-emerald-400 to-teal-400'
+                : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500'
+            }`}
+            style={{ width: `${quotaPct}%` }}
           />
         </div>
-        <span className="text-[11px] text-amber-300 font-semibold">
-          ${Math.round(dailyRevenue)}/${Math.round(dailyGoal)}
+        <span className="text-[11px]">
+          {Math.round(cupsServedToday)}/{dailyOrderQuota}
         </span>
-      </div>
-
-      <span className="text-amber-200/30" aria-hidden="true">
-        |
-      </span>
-
-      {/* Daily Order Quota (30-50 Orders) */}
-      <div
-        className={`flex items-center gap-1 font-semibold ${
-          quotaMet ? 'text-emerald-300' : 'text-[#FAF5EE]'
-        }`}
-        title={`Daily Order Quota: ${cupsServedToday} / ${dailyOrderQuota} Orders (+$50 Bonus)`}
-        data-testid="hud-cups-served"
-      >
-        <Coffee className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
-        <span>
-          {Math.round(cupsServedToday)} / {dailyOrderQuota} Orders
-        </span>
+        {quotaMet && (
+          <span className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0 rounded bg-emerald-500/25 border border-emerald-400/50 text-[9px] text-emerald-200 font-bold">
+            <Award className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+            <span>+${DAILY_QUOTA_COMPLETION_BONUS}</span>
+          </span>
+        )}
       </div>
 
       <span className="text-amber-200/30 hidden sm:inline" aria-hidden="true">
@@ -95,10 +88,14 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
         |
       </span>
 
-      {/* Shift Timer */}
-      <div className="flex items-center gap-1 text-[#FAF5EE] font-bold" title="Shift Timer">
+      {/* Live 24h Local Device Clock */}
+      <div
+        className="flex items-center gap-1 text-[#FAF5EE] font-bold"
+        title={mode === 'zen' ? 'Zen Mode · Live Local Clock' : '24h Store Live Local Clock'}
+        data-testid="hud-live-clock"
+      >
         <Clock className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
-        <span>{formattedTime}</span>
+        <span>{mode === 'zen' ? `ZEN · ${liveClockLabel}` : liveClockLabel}</span>
       </div>
     </div>
   );

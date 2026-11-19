@@ -4,7 +4,7 @@
 // for Granular Weather Textures (Rhythmic Raindrops on Roof for 'rainy', Distant Birds & Wind Chimes for 'morning'/'golden'),
 // Customer Sounds, Step-by-Step Barista Brewing, and Multi-Preset Internal Vinyl Music.
 
-import { WeatherMode } from './rules';
+import { WeatherMode, isRainyWeather } from './rules';
 
 export type GranularGrainType =
   | 'roof_raindrop'
@@ -36,12 +36,12 @@ export function computeGranularWeatherParams(
   const hash2 = (idx * 0.381966011250105 + 0.23) % 1;
   const pan = Number(((hash1 * 2 - 1) * 0.78).toFixed(3));
 
-  if (weather === 'rainy' || weather === 'rainy-night') {
+  if (isRainyWeather(weather)) {
     // Polyrhythmic 8-step roof raindrop pattern (rhythmic drops on corrugated polycarbonate/timber pergola roof)
-    const rhythmPattern =
-      weather === 'rainy-night'
-        ? [78, 108, 66, 138, 86, 104, 62, 152]
-        : [85, 115, 70, 145, 90, 110, 65, 160];
+    const isNightRain = weather === 'rainy-night';
+    const rhythmPattern = isNightRain
+      ? [78, 108, 66, 138, 86, 104, 62, 152]
+      : [85, 115, 70, 145, 90, 110, 65, 160];
     const baseInterval = rhythmPattern[idx % rhythmPattern.length];
     const isGutterDrip = idx % 7 === 0;
     const isSkylight = idx % 3 === 1;
@@ -791,8 +791,7 @@ class SoundEngine {
     const ctx = this.ensureContext();
     if (!ctx) return;
 
-    const shouldPlayRainLoop =
-      enabled && (weather === 'rainy' || weather === 'rainy-night');
+    const shouldPlayRainLoop = enabled && isRainyWeather(weather);
 
     // 1. Handle Continuous Skylight Rain Bed
     if (!shouldPlayRainLoop) {
@@ -1394,6 +1393,139 @@ class SoundEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
 
     osc.connect(formant).connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + dur + 0.04);
+  }
+
+  // Phase 5: Pressurized Upside-Down Glass/Mug Rinser Water Jet Spray
+  public playGlassRinserSpray(): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // 1. Soft ceramic rim click onto star actuator
+    const clickOsc = ctx.createOscillator();
+    const clickGain = ctx.createGain();
+    clickOsc.type = 'triangle';
+    clickOsc.frequency.setValueAtTime(1450, now);
+    clickOsc.frequency.exponentialRampToValueAtTime(520, now + 0.045);
+    clickGain.gain.setValueAtTime(0.08, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    clickOsc.connect(clickGain).connect(ctx.destination);
+    clickOsc.start(now);
+    clickOsc.stop(now + 0.055);
+
+    // 2. Pressurized high-velocity upward water jet hiss (bandpassed white noise)
+    const sampleCount = Math.floor(ctx.sampleRate * 0.48);
+    const noiseBuf = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < sampleCount; i++) {
+      data[i] = (Math.random() * 2 - 1) * (0.7 + 0.3 * Math.sin(i * 0.08));
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuf;
+
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'bandpass';
+    hp.frequency.setValueAtTime(2800, now + 0.04);
+    hp.frequency.exponentialRampToValueAtTime(4200, now + 0.24);
+    hp.frequency.exponentialRampToValueAtTime(2200, now + 0.46);
+    hp.Q.value = 1.6;
+
+    const jetGain = ctx.createGain();
+    jetGain.gain.setValueAtTime(0.001, now + 0.03);
+    jetGain.gain.linearRampToValueAtTime(0.16, now + 0.08);
+    jetGain.gain.setValueAtTime(0.14, now + 0.34);
+    jetGain.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+
+    noise.connect(hp).connect(jetGain).connect(ctx.destination);
+    noise.start(now + 0.03);
+    noise.stop(now + 0.5);
+  }
+
+  // Phase 5: Disposable Takeout Cup Trash Chute Toss & Stainless Flap Clack
+  public playTrashDrop(): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // 1. Hollow paper cup thump
+    const thump = ctx.createOscillator();
+    const thumpGain = ctx.createGain();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(230, now + 0.12);
+    thump.frequency.exponentialRampToValueAtTime(92, now + 0.24);
+    thumpGain.gain.setValueAtTime(0.001, now + 0.1);
+    thumpGain.gain.linearRampToValueAtTime(0.13, now + 0.13);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.27);
+    thump.connect(thumpGain).connect(ctx.destination);
+    thump.start(now + 0.1);
+    thump.stop(now + 0.28);
+
+    // 2. Brushed stainless swing flap returning shut
+    const flap = ctx.createOscillator();
+    const flapGain = ctx.createGain();
+    flap.type = 'triangle';
+    flap.frequency.setValueAtTime(640, now + 0.28);
+    flap.frequency.exponentialRampToValueAtTime(310, now + 0.36);
+    flapGain.gain.setValueAtTime(0.001, now + 0.27);
+    flapGain.gain.linearRampToValueAtTime(0.07, now + 0.29);
+    flapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+    flap.connect(flapGain).connect(ctx.destination);
+    flap.start(now + 0.27);
+    flap.stop(now + 0.4);
+  }
+
+  // Phase 6: Crisp Bakery Pastry-Tong & Mini Plate / Kraft Bag Chime
+  public playPastryTong(): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const notes = [880, 1174.66];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t0 = now + idx * 0.055;
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.09, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.24);
+    });
+  }
+
+  // Phase 7: Subtle Delivery Scooter Arrive / Depart Engine Purr
+  public playScooterPurr(mode: 'arrive' | 'depart' = 'arrive'): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const dur = mode === 'arrive' ? 0.65 : 0.72;
+
+    const osc = ctx.createOscillator();
+    const lp = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    if (mode === 'arrive') {
+      osc.frequency.setValueAtTime(112, now);
+      osc.frequency.exponentialRampToValueAtTime(58, now + dur);
+    } else {
+      osc.frequency.setValueAtTime(64, now);
+      osc.frequency.exponentialRampToValueAtTime(132, now + dur);
+    }
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(280, now);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.045, now + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    osc.connect(lp).connect(gain).connect(ctx.destination);
     osc.start(now);
     osc.stop(now + dur + 0.04);
   }

@@ -25,7 +25,11 @@ import {
   LILO_REQUIRED_CAT_IDS,
   MachineSkinId,
   PitcherSkinId,
+  canClaimLoginReward,
   getCafeCatSpec,
+  getCalendarDayDiff,
+  getLocalDateKey,
+  getTimeUntilMidnightLabel,
 } from '../game/rules';
 
 export type UpgradesHubTab =
@@ -59,10 +63,20 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<UpgradesHubTab>(initialTab);
+  const [midnightCountdown, setMidnightCountdown] = useState<string>(() =>
+    getTimeUntilMidnightLabel()
+  );
 
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setMidnightCountdown(getTimeUntilMidnightLabel());
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const {
     cash,
@@ -632,98 +646,121 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           );
         })()}
 
-        {/* Tab 4: Playtime & Milestone-Gated Loyalty / Login Unlockables */}
-        {activeTab === 'login_rewards' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 overflow-y-auto pr-1">
-            {loginRewards.map((item) => {
-              const activeSecs = gameState.activeShiftSeconds ?? 0;
-              const reqSecs = item.requiredShiftSeconds ?? 600;
-              const reqOrders = item.requiredOrdersServed ?? 15;
-              const servedOrders = gameState.totalCupsServed ?? 0;
+        {/* Tab 4: Real-Calendar 24-Hour Daily Login Rewards */}
+        {activeTab === 'login_rewards' && (() => {
+          const canClaimToday = canClaimLoginReward(gameState);
+          const curLogin = gameState.dailyLogin;
+          const todayKey = getLocalDateKey();
+          let nextClaimableDay = 1;
+          if (curLogin?.lastClaimDateKey) {
+            const diff = getCalendarDayDiff(curLogin.lastClaimDateKey, todayKey);
+            if (diff === 0) {
+              nextClaimableDay = curLogin.streakDay;
+            } else if (diff === 1) {
+              nextClaimableDay = (curLogin.streakDay % 7) + 1;
+            } else {
+              nextClaimableDay = 1;
+            }
+          } else {
+            nextClaimableDay = Math.max(1, Math.min(7, curLogin?.streakDay || 1));
+          }
 
-              const timePct = Math.min(100, Math.round((activeSecs / reqSecs) * 100));
-              const ordersPct = Math.min(100, Math.round((servedOrders / reqOrders) * 100));
-              const overallPct = Math.round((timePct + ordersPct) / 2);
-              const isUnlockedToClaim = activeSecs >= reqSecs && servedOrders >= reqOrders;
-
-              const fmtTime = (secs: number) => {
-                const m = Math.floor(secs / 60);
-                const s = Math.floor(secs % 60);
-                return `${m}:${s < 10 ? '0' : ''}${s}`;
-              };
-
-              return (
-                <div
-                  key={item.id}
-                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-white/[0.06] border border-amber-400/20"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp">
-                        {item.title}
-                      </span>
-                      <span className="text-[10px] font-mono text-emerald-300 shrink-0">
-                        {item.rewardLabel}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">{item.description}</p>
-
-                    {/* Verifiable Playtime & Orders Progress Bar */}
-                    <div className="space-y-1 pt-1">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-[#E7D7C1]">
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
-                          <span>
-                            {fmtTime(activeSecs)} / {fmtTime(reqSecs)} Shift Time
-                          </span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Coffee className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
-                          <span>
-                            {servedOrders} / {reqOrders} Orders
-                          </span>
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-amber-400/25">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all"
-                          style={{ width: `${item.claimed ? 100 : overallPct}%` }}
-                        />
-                      </div>
-                    </div>
+          return (
+            <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="daily-login-panel">
+              <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <div className="text-[11px] text-[#FAF5EE]">
+                    <span className="font-bold">
+                      24h Daily Owner Login · Streak Day {curLogin?.streakDay ?? 1} / 7
+                    </span>
+                    <span className="text-[#E7D7C1]/85 ml-1.5">
+                      · Strictly 1 claim per real calendar day
+                    </span>
                   </div>
-
-                  <button
-                    type="button"
-                    disabled={item.claimed || !isUnlockedToClaim}
-                    onClick={() => onClaimLoginReward(item.day)}
-                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
-                      item.claimed
-                        ? 'bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 cursor-default'
-                        : isUnlockedToClaim
-                        ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
-                        : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
-                    }`}
-                  >
-                    {item.claimed ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-                        <span>Claimed</span>
-                      </>
-                    ) : isUnlockedToClaim ? (
-                      <span>Claim Tier {item.day} Unlockable</span>
-                    ) : (
-                      <>
-                        <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-                        <span>Locked ({overallPct}% Complete)</span>
-                      </>
-                    )}
-                  </button>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <span
+                  data-testid="daily-login-countdown"
+                  className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
+                    canClaimToday
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
+                      : 'bg-amber-950/60 border-amber-400/35 text-amber-200'
+                  }`}
+                >
+                  <Clock className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                  <span>{canClaimToday ? "Today's Reward Ready!" : midnightCountdown}</span>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {loginRewards.map((item) => {
+                  const isTodayClaimable = canClaimToday && item.day === nextClaimableDay;
+                  const isAlreadyClaimed = item.claimed && !(canClaimToday && nextClaimableDay === 1);
+                  const isLockedFuture = !isAlreadyClaimed && !isTodayClaimable;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`flex flex-col justify-between gap-2 p-3 rounded-xl border transition-all ${
+                        isTodayClaimable
+                          ? 'bg-amber-500/15 border-amber-400/70 shadow-[0_0_16px_rgba(245,158,11,0.22)]'
+                          : 'bg-white/[0.06] border-amber-400/20'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp">
+                            {item.title}
+                          </span>
+                          <span className="text-[10px] font-mono text-emerald-300 shrink-0 font-bold">
+                            {item.rewardLabel}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">
+                          {item.description}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        data-testid={`btn-claim-login-day-${item.day}`}
+                        disabled={!isTodayClaimable}
+                        onClick={() => onClaimLoginReward(item.day)}
+                        className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1 ${
+                          isAlreadyClaimed
+                            ? 'bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 cursor-default'
+                            : isTodayClaimable
+                            ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
+                            : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                        }`}
+                      >
+                        {isAlreadyClaimed ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                            <span>Claimed</span>
+                          </>
+                        ) : isTodayClaimable ? (
+                          <span>Claim Day {item.day} Reward</span>
+                        ) : (
+                          <>
+                            <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                            <span>
+                              {!canClaimToday && item.day === (nextClaimableDay % 7) + 1
+                                ? midnightCountdown
+                                : isLockedFuture
+                                ? `Day ${item.day} · Come Back Tomorrow`
+                                : 'Locked'}
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
