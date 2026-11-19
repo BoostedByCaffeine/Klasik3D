@@ -519,6 +519,49 @@ export interface DecorCustomization {
   plantDensity: 'cozy' | 'lush-jungle';
 }
 
+export type BaristaStepActionType =
+  | 'grind'
+  | 'tamp'
+  | 'pull_espresso'
+  | 'steep_tea'
+  | 'steam_milk'
+  | 'add_ice'
+  | 'add_syrup'
+  | 'serve_drink'
+  | 'rinse_cup';
+
+export interface ActiveStepAction {
+  actionType: BaristaStepActionType;
+  startedAtMs: number;
+  durationMs: number;
+  targetStation: BaristaStationId;
+  label: string;
+}
+
+export function isStepLockActive(
+  lock: ActiveStepAction | null | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  if (!lock) return false;
+  return nowMs < lock.startedAtMs + lock.durationMs;
+}
+
+export function createActiveStepLock(
+  state: KlasikGameState,
+  actionType: BaristaStepActionType,
+  targetStation: BaristaStationId,
+  label: string,
+  nowMs: number = Date.now()
+): ActiveStepAction {
+  return {
+    actionType,
+    startedAtMs: nowMs,
+    durationMs: getStepDurationMs(state, actionType),
+    targetStation,
+    label,
+  };
+}
+
 export interface KlasikGameState {
   phase: GamePhase;
   mode: GameMode;
@@ -542,6 +585,7 @@ export interface KlasikGameState {
   nextCustomerSpawnTimer: number; // seconds until next 1-by-1 customer walks in or wave cooldown ends
   pinnedOrderId: string | null;
   currentCup: CupBuildState;
+  activeStepLock?: ActiveStepAction | null;
   customers: CustomerOrder[];
   upgrades: BizUpgradeItem[];
   equipmentSkins: EquipmentSkinItem[];
@@ -1063,6 +1107,7 @@ export function createInitialGameState(): KlasikGameState {
     nextCustomerSpawnTimer: 5,
     pinnedOrderId: firstCustomer.id,
     currentCup: createEmptyCup(),
+    activeStepLock: null,
     customers: [firstCustomer, secondCustomer, thirdCustomer],
     upgrades: INITIAL_UPGRADES.map((u) => ({ ...u })),
     equipmentSkins: INITIAL_EQUIPMENT_SKINS.map((s) => ({ ...s })),
@@ -1421,8 +1466,14 @@ export function performCupAction(
     | 'add_syrup'
     | 'rinse_cup'
     | 'quick_brew_step',
-  syrupFlavor?: SyrupFlavor
+  syrupFlavor?: SyrupFlavor,
+  nowMs: number = Date.now()
 ): KlasikGameState {
+  // Authoritative single-flight anti-exploit lock: reject rapid-tap spam while current physical machine step is running
+  if (isStepLockActive(state.activeStepLock, nowMs)) {
+    return state;
+  }
+
   const cup = { ...state.currentCup };
   let feedback = state.lastActionFeedback;
   let activeStation = state.activeStation;
@@ -1563,6 +1614,7 @@ export function performCupAction(
   return {
     ...state,
     activeStation,
+    activeStepLock: null,
     currentCup: cup,
     lastActionFeedback: feedback,
   };
@@ -1582,8 +1634,13 @@ function syncGrossIncomeUnlocks(
 
 export function serveCurrentCupToCustomer(
   state: KlasikGameState,
-  targetCustomerId?: string
+  targetCustomerId?: string,
+  nowMs: number = Date.now()
 ): KlasikGameState {
+  if (isStepLockActive(state.activeStepLock, nowMs)) {
+    return state;
+  }
+
   const orderingCustomers = state.customers.filter((c) => c.state === 'ordering');
   if (orderingCustomers.length === 0) {
     return {

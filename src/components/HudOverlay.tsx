@@ -166,6 +166,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
   const isMaxGraphics = gameState.graphicsQuality !== 'low';
   const qualityLabel = isMaxGraphics ? 'MAX' : 'LOW';
+  const isStepLocked = Boolean(gameState.activeStepLock) || stepProgress !== null;
+  const activeLockLabel = gameState.activeStepLock?.label || 'Brewing...';
+  const lockFillPct = Math.min(100, Math.max(4, stepProgress ?? 8));
 
   const currentStationMeta =
     STATION_TABS.find((s) => s.id === gameState.activeStation) || STATION_TABS[1];
@@ -240,32 +243,50 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           {targetRecipe && !isRealismMode && (
             <button
               type="button"
+              disabled={isStepLocked}
+              aria-busy={isStepLocked}
               onClick={() => onCupAction('quick_brew_step')}
-              className={`px-2 py-0.5 rounded-full font-bold text-[10px] cursor-pointer whitespace-nowrap flex items-center gap-1 shadow ${
-                drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-500 text-[#160E09]'
+              className={`relative overflow-hidden px-2 py-0.5 rounded-full font-bold text-[10px] whitespace-nowrap flex items-center gap-1 shadow ${
+                isStepLocked
+                  ? 'bg-[#21150e] border border-amber-400/60 text-amber-100 cursor-not-allowed'
+                  : drinkValidation.hasWrongIngredient
+                  ? 'bg-rose-500 text-[#160E09] cursor-pointer'
                   : isDrinkReadyToServe
-                  ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-[#160E09]'
-                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09]'
+                  ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-[#160E09] cursor-pointer'
+                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] cursor-pointer'
               }`}
               title={stripKeyboardShortcutsForApk(nextStep.instruction, isApkVersion)}
             >
-              {drinkValidation.hasWrongIngredient ? (
-                <>
-                  <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
-                  <span>Rinse</span>
-                </>
-              ) : isDrinkReadyToServe ? (
-                <>
-                  <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />
-                  <span>Serve</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3 h-3 shrink-0" strokeWidth={2.2} />
-                  <span>Brew Step</span>
-                </>
+              {isStepLocked && (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-500/75 to-orange-500/75 transition-all duration-75"
+                  style={{ width: `${lockFillPct}%` }}
+                />
               )}
+              <span className="relative z-10 inline-flex items-center gap-1">
+                {isStepLocked ? (
+                  <>
+                    <Zap className="w-3 h-3 shrink-0 text-amber-200" strokeWidth={2.2} />
+                    <span>{activeLockLabel}</span>
+                  </>
+                ) : drinkValidation.hasWrongIngredient ? (
+                  <>
+                    <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                    <span>Rinse</span>
+                  </>
+                ) : isDrinkReadyToServe ? (
+                  <>
+                    <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                    <span>Serve</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                    <span>Brew Step</span>
+                  </>
+                )}
+              </span>
             </button>
           )}
 
@@ -757,47 +778,67 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           <button
             type="button"
             data-testid="btn-quick-brew-step"
+            disabled={isStepLocked}
+            aria-busy={isStepLocked}
             onClick={(e) => {
               e.currentTarget.blur();
+              if (isStepLocked) return;
               onCupAction('quick_brew_step');
             }}
-            className={`px-2 sm:px-2.5 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 transition-all ${
-              drinkValidation.hasWrongIngredient
-                ? 'bg-rose-500 hover:bg-rose-400 text-[#160E09] animate-pulse shadow'
-                : 'bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/65 text-amber-200 glass-text-crisp'
+            className={`relative overflow-hidden px-2.5 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap shrink-0 flex items-center gap-1 transition-all ${
+              isStepLocked
+                ? 'bg-[#20140d] border border-amber-400/75 text-[#FAF5EE] cursor-not-allowed shadow-inner'
+                : drinkValidation.hasWrongIngredient
+                ? 'bg-rose-500 hover:bg-rose-400 text-[#160E09] animate-pulse shadow cursor-pointer'
+                : 'bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/65 text-amber-200 glass-text-crisp cursor-pointer'
             }`}
             title={stripKeyboardShortcutsForApk(
               `${targetRecipe.name}: ${nextStep.instruction}`,
               isApkVersion
             )}
           >
-            {drinkValidation.hasWrongIngredient ? (
-              <>
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-                <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
-              </>
-            ) : (
-              <>
-                <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
-                <span>
-                  {nextStep.toolKey === 'grinder'
-                    ? 'Grind'
-                    : nextStep.toolKey === 'tamper'
-                    ? 'Tamp'
-                    : nextStep.toolKey === 'espresso'
-                    ? 'Shot'
-                    : nextStep.toolKey === 'tea'
-                    ? 'Tea'
-                    : nextStep.toolKey === 'milk'
-                    ? 'Milk'
-                    : nextStep.toolKey === 'ice'
-                    ? '+Ice'
-                    : nextStep.toolKey === 'syrup'
-                    ? '+Syrup'
-                    : 'Serve'}
-                </span>
-              </>
+            {isStepLocked && (
+              <span
+                data-testid="quick-brew-progress-fill"
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-500/80 via-amber-400/80 to-orange-500/80 transition-all duration-75"
+                style={{ width: `${lockFillPct}%` }}
+              />
             )}
+            <span className="relative z-10 inline-flex items-center gap-1 glass-text-crisp">
+              {isStepLocked ? (
+                <>
+                  <Zap className="w-3.5 h-3.5 text-amber-200 shrink-0 animate-pulse" strokeWidth={2.2} />
+                  <span>{activeLockLabel}</span>
+                </>
+              ) : drinkValidation.hasWrongIngredient ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                  <span>{isApkVersion ? 'Rinse' : 'Rinse [R]'}</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <span>
+                    {nextStep.toolKey === 'grinder'
+                      ? 'Grind'
+                      : nextStep.toolKey === 'tamper'
+                      ? 'Tamp'
+                      : nextStep.toolKey === 'espresso'
+                      ? 'Shot'
+                      : nextStep.toolKey === 'tea'
+                      ? 'Tea'
+                      : nextStep.toolKey === 'milk'
+                      ? 'Milk'
+                      : nextStep.toolKey === 'ice'
+                      ? '+Ice'
+                      : nextStep.toolKey === 'syrup'
+                      ? '+Syrup'
+                      : 'Serve'}
+                  </span>
+                </>
+              )}
+            </span>
           </button>
         )}
 
@@ -849,11 +890,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 data-testid="btn-action-grind"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('grind')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors ${
-                  cup.hasGrounds
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
-                    : 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE]'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition-colors ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : cup.hasGrounds
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
+                    : 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE] cursor-pointer'
                 }`}
               >
                 {cup.hasGrounds && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
@@ -868,13 +913,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 data-testid="btn-action-tamp"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('tamp')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors ${
-                  cup.isTamped
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition-colors ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : cup.isTamped
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
                     : cup.hasGrounds
-                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE]'
-                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45'
+                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE] cursor-pointer'
+                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45 cursor-pointer'
                 }`}
                 title={!cup.hasGrounds ? 'Grind beans first before tamping!' : 'Tamp coffee puck'}
               >
@@ -890,13 +939,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 data-testid="btn-action-shot"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('pull_espresso')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors ${
-                  cup.hasEspresso
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition-colors ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : cup.hasEspresso
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
                     : cup.hasGrounds && cup.isTamped
-                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE]'
-                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45'
+                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE] cursor-pointer'
+                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45 cursor-pointer'
                 }`}
                 title={
                   !cup.hasGrounds || !cup.isTamped
@@ -916,11 +969,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 data-testid="btn-action-rinse"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('rinse_cup')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                  drinkValidation.hasWrongIngredient
-                    ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse'
-                    : 'glass-btn-inner text-[#E7D7C1]'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : drinkValidation.hasWrongIngredient
+                    ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse cursor-pointer'
+                    : 'glass-btn-inner text-[#E7D7C1] cursor-pointer'
                 }`}
               >
                 {drinkValidation.hasWrongIngredient ? (
@@ -937,11 +994,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             <>
               <button
                 type="button"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('steep_tea')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                  cup.hasSteepedTea
-                    ? 'bg-lime-500/25 border-lime-400 text-lime-200'
-                    : 'glass-btn-inner !border-lime-400/40 text-lime-200'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : cup.hasSteepedTea
+                    ? 'bg-lime-500/25 border-lime-400 text-lime-200 cursor-pointer'
+                    : 'glass-btn-inner !border-lime-400/40 text-lime-200 cursor-pointer'
                 }`}
               >
                 <Leaf className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -949,13 +1010,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </button>
               <button
                 type="button"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('steam_milk')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                  cup.hasSteamedMilk
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : cup.hasSteamedMilk
+                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
                     : cup.hasEspresso || cup.hasSteepedTea
-                    ? 'glass-btn-inner !border-amber-400/45 text-[#FAF5EE]'
-                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45'
+                    ? 'glass-btn-inner !border-amber-400/45 text-[#FAF5EE] cursor-pointer'
+                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45 cursor-pointer'
                 }`}
               >
                 {cup.hasSteamedMilk && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
@@ -963,11 +1028,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </button>
               <button
                 type="button"
+                disabled={isStepLocked}
+                aria-busy={isStepLocked}
                 onClick={() => onCupAction('add_ice')}
-                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap ${
-                  cup.hasIce
-                    ? 'bg-sky-500/25 border-sky-400 text-sky-200'
-                    : 'glass-btn-inner !border-sky-400/35 text-sky-100'
+                className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap ${
+                  isStepLocked
+                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    : cup.hasIce
+                    ? 'bg-sky-500/25 border-sky-400 text-sky-200 cursor-pointer'
+                    : 'glass-btn-inner !border-sky-400/35 text-sky-100 cursor-pointer'
                 }`}
               >
                 +Ice
@@ -983,11 +1052,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <button
                   key={s.id}
                   type="button"
+                  disabled={isStepLocked}
+                  aria-busy={isStepLocked}
                   onClick={() => onCupAction('add_syrup', s.id)}
-                  className={`px-1.5 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap ${
-                    cup.syrup === s.id
-                      ? 'bg-amber-500/25 border-amber-400 text-amber-200'
-                      : 'glass-btn-inner text-[#FAF5EE]'
+                  className={`px-1.5 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap ${
+                    isStepLocked
+                      ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                      : cup.syrup === s.id
+                      ? 'bg-amber-500/25 border-amber-400 text-amber-200 cursor-pointer'
+                      : 'glass-btn-inner text-[#FAF5EE] cursor-pointer'
                   }`}
                 >
                   {s.label}
@@ -996,6 +1069,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               {drinkValidation.hasWrongIngredient && (
                 <button
                   type="button"
+                  disabled={isStepLocked}
+                  aria-busy={isStepLocked}
                   onClick={() => onCupAction('rinse_cup')}
                   className="px-1.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 border border-rose-300 text-[10px] sm:text-xs font-bold text-white cursor-pointer whitespace-nowrap animate-pulse flex items-center gap-1"
                 >
@@ -1009,11 +1084,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           {!isRealismMode && gameState.activeStation === 4 && (
             <button
               type="button"
+              disabled={isStepLocked}
+              aria-busy={isStepLocked}
               onClick={() => onCupAction('rinse_cup')}
-              className={`px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1 ${
-                drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse'
-                  : 'glass-btn-inner text-[#E7D7C1]'
+              className={`px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
+                isStepLocked
+                  ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                  : drinkValidation.hasWrongIngredient
+                  ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse cursor-pointer'
+                  : 'glass-btn-inner text-[#E7D7C1] cursor-pointer'
               }`}
             >
               <RotateCcw className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -1052,13 +1131,18 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           {!isRealismMode && (
             <button
               type="button"
+              data-testid="btn-action-serve"
+              disabled={isStepLocked}
+              aria-busy={isStepLocked}
               onClick={() => onServeCustomer()}
-              className={`px-2 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs cursor-pointer whitespace-nowrap transition-all flex items-center gap-1 ${
-                isDrinkReadyToServe
-                  ? 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 hover:brightness-105 text-[#160E09] shadow-[0_4px_14px_-3px_rgba(16,185,129,0.55)]'
+              className={`px-2 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap transition-all flex items-center gap-1 ${
+                isStepLocked
+                  ? 'opacity-50 cursor-not-allowed bg-black/30 border border-white/15 text-[#E7D7C1]/70'
+                  : isDrinkReadyToServe
+                  ? 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 hover:brightness-105 text-[#160E09] shadow-[0_4px_14px_-3px_rgba(16,185,129,0.55)] cursor-pointer'
                   : drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-400/60 text-rose-200'
-                  : 'bg-black/30 hover:bg-black/45 border border-white/15 text-[#E7D7C1]/65'
+                  ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-400/60 text-rose-200 cursor-pointer'
+                  : 'bg-black/30 hover:bg-black/45 border border-white/15 text-[#E7D7C1]/65 cursor-pointer'
               }`}
               title={
                 isDrinkReadyToServe

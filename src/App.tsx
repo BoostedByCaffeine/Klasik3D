@@ -12,7 +12,9 @@ import { SpotifyVinylModal } from './components/SpotifyVinylModal';
 import { StatusModal } from './components/StatusModal';
 import { TitleScreen } from './components/TitleScreen';
 import {
+  ActiveStepAction,
   BaristaStationId,
+  BaristaStepActionType,
   DecorCustomization,
   GameMode,
   GraphicsQuality,
@@ -22,11 +24,13 @@ import {
   WeatherMode,
   advanceSimulationTick,
   claimLoginReward,
+  createActiveStepLock,
   createInitialGameState,
   getEffectiveRecipeForOrder,
   getNextRecommendedStep,
   getRecipeById,
   getStepDurationMs,
+  isStepLockActive,
   loadGameFromStorage,
   loadSavedGraphicsQuality,
   performCupAction,
@@ -62,6 +66,7 @@ export default function App() {
     if (isAutostart) return 'ready';
     return shouldShowLandscapeCue() ? 'landscape-cue' : 'studio-splash';
   });
+  const [splashEntranceDone, setSplashEntranceDone] = useState<boolean>(isAutostart);
   const [splashFadingOut, setSplashFadingOut] = useState<boolean>(isAutostart);
   const isLoading = bootStage !== 'ready';
   const [isSceneReady, setIsSceneReady] = useState<boolean>(false);
@@ -74,7 +79,7 @@ export default function App() {
     const initial = saved || createInitialGameState();
     // Fresh launch defaults to 'low'; explicit user toggles persist via STORAGE_GFX_KEY
     const savedGfx = loadSavedGraphicsQuality();
-    const withGfx = { ...initial, graphicsQuality: savedGfx };
+    const withGfx = { ...initial, graphicsQuality: savedGfx, activeStepLock: null };
     if (isAutostart) {
       return { ...withGfx, phase: 'playing' };
     }
@@ -98,8 +103,9 @@ export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<KlasikCafeScene3D | null>(null);
   const animTimerRef = useRef<number | null>(null);
+  const stepCommitTimerRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
-  const activeStepActionRef = useRef<string | null>(null);
+  const stepLockUntilRef = useRef<number>(0);
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
 
@@ -127,12 +133,27 @@ export default function App() {
     };
   }, []);
 
-  // Mirror phase & appVersion to document.body.dataset
+  // Mirror phase, appVersion & graphics quality (for GFX: LOW backdrop-filter bypass)
   useEffect(() => {
     document.body.dataset.state = gameState.phase;
     document.body.dataset.version = pwaStatus.appVersion;
+    document.documentElement.dataset.gfx = gameState.graphicsQuality;
     saveGameToStorage(gameState);
   }, [gameState, pwaStatus.appVersion]);
+
+  // Sync Diegetic 3D POS Camera Focus when Barista Codex opens or closes
+  useEffect(() => {
+    sceneRef.current?.setCodexFocusMode(activeModal === 'recipes');
+  }, [activeModal]);
+
+  // Clean up any pending timed step timers on unmount
+  useEffect(() => {
+    return () => {
+      if (animTimerRef.current) window.clearTimeout(animTimerRef.current);
+      if (stepCommitTimerRef.current) window.clearTimeout(stepCommitTimerRef.current);
+      if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
+    };
+  }, []);
 
   // Subscribe to Spotify & PWA managers
   useEffect(() => {
@@ -149,21 +170,36 @@ export default function App() {
     };
   }, []);
 
+  const clearStepTimers = useCallback(() => {
+    if (animTimerRef.current) {
+      window.clearTimeout(animTimerRef.current);
+      animTimerRef.current = null;
+    }
+    if (stepCommitTimerRef.current) {
+      window.clearTimeout(stepCommitTimerRef.current);
+      stepCommitTimerRef.current = null;
+    }
+    if (progressIntervalRef.current) {
+      window.clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+  }, []);
+
   const flashAnimBanner = useCallback(
-    (label: string, durationMs = 1100, actionId: string | null = null) => {
+    (label: string, durationMs = 1100, trackProgress = false) => {
       setActiveAnimLabel(label);
       if (animTimerRef.current) {
         window.clearTimeout(animTimerRef.current);
+        animTimerRef.current = null;
       }
       if (progressIntervalRef.current) {
         window.clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
       }
 
-      if (actionId) {
-        activeStepActionRef.current = actionId;
+      if (trackProgress) {
         setStepDurationMs(durationMs);
-        setStepProgress(8);
+        setStepProgress(4);
         const start = performance.now();
         progressIntervalRef.current = window.setInterval(() => {
           const elapsed = performance.now() - start;
@@ -173,9 +209,8 @@ export default function App() {
             window.clearInterval(progressIntervalRef.current);
             progressIntervalRef.current = null;
           }
-        }, 60);
+        }, 40);
       } else {
-        activeStepActionRef.current = null;
         setStepProgress(null);
         setStepDurationMs(null);
       }
@@ -184,7 +219,6 @@ export default function App() {
         setActiveAnimLabel(null);
         setStepProgress(null);
         setStepDurationMs(null);
-        activeStepActionRef.current = null;
       }, durationMs);
     },
     []
@@ -203,54 +237,94 @@ export default function App() {
   const handleServeCustomer = useCallback(
     (customerId?: string) => {
       soundEngine.init();
-      if (activeStepActionRef.current === 'serve_drink') {
+      const now = Date.now();
+      const prev = gameStateRef.current;
+
+      // Authoritative anti-exploit lock: block spam tapping while any step is running
+      if (stepLockUntilRef.current > now || isStepLockActive(prev.activeStepLock, now)) {
         return;
       }
 
-      const prev = gameStateRef.current;
       const appVersion = pwaManager.getStatus().appVersion;
-      const next = serveCurrentCupToCustomer(prev, customerId);
+      const previewNext = serveCurrentCupToCustomer(
+        { ...prev, activeStepLock: null },
+        customerId,
+        now
+      );
 
       // 1. Check if Serve was BLOCKED due to incomplete drink
       const wasBlocked =
-        next.cupsServedToday === prev.cupsServedToday &&
-        next.cash === prev.cash &&
-        next.satisfactionScore === prev.satisfactionScore;
+        previewNext.cupsServedToday === prev.cupsServedToday &&
+        previewNext.cash === prev.cash &&
+        previewNext.satisfactionScore === prev.satisfactionScore;
 
       if (wasBlocked) {
         soundEngine.playErrorThud();
         triggerBaristaHaptic('blocked_or_error', appVersion);
-        setGameState(next);
-        flashAnimBanner(next.lastActionFeedback, 1600, null);
+        setGameState(previewNext);
+        flashAnimBanner(previewNext.lastActionFeedback, 1600, false);
         return;
       }
 
       // 2. Check if Serve resulted in a Customer Complaint due to wrong ingredient
       const wasComplaint =
-        next.satisfactionScore < prev.satisfactionScore && next.cash === prev.cash;
+        previewNext.satisfactionScore < prev.satisfactionScore &&
+        previewNext.cash === prev.cash;
       if (wasComplaint) {
         soundEngine.playErrorThud();
         triggerBaristaHaptic('blocked_or_error', appVersion);
-        setGameState(next);
-        sceneRef.current?.updateGameState(next);
-        flashAnimBanner(next.lastActionFeedback, 2200, null);
+        setGameState(previewNext);
+        sceneRef.current?.updateGameState(previewNext);
+        flashAnimBanner(previewNext.lastActionFeedback, 2200, false);
         return;
       }
 
-      // 3. Valid Completed Drink Served!
-      soundEngine.playCashRegister();
-      triggerBaristaHaptic('serve_success', appVersion);
-      const earned = Math.max(0, Math.round(next.cash - prev.cash));
+      // 3. Valid Completed Drink — Two-Phase Timed Serve Lock (locks immediately, commits cleanly at completion)
       const serveDuration = getStepDurationMs(prev, 'serve_drink');
-      setGameState(next);
+      const earned = Math.max(0, Math.round(previewNext.cash - prev.cash));
+      const lock: ActiveStepAction = createActiveStepLock(
+        prev,
+        'serve_drink',
+        4,
+        'Serving Drink...',
+        now
+      );
 
-      sceneRef.current?.updateGameState(next);
+      stepLockUntilRef.current = now + serveDuration;
+      soundEngine.playCeramicClink(1.12);
+      triggerBaristaHaptic('serve_success', appVersion);
+
+      const lockedState: KlasikGameState = {
+        ...prev,
+        activeStation: 4,
+        activeStepLock: lock,
+      };
+      setGameState(lockedState);
+      sceneRef.current?.updateGameState(lockedState);
       sceneRef.current?.triggerStepAnimation(
         'serve_drink',
         undefined,
         earned > 0 ? `+$${earned} SERVED!` : 'SERVED!'
       );
-      flashAnimBanner(next.lastActionFeedback, serveDuration, 'serve_drink');
+      flashAnimBanner('Plating & Serving Completed Drink...', serveDuration, true);
+
+      if (stepCommitTimerRef.current) {
+        window.clearTimeout(stepCommitTimerRef.current);
+      }
+      stepCommitTimerRef.current = window.setTimeout(() => {
+        stepCommitTimerRef.current = null;
+        stepLockUntilRef.current = 0;
+        soundEngine.playCashRegister();
+        setGameState((latest) => {
+          const committed = serveCurrentCupToCustomer(
+            { ...latest, activeStepLock: null },
+            customerId
+          );
+          const finalState: KlasikGameState = { ...committed, activeStepLock: null };
+          sceneRef.current?.updateGameState(finalState);
+          return finalState;
+        });
+      }, serveDuration);
     },
     [flashAnimBanner]
   );
@@ -271,9 +345,17 @@ export default function App() {
     ) => {
       soundEngine.init();
 
+      const now = Date.now();
       const curState = gameStateRef.current;
+
+      // Authoritative single-flight anti-exploit lock: block spam clicks / Space mashing during active physical machine step
+      if (stepLockUntilRef.current > now || isStepLockActive(curState.activeStepLock, now)) {
+        return;
+      }
+
       let resolvedStep: StepAnimType = 'grind';
       let resolvedFlavor: SyrupFlavor | undefined = syrupFlavor;
+      let targetStation: BaristaStationId = curState.activeStation;
 
       if (action === 'quick_brew_step') {
         const pinnedOrder =
@@ -289,6 +371,7 @@ export default function App() {
           targetRecipe,
           pinnedOrder
         );
+        targetStation = step.station;
         if (step.toolKey === 'serve') {
           handleServeCustomer();
           return;
@@ -307,76 +390,134 @@ export default function App() {
         }
       } else {
         resolvedStep = action;
+        if (action === 'grind' || action === 'tamp' || action === 'pull_espresso' || action === 'rinse_cup') {
+          targetStation = 2;
+        } else {
+          targetStation = 3;
+        }
       }
 
-      const stepKey = `${resolvedStep}:${resolvedFlavor || ''}`;
-      if (activeStepActionRef.current === stepKey && action !== 'quick_brew_step') {
-        return;
-      }
-
-      const nextState = performCupAction(curState, action, syrupFlavor);
+      // Pre-validate step transition without mutating cup yet
+      const previewNext = performCupAction(
+        { ...curState, activeStepLock: null },
+        action,
+        syrupFlavor,
+        now
+      );
       const appVersion = pwaManager.getStatus().appVersion;
 
       const cupUnchanged =
-        JSON.stringify(nextState.currentCup) === JSON.stringify(curState.currentCup) &&
+        JSON.stringify(previewNext.currentCup) === JSON.stringify(curState.currentCup) &&
         resolvedStep !== 'rinse_cup';
 
       if (cupUnchanged) {
         soundEngine.playErrorThud();
         triggerBaristaHaptic('blocked_or_error', appVersion);
-        setGameState(nextState);
-        flashAnimBanner(`Locked: ${nextState.lastActionFeedback}`, 1400, null);
+        setGameState(previewNext);
+        flashAnimBanner(`Locked: ${previewNext.lastActionFeedback}`, 1400, false);
         return;
       }
 
-      const stepDur = getStepDurationMs(curState, resolvedStep);
+      const stepDur = getStepDurationMs(curState, resolvedStep as BaristaStepActionType);
+
+      const shortLabels: Record<BaristaStepActionType, string> = {
+        grind: 'Grinding...',
+        tamp: 'Tamping...',
+        pull_espresso: 'Pulling Shot...',
+        steep_tea: 'Steeping Tea...',
+        steam_milk: 'Steaming Milk...',
+        add_ice: 'Adding Ice...',
+        add_syrup: resolvedFlavor === 'matcha' ? 'Whisking...' : 'Pumping Syrup...',
+        rinse_cup: 'Rinsing...',
+        serve_drink: 'Serving...',
+      };
+      const bannerLabels: Record<BaristaStepActionType, string> = {
+        grind: 'Grinding 18g Fresh Dark-Roast Beans...',
+        tamp: 'Tamping Coffee Puck at 30 lbs...',
+        pull_espresso: 'Extracting 9-Bar Double Espresso Shot...',
+        steep_tea: 'Steeping Artisanal Tea & Botanicals at 80°C...',
+        steam_milk: 'Steaming 65°C Microfoam & Pouring Rosetta Latte Art...',
+        add_ice: 'Scooping Crystal Ice Cubes into Cup...',
+        add_syrup:
+          resolvedFlavor === 'matcha'
+            ? 'Whisking Ceremonial Uji Matcha in Chawan...'
+            : `Pumping ${resolvedFlavor || 'Artisan'} Syrup Infusion...`,
+        rinse_cup: 'Rinsing Cup & Knocking Spent Puck into Knock Box...',
+        serve_drink: 'Serving Completed Drink...',
+      };
+
+      // Phase 1 (Start): Lock immediately, trigger 3D machine animation, sound & live progress bar
+      const lock: ActiveStepAction = createActiveStepLock(
+        curState,
+        resolvedStep as BaristaStepActionType,
+        targetStation,
+        shortLabels[resolvedStep as BaristaStepActionType],
+        now
+      );
+      stepLockUntilRef.current = now + stepDur;
 
       if (resolvedStep === 'grind') {
         soundEngine.playGrind(stepDur / 1000);
         triggerBaristaHaptic('grind', appVersion);
-        flashAnimBanner('Grinding 18g Fresh Dark-Roast Beans...', stepDur, stepKey);
       } else if (resolvedStep === 'tamp') {
         soundEngine.playTamp();
         triggerBaristaHaptic('tamp', appVersion);
-        flashAnimBanner('Tamping Coffee Puck at 30 lbs...', stepDur, stepKey);
       } else if (resolvedStep === 'pull_espresso') {
         soundEngine.playEspressoPump(stepDur / 1000);
         triggerBaristaHaptic('pull_espresso', appVersion);
-        flashAnimBanner('Extracting 9-Bar Double Espresso Shot...', stepDur, stepKey);
       } else if (resolvedStep === 'steep_tea') {
         soundEngine.playTeaSteep(stepDur / 1000);
         triggerBaristaHaptic('steep_tea', appVersion);
-        flashAnimBanner('Steeping Artisanal Tea & Botanicals at 80°C...', stepDur, stepKey);
       } else if (resolvedStep === 'steam_milk') {
         soundEngine.playSteamHiss(stepDur / 1000);
         triggerBaristaHaptic('steam_milk', appVersion);
-        flashAnimBanner('Steaming 65°C Microfoam & Pouring Rosetta Latte Art...', stepDur, stepKey);
       } else if (resolvedStep === 'add_ice') {
         soundEngine.playIceClink();
         triggerBaristaHaptic('add_ice', appVersion);
-        flashAnimBanner('Scooping Crystal Ice Cubes into Cup...', stepDur, stepKey);
       } else if (resolvedStep === 'add_syrup') {
         soundEngine.playSyrupOrWhisk(resolvedFlavor === 'matcha');
         triggerBaristaHaptic(
           resolvedFlavor === 'matcha' ? 'whisk_matcha' : 'add_syrup',
           appVersion
         );
-        flashAnimBanner(
-          resolvedFlavor === 'matcha'
-            ? 'Whisking Ceremonial Uji Matcha in Chawan...'
-            : `Pumping ${resolvedFlavor || 'Artisan'} Syrup Infusion...`,
-          stepDur,
-          stepKey
-        );
       } else {
         soundEngine.playCeramicClink(1.0);
         triggerBaristaHaptic('rinse_cup', appVersion);
-        flashAnimBanner('Rinsed Cup & Knocked Spent Puck into Knock Box', stepDur, null);
       }
 
-      sceneRef.current?.updateGameState(nextState);
+      const lockedState: KlasikGameState = {
+        ...curState,
+        activeStation: targetStation,
+        activeStepLock: lock,
+      };
+      setGameState(lockedState);
+      sceneRef.current?.updateGameState(lockedState);
       sceneRef.current?.triggerStepAnimation(resolvedStep, resolvedFlavor);
-      setGameState(nextState);
+      flashAnimBanner(
+        bannerLabels[resolvedStep as BaristaStepActionType],
+        stepDur,
+        true
+      );
+
+      // Phase 2 (Complete): Commit cup state & unlock strictly after stepDur elapses
+      if (stepCommitTimerRef.current) {
+        window.clearTimeout(stepCommitTimerRef.current);
+      }
+      stepCommitTimerRef.current = window.setTimeout(() => {
+        stepCommitTimerRef.current = null;
+        stepLockUntilRef.current = 0;
+        soundEngine.playCeramicClink(1.18);
+        setGameState((latest) => {
+          const committed = performCupAction(
+            { ...latest, activeStepLock: null },
+            action,
+            syrupFlavor
+          );
+          const finalState: KlasikGameState = { ...committed, activeStepLock: null };
+          sceneRef.current?.updateGameState(finalState);
+          return finalState;
+        });
+      }, stepDur);
     },
     [flashAnimBanner, handleServeCustomer]
   );
@@ -417,9 +558,11 @@ export default function App() {
     pwaManager.lockLandscape();
   }, []);
 
-  const shouldMountScene = bootStage !== 'landscape-cue';
+  // Defer heavy WebGL scene creation until AFTER the 1s landscape gate AND 1.35s Crema Ring entrance finish!
+  const shouldMountScene =
+    isAutostart || (bootStage !== 'landscape-cue' && splashEntranceDone);
 
-  // Mount Three.js WebGLRenderer once in isolated container (deferred until after 1s mobile landscape cue)
+  // Mount Three.js WebGLRenderer once in isolated container (zero contention with splash entrance)
   useEffect(() => {
     if (!shouldMountScene) return;
     const container = canvasMountRef.current;
@@ -453,6 +596,7 @@ export default function App() {
           },
           onHoverToolChange: (label) => setHoveredToolLabel(label),
           onFpsUpdate: (measuredFps) => setFps(measuredFps),
+          onDoorOpen: () => soundEngine.playDoorChime(),
         }
       );
       sceneRef.current = scene;
@@ -471,10 +615,12 @@ export default function App() {
       if (readyRaf !== null) {
         window.cancelAnimationFrame(readyRaf);
       }
+      clearStepTimers();
+      stepLockUntilRef.current = 0;
       scene?.dispose();
       sceneRef.current = null;
     };
-  }, [shouldMountScene, handleCupAction, handleSelectStation, handleServeCustomer]);
+  }, [shouldMountScene, clearStepTimers, handleCupAction, handleSelectStation, handleServeCustomer]);
 
   // Sync gameState changes to Three.js scene & Granular Synthesis Weather Audio Engine
   useEffect(() => {
@@ -539,28 +685,42 @@ export default function App() {
         const nextSt = (cur < 5 ? cur + 1 : 1) as BaristaStationId;
         handleSelectStation(nextSt);
       } else if (e.code === 'Space') {
-        if (gameStateRef.current.realismMode) return;
+        if (gameStateRef.current.realismMode || activeModal) return;
         e.preventDefault();
+        if (
+          e.repeat ||
+          stepLockUntilRef.current > Date.now() ||
+          isStepLockActive(gameStateRef.current.activeStepLock)
+        ) {
+          return;
+        }
         handleCupAction('quick_brew_step');
       } else if (e.code === 'KeyG') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('grind');
       } else if (e.code === 'KeyT') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('tamp');
       } else if (e.code === 'KeyE') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('pull_espresso');
       } else if (e.code === 'KeyB') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('steep_tea');
       } else if (e.code === 'KeyS') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('steam_milk');
       } else if (e.code === 'KeyI') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('add_ice');
       } else if (e.code === 'KeyR') {
+        if (e.repeat || activeModal) return;
         e.preventDefault();
         handleCupAction('rinse_cup');
       } else if (e.code === 'KeyM') {
@@ -628,6 +788,7 @@ export default function App() {
   return (
     <main
       data-landscape-enforced={isPortraitRotated ? 'rotated-90' : 'native-landscape'}
+      data-weather={gameState.weather}
       className={`bg-[#090705] select-none ${
         isPortraitRotated ? 'klasik-root-portrait-rotated' : 'klasik-root-landscape'
       }`}
@@ -669,6 +830,7 @@ export default function App() {
       {bootStage === 'studio-splash' && (
         <LoadingScreen
           isReady={isSceneReady}
+          onEntranceComplete={() => setSplashEntranceDone(true)}
           onStartFade={() => setSplashFadingOut(true)}
           onComplete={() => {
             setSplashFadingOut(true);
@@ -741,12 +903,20 @@ export default function App() {
       )}
 
       {/* Cafe Management & Spotify Vinyl Modals */}
-      {activeModal === 'recipes' && (
-        <RecipeMenuModal
-          currentDay={gameState.day}
-          onClose={() => setActiveModal(null)}
-        />
-      )}
+      {activeModal === 'recipes' && (() => {
+        const pinnedCust =
+          gameState.customers.find(
+            (c) => c.id === gameState.pinnedOrderId && c.state === 'ordering'
+          ) || gameState.customers.find((c) => c.state === 'ordering');
+        return (
+          <RecipeMenuModal
+            currentDay={gameState.day}
+            pinnedRecipeId={pinnedCust?.recipeId ?? null}
+            pinnedCustomerName={pinnedCust?.customerName ?? null}
+            onClose={() => setActiveModal(null)}
+          />
+        );
+      })()}
 
       {activeModal === 'upgrades' && (
         <BizUpgradesModal

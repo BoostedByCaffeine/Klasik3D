@@ -4,12 +4,15 @@ import { createPortal } from 'react-dom';
 interface LoadingScreenProps {
   /** Resolves true once the 3D scene / WebGL assets finish initial boot */
   isReady?: boolean;
+  /** Fires at 1350ms once the Crema Ring entrance animation finishes so WebGL boot can begin without blocking 60 FPS entrance */
+  onEntranceComplete?: () => void;
   /** Called right as the opaque backdrop starts fading out so the 3D scene can reveal smoothly */
   onStartFade?: () => void;
   /** Called once the splash screen has fully faded out and unmounted */
   onComplete: () => void;
 }
 
+const ENTRANCE_SETTLE_MS = 1350;
 const MIN_SPLASH_MS = 2350;
 const FAILSAFE_TIMEOUT_MS = 6000;
 const HALO_DIM_MS = 180;
@@ -17,6 +20,7 @@ const FADE_OUT_FAILSAFE_MS = 650;
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   isReady = true,
+  onEntranceComplete,
   onStartFade,
   onComplete,
 }) => {
@@ -28,8 +32,10 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   const completedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
   const onStartFadeRef = useRef(onStartFade);
+  const onEntranceCompleteRef = useRef(onEntranceComplete);
   onCompleteRef.current = onComplete;
   onStartFadeRef.current = onStartFade;
+  onEntranceCompleteRef.current = onEntranceComplete;
 
   const finishAndUnmount = useCallback(() => {
     if (completedRef.current) return;
@@ -38,8 +44,12 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
     onCompleteRef.current();
   }, []);
 
-  // 1. Guaranteed minimum display timer + fail-safe anti-soft-lock timer
+  // 1. Entrance settle trigger (1350ms) + guaranteed minimum display timer + fail-safe anti-soft-lock timer
   useEffect(() => {
+    const entranceTimer = window.setTimeout(() => {
+      onEntranceCompleteRef.current?.();
+    }, ENTRANCE_SETTLE_MS);
+
     const minTimer = window.setTimeout(() => {
       setMinTimerElapsed(true);
     }, MIN_SPLASH_MS);
@@ -49,6 +59,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
     }, FAILSAFE_TIMEOUT_MS);
 
     return () => {
+      window.clearTimeout(entranceTimer);
       window.clearTimeout(minTimer);
       window.clearTimeout(failsafeTimer);
     };
@@ -139,6 +150,12 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
                 <stop offset="100%" stopColor="#EA580C" />
               </linearGradient>
 
+              <radialGradient id={`crema_flame_glow_${uid}`} cx="50%" cy="45%" r="50%">
+                <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.55" />
+                <stop offset="55%" stopColor="#E59A3C" stopOpacity="0.22" />
+                <stop offset="100%" stopColor="#EA580C" stopOpacity="0" />
+              </radialGradient>
+
               <linearGradient id={`crema_steam_grad_${uid}`} x1="100" y1="56" x2="100" y2="16" gradientUnits="userSpaceOnUse">
                 <stop offset="0%" stopColor="#C8924A" />
                 <stop offset="100%" stopColor="#FEF3C7" />
@@ -199,8 +216,9 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
               <ellipse cx="100" cy="70" rx="32" ry="4.8" fill="#D97706" />
             </g>
 
-            {/* 3. Warm Amber Thruster Flame */}
+            {/* 3. Warm Amber Thruster Flame + Pre-Blurred Radial SVG Glow (Zero CSS drop-shadow repaint!) */}
             <g className="thruster-flame">
+              <circle cx="100" cy="162" r="26" fill={`url(#crema_flame_glow_${uid})`} />
               <path
                 d="M81 145 Q100 190 119 145 Q109 162 100 183 Q91 162 81 145 Z"
                 fill={`url(#crema_flame_grad_${uid})`}

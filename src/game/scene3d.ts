@@ -21,12 +21,17 @@ import { SpotifyVinylState } from './spotifyManager';
 const _targetPos = new THREE.Vector3();
 const _targetLook = new THREE.Vector3();
 const _tempVec = new THREE.Vector3();
+const _tempVec2 = new THREE.Vector3();
+const _codexCenter = new THREE.Vector3();
+const _codexNormal = new THREE.Vector3();
+const _codexQuat = new THREE.Quaternion();
 const _lookMat = new THREE.Matrix4();
 const _targetQuat = new THREE.Quaternion();
 const _upVec = new THREE.Vector3(0, 1, 0);
 const _dummyObj = new THREE.Object3D();
 const _targetColor = new THREE.Color();
 const _targetCremaColor = new THREE.Color();
+const _skyBgColor = new THREE.Color();
 
 export type StepAnimType =
   | 'grind'
@@ -61,6 +66,7 @@ export interface SceneInteractionCallbacks {
   ) => void;
   onHoverToolChange: (label: string | null) => void;
   onFpsUpdate?: (fps: number) => void;
+  onDoorOpen?: () => void;
 }
 
 interface StationCameraPreset {
@@ -169,6 +175,142 @@ const CUP_LIQUID_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
+// Custom GLSL Procedural 3-Stop Atmospheric Sky Dome Shader (Morning Sun, Golden Hour Sun Disc, Rainy Slate)
+const SKY_DOME_VERTEX_SHADER = /* glsl */ `
+  varying vec3 vWorldDir;
+  void main() {
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldDir = normalize(position);
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const SKY_DOME_FRAGMENT_SHADER = /* glsl */ `
+  varying vec3 vWorldDir;
+  uniform vec3 uTopColor;
+  uniform vec3 uMidColor;
+  uniform vec3 uHorizonColor;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform float uSunIntensity;
+
+  void main() {
+    vec3 dir = normalize(vWorldDir);
+    float h = clamp(dir.y * 1.35 + 0.05, 0.0, 1.0);
+    vec3 lowerGrad = mix(uHorizonColor, uMidColor, smoothstep(0.0, 0.34, h));
+    vec3 skyCol = mix(lowerGrad, uTopColor, smoothstep(0.28, 0.92, h));
+
+    // Soft atmospheric sun disc & warm horizon scatter glow
+    float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
+    float sunHalo = pow(sunDot, 10.0) * 0.42 * uSunIntensity;
+    float sunDisc = smoothstep(0.9945, 0.9985, sunDot) * 1.15 * uSunIntensity;
+    skyCol += uSunColor * (sunHalo + sunDisc);
+
+    gl_FragColor = vec4(skyCol, 1.0);
+  }
+`;
+
+// Custom GLSL Additive Volumetric God-Ray Sunbeam Shader (Zero Post-Processing Cost)
+const GOD_RAY_VERTEX_SHADER = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+
+  void main() {
+    vUv = uv;
+    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+    vNormal = normalize(normalMatrix * normal);
+    vViewDir = normalize(-mvPos.xyz);
+    gl_Position = projectionMatrix * mvPos;
+  }
+`;
+
+const GOD_RAY_FRAGMENT_SHADER = /* glsl */ `
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewDir;
+  uniform float uTime;
+  uniform vec3 uColor;
+  uniform float uOpacity;
+
+  void main() {
+    // Soft radial falloff across beam width & gradual fade toward floor
+    float edgeFade = smoothstep(0.0, 0.28, vUv.x) * smoothstep(1.0, 0.72, vUv.x);
+    float lengthFade = smoothstep(0.0, 0.22, vUv.y) * smoothstep(1.0, 0.08, vUv.y);
+    // Subtle animated sunbeam shimmer (dust/steam drift)
+    float shimmer = 0.86 + 0.14 * sin(vUv.x * 12.0 + uTime * 0.45 + vUv.y * 4.0);
+    // Fresnel grazing fade so planes never look like hard cardboard cards
+    float viewFade = pow(abs(dot(normalize(vNormal), normalize(vViewDir))), 0.65);
+    float alpha = edgeFade * lengthFade * shimmer * viewFade * uOpacity;
+    gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+// Custom GLSL GPU-Driven Outdoor-Only Rain Curtain Shader (Zero CPU Loop, Zero Frozen Droplets, Strictly z <= -6.55)
+const GPU_RAIN_VERTEX_SHADER = /* glsl */ `
+  attribute vec3 aOrigin;
+  attribute float aSpeed;
+  attribute float aPhase;
+  attribute float aIsTail;
+  uniform float uTime;
+  varying float vTail;
+
+  void main() {
+    vTail = aIsTail;
+    float fallHeight = 9.5;
+    float yHead = fallHeight - mod(uTime * aSpeed + aPhase * fallHeight, fallHeight);
+    vec3 pos = vec3(aOrigin.x, yHead, aOrigin.z);
+    // Wind-slanted raindrop tail trailing slightly up and left
+    if (aIsTail > 0.5) {
+      pos.y += 0.38;
+      pos.x -= 0.05;
+    }
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  }
+`;
+
+const GPU_RAIN_FRAGMENT_SHADER = /* glsl */ `
+  varying float vTail;
+  uniform vec3 uColor;
+  uniform float uOpacity;
+
+  void main() {
+    float alpha = mix(uOpacity, uOpacity * 0.22, vTail);
+    gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
+interface StaticCollider2D {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+interface PooledPedestrian {
+  actor: Omit<
+    ArticulatedCustomerActor,
+    'currentPos' | 'lastPos' | 'waypoints' | 'finalGoalKey' | 'walkPhase' | 'walkBlend' | 'seatedBlend' | 'facingAngle'
+  >;
+  laneZ: number;
+  x: number;
+  dir: 1 | -1;
+  speed: number;
+  walkPhase: number;
+  pauseTimer: number;
+  glancePhase: number;
+}
+
+interface PooledTrafficVehicle {
+  group: THREE.Group;
+  wheels: THREE.Object3D[];
+  laneZ: number;
+  laneY: number;
+  x: number;
+  dir: 1 | -1;
+  speed: number;
+  isHighway: boolean;
+}
+
 interface ArticulatedCustomerActor {
   group: THREE.Group;
   pelvisGroup: THREE.Group;
@@ -263,8 +405,12 @@ export class KlasikCafeScene3D {
   private pickupSpeechTexture!: THREE.CanvasTexture;
   private stepHaloTexture!: THREE.CanvasTexture;
   private miataLicenseTexture!: THREE.CanvasTexture;
+  private posScreenTexture!: THREE.CanvasTexture;
+  private roadAsphaltTexture!: THREE.CanvasTexture;
+  private windowRainTexture!: THREE.CanvasTexture;
   private ticketTextures: THREE.CanvasTexture[] = [];
   private lastTicketSignature = '';
+  private lastPosOrderCount = -1;
 
   // Dynamic materials for customization, equipment skins & highlighting
   private counterWoodMat!: THREE.MeshStandardMaterial;
@@ -273,7 +419,13 @@ export class KlasikCafeScene3D {
   private underCounterNeonMat!: THREE.MeshStandardMaterial;
   private skylightPaneMat!: THREE.MeshStandardMaterial;
   private garageGlassMat!: THREE.MeshStandardMaterial;
+  private windowRainMat!: THREE.MeshBasicMaterial;
+  private roadAsphaltMat!: THREE.MeshStandardMaterial;
+  private patioFloorMat!: THREE.MeshStandardMaterial;
   private pendantBulbMats: THREE.MeshStandardMaterial[] = [];
+  private streetLampBulbMats: THREE.MeshStandardMaterial[] = [];
+  private vehicleHeadlightMat!: THREE.MeshStandardMaterial;
+  private vehicleTaillightMat!: THREE.MeshStandardMaterial;
   private glassRainStreaksGroup!: THREE.Group;
   private botanicalPlanterExtras: THREE.Object3D[] = [];
   private hangingSignFaceMat!: THREE.MeshStandardMaterial;
@@ -287,8 +439,29 @@ export class KlasikCafeScene3D {
   private interactables: THREE.Object3D[] = [];
   private toolGroups: Map<string, THREE.Object3D> = new Map();
   private hangingSignGroup!: THREE.Group;
+  private posDisplayMesh!: THREE.Mesh;
+  private isCodexFocused = false;
+  private entranceDoorPivot!: THREE.Group;
+  private doorBellGroup!: THREE.Group;
+  private doorAngle = 0;
+  private doorWasOpen = false;
+  private doorChimeCooldown = 0;
   private titleHeroCupGroup!: THREE.Group;
   private titlePlaqueGroup!: THREE.Group;
+
+  // Atmospheric Shaders (Sky Dome, Volumetric God Rays, Outdoor-Only GPU Rain)
+  private skyDomeMat!: THREE.ShaderMaterial;
+  private godRaysGroup!: THREE.Group;
+  private godRayMat!: THREE.ShaderMaterial;
+  private goldenDustInstanced!: THREE.InstancedMesh;
+  private gpuRainLines!: THREE.LineSegments;
+  private gpuRainMat!: THREE.ShaderMaterial;
+  private rainSplashInstanced!: THREE.InstancedMesh;
+
+  // Pooled Outdoor Living World (Full-Quality Pedestrians & Stylized Traffic) + 2D Static Colliders
+  private pedestrianPool: PooledPedestrian[] = [];
+  private trafficPool: PooledTrafficVehicle[] = [];
+  private staticColliders: StaticCollider2D[] = [];
 
   // 3D Shop Upgrade Showroom & Counter Props
   private upgradeTubePreampGroup!: THREE.Group;
@@ -357,9 +530,8 @@ export class KlasikCafeScene3D {
   private vinylSleeveMesh!: THREE.Mesh;
   private musicNotesInstanced!: THREE.InstancedMesh;
 
-  // Pooled Steam & Rain Particles (InstancedMesh)
+  // Pooled Steam & Foliage Particles (InstancedMesh)
   private steamParticlesInstanced!: THREE.InstancedMesh;
-  private rainDropsInstanced!: THREE.InstancedMesh;
   private monsteraLeavesInstanced!: THREE.InstancedMesh;
 
   // 3D Articulated Customer Actors Pool
@@ -413,10 +585,11 @@ export class KlasikCafeScene3D {
       }
     })();
 
-    // 2. WebGLRenderer Initialization (Full MSAA & High-DPI support for High-End Android & Desktop)
+    // 2. WebGLRenderer Initialization (Low-end Android safe default; High-DPI on MAX)
+    const initialLow = this.isSoftwareGl || initialGameState.graphicsQuality === 'low';
     this.renderer = new THREE.WebGLRenderer({
-      antialias: !this.isSoftwareGl,
-      powerPreference: 'high-performance',
+      antialias: !initialLow,
+      powerPreference: initialLow ? 'default' : 'high-performance',
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -431,12 +604,12 @@ export class KlasikCafeScene3D {
     this.renderer.domElement.style.display = 'block';
     this.container.appendChild(this.renderer.domElement);
 
-    // 3. Scene & Camera Setup
+    // 3. Scene & Camera Setup (far = 95 for Sky Dome & Elevated City Highway)
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a120e);
-    this.scene.fog = new THREE.FogExp2(0x1a120e, 0.042);
+    this.scene.fog = new THREE.FogExp2(0x1a120e, 0.015);
 
-    this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 60);
+    this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 95);
     this.camera.position.set(2.02, 1.32, 1.18);
     this.camera.lookAt(-0.85, 0.82, -1.35);
 
@@ -448,10 +621,12 @@ export class KlasikCafeScene3D {
     // 5. Build Procedural Textures
     this.initProceduralTextures();
 
-    // 6. Build Lighting, Cozy Cafe Interior & Garden Architecture, Barista Stations 1..5
+    // 6. Build Lighting, Sky Dome, Volumetric God Rays, Cafe Interior, Exterior Street & Highway, Stations 1..5
     this.initLights();
     this.initMaterials();
+    this.buildSkyAndGodRays();
     this.buildCafeArchitecture();
+    this.buildOutdoorNeighborhood();
     this.buildHangingTitleSign();
     this.buildStation1RegisterAndTickets();
     this.buildStation2EspressoBar();
@@ -461,6 +636,9 @@ export class KlasikCafeScene3D {
     this.buildShopUpgradeProps();
     this.buildFloatingBadgeAndHearts();
     this.buildPooledParticles();
+    this.initStaticColliders();
+    this.buildOutdoorPedestrianPool();
+    this.buildOutdoorTrafficPool();
     this.scene.add(this.customersRoot);
 
     // Sync initial state & graphics quality
@@ -469,6 +647,7 @@ export class KlasikCafeScene3D {
     this.updateDecorMaterials();
     this.updateActiveCupVisuals();
     this.redrawOrderTicketTextures();
+    this.redrawPosScreenTexture();
     this.syncCustomerActors();
 
     // Pre-warm shaders on hardware GPUs
@@ -480,6 +659,14 @@ export class KlasikCafeScene3D {
     this.startLoop();
   }
 
+  public setCodexFocusMode(active: boolean) {
+    this.isCodexFocused = active;
+    if (active) {
+      this.manualCameraYawOffset = 0;
+      this.manualCameraZoomOffset = 0;
+    }
+  }
+
   private shouldUsePhysicalTransmission(): boolean {
     return !this.isSoftwareGl && this.gameState.graphicsQuality === 'max';
   }
@@ -487,7 +674,12 @@ export class KlasikCafeScene3D {
   private updateGraphicsQuality() {
     const isLow = this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
     const dpr = window.devicePixelRatio || 1;
-    const targetRatio = isLow ? 1.0 : Math.min(dpr, 2.0);
+    // On GFX: LOW mobile devices, cap DPR at 0.9 for huge fragment-shader win on Mali/Adreno GPUs
+    const targetRatio = isLow
+      ? this.isMobileDevice
+        ? Math.min(dpr, 0.9)
+        : 1.0
+      : Math.min(dpr, 2.0);
 
     this.renderer.setPixelRatio(targetRatio);
     const enableShadows = !isLow;
@@ -503,6 +695,8 @@ export class KlasikCafeScene3D {
       this.microCementTexture,
       this.herringboneFloorTexture,
       this.patioCobbleTexture,
+      this.roadAsphaltTexture,
+      this.posScreenTexture,
       this.studioLogoTexture,
       this.studioCupEmblemTexture,
       this.hangingSignTexture,
@@ -517,6 +711,33 @@ export class KlasikCafeScene3D {
       const lush = this.gameState.decor.plantDensity === 'lush-jungle';
       this.monsteraLeavesInstanced.count = isLow ? (lush ? 16 : 10) : lush ? 36 : 18;
     }
+
+    // Scale Outdoor GPU Raindrop count cleanly via drawRange (180 on LOW, 650 on MAX)
+    if (this.gpuRainLines) {
+      const rainDropCount = isLow ? 180 : 650;
+      this.gpuRainLines.geometry.setDrawRange(0, rainDropCount * 2);
+    }
+
+    // Scale Fixed Outdoor Pedestrian Pool (2 on LOW, 5 on MAX)
+    const maxPeds = isLow ? 2 : 5;
+    this.pedestrianPool.forEach((p, idx) => {
+      p.actor.group.visible = idx < maxPeds;
+    });
+
+    // Scale Fixed Outdoor Street & Highway Traffic Pool (2 street + 2 highway on LOW; 6 + 4 on MAX)
+    let streetShown = 0;
+    let highwayShown = 0;
+    const maxStreet = isLow ? 2 : 6;
+    const maxHighway = isLow ? 2 : 4;
+    this.trafficPool.forEach((v) => {
+      if (v.isHighway) {
+        v.group.visible = highwayShown < maxHighway;
+        highwayShown++;
+      } else {
+        v.group.visible = streetShown < maxStreet;
+        streetShown++;
+      }
+    });
 
     const { width, height } = this.getEffectiveLandscapeDimensions();
     this.renderer.setSize(width, height, false);
@@ -966,6 +1187,145 @@ export class KlasikCafeScene3D {
     this.pickupSpeechTexture = new THREE.CanvasTexture(speechCanvas);
     this.pickupSpeechTexture.colorSpace = THREE.SRGBColorSpace;
     this.drawPickupSpeechBubble('Looks amazing, thank you!');
+
+    // K. Idle 3D POS Monitor Screen Texture ("KLASIK POS · TAP FOR BARISTA CODEX")
+    const posCanvas = document.createElement('canvas');
+    posCanvas.width = 512;
+    posCanvas.height = 340;
+    this.posScreenTexture = new THREE.CanvasTexture(posCanvas);
+    this.posScreenTexture.colorSpace = THREE.SRGBColorSpace;
+    this.posScreenTexture.anisotropy = maxAniso;
+
+    // L. Weathered 2-Lane Neighborhood Avenue Asphalt Texture (with dashed center line & crosswalk)
+    const roadCanvas = document.createElement('canvas');
+    const roadSize = this.gameState.graphicsQuality === 'low' ? 256 : 512;
+    roadCanvas.width = roadSize;
+    roadCanvas.height = roadSize;
+    const rCtx = roadCanvas.getContext('2d')!;
+    rCtx.fillStyle = '#26292e';
+    rCtx.fillRect(0, 0, roadSize, roadSize);
+    // Asphalt aggregate grain
+    for (let i = 0; i < 650; i++) {
+      const gx = (i * 53) % roadSize;
+      const gy = (i * 97) % roadSize;
+      rCtx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.09)';
+      rCtx.fillRect(gx, gy, 2, 2);
+    }
+    // Crisp white edge lines
+    rCtx.fillStyle = 'rgba(226, 232, 240, 0.55)';
+    rCtx.fillRect(0, Math.round(roadSize * 0.05), roadSize, Math.max(2, Math.round(roadSize * 0.018)));
+    rCtx.fillRect(0, Math.round(roadSize * 0.93), roadSize, Math.max(2, Math.round(roadSize * 0.018)));
+    // Dashed amber center divider
+    rCtx.fillStyle = '#f59e0b';
+    const dashW = Math.round(roadSize * 0.22);
+    const dashH = Math.max(3, Math.round(roadSize * 0.025));
+    const midY = Math.round(roadSize * 0.5 - dashH * 0.5);
+    rCtx.fillRect(Math.round(roadSize * 0.06), midY, dashW, dashH);
+    rCtx.fillRect(Math.round(roadSize * 0.56), midY, dashW, dashH);
+    this.roadAsphaltTexture = new THREE.CanvasTexture(roadCanvas);
+    this.roadAsphaltTexture.colorSpace = THREE.SRGBColorSpace;
+    this.roadAsphaltTexture.wrapS = THREE.RepeatWrapping;
+    this.roadAsphaltTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.roadAsphaltTexture.repeat.set(7, 1);
+    this.roadAsphaltTexture.anisotropy = maxAniso;
+
+    // M. Scrolling Exterior Glass Rain-Streak Alpha Texture
+    const wrCanvas = document.createElement('canvas');
+    wrCanvas.width = 256;
+    wrCanvas.height = 256;
+    const wrCtx = wrCanvas.getContext('2d')!;
+    wrCtx.clearRect(0, 0, 256, 256);
+    for (let i = 0; i < 42; i++) {
+      const rx = ((i * 61 + 19) % 244) + 6;
+      const ry = (i * 89) % 256;
+      const rLen = 18 + (i % 5) * 10;
+      const grad = wrCtx.createLinearGradient(rx, ry, rx, ry + rLen);
+      grad.addColorStop(0, 'rgba(219, 234, 254, 0)');
+      grad.addColorStop(0.75, 'rgba(219, 234, 254, 0.42)');
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0.72)');
+      wrCtx.strokeStyle = grad;
+      wrCtx.lineWidth = i % 3 === 0 ? 2.4 : 1.5;
+      wrCtx.beginPath();
+      wrCtx.moveTo(rx, ry);
+      wrCtx.lineTo(rx - 2, ry + rLen);
+      wrCtx.stroke();
+      // Tiny droplet bead at bottom of trail
+      wrCtx.fillStyle = 'rgba(224, 242, 254, 0.65)';
+      wrCtx.beginPath();
+      wrCtx.arc(rx - 2, ry + rLen, 2.2, 0, Math.PI * 2);
+      wrCtx.fill();
+    }
+    this.windowRainTexture = new THREE.CanvasTexture(wrCanvas);
+    this.windowRainTexture.wrapS = THREE.RepeatWrapping;
+    this.windowRainTexture.wrapT = THREE.RepeatWrapping;
+    this.windowRainTexture.repeat.set(4, 2);
+  }
+
+  private redrawPosScreenTexture() {
+    if (!this.posScreenTexture) return;
+    const orderingCount = this.gameState.customers.filter((c) => c.state === 'ordering').length;
+    if (orderingCount === this.lastPosOrderCount) return;
+    this.lastPosOrderCount = orderingCount;
+
+    const canvas = this.posScreenTexture.image as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Sleek dark emerald-slate POS LCD screen
+    const grad = ctx.createLinearGradient(0, 0, 0, 340);
+    grad.addColorStop(0, '#0a1916');
+    grad.addColorStop(1, '#06100e');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 512, 340);
+
+    // Subtle scanline grid
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.06)';
+    for (let y = 0; y < 340; y += 6) {
+      ctx.fillRect(0, y, 512, 2);
+    }
+
+    // Outer luminous bezel border
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, 492, 320);
+
+    // Top status bar
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.16)';
+    ctx.fillRect(14, 14, 484, 52);
+    ctx.fillStyle = '#34d399';
+    ctx.beginPath();
+    ctx.arc(38, 40, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#faf5ee';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('KLASIK POS v3.2', 58, 48);
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.textAlign = 'right';
+    ctx.fillText(`QUEUE: ${orderingCount}`, 480, 48);
+
+    // Main centerpiece callout
+    ctx.fillStyle = '#faf5ee';
+    ctx.font = 'bold 42px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('BARISTA CODEX', 256, 152);
+
+    ctx.fillStyle = '#a7f3d0';
+    ctx.font = '600 22px sans-serif';
+    ctx.fillText('16 COFFEE · TEA · COLD RECIPES', 256, 198);
+
+    // Interactive Tap CTA pill
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.roundRect(86, 234, 340, 62, 16);
+    ctx.fill();
+    ctx.fillStyle = '#160e09';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('TAP FOR BARISTA CODEX', 256, 273);
+
+    this.posScreenTexture.needsUpdate = true;
   }
 
   private redrawHangingSignTexture(accentHex: string) {
@@ -973,18 +1333,66 @@ export class KlasikCafeScene3D {
     const signCanvas = this.hangingSignTexture.image as HTMLCanvasElement;
     const sCtx = signCanvas.getContext('2d');
     if (!sCtx) return;
-    sCtx.fillStyle = '#1d130d';
+
+    // Warm dark-roast double-sided exterior blade sign with Yin-Yang Leaf & Cappuccino Emblem + Entrance Arrow
+    sCtx.fillStyle = '#17100c';
     sCtx.fillRect(0, 0, 512, 160);
     sCtx.strokeStyle = accentHex;
-    sCtx.lineWidth = 6;
+    sCtx.lineWidth = 7;
     sCtx.strokeRect(10, 10, 492, 140);
+
+    // Left Yin-Yang Botanical & Crema Emblem
+    sCtx.save();
+    sCtx.translate(72, 80);
+    sCtx.beginPath();
+    sCtx.arc(0, 0, 42, 0, Math.PI * 2);
+    sCtx.fillStyle = '#291c14';
+    sCtx.fill();
+    sCtx.strokeStyle = accentHex;
+    sCtx.lineWidth = 4;
+    sCtx.stroke();
+    // Crema upper swirl & botanical green lower swirl
+    sCtx.beginPath();
+    sCtx.arc(0, 0, 34, -Math.PI / 2, Math.PI / 2);
+    sCtx.fillStyle = '#f5e6cc';
+    sCtx.fill();
+    sCtx.beginPath();
+    sCtx.arc(0, 0, 34, Math.PI / 2, (Math.PI * 3) / 2);
+    sCtx.fillStyle = '#2d6a4f';
+    sCtx.fill();
+    sCtx.beginPath();
+    sCtx.arc(0, -17, 17, 0, Math.PI * 2);
+    sCtx.fillStyle = '#f5e6cc';
+    sCtx.fill();
+    sCtx.beginPath();
+    sCtx.arc(0, 17, 17, 0, Math.PI * 2);
+    sCtx.fillStyle = '#2d6a4f';
+    sCtx.fill();
+    sCtx.beginPath();
+    sCtx.arc(0, -17, 5, 0, Math.PI * 2);
+    sCtx.fillStyle = '#3b1d0e';
+    sCtx.fill();
+    sCtx.beginPath();
+    sCtx.arc(0, 17, 5, 0, Math.PI * 2);
+    sCtx.fillStyle = '#f5e6cc';
+    sCtx.fill();
+    sCtx.restore();
+
+    // Main Branding Text
     sCtx.fillStyle = '#fef3c7';
-    sCtx.font = 'bold 54px Georgia, serif';
-    sCtx.textAlign = 'center';
-    sCtx.fillText('KLASIK 3D', 256, 82);
+    sCtx.font = 'bold 46px Georgia, serif';
+    sCtx.textAlign = 'left';
+    sCtx.fillText('KLASIK 3D', 132, 74);
+
+    sCtx.fillStyle = '#e7d7c1';
+    sCtx.font = '600 16px sans-serif';
+    sCtx.fillText('GARAGE GARDEN CAFE', 134, 102);
+
+    // Glowing Directional Entrance Arrow
     sCtx.fillStyle = accentHex;
-    sCtx.font = '600 20px sans-serif';
-    sCtx.fillText('GARAGE GARDEN CAFE · EST. 2026', 256, 122);
+    sCtx.font = 'bold 20px monospace';
+    sCtx.fillText('ENTRANCE  →', 134, 134);
+
     this.hangingSignTexture.needsUpdate = true;
   }
 
@@ -1232,13 +1640,95 @@ export class KlasikCafeScene3D {
     this.cafeWarmLight.position.set(-0.2, 2.75, 0.3);
     this.scene.add(this.cafeWarmLight);
 
-    this.neonSignLight = new THREE.PointLight(0xf59e0b, 1.4, 7, 1.8);
-    this.neonSignLight.position.set(0, 2.35, -0.1);
+    this.neonSignLight = new THREE.PointLight(0xf59e0b, 1.5, 6.5, 1.7);
+    this.neonSignLight.position.set(-2.05, 2.55, -6.75);
     this.scene.add(this.neonSignLight);
 
     this.turntableLampLight = new THREE.PointLight(0xfbbf24, 1.2, 4.5, 2);
     this.turntableLampLight.position.set(2.15, 1.45, 0.25);
     this.scene.add(this.turntableLampLight);
+  }
+
+  // Procedural Sky Dome Shader + Additive Volumetric God-Ray Sunbeams + Floating Golden Dust Motes
+  private buildSkyAndGodRays() {
+    // 1. Procedural 3-Stop Atmospheric Sky Dome Sphere (radius 64, strictly inside camera far=95)
+    this.skyDomeMat = new THREE.ShaderMaterial({
+      vertexShader: SKY_DOME_VERTEX_SHADER,
+      fragmentShader: SKY_DOME_FRAGMENT_SHADER,
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        uTopColor: { value: new THREE.Color('#4a90d9') },
+        uMidColor: { value: new THREE.Color('#a6d4fa') },
+        uHorizonColor: { value: new THREE.Color('#fff4e0') },
+        uSunDir: { value: new THREE.Vector3(-0.42, 0.26, -0.87).normalize() },
+        uSunColor: { value: new THREE.Color('#fff1c7') },
+        uSunIntensity: { value: 0.75 },
+      },
+    });
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(64, 24, 16), this.skyDomeMat);
+    skyDome.renderOrder = -10;
+    this.scene.add(skyDome);
+
+    // 2. Diagonal Translucent Volumetric God-Ray Light-Shaft Planes streaming through Glass Garage Bays & Skylights
+    this.godRaysGroup = new THREE.Group();
+    this.godRayMat = new THREE.ShaderMaterial({
+      vertexShader: GOD_RAY_VERTEX_SHADER,
+      fragmentShader: GOD_RAY_FRAGMENT_SHADER,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color('#ffbe6b') },
+        uOpacity: { value: 0.16 },
+      },
+    });
+
+    const raySpecs: Array<{
+      x: number;
+      y: number;
+      z: number;
+      w: number;
+      h: number;
+      rx: number;
+      ry: number;
+      rz: number;
+    }> = [
+      // Left garage bay shaft streaming diagonally over the 1990 Miata hood
+      { x: -3.2, y: 2.15, z: -4.15, w: 2.4, h: 5.2, rx: -0.44, ry: 0.28, rz: -0.22 },
+      // Center entrance bay shaft streaming toward the espresso counter
+      { x: -0.45, y: 2.2, z: -3.95, w: 2.2, h: 5.4, rx: -0.46, ry: 0.24, rz: -0.20 },
+      // Right garden bay shaft grazing the walnut lounge tables
+      { x: 2.45, y: 2.15, z: -4.1, w: 2.35, h: 5.2, rx: -0.44, ry: 0.2, rz: -0.22 },
+      // Overhead skylight golden column over counter & Miata
+      { x: -1.65, y: 2.45, z: -2.15, w: 1.85, h: 4.4, rx: -0.28, ry: 0.12, rz: -0.18 },
+      // Cross-angle beam for dimensional depth from side camera views
+      { x: 0.85, y: 2.3, z: -2.4, w: 1.9, h: 4.5, rx: -0.32, ry: -0.22, rz: -0.16 },
+    ];
+    raySpecs.forEach((r) => {
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(r.w, r.h), this.godRayMat);
+      plane.position.set(r.x, r.y, r.z);
+      plane.rotation.set(r.rx, r.ry, r.rz);
+      plane.renderOrder = 3;
+      this.godRaysGroup.add(plane);
+    });
+    this.scene.add(this.godRaysGroup);
+
+    // 3. Subtle Floating Golden Dust Motes drifting through the interior sunbeams
+    const dustGeo = new THREE.SphereGeometry(0.014, 6, 6);
+    const dustMat = new THREE.MeshBasicMaterial({
+      color: 0xffdf9e,
+      transparent: true,
+      opacity: 0.52,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.goldenDustInstanced = new THREE.InstancedMesh(dustGeo, dustMat, 18);
+    this.goldenDustInstanced.frustumCulled = false;
+    this.scene.add(this.goldenDustInstanced);
   }
 
   private initMaterials() {
@@ -1472,27 +1962,27 @@ export class KlasikCafeScene3D {
     deckFrame.position.set(1.55, 0.004, -3.65);
     archGroup.add(deckFrame);
 
-    // 2. Outdoor Courtyard Cobblestone Terrace outside the Glass Garage Bay Doors (z = -6.2 to -13.5)
-    const patioFloorMat = new THREE.MeshStandardMaterial({
+    // 2. Outdoor Courtyard Cobblestone Terrace outside the Glass Garage Bay Doors (z = -6.2 to -7.4)
+    this.patioFloorMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: this.patioCobbleTexture,
       roughness: 0.78,
-      metalness: 0.04,
+      metalness: 0.05,
     });
-    const patioFloor = new THREE.Mesh(new THREE.PlaneGeometry(20, 7.6), patioFloorMat);
+    const patioFloor = new THREE.Mesh(new THREE.PlaneGeometry(24, 3.0), this.patioFloorMat);
     patioFloor.rotation.x = -Math.PI / 2;
-    patioFloor.position.set(0, -0.01, -10.0);
+    patioFloor.position.set(0, -0.01, -7.7);
     patioFloor.receiveShadow = true;
     archGroup.add(patioFloor);
 
-    // Outer Botanical Garden Lawn Perimeter beyond courtyard
+    // Outer Neighborhood Ground Plane beneath sidewalk, street & highway
     const grassMat = new THREE.MeshStandardMaterial({
-      color: 0x1b331d,
+      color: 0x1e2c21,
       roughness: 0.92,
     });
-    const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(38, 22), grassMat);
+    const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(68, 36), grassMat);
     grassPlane.rotation.x = -Math.PI / 2;
-    grassPlane.position.set(0, -0.028, -16.0);
+    grassPlane.position.set(0, -0.04, -22.0);
     archGroup.add(grassPlane);
 
     // 3. Main Fluted-Timber & Brushed-Brass Barista Counter (Top surface strictly y = 1.00)
@@ -1646,14 +2136,14 @@ export class KlasikCafeScene3D {
     });
     archGroup.add(shelfGroup);
 
-    // 5. Sectional Black-Steel Framed Glass Garage Bay Doors (z = -6.2) replacing old picket fence!
+    // 5. Sectional Black-Steel Framed Glass Garage Bay Doors + Pivoting Swinging Cafe Entrance Door (z = -6.2)
     const garageWallZ = -6.2;
     this.garageGlassMat = new THREE.MeshStandardMaterial({
       color: 0xcbe3ee,
       roughness: 0.12,
       metalness: 0.18,
       transparent: true,
-      opacity: 0.24,
+      opacity: 0.22,
       depthWrite: false,
     });
 
@@ -1665,14 +2155,24 @@ export class KlasikCafeScene3D {
     garageHeaderBeam.position.set(0, 3.85, garageWallZ);
     archGroup.add(garageHeaderBeam);
 
-    // Concrete knee-wall base beneath outer bays
-    const baseCurb = new THREE.Mesh(new THREE.BoxGeometry(11.4, 0.24, 0.22), concreteDadoMat);
-    baseCurb.position.set(0, 0.12, garageWallZ);
-    archGroup.add(baseCurb);
+    // Split Concrete Knee-Wall Base around the Center-Left Entrance Doorway (doorway: x = -1.72 to -0.58)
+    const leftCurb = new THREE.Mesh(new THREE.BoxGeometry(3.98, 0.24, 0.22), concreteDadoMat);
+    leftCurb.position.set(-3.71, 0.12, garageWallZ);
+    archGroup.add(leftCurb);
 
-    // 3 Wide Sectional Glass Garage Bay Doors (Left Showroom Bay, Center Entry Bay, Right Garden Bay)
-    const bayCenters = [-3.65, 0.0, 3.65];
-    const bayWidth = 3.35;
+    const rightCurb = new THREE.Mesh(new THREE.BoxGeometry(6.28, 0.24, 0.22), concreteDadoMat);
+    rightCurb.position.set(2.56, 0.12, garageWallZ);
+    archGroup.add(rightCurb);
+
+    // Warm Timber & Brushed-Brass Entrance Threshold Plate at Doorway (x = -1.15, width = 1.16m)
+    const thresholdPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(1.18, 0.022, 0.28),
+      this.counterWoodMat
+    );
+    thresholdPlate.position.set(-1.15, 0.011, garageWallZ);
+    archGroup.add(thresholdPlate);
+
+    // Structural Black-Steel Pilasters (including doorway latch jamb at x = -0.58)
     [-5.45, -1.82, 1.82, 5.45].forEach((px) => {
       const steelPost = new THREE.Mesh(
         new THREE.BoxGeometry(0.22, 4.1, 0.26),
@@ -1683,50 +2183,154 @@ export class KlasikCafeScene3D {
       archGroup.add(steelPost);
     });
 
-    bayCenters.forEach((bx) => {
-      // Translucent conservatory glass pane per bay
-      const glassPane = new THREE.Mesh(
-        new THREE.PlaneGeometry(bayWidth, 3.4),
-        this.garageGlassMat
+    // Doorway Right Jamb & Door Header Transom Beam (x = -1.72 .. -0.58, height = 2.38m)
+    const doorRightJamb = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 3.7, 0.16),
+      charcoalSteelMat
+    );
+    doorRightJamb.position.set(-0.56, 1.85, garageWallZ);
+    archGroup.add(doorRightJamb);
+
+    const doorHeaderBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(1.24, 0.1, 0.16),
+      charcoalSteelMat
+    );
+    doorHeaderBeam.position.set(-1.15, 2.38, garageWallZ);
+    archGroup.add(doorHeaderBeam);
+
+    // Fixed Glass Transom Window above the Swinging Entrance Door (y = 2.43..3.64)
+    const doorTransomGlass = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.12, 1.18),
+      this.garageGlassMat
+    );
+    doorTransomGlass.position.set(-1.15, 3.03, garageWallZ);
+    archGroup.add(doorTransomGlass);
+
+    // Articulated Pivoting Glass Cafe Entrance Door Leaf (hinged at left jamb x = -1.72, z = -6.2)
+    this.entranceDoorPivot = new THREE.Group();
+    this.entranceDoorPivot.position.set(-1.72, 0, garageWallZ);
+    const doorW = 1.12;
+    const doorH = 2.34;
+    // Left & Right Door Stiles + Top & Bottom Rails
+    const leftStile = new THREE.Mesh(new THREE.BoxGeometry(0.065, doorH, 0.06), charcoalSteelMat);
+    leftStile.position.set(0.032, doorH / 2, 0);
+    this.entranceDoorPivot.add(leftStile);
+
+    const rightStile = new THREE.Mesh(new THREE.BoxGeometry(0.065, doorH, 0.06), charcoalSteelMat);
+    rightStile.position.set(doorW - 0.032, doorH / 2, 0);
+    this.entranceDoorPivot.add(rightStile);
+
+    const topRail = new THREE.Mesh(new THREE.BoxGeometry(doorW, 0.08, 0.06), charcoalSteelMat);
+    topRail.position.set(doorW / 2, doorH - 0.04, 0);
+    this.entranceDoorPivot.add(topRail);
+
+    const botRail = new THREE.Mesh(new THREE.BoxGeometry(doorW, 0.18, 0.06), charcoalSteelMat);
+    botRail.position.set(doorW / 2, 0.09, 0);
+    this.entranceDoorPivot.add(botRail);
+
+    const midRail = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.1, 0.045, 0.05), charcoalSteelMat);
+    midRail.position.set(doorW / 2, 1.04, 0);
+    this.entranceDoorPivot.add(midRail);
+
+    const doorGlass = new THREE.Mesh(
+      new THREE.PlaneGeometry(doorW - 0.12, doorH - 0.24),
+      this.garageGlassMat
+    );
+    doorGlass.position.set(doorW / 2, doorH / 2 + 0.04, 0);
+    this.entranceDoorPivot.add(doorGlass);
+
+    // Brushed-Brass Push/Pull Bar Handle (both exterior & interior sides)
+    [-0.065, 0.065].forEach((hz) => {
+      const pushBar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.015, 0.015, 0.44, 10),
+        brassMat
       );
-      glassPane.position.set(bx, 1.94, garageWallZ);
+      pushBar.position.set(doorW - 0.15, 1.12, hz);
+      this.entranceDoorPivot.add(pushBar);
+
+      [0.94, 1.3].forEach((sy) => {
+        const standoff = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.01, 0.01, 0.065, 8),
+          brassMat
+        );
+        standoff.rotation.x = Math.PI / 2;
+        standoff.position.set(doorW - 0.15, sy, hz * 0.5);
+        this.entranceDoorPivot.add(standoff);
+      });
+    });
+
+    // Small Brass & Dark-Walnut "OPEN" Plaque hanging inside door glass
+    const openPlaque = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.11, 0.016),
+      new THREE.MeshStandardMaterial({
+        color: 0x241710,
+        emissive: 0xf59e0b,
+        emissiveIntensity: 0.22,
+        roughness: 0.35,
+      })
+    );
+    openPlaque.position.set(doorW * 0.5, 1.56, 0.018);
+    this.entranceDoorPivot.add(openPlaque);
+
+    const openTrim = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.13, 0.01), brassMat);
+    openTrim.position.set(doorW * 0.5, 1.56, 0.012);
+    this.entranceDoorPivot.add(openTrim);
+    archGroup.add(this.entranceDoorPivot);
+
+    // Hanging Brass Shopkeeper Bell mounted above Door Header (x = -1.15, y = 2.30)
+    this.doorBellGroup = new THREE.Group();
+    this.doorBellGroup.position.set(-1.15, 2.33, garageWallZ + 0.08);
+    const bellStrap = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.12, 0.015), charcoalSteelMat);
+    bellStrap.position.y = -0.05;
+    this.doorBellGroup.add(bellStrap);
+    const bellDome = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.048, 0.065, 12),
+      brassMat
+    );
+    bellDome.position.y = -0.12;
+    this.doorBellGroup.add(bellDome);
+    archGroup.add(this.doorBellGroup);
+
+    // Fixed Sectional Glass Garage Bays: Left Bay (-3.65, width 3.35), Center-Right Fixed Pane (+0.62, width 2.28), Right Bay (+3.65, width 3.35)
+    const fixedBays: Array<{ cx: number; w: number }> = [
+      { cx: -3.65, w: 3.35 },
+      { cx: 0.62, w: 2.28 },
+      { cx: 3.65, w: 3.35 },
+    ];
+    fixedBays.forEach(({ cx, w }) => {
+      const glassPane = new THREE.Mesh(new THREE.PlaneGeometry(w, 3.4), this.garageGlassMat);
+      glassPane.position.set(cx, 1.94, garageWallZ);
       archGroup.add(glassPane);
 
-      // Horizontal sectional garage door rails (slim steel mullions)
       [0.95, 1.85, 2.75, 3.62].forEach((my) => {
-        const hBar = new THREE.Mesh(
-          new THREE.BoxGeometry(bayWidth, 0.055, 0.07),
-          charcoalSteelMat
-        );
-        hBar.position.set(bx, my, garageWallZ);
+        const hBar = new THREE.Mesh(new THREE.BoxGeometry(w, 0.055, 0.07), charcoalSteelMat);
+        hBar.position.set(cx, my, garageWallZ);
         archGroup.add(hBar);
       });
 
-      // Vertical inner stile mullions (3 panes across each garage bay)
-      [-bayWidth / 3, bayWidth / 3].forEach((mx) => {
-        const vBar = new THREE.Mesh(
-          new THREE.BoxGeometry(0.045, 3.45, 0.065),
-          charcoalSteelMat
-        );
-        vBar.position.set(bx + mx, 1.94, garageWallZ);
+      const vOffsets = w > 3.0 ? [-w / 3, w / 3] : [0];
+      vOffsets.forEach((mx) => {
+        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.045, 3.45, 0.065), charcoalSteelMat);
+        vBar.position.set(cx + mx, 1.94, garageWallZ);
         archGroup.add(vBar);
       });
     });
 
-    // Subtle rain streaks on the glass garage doors (visible only in rainy weather)
+    // Animated Exterior Glass Rain-Trail Layer (strictly outside glass at z = -6.26, scrolling UV in rainy weather)
     this.glassRainStreaksGroup = new THREE.Group();
-    const streakMat = new THREE.MeshBasicMaterial({
-      color: 0xdbeafe,
+    this.windowRainMat = new THREE.MeshBasicMaterial({
+      map: this.windowRainTexture,
       transparent: true,
-      opacity: 0.46,
+      opacity: 0.72,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
-    for (let s = 0; s < 30; s++) {
-      const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.016, 0.48 + (s % 4) * 0.16), streakMat);
-      streak.position.set(-5.0 + s * 0.34, 1.0 + (s % 5) * 0.48, garageWallZ + 0.045);
-      streak.rotation.z = -0.08;
-      this.glassRainStreaksGroup.add(streak);
-    }
+    const rainGlassOverlay = new THREE.Mesh(
+      new THREE.PlaneGeometry(10.8, 3.45),
+      this.windowRainMat
+    );
+    rainGlassOverlay.position.set(0, 1.95, garageWallZ - 0.05);
+    this.glassRainStreaksGroup.add(rainGlassOverlay);
     this.glassRainStreaksGroup.visible = false;
     archGroup.add(this.glassRainStreaksGroup);
 
@@ -1844,40 +2448,37 @@ export class KlasikCafeScene3D {
       archGroup.add(beam);
     });
 
-    // 7. Sculpted Courtyard Canopy Trees Strictly OUTSIDE the Glass Garage Bay Doors (z = -8.4 to -11.2)
+    // 7. Sculpted Boulevard Trees Flanking the Far Sidewalk & Side Garden Margins (clear of road lanes!)
     const barkMat = new THREE.MeshStandardMaterial({ color: 0x3f2514, roughness: 0.9 });
     const canopyShades = [0x1b5e36, 0x266d3e, 0x357a44, 0x204e2e].map(
       (hex) => new THREE.MeshStandardMaterial({ color: hex, roughness: 0.72 })
     );
     const courtyardTrees: Array<[number, number, number]> = [
-      [-5.2, -8.8, 1.15],
-      [-2.1, -9.6, 1.05],
-      [1.2, -9.2, 1.2],
-      [4.4, -8.7, 1.1],
-      [-0.4, -11.2, 1.25],
-      [3.1, -11.0, 1.15],
+      [-6.8, -7.8, 1.08],
+      [6.4, -7.6, 1.12],
+      [-7.2, -17.4, 1.25],
+      [-2.2, -17.5, 1.18],
+      [2.8, -17.4, 1.22],
+      [7.4, -17.6, 1.15],
     ];
     courtyardTrees.forEach(([tx, tz, sc], idx) => {
       const tree = new THREE.Group();
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.18, 2.1, 8), barkMat);
-      trunk.position.y = 1.05;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.18, 2.2, 7), barkMat);
+      trunk.position.y = 1.1;
       trunk.rotation.z = (idx % 2 === 0 ? 1 : -1) * 0.04;
       tree.add(trunk);
 
-      // Sculpted forked branches
       [-0.25, 0.25].forEach((dir) => {
-        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.95, 6), barkMat);
-        branch.position.set(dir * 0.7, 2.05, dir * 0.2);
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.9, 6), barkMat);
+        branch.position.set(dir * 0.65, 2.1, dir * 0.2);
         branch.rotation.z = -dir * 1.4;
         tree.add(branch);
       });
 
-      // Layered multi-cluster sculpted canopies (zero primitive single sphere!)
       [
-        [0, 2.45, 0, 1.05, 0.68, 0.95],
-        [-0.58, 2.25, 0.22, 0.76, 0.56, 0.72],
-        [0.56, 2.32, -0.18, 0.78, 0.54, 0.75],
-        [0.12, 2.86, 0.15, 0.68, 0.52, 0.68],
+        [0, 2.55, 0, 1.05, 0.68, 0.95],
+        [-0.58, 2.35, 0.22, 0.76, 0.56, 0.72],
+        [0.56, 2.42, -0.18, 0.78, 0.54, 0.75],
       ].forEach(([cx, cy, cz, sx, sy, sz], cIdx) => {
         const puff = new THREE.Mesh(
           new THREE.IcosahedronGeometry(0.85, 1),
@@ -1894,7 +2495,7 @@ export class KlasikCafeScene3D {
       archGroup.add(tree);
     });
 
-    // 8. Architectural Interior Botanical Planters & Trailing Hanging Rafter Vines
+    // 8. Architectural Interior Botanical Planters (kept strictly clear of the x=-1.15 swinging entrance doorway!)
     const planterSpecs: Array<{
       kind: 'monstera' | 'fiddle' | 'olive';
       x: number;
@@ -1906,7 +2507,7 @@ export class KlasikCafeScene3D {
     }> = [
       { kind: 'monstera', x: -4.92, z: -1.35, rotY: Math.PI / 2, w: 1.05, d: 0.42 },
       { kind: 'fiddle', x: -4.88, z: -5.62, rotY: 0.35, w: 0.58, d: 0.58 },
-      { kind: 'monstera', x: -1.15, z: -5.78, rotY: 0, w: 1.1, d: 0.4, extra: true },
+      { kind: 'monstera', x: 0.95, z: -5.78, rotY: 0, w: 1.05, d: 0.4, extra: true },
       { kind: 'olive', x: 4.78, z: -2.25, rotY: -Math.PI / 2, w: 0.62, d: 0.62 },
       { kind: 'monstera', x: 4.72, z: -5.35, rotY: -0.4, w: 1.05, d: 0.42, extra: true },
     ];
@@ -1929,8 +2530,8 @@ export class KlasikCafeScene3D {
     });
     const vineLocations: Array<[number, number]> = [
       [-4.2, -1.5],
-      [-1.3, -5.85],
-      [1.3, -5.85],
+      [-3.35, -5.85],
+      [1.35, -5.85],
       [4.2, -2.6],
       [3.9, -5.6],
     ];
@@ -2635,22 +3236,237 @@ export class KlasikCafeScene3D {
     return group;
   }
 
-  private buildHangingTitleSign() {
-    this.hangingSignGroup = new THREE.Group();
+  // Phase 4: Exterior Layered Streetscape (Sidewalk, Planters, Streetlamps, 2-Lane Avenue, Far Block & Elevated Highway)
+  private buildOutdoorNeighborhood() {
+    const extGroup = new THREE.Group();
 
+    const sidewalkMat = new THREE.MeshStandardMaterial({
+      color: 0x9ca3af,
+      roughness: 0.84,
+      metalness: 0.04,
+    });
+    const curbMat = new THREE.MeshStandardMaterial({
+      color: 0x6b7280,
+      roughness: 0.88,
+    });
+    const darkSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x1c1e22,
+      roughness: 0.42,
+      metalness: 0.72,
+    });
+    const viaductConcreteMat = new THREE.MeshStandardMaterial({
+      color: 0x52565c,
+      roughness: 0.82,
+      metalness: 0.06,
+    });
+    const cedarMat = new THREE.MeshStandardMaterial({
+      color: 0x7c4a26,
+      roughness: 0.68,
+    });
+    const shrubMat = new THREE.MeshStandardMaterial({
+      color: 0x256b3c,
+      roughness: 0.72,
+    });
+
+    // Layer 1: Raised Concrete Pedestrian Sidewalk (z = -7.2 to -9.2) & Painted Curb
+    const nearSidewalk = new THREE.Mesh(new THREE.BoxGeometry(36, 0.12, 2.0), sidewalkMat);
+    nearSidewalk.position.set(0, 0.02, -8.2);
+    nearSidewalk.receiveShadow = true;
+    extGroup.add(nearSidewalk);
+
+    const nearCurb = new THREE.Mesh(new THREE.BoxGeometry(36, 0.14, 0.16), curbMat);
+    nearCurb.position.set(0, 0.03, -9.22);
+    extGroup.add(nearCurb);
+
+    // Exterior Low Cedar Planter Borders flanking the Cafe Entrance Patio (leaving doorway x=-1.15 wide open!)
+    [
+      { x: -3.9, w: 2.6 },
+      { x: 1.9, w: 3.4 },
+    ].forEach(({ x, w }) => {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(w, 0.42, 0.42), cedarMat);
+      box.position.set(x, 0.21, -6.95);
+      extGroup.add(box);
+      const hedge = new THREE.Mesh(new THREE.BoxGeometry(w - 0.14, 0.3, 0.32), shrubMat);
+      hedge.position.set(x, 0.5, -6.95);
+      extGroup.add(hedge);
+    });
+
+    // Warm Minimalist Streetlamps along the Near Sidewalk Curb
+    [-5.4, 0.55, 5.8].forEach((lx) => {
+      const lampGroup = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 3.6, 8), darkSteelMat);
+      pole.position.y = 1.8;
+      lampGroup.add(pole);
+
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.65), darkSteelMat);
+      arm.position.set(0, 3.55, -0.3);
+      lampGroup.add(arm);
+
+      const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.18, 0.12, 10), darkSteelMat);
+      hood.position.set(0, 3.52, -0.6);
+      lampGroup.add(hood);
+
+      const bulbMat = new THREE.MeshStandardMaterial({
+        color: 0xfffbeb,
+        emissive: 0xfbbf24,
+        emissiveIntensity: 1.5,
+        roughness: 0.2,
+      });
+      this.streetLampBulbMats.push(bulbMat);
+      const globe = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), bulbMat);
+      globe.position.set(0, 3.44, -0.6);
+      lampGroup.add(globe);
+
+      lampGroup.position.set(lx, 0.08, -8.95);
+      extGroup.add(lampGroup);
+    });
+
+    // Layer 2: Two-Lane Neighborhood Avenue (z = -9.3 to -15.8) with Wet-Specular Asphalt
+    this.roadAsphaltMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: this.roadAsphaltTexture,
+      roughness: 0.85,
+      metalness: 0.08,
+    });
+    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(54, 6.6), this.roadAsphaltMat);
+    avenueRoad.rotation.x = -Math.PI / 2;
+    avenueRoad.position.set(0, 0.0, -12.55);
+    avenueRoad.receiveShadow = true;
+    extGroup.add(avenueRoad);
+
+    // Pedestrian Crosswalk Stripes near Cafe Corner (x = -4.2)
+    const stripeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.72 });
+    for (let s = 0; s < 6; s++) {
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 0.42), stripeMat);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(-4.2, 0.008, -10.0 - s * 1.0);
+      extGroup.add(stripe);
+    }
+
+    // Opposite Far Sidewalk (z = -15.8 to -17.8)
+    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(44, 0.12, 2.0), sidewalkMat);
+    farSidewalk.position.set(0, 0.02, -16.8);
+    extGroup.add(farSidewalk);
+
+    // Layer 3: Distant Elevated City Highway / Overpass (z = -18.8, deck y = 2.15 — clearly visible above the avenue!)
+    const highwayDeck = new THREE.Mesh(new THREE.BoxGeometry(58, 0.38, 3.8), viaductConcreteMat);
+    highwayDeck.position.set(0, 2.12, -18.8);
+    extGroup.add(highwayDeck);
+
+    // Highway Concrete Piers
+    for (let px = -22; px <= 22; px += 8.8) {
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(0.75, 2.1, 1.1), viaductConcreteMat);
+      pier.position.set(px, 1.05, -18.8);
+      extGroup.add(pier);
+    }
+
+    // Highway Guardrail & Warm Overhead Highway Light Poles
+    const guardrail = new THREE.Mesh(new THREE.BoxGeometry(58, 0.3, 0.14), curbMat);
+    guardrail.position.set(0, 2.45, -16.95);
+    extGroup.add(guardrail);
+
+    const highwayLampMat = new THREE.MeshStandardMaterial({
+      color: 0xfffbeb,
+      emissive: 0xfbbf24,
+      emissiveIntensity: 1.4,
+      roughness: 0.25,
+    });
+    this.streetLampBulbMats.push(highwayLampMat);
+
+    for (let hx = -18; hx <= 18; hx += 9) {
+      const hPole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 1.9, 6), darkSteelMat);
+      hPole.position.set(hx, 3.25, -18.8);
+      extGroup.add(hPole);
+      const hLamp = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.16), highwayLampMat);
+      hLamp.position.set(hx, 4.2, -18.55);
+      extGroup.add(hLamp);
+    }
+
+    // Layer 4: Stylized Low-Poly Far Neighborhood Skyline behind Viaduct (leaving wide open Sky Dome vista above!)
+    const buildingColors = [0x3b332d, 0x2f3842, 0x45352c, 0x333c36, 0x3d343b];
+    const windowGlowMat = new THREE.MeshStandardMaterial({
+      color: 0xfde68a,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.42,
+      roughness: 0.4,
+    });
+
+    const buildings: Array<[number, number, number, number]> = [
+      [-14.5, 5.2, 5.4, 3.2],
+      [-8.6, 4.6, 4.2, 3.0],
+      [-2.8, 4.0, 3.4, 2.8],
+      [3.6, 4.8, 4.4, 3.0],
+      [9.4, 4.6, 5.2, 3.2],
+      [15.2, 5.0, 4.6, 3.0],
+    ];
+    buildings.forEach(([bx, bw, bh, bd], idx) => {
+      const bMat = new THREE.MeshStandardMaterial({
+        color: buildingColors[idx % buildingColors.length],
+        roughness: 0.85,
+      });
+      const bldg = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), bMat);
+      bldg.position.set(bx, bh / 2, -24.6);
+      extGroup.add(bldg);
+
+      // Subtle warm glowing window strip on upper facade
+      const shopWin = new THREE.Mesh(new THREE.PlaneGeometry(bw * 0.65, 0.65), windowGlowMat);
+      shopWin.position.set(bx, Math.min(bh - 0.85, 3.1), -24.6 + bd / 2 + 0.02);
+      extGroup.add(shopWin);
+    });
+
+    this.scene.add(extGroup);
+  }
+
+  // Phase 3.3: Relocated Exterior Wrought-Iron Double-Sided Hanging Blade Sign beside Entrance Door
+  // (Oversized indoor counter sign completely removed so top HUD bar & interior sightline stay unobstructed!)
+  private buildHangingTitleSign() {
+    const bracketAnchor = new THREE.Group();
+    // Anchored cleanly to the left glass mullion bay so the entire sign frames clearly through the left glass pane
+    bracketAnchor.position.set(-2.52, 2.52, -6.28);
+
+    const ironMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.45,
+      metalness: 0.78,
+    });
     const woodFrameMat = new THREE.MeshStandardMaterial({
-      color: 0x2d1a10,
+      color: 0x24150e,
       roughness: 0.55,
-      metalness: 0.15,
+      metalness: 0.16,
     });
     const brassMat = new THREE.MeshStandardMaterial({
       color: 0xd97706,
-      roughness: 0.25,
+      roughness: 0.28,
       metalness: 0.85,
     });
 
-    const board = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.62, 0.09), woodFrameMat);
-    board.castShadow = true;
+    // Matte-black wrought-iron wall mounting plate & perpendicular projecting arm
+    const wallPlate = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.58, 0.05), ironMat);
+    bracketAnchor.add(wallPlate);
+
+    const topArm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1.38), ironMat);
+    topArm.position.set(0, 0.24, -0.68);
+    bracketAnchor.add(topArm);
+
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.72), ironMat);
+    brace.position.set(0, 0.04, -0.3);
+    brace.rotation.x = 0.62;
+    bracketAnchor.add(brace);
+
+    // Swinging Blade Sign Pivot (gentle wind sway along Z, framed cleanly inside left glass window)
+    this.hangingSignGroup = new THREE.Group();
+    this.hangingSignGroup.position.set(-0.08, 0.22, -0.78);
+    this.hangingSignGroup.rotation.y = 0.18;
+
+    // Two brass hanging rings/chains connecting arm to blade sign
+    [-0.48, 0.48].forEach((x) => {
+      const link = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), brassMat);
+      link.position.set(x, -0.08, 0);
+      this.hangingSignGroup.add(link);
+    });
+
+    const board = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.48, 0.075), woodFrameMat);
+    board.position.set(0, -0.36, 0);
     this.hangingSignGroup.add(board);
 
     this.hangingSignFaceMat = new THREE.MeshStandardMaterial({
@@ -2658,36 +3474,41 @@ export class KlasikCafeScene3D {
       map: this.hangingSignTexture,
       emissive: 0xf59e0b,
       emissiveMap: this.hangingSignTexture,
-      emissiveIntensity: 0.65,
-      roughness: 0.25,
+      emissiveIntensity: 0.72,
+      roughness: 0.28,
     });
-    const signFace = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.98, 0.52),
+
+    // Double-Sided Sign Faces (front facing interior/sidewalk + back facing opposite street traffic)
+    const frontFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 0.42),
       this.hangingSignFaceMat
     );
-    signFace.position.z = 0.05;
-    this.hangingSignGroup.add(signFace);
+    frontFace.position.set(0, -0.36, 0.042);
+    this.hangingSignGroup.add(frontFace);
 
+    const backFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 0.42),
+      this.hangingSignFaceMat
+    );
+    backFace.position.set(0, -0.36, -0.042);
+    backFace.rotation.y = Math.PI;
+    this.hangingSignGroup.add(backFace);
+
+    // Glowing Neon Trim Tubes along top & bottom of exterior blade sign
     const topTube = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.013, 0.013, 2.02, 12),
+      new THREE.CylinderGeometry(0.011, 0.011, 1.44, 10),
       this.neonTubeMat
     );
     topTube.rotation.z = Math.PI / 2;
-    topTube.position.set(0, 0.28, 0.055);
+    topTube.position.set(0, -0.14, 0);
     this.hangingSignGroup.add(topTube);
 
     const botTube = topTube.clone();
-    botTube.position.set(0, -0.28, 0.055);
+    botTube.position.set(0, -0.58, 0);
     this.hangingSignGroup.add(botTube);
 
-    [-0.78, 0.78].forEach((x) => {
-      const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.9, 8), brassMat);
-      chain.position.set(x, 0.75, 0);
-      this.hangingSignGroup.add(chain);
-    });
-
-    this.hangingSignGroup.position.set(0.15, 2.15, -0.45);
-    this.scene.add(this.hangingSignGroup);
+    bracketAnchor.add(this.hangingSignGroup);
+    this.scene.add(bracketAnchor);
   }
 
   private registerInteractiveTool(
@@ -2730,13 +3551,15 @@ export class KlasikCafeScene3D {
       metalness: 0.85,
     });
     const screenMat = new THREE.MeshStandardMaterial({
-      color: 0x064e3b,
-      emissive: 0x10b981,
-      emissiveIntensity: 0.45,
-      roughness: 0.2,
+      color: 0xffffff,
+      map: this.posScreenTexture,
+      emissive: 0x34d399,
+      emissiveMap: this.posScreenTexture,
+      emissiveIntensity: 0.52,
+      roughness: 0.18,
     });
 
-    // 1. POS Register at x = -1.95, z = 0.28
+    // 1. POS Register at x = -2.35, z = 0.26 (Tap to zoom into Diegetic Barista Codex!)
     const registerGroup = new THREE.Group();
     const drawerBase = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.11, 0.34), darkMetalMat);
     drawerBase.position.y = 0.055;
@@ -2750,21 +3573,22 @@ export class KlasikCafeScene3D {
     standNeck.position.set(0, 0.19, -0.04);
     registerGroup.add(standNeck);
 
-    const posScreenFrame = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.24, 0.03), darkMetalMat);
+    const posScreenFrame = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.25, 0.03), darkMetalMat);
     posScreenFrame.position.set(0, 0.3, 0.02);
     posScreenFrame.rotation.x = -0.35;
     registerGroup.add(posScreenFrame);
 
-    const posDisplay = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), screenMat);
+    const posDisplay = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.21), screenMat);
     posDisplay.position.set(0, 0.3, 0.038);
     posDisplay.rotation.x = -0.35;
+    this.posDisplayMesh = posDisplay;
     registerGroup.add(posDisplay);
 
     registerGroup.position.set(-2.35, 1.0, 0.26);
     this.registerInteractiveTool(
       'register',
       registerGroup,
-      'Order Register & Recipe Codex — Click to View Recipes',
+      'KLASIK POS · Tap to Open Barista Codex',
       1,
       () => this.callbacks.onToolAction('open_recipes_modal')
     );
@@ -4083,7 +4907,8 @@ export class KlasikCafeScene3D {
         x = 4.78 + ((i % 3) - 1) * 0.24;
         z = -2.35 - (i % 5) * 0.58;
       } else {
-        x = -1.15 + ((i % 5) - 2) * 0.24;
+        // Seated cleanly inside the relocated right-center cedar planter (never blocking entrance door x=-1.15!)
+        x = 0.95 + ((i % 5) - 2) * 0.22;
         z = -5.78 + ((i % 2) - 0.5) * 0.16;
       }
       _dummyObj.position.set(x, y, z);
@@ -4515,16 +5340,337 @@ export class KlasikCafeScene3D {
     this.musicNotesInstanced.frustumCulled = false;
     this.scene.add(this.musicNotesInstanced);
 
-    const rainGeo = new THREE.CylinderGeometry(0.004, 0.004, 0.35, 6);
-    const rainMat = new THREE.MeshBasicMaterial({
-      color: 0x93c5fd,
+    // Outdoor-Only GPU Vertex-Shader Rain Curtain (Strictly z <= -6.55 — Zero Indoor Rain!)
+    const maxDrops = 650;
+    const vertCount = maxDrops * 2;
+    const positions = new Float32Array(vertCount * 3);
+    const origins = new Float32Array(vertCount * 3);
+    const speeds = new Float32Array(vertCount);
+    const phases = new Float32Array(vertCount);
+    const isTails = new Float32Array(vertCount);
+
+    for (let i = 0; i < maxDrops; i++) {
+      // Deterministic pseudo-random distribution across outdoor patio, street, and far curb
+      const s1 = Math.sin(i * 12.9898 + 1.23) * 43758.5453;
+      const r1 = s1 - Math.floor(s1);
+      const s2 = Math.sin(i * 78.233 + 4.56) * 28461.1371;
+      const r2 = s2 - Math.floor(s2);
+      const s3 = Math.sin(i * 39.425 + 9.11) * 19384.6219;
+      const r3 = s3 - Math.floor(s3);
+      const s4 = Math.sin(i * 93.117 + 2.71) * 31947.4123;
+      const r4 = s4 - Math.floor(s4);
+
+      const ox = -13.8 + r1 * 27.6;
+      const oz = -6.58 - r2 * 12.0; // Strictly outside glass facade (z = -6.2)
+      const spd = 9.8 + r3 * 4.7;
+      const ph = r4;
+
+      const v0 = i * 2;
+      const v1 = v0 + 1;
+      origins[v0 * 3] = ox;
+      origins[v0 * 3 + 1] = 0;
+      origins[v0 * 3 + 2] = oz;
+      origins[v1 * 3] = ox;
+      origins[v1 * 3 + 1] = 0;
+      origins[v1 * 3 + 2] = oz;
+      positions[v0 * 3] = ox;
+      positions[v0 * 3 + 2] = oz;
+      positions[v1 * 3] = ox;
+      positions[v1 * 3 + 2] = oz;
+
+      speeds[v0] = spd;
+      speeds[v1] = spd;
+      phases[v0] = ph;
+      phases[v1] = ph;
+      isTails[v0] = 0;
+      isTails[v1] = 1;
+    }
+
+    const rainGeo = new THREE.BufferGeometry();
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    rainGeo.setAttribute('aOrigin', new THREE.BufferAttribute(origins, 3));
+    rainGeo.setAttribute('aSpeed', new THREE.BufferAttribute(speeds, 1));
+    rainGeo.setAttribute('aPhase', new THREE.BufferAttribute(phases, 1));
+    rainGeo.setAttribute('aIsTail', new THREE.BufferAttribute(isTails, 1));
+
+    this.gpuRainMat = new THREE.ShaderMaterial({
+      vertexShader: GPU_RAIN_VERTEX_SHADER,
+      fragmentShader: GPU_RAIN_FRAGMENT_SHADER,
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color(0xbae6fd) },
+        uOpacity: { value: 0.48 },
+      },
       transparent: true,
-      opacity: 0.45,
       depthWrite: false,
     });
-    this.rainDropsInstanced = new THREE.InstancedMesh(rainGeo, rainMat, 60);
-    this.rainDropsInstanced.frustumCulled = false;
-    this.scene.add(this.rainDropsInstanced);
+    this.gpuRainLines = new THREE.LineSegments(rainGeo, this.gpuRainMat);
+    this.gpuRainLines.frustumCulled = false;
+    this.gpuRainLines.visible = false;
+    this.scene.add(this.gpuRainLines);
+
+    // Outdoor Patio & Asphalt Puddle Splash Ripples (Strictly z <= -6.75)
+    const splashGeo = new THREE.RingGeometry(0.032, 0.056, 12);
+    splashGeo.rotateX(-Math.PI / 2);
+    const splashMat = new THREE.MeshBasicMaterial({
+      color: 0xbae6fd,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+    });
+    this.rainSplashInstanced = new THREE.InstancedMesh(splashGeo, splashMat, 16);
+    this.rainSplashInstanced.frustumCulled = false;
+    this.rainSplashInstanced.visible = false;
+    this.scene.add(this.rainSplashInstanced);
+  }
+
+  private initStaticColliders() {
+    this.staticColliders = [];
+    // 1990 Mazda Miata MX-5 showroom plinth (3 overlapping 2D circles along its rotated hull)
+    this.staticColliders.push(
+      { x: MIATA_BAY.centerX, z: MIATA_BAY.centerZ, radius: 1.38 },
+      { x: MIATA_BAY.centerX - 0.35, z: MIATA_BAY.centerZ + 0.95, radius: 1.02 },
+      { x: MIATA_BAY.centerX + 0.35, z: MIATA_BAY.centerZ - 0.95, radius: 1.02 }
+    );
+    // Lounge tables
+    LOUNGE_TABLE_LAYOUT.forEach((t) => {
+      this.staticColliders.push({ x: t.x, z: t.z, radius: 0.7 });
+    });
+    // Bar counter apron along z = -0.35 so actors never clip into the wooden bar
+    for (let cx = -2.2; cx <= 2.2; cx += 1.0) {
+      this.staticColliders.push({ x: cx, z: -0.22, radius: 0.52 });
+    }
+    // Interior cedar planters flanking the glass facade (clear of entrance doorway x = -1.72..-0.58)
+    this.staticColliders.push(
+      { x: 0.95, z: -5.78, radius: 0.52 },
+      { x: 3.65, z: -5.78, radius: 0.52 },
+      { x: -3.65, z: -5.78, radius: 0.52 }
+    );
+  }
+
+  private buildOutdoorPedestrianPool() {
+    const pedProfiles = [
+      { seed: 101, skin: '#f3d2b3', shirt: '#3b82f6', laneZ: -7.95, x: -7.5, dir: 1 as const, speed: 1.18 },
+      { seed: 207, skin: '#c68642', shirt: '#10b981', laneZ: -8.55, x: 5.2, dir: -1 as const, speed: 1.32 },
+      { seed: 313, skin: '#f1c27d', shirt: '#f43f5e', laneZ: -16.45, x: -3.2, dir: 1 as const, speed: 1.12 },
+      { seed: 419, skin: '#8d5524', shirt: '#f59e0b', laneZ: -8.2, x: 11.0, dir: -1 as const, speed: 1.24 },
+      { seed: 523, skin: '#ffdbac', shirt: '#8b5cf6', laneZ: -16.85, x: 7.4, dir: -1 as const, speed: 1.08 },
+    ];
+
+    this.pedestrianPool = [];
+    pedProfiles.forEach((cfg, idx) => {
+      const actor = this.createCustomerCharacter(
+        cfg.seed,
+        cfg.skin,
+        cfg.shirt,
+        'casual-garden'
+      );
+      actor.group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = false;
+        }
+      });
+      actor.activitySprite.visible = false;
+      actor.phoneMesh.visible = false;
+      actor.heldCup.visible = idx % 2 === 0;
+      actor.group.position.set(cfg.x, 0.08, cfg.laneZ);
+      actor.group.rotation.y = cfg.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+      this.scene.add(actor.group);
+
+      this.pedestrianPool.push({
+        actor,
+        laneZ: cfg.laneZ,
+        x: cfg.x,
+        dir: cfg.dir,
+        speed: cfg.speed,
+        walkPhase: idx * 1.3,
+        pauseTimer: 0,
+        glancePhase: idx * 0.9,
+      });
+    });
+  }
+
+  private buildOutdoorTrafficPool() {
+    this.vehicleHeadlightMat = new THREE.MeshStandardMaterial({
+      color: 0xfffbeb,
+      emissive: 0xfef08a,
+      emissiveIntensity: 0.75,
+      roughness: 0.15,
+    });
+    this.vehicleTaillightMat = new THREE.MeshStandardMaterial({
+      color: 0xdc2626,
+      emissive: 0xef4444,
+      emissiveIntensity: 0.95,
+      roughness: 0.2,
+    });
+
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.88 });
+    const hubMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.7, roughness: 0.25 });
+    const windowMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.12,
+      metalness: 0.45,
+    });
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.72 });
+
+    const wheelGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.18, 12);
+    wheelGeo.rotateX(Math.PI / 2);
+    const hubGeo = new THREE.CylinderGeometry(0.14, 0.14, 0.19, 10);
+    hubGeo.rotateX(Math.PI / 2);
+
+    const createStylizedVehicle = (
+      variant: 'hatchback' | 'keivan' | 'sedan' | 'coupe',
+      bodyHex: number
+    ): { group: THREE.Group; wheels: THREE.Object3D[] } => {
+      const group = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: bodyHex,
+        roughness: 0.28,
+        metalness: 0.32,
+      });
+
+      const dims =
+        variant === 'keivan'
+          ? { len: 3.15, w: 1.46, hullH: 0.62, cabLen: 2.55, cabH: 0.68, cabX: -0.05, wb: 0.95 }
+          : variant === 'hatchback'
+          ? { len: 3.35, w: 1.54, hullH: 0.56, cabLen: 1.75, cabH: 0.52, cabX: -0.25, wb: 1.02 }
+          : variant === 'coupe'
+          ? { len: 3.65, w: 1.62, hullH: 0.48, cabLen: 1.42, cabH: 0.44, cabX: -0.18, wb: 1.12 }
+          : { len: 3.85, w: 1.6, hullH: 0.55, cabLen: 1.72, cabH: 0.5, cabX: -0.08, wb: 1.18 };
+
+      // Primary lower body hull (oriented facing +X)
+      const hull = new THREE.Mesh(
+        new THREE.BoxGeometry(dims.len, dims.hullH, dims.w),
+        bodyMat
+      );
+      hull.position.set(0, 0.27 + dims.hullH / 2, 0);
+      group.add(hull);
+
+      // Front & rear dark bumpers
+      const fBumper = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.2, dims.w + 0.04),
+        bumperMat
+      );
+      fBumper.position.set(dims.len / 2 + 0.03, 0.34, 0);
+      group.add(fBumper);
+      const rBumper = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.2, dims.w + 0.04),
+        bumperMat
+      );
+      rBumper.position.set(-dims.len / 2 - 0.03, 0.34, 0);
+      group.add(rBumper);
+
+      // Secondary cabin greenhouse
+      const cabin = new THREE.Mesh(
+        new THREE.BoxGeometry(dims.cabLen, dims.cabH, dims.w * 0.88),
+        bodyMat
+      );
+      cabin.position.set(dims.cabX, 0.27 + dims.hullH + dims.cabH / 2 - 0.02, 0);
+      group.add(cabin);
+
+      // Tinted wrap-around glass band
+      const glassBand = new THREE.Mesh(
+        new THREE.BoxGeometry(dims.cabLen + 0.03, dims.cabH * 0.66, dims.w * 0.9),
+        windowMat
+      );
+      glassBand.position.set(dims.cabX, 0.27 + dims.hullH + dims.cabH * 0.46, 0);
+      group.add(glassBand);
+
+      // Accent detail: Kei Van roof rack or Coupe rear spoiler
+      if (variant === 'keivan') {
+        const rack = new THREE.Mesh(
+          new THREE.BoxGeometry(1.6, 0.05, dims.w * 0.72),
+          bumperMat
+        );
+        rack.position.set(dims.cabX, 0.27 + dims.hullH + dims.cabH + 0.03, 0);
+        group.add(rack);
+      } else if (variant === 'coupe') {
+        const spoiler = new THREE.Mesh(
+          new THREE.BoxGeometry(0.22, 0.05, dims.w * 0.88),
+          bumperMat
+        );
+        spoiler.position.set(-dims.len / 2 + 0.22, 0.27 + dims.hullH + 0.14, 0);
+        group.add(spoiler);
+      }
+
+      // Headlights (+X) & Taillights (-X)
+      const lightGeo = new THREE.BoxGeometry(0.06, 0.14, 0.26);
+      [-dims.w * 0.34, dims.w * 0.34].forEach((lz) => {
+        const hl = new THREE.Mesh(lightGeo, this.vehicleHeadlightMat);
+        hl.position.set(dims.len / 2 + 0.01, 0.27 + dims.hullH * 0.56, lz);
+        group.add(hl);
+        const tl = new THREE.Mesh(lightGeo, this.vehicleTaillightMat);
+        tl.position.set(-dims.len / 2 - 0.01, 0.27 + dims.hullH * 0.56, lz);
+        group.add(tl);
+      });
+
+      // Four grounded rotating wheels (bottom at y = 0)
+      const wheels: THREE.Object3D[] = [];
+      [
+        [dims.wb, dims.w / 2 - 0.04],
+        [dims.wb, -(dims.w / 2 - 0.04)],
+        [-dims.wb, dims.w / 2 - 0.04],
+        [-dims.wb, -(dims.w / 2 - 0.04)],
+      ].forEach(([wx, wz]) => {
+        const wheelPivot = new THREE.Group();
+        wheelPivot.position.set(wx, 0.27, wz);
+        const tire = new THREE.Mesh(wheelGeo, tireMat);
+        const hub = new THREE.Mesh(hubGeo, hubMat);
+        wheelPivot.add(tire, hub);
+        group.add(wheelPivot);
+        wheels.push(wheelPivot);
+      });
+
+      group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = false;
+        }
+      });
+
+      return { group, wheels };
+    };
+
+    const trafficDefs: Array<{
+      variant: 'hatchback' | 'keivan' | 'sedan' | 'coupe';
+      color: number;
+      laneZ: number;
+      laneY: number;
+      x: number;
+      dir: 1 | -1;
+      speed: number;
+      isHighway: boolean;
+    }> = [
+      // Street-level Avenue (6 pooled vehicles: 3 eastbound, 3 westbound — first 2 visible immediately on LOW!)
+      { variant: 'keivan', color: 0xfef3c7, laneZ: -11.05, laneY: 0.02, x: -3.2, dir: 1, speed: 4.3, isHighway: false },
+      { variant: 'hatchback', color: 0x3b82f6, laneZ: -13.75, laneY: 0.02, x: 4.2, dir: -1, speed: 4.9, isHighway: false },
+      { variant: 'sedan', color: 0x94a3b8, laneZ: -11.05, laneY: 0.02, x: -13.0, dir: 1, speed: 4.6, isHighway: false },
+      { variant: 'coupe', color: 0xef4444, laneZ: -13.75, laneY: 0.02, x: -9.5, dir: -1, speed: 5.5, isHighway: false },
+      { variant: 'hatchback', color: 0x10b981, laneZ: -11.05, laneY: 0.02, x: 11.5, dir: 1, speed: 4.5, isHighway: false },
+      { variant: 'keivan', color: 0xf97316, laneZ: -13.75, laneY: 0.02, x: 15.0, dir: -1, speed: 4.2, isHighway: false },
+      // Distant Elevated City Highway Viaduct (z = -18.8, deck top y = 2.31 — 4 pooled vehicles)
+      { variant: 'sedan', color: 0xe2e8f0, laneZ: -17.95, laneY: 2.33, x: -4.8, dir: 1, speed: 7.4, isHighway: true },
+      { variant: 'coupe', color: 0xf59e0b, laneZ: -19.55, laneY: 2.33, x: 4.5, dir: -1, speed: 8.2, isHighway: true },
+      { variant: 'keivan', color: 0x38bdf8, laneZ: -17.95, laneY: 2.33, x: 9.5, dir: 1, speed: 6.9, isHighway: true },
+      { variant: 'hatchback', color: 0xf43f5e, laneZ: -19.55, laneY: 2.33, x: -12.5, dir: -1, speed: 7.8, isHighway: true },
+    ];
+
+    this.trafficPool = [];
+    trafficDefs.forEach((def) => {
+      const built = createStylizedVehicle(def.variant, def.color);
+      built.group.position.set(def.x, def.laneY, def.laneZ);
+      built.group.rotation.y = def.dir === 1 ? 0 : Math.PI;
+      this.scene.add(built.group);
+      this.trafficPool.push({
+        group: built.group,
+        wheels: built.wheels,
+        laneZ: def.laneZ,
+        laneY: def.laneY,
+        x: def.x,
+        dir: def.dir,
+        speed: def.speed,
+        isHighway: def.isHighway,
+      });
+    });
   }
 
   private drawCustomerActivityBadge(tex: THREE.CanvasTexture, text: string) {
@@ -5405,8 +6551,9 @@ export class KlasikCafeScene3D {
           cust.shirtColor,
           activePackId
         );
-        // Spawn arriving customers at the center-right glass garage entrance (clear of Miata & tables!)
-        const startPos = new THREE.Vector3(1.35, 0, -5.8);
+        // Spawn arriving customers on the outdoor sidewalk so they walk in & push open the swinging glass door!
+        const spawnX = idx % 2 === 0 ? -3.4 : 1.75;
+        const startPos = new THREE.Vector3(spawnX, 0, -7.75);
         built.group.position.copy(startPos);
         this.customersRoot.add(built.group);
         actor = {
@@ -5455,9 +6602,17 @@ export class KlasikCafeScene3D {
 
     let servedCustomerId: string | undefined;
     if (type === 'serve_drink') {
+      const pinnedOrdering = this.gameState.customers.find(
+        (c) => c.id === this.gameState.pinnedOrderId && c.state === 'ordering'
+      );
+      const firstOrdering = this.gameState.customers.find((c) => c.state === 'ordering');
       const seatedList = this.gameState.customers.filter((c) => c.state === 'seated');
-      const newestSeated = seatedList[seatedList.length - 1] || this.gameState.customers[0];
-      servedCustomerId = newestSeated?.id;
+      const targetCustomer =
+        pinnedOrdering ||
+        firstOrdering ||
+        seatedList[seatedList.length - 1] ||
+        this.gameState.customers[0];
+      servedCustomerId = targetCustomer?.id;
       this.activePickupCustomerId = servedCustomerId || null;
       this.serveReachTimer = 1.5;
     }
@@ -5498,6 +6653,7 @@ export class KlasikCafeScene3D {
     this.updateDecorMaterials();
     this.updateActiveCupVisuals();
     this.redrawOrderTicketTextures();
+    this.redrawPosScreenTexture();
     this.syncCustomerActors();
   }
 
@@ -5507,16 +6663,45 @@ export class KlasikCafeScene3D {
   }
 
   private applyWeatherLighting(weather: WeatherMode) {
+    const bgCol =
+      this.scene.background instanceof THREE.Color
+        ? this.scene.background
+        : (_skyBgColor.setHex(0xc4dde8), (this.scene.background = _skyBgColor));
+    const fog =
+      this.scene.fog instanceof THREE.FogExp2
+        ? this.scene.fog
+        : (this.scene.fog = new THREE.FogExp2(0xd2e4ec, 0.012));
+
     if (weather === 'morning') {
-      this.scene.background = new THREE.Color(0xc4dde8);
-      this.scene.fog = new THREE.FogExp2(0xd2e4ec, 0.014);
+      bgCol.setHex(0xbae6fd);
+      fog.color.setHex(0xdbeafe);
+      fog.density = 0.011;
+      this.sunLight.position.set(5.5, 9.2, -7.5);
       this.sunLight.color.setHex(0xfff4d6);
       this.sunLight.intensity = 2.45;
       this.hemiLight.color.setHex(0xdbeafe);
       this.hemiLight.groundColor.setHex(0x5c4033);
-      this.hemiLight.intensity = 1.05;
-      this.rainDropsInstanced.visible = false;
+      this.hemiLight.intensity = 1.08;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x38bdf8);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0xbae6fd);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0xfef3c7);
+        this.skyDomeMat.uniforms.uSunDir.value.set(-0.35, 0.56, -0.75).normalize();
+        this.skyDomeMat.uniforms.uSunColor.value.setHex(0xfff8dc);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 0.72;
+      }
+      if (this.gpuRainLines) this.gpuRainLines.visible = false;
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+      if (this.godRaysGroup) this.godRaysGroup.visible = true;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
+      if (this.godRayMat) {
+        this.godRayMat.uniforms.uColor.value.setHex(0xfff5d6);
+        this.godRayMat.uniforms.uOpacity.value = 0.09;
+      }
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.86;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.78;
       if (this.skylightPaneMat) {
         this.skylightPaneMat.color.setHex(0xfffaf0);
         this.skylightPaneMat.emissive.setHex(0xffe4b5);
@@ -5524,58 +6709,112 @@ export class KlasikCafeScene3D {
       }
       if (this.garageGlassMat) {
         this.garageGlassMat.color.setHex(0xdbeafe);
-        this.garageGlassMat.opacity = 0.18;
+        this.garageGlassMat.opacity = 0.16;
       }
       this.pendantBulbMats.forEach((m) => {
         m.emissive.setHex(0xfde68a);
-        m.emissiveIntensity = 1.65;
+        m.emissiveIntensity = 1.55;
       });
+      this.streetLampBulbMats.forEach((m) => {
+        m.emissiveIntensity = 0.45;
+      });
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 0.6;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 0.85;
     } else if (weather === 'golden') {
-      this.scene.background = new THREE.Color(0xc47341);
-      this.scene.fog = new THREE.FogExp2(0xa85d32, 0.018);
-      this.sunLight.color.setHex(0xfb923c);
-      this.sunLight.intensity = 2.6;
-      this.hemiLight.color.setHex(0xfed7aa);
-      this.hemiLight.groundColor.setHex(0x3a1c10);
-      this.hemiLight.intensity = 0.92;
-      this.rainDropsInstanced.visible = false;
+      bgCol.setHex(0xc96859);
+      fog.color.setHex(0xd98a5b);
+      fog.density = 0.014;
+      // Low dramatic sun streaming through front glass bays with warm key / cool twilight shadow contrast
+      this.sunLight.position.set(-10.5, 4.6, -13.5);
+      this.sunLight.color.setHex(0xffba6b);
+      this.sunLight.intensity = 2.85;
+      this.hemiLight.color.setHex(0xffd2a1);
+      this.hemiLight.groundColor.setHex(0x3b3556);
+      this.hemiLight.intensity = 0.96;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x24325c);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0xc96859);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0xffae42);
+        this.skyDomeMat.uniforms.uSunDir.value.set(-0.24, 0.16, -0.95).normalize();
+        this.skyDomeMat.uniforms.uSunColor.value.setHex(0xffd782);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 1.45;
+      }
+      if (this.gpuRainLines) this.gpuRainLines.visible = false;
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+      if (this.godRaysGroup) this.godRaysGroup.visible = true;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = true;
+      if (this.godRayMat) {
+        this.godRayMat.uniforms.uColor.value.setHex(0xffb85c);
+        this.godRayMat.uniforms.uOpacity.value = 0.3;
+      }
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.78;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.74;
       if (this.skylightPaneMat) {
         this.skylightPaneMat.color.setHex(0xffedd5);
         this.skylightPaneMat.emissive.setHex(0xf59e0b);
-        this.skylightPaneMat.emissiveIntensity = 0.88;
+        this.skylightPaneMat.emissiveIntensity = 0.92;
       }
       if (this.garageGlassMat) {
         this.garageGlassMat.color.setHex(0xfed7aa);
-        this.garageGlassMat.opacity = 0.22;
+        this.garageGlassMat.opacity = 0.2;
       }
       this.pendantBulbMats.forEach((m) => {
         m.emissive.setHex(0xfbbf24);
+        m.emissiveIntensity = 2.35;
+      });
+      this.streetLampBulbMats.forEach((m) => {
         m.emissiveIntensity = 2.25;
       });
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.15;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.05;
     } else {
-      this.scene.background = new THREE.Color(0x1e293b);
-      this.scene.fog = new THREE.FogExp2(0x1e293b, 0.026);
-      this.sunLight.color.setHex(0x7dd3fc);
-      this.sunLight.intensity = 0.95;
-      this.hemiLight.color.setHex(0x60a5fa);
+      bgCol.setHex(0x1e293b);
+      fog.color.setHex(0x334155);
+      fog.density = 0.02;
+      this.sunLight.position.set(-3.0, 8.2, -6.5);
+      this.sunLight.color.setHex(0x93c5fd);
+      this.sunLight.intensity = 1.05;
+      this.hemiLight.color.setHex(0x7dd3fc);
       this.hemiLight.groundColor.setHex(0x1e1b4b);
-      this.hemiLight.intensity = 0.68;
-      this.rainDropsInstanced.visible = true;
+      this.hemiLight.intensity = 0.72;
+
+      if (this.skyDomeMat) {
+        this.skyDomeMat.uniforms.uTopColor.value.setHex(0x1e293b);
+        this.skyDomeMat.uniforms.uMidColor.value.setHex(0x475569);
+        this.skyDomeMat.uniforms.uHorizonColor.value.setHex(0x64748b);
+        this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
+      }
+      if (this.gpuRainLines) this.gpuRainLines.visible = true;
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = true;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
+      if (this.godRaysGroup) this.godRaysGroup.visible = false;
+      if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
+      if (this.godRayMat) {
+        this.godRayMat.uniforms.uOpacity.value = 0.0;
+      }
+      // Wet reflective outdoor asphalt & cobblestone during Rainy Roof
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.22;
+      if (this.patioFloorMat) this.patioFloorMat.roughness = 0.24;
       if (this.skylightPaneMat) {
         this.skylightPaneMat.color.setHex(0x94a3b8);
         this.skylightPaneMat.emissive.setHex(0x38bdf8);
-        this.skylightPaneMat.emissiveIntensity = 0.45;
+        this.skylightPaneMat.emissiveIntensity = 0.48;
       }
       if (this.garageGlassMat) {
         this.garageGlassMat.color.setHex(0x93c5fd);
-        this.garageGlassMat.opacity = 0.30;
+        this.garageGlassMat.opacity = 0.28;
       }
       this.pendantBulbMats.forEach((m) => {
         m.emissive.setHex(0xfde68a);
+        m.emissiveIntensity = 2.75;
+      });
+      this.streetLampBulbMats.forEach((m) => {
         m.emissiveIntensity = 2.65;
       });
+      if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.45;
+      if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.25;
     }
   }
 
@@ -5933,6 +7172,14 @@ export class KlasikCafeScene3D {
   private startLoop() {
     const tick = () => {
       if (this.isDisposed) return;
+
+      // Save battery & prevent background GPU/CPU churn when browser tab is hidden
+      if (document.hidden) {
+        this.clock.getDelta();
+        this.frameId = window.setTimeout(tick, 250);
+        return;
+      }
+
       const rawDt = this.clock.getDelta();
       const dt = Math.min(rawDt, 0.12);
       this.elapsed += dt;
@@ -6339,6 +7586,14 @@ export class KlasikCafeScene3D {
       const swayY = Math.cos(this.elapsed * 0.38) * 0.015;
       _targetPos.set(1.86 + swayX, 1.28 + swayY, 0.96);
       _targetLook.set(-1.35, 0.78, -1.85);
+    } else if (this.isCodexFocused && this.posDisplayMesh) {
+      // Diegetic 3D POS Terminal Focus: smoothly zoom right up to the Station 1 POS screen!
+      this.posDisplayMesh.getWorldPosition(_codexCenter);
+      this.posDisplayMesh.getWorldQuaternion(_codexQuat);
+      _codexNormal.set(0, 0, 1).applyQuaternion(_codexQuat).normalize();
+      _targetPos.copy(_codexCenter).addScaledVector(_codexNormal, 0.44);
+      _targetPos.y += 0.015;
+      _targetLook.copy(_codexCenter);
     } else {
       const preset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[2];
       _targetPos.copy(preset.pos);
@@ -6376,16 +7631,44 @@ export class KlasikCafeScene3D {
       _targetLook.x += this.manualCameraYawOffset * 2.2;
     }
 
-    this.camera.position.lerp(_targetPos, dampFactor);
-    this.currentLookAt.lerp(_targetLook, dampFactor);
+    const camDamp = this.isCodexFocused ? 1 - Math.exp(-9.0 * dt) : dampFactor;
+    this.camera.position.lerp(_targetPos, camDamp);
+    this.currentLookAt.lerp(_targetLook, camDamp);
     _lookMat.lookAt(this.camera.position, this.currentLookAt, _upVec);
     _targetQuat.setFromRotationMatrix(_lookMat);
-    this.camera.quaternion.slerp(_targetQuat, dampFactor);
+    this.camera.quaternion.slerp(_targetQuat, camDamp);
 
-    // 3. Hanging Wooden & Neon Sign gentle breeze sway
+    // 3. Exterior Hanging Blade Sign gentle wind sway (preserves bracket orientation!)
     if (this.hangingSignGroup) {
-      this.hangingSignGroup.rotation.x = Math.sin(this.elapsed * 1.3) * 0.025;
-      this.hangingSignGroup.rotation.z = Math.cos(this.elapsed * 0.9) * 0.012;
+      const windAmp = this.gameState.weather === 'rainy' ? 0.055 : 0.024;
+      this.hangingSignGroup.rotation.z = Math.sin(this.elapsed * 1.45) * windAmp;
+      this.hangingSignGroup.rotation.x = Math.cos(this.elapsed * 0.95) * 0.012;
+    }
+
+    // 3a. Swinging Glass Entrance Door & Shopkeeper Bell Proximity Trigger
+    if (this.entranceDoorPivot) {
+      let minDoorDist = 99;
+      for (const actor of this.customerActors.values()) {
+        const d = Math.hypot(actor.currentPos.x - -1.15, actor.currentPos.z - -6.2);
+        if (d < minDoorDist) minDoorDist = d;
+      }
+      const shouldOpen = minDoorDist < 1.65;
+      const targetDoorAngle = shouldOpen ? 1.38 : 0.0;
+      this.doorAngle += (targetDoorAngle - this.doorAngle) * (1 - Math.exp(-6.5 * dt));
+      this.entranceDoorPivot.rotation.y = this.doorAngle;
+
+      this.doorChimeCooldown = Math.max(0, this.doorChimeCooldown - dt);
+      if (shouldOpen && !this.doorWasOpen && this.doorChimeCooldown <= 0) {
+        this.callbacks.onDoorOpen?.();
+        this.doorChimeCooldown = 1.8;
+      }
+      this.doorWasOpen = shouldOpen;
+
+      if (this.doorBellGroup) {
+        const swingVel = Math.abs(targetDoorAngle - this.doorAngle);
+        this.doorBellGroup.rotation.z =
+          Math.sin(this.elapsed * 18.0) * Math.min(0.32, swingVel * 0.34);
+      }
     }
 
     // 3b. 1990 Mazda Miata MX-5 Pop-Up Headlight Wink & Illumination
@@ -6567,21 +7850,98 @@ export class KlasikCafeScene3D {
       this.musicNotesInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 8. Animate Rain Drops when weather === 'rainy'
-    if (this.rainDropsInstanced.visible) {
-      for (let i = 0; i < 60; i++) {
-        const t = (this.elapsed * 2.4 + i * 0.19) % 1;
-        const rx = -5.5 + (i % 15) * 0.78;
-        const rz = -1.6 - Math.floor(i / 15) * 1.6;
-        _dummyObj.position.set(rx, 3.6 - t * 3.6, rz);
-        _dummyObj.scale.setScalar(1);
-        _dummyObj.updateMatrix();
-        this.rainDropsInstanced.setMatrixAt(i, _dummyObj.matrix);
+    // 8. Outdoor-Only GPU Rain Curtain, Scrolling Window Droplets, Puddle Splashes, Volumetric God Rays & Golden Dust
+    if (this.gpuRainMat && this.gpuRainLines?.visible) {
+      this.gpuRainMat.uniforms.uTime.value = this.elapsed;
+      if (this.windowRainTexture) {
+        this.windowRainTexture.offset.y = (this.windowRainTexture.offset.y + dt * 0.38) % 1;
       }
-      this.rainDropsInstanced.instanceMatrix.needsUpdate = true;
+      if (this.rainSplashInstanced?.visible) {
+        for (let i = 0; i < 16; i++) {
+          const t = (this.elapsed * 1.65 + i * 0.23) % 1;
+          const sx = -6.4 + (i % 8) * 1.82 + Math.sin(i * 3.1) * 0.35;
+          const sz = -7.05 - Math.floor(i / 8) * 4.15;
+          _dummyObj.position.set(sx, 0.025, sz);
+          _dummyObj.rotation.set(0, 0, 0);
+          _dummyObj.scale.setScalar(0.35 + t * 1.65);
+          _dummyObj.updateMatrix();
+          this.rainSplashInstanced.setMatrixAt(i, _dummyObj.matrix);
+        }
+        this.rainSplashInstanced.instanceMatrix.needsUpdate = true;
+      }
     }
 
-    // 9. Animate Articulated 3D Customers (2-Step Aisle Waypoints, Speed-Synchronized Walk Cycle & Smooth Seated Blend)
+    if (this.godRayMat && this.godRaysGroup?.visible) {
+      this.godRayMat.uniforms.uTime.value = this.elapsed;
+    }
+    if (this.goldenDustInstanced?.visible) {
+      for (let i = 0; i < 18; i++) {
+        const phase = this.elapsed * 0.22 + i * 0.71;
+        const dx = -3.0 + ((i * 1.37) % 6.0) + Math.sin(phase * 1.3) * 0.22;
+        const dy = 0.85 + ((i * 0.43 + this.elapsed * 0.06) % 2.3);
+        const dz = -5.4 + ((i * 0.91) % 4.4) + Math.cos(phase) * 0.18;
+        _dummyObj.position.set(dx, dy, dz);
+        _dummyObj.rotation.set(0, 0, 0);
+        const pulse = 0.65 + Math.sin(phase * 2.2) * 0.35;
+        _dummyObj.scale.setScalar(pulse);
+        _dummyObj.updateMatrix();
+        this.goldenDustInstanced.setMatrixAt(i, _dummyObj.matrix);
+      }
+      this.goldenDustInstanced.instanceMatrix.needsUpdate = true;
+    }
+
+    // 8b. Advance Pooled Full-Quality Outdoor Sidewalk Pedestrians (Zero Allocation)
+    for (let i = 0; i < this.pedestrianPool.length; i++) {
+      const p = this.pedestrianPool[i];
+      if (!p.actor.group.visible) continue;
+      p.x += p.dir * p.speed * dt;
+      if (p.dir === 1 && p.x > 14.5) p.x = -14.5;
+      else if (p.dir === -1 && p.x < -14.5) p.x = 14.5;
+
+      p.actor.group.position.set(p.x, 0.08, p.laneZ);
+      p.actor.group.rotation.y = p.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+
+      p.walkPhase += p.speed * dt * 5.0;
+      const s = Math.sin(p.walkPhase);
+      const c = Math.cos(p.walkPhase);
+      p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * 0.032;
+      p.actor.pelvisGroup.rotation.z = s * 0.03;
+      p.actor.torsoGroup.rotation.y = -s * 0.07;
+      p.actor.leftHipJoint.rotation.x = s * 0.48;
+      p.actor.rightHipJoint.rotation.x = -s * 0.48;
+      p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * 0.5);
+      p.actor.rightKneeJoint.rotation.x = Math.max(0, c * 0.5);
+      p.actor.leftShoulderJoint.rotation.x = -s * 0.38;
+      p.actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.22;
+      if (p.actor.heldCup.visible) {
+        p.actor.rightShoulderJoint.rotation.x = -0.56 + Math.abs(s) * 0.04;
+        p.actor.rightElbowJoint.rotation.x = -0.88;
+      } else {
+        p.actor.rightShoulderJoint.rotation.x = s * 0.38;
+        p.actor.rightElbowJoint.rotation.x = -0.22 - Math.max(0, s) * 0.22;
+      }
+      // Subtle glance toward the warm cafe facade when walking past
+      const nearCafe = Math.abs(p.x) < 3.4 && p.laneZ > -10;
+      const targetGlance = nearCafe ? (p.dir === 1 ? -0.45 : 0.45) : 0;
+      p.actor.neckJoint.rotation.y += (targetGlance - p.actor.neckJoint.rotation.y) * Math.min(1, dt * 4);
+    }
+
+    // 8c. Advance Pooled Outdoor Street & Elevated Highway Traffic Vehicles (Zero Allocation)
+    for (let i = 0; i < this.trafficPool.length; i++) {
+      const v = this.trafficPool[i];
+      if (!v.group.visible) continue;
+      v.x += v.dir * v.speed * dt;
+      const bound = v.isHighway ? 20.0 : 18.0;
+      if (v.dir === 1 && v.x > bound) v.x = -bound;
+      else if (v.dir === -1 && v.x < -bound) v.x = bound;
+      v.group.position.x = v.x;
+      const wheelSpin = (v.speed / 0.27) * dt;
+      for (let w = 0; w < v.wheels.length; w++) {
+        v.wheels[w].rotation.z -= wheelSpin;
+      }
+    }
+
+    // 9. Animate Articulated 3D Customers (Swinging-Door Entry, Obstacle-Free Steering & Staggered Queue)
     const shortestAngleLerp = (current: number, target: number, alpha: number): number => {
       let diff = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
       if (diff < -Math.PI) diff += Math.PI * 2;
@@ -6593,6 +7953,7 @@ export class KlasikCafeScene3D {
       goal: THREE.Vector3,
       kind: 'pickup' | 'queue' | 'seat' | 'car_selfie' | 'exit'
     ): THREE.Vector3[] => {
+      const doorX = -1.15; // Center of swinging glass entrance door (x = -1.72..-0.58)
       const corridorZ = -1.78; // Open clear walkway between bar counter & front lounge tables
       const centerAisleZ = -3.65; // Open aisle between front & back lounge table rows
       const pts: THREE.Vector3[] = [];
@@ -6603,28 +7964,40 @@ export class KlasikCafeScene3D {
       }
 
       if (kind === 'queue') {
-        // From entrance or lounge -> corridor -> queue slot (never cuts through Miata or tables)
-        if (from.z < -2.6 && from.x > -0.8) {
-          pts.push(new THREE.Vector3(Math.max(1.35, from.x), 0, corridorZ));
-        }
-        if (Math.abs(from.x - goal.x) > 0.65 || from.z < -2.4) {
-          pts.push(new THREE.Vector3(-1.35, 0, corridorZ));
+        // Outdoor sidewalk -> swing through glass entrance door -> corridor -> staggered register queue
+        if (from.z < -6.1) {
+          pts.push(new THREE.Vector3(doorX, 0, -7.05));
+          pts.push(new THREE.Vector3(doorX, 0, -5.25));
+          pts.push(new THREE.Vector3(doorX, 0, corridorZ));
+        } else {
+          if (from.z < -2.6 && from.x > -0.8) {
+            pts.push(new THREE.Vector3(Math.max(1.35, from.x), 0, corridorZ));
+          }
+          if (Math.abs(from.x - goal.x) > 0.65 || from.z < -2.4) {
+            pts.push(new THREE.Vector3(doorX, 0, corridorZ));
+          }
         }
         pts.push(goal.clone());
         return pts;
       }
 
       if (kind === 'car_selfie') {
-        // Walk along clear front aisle, then approach Miata bay respectfully outside plinth
+        if (from.z < -6.1) {
+          pts.push(new THREE.Vector3(doorX, 0, -7.05));
+          pts.push(new THREE.Vector3(doorX, 0, -5.25));
+        }
         if (from.z > -1.4) {
-          pts.push(new THREE.Vector3(-1.35, 0, corridorZ));
+          pts.push(new THREE.Vector3(doorX, 0, corridorZ));
         }
         pts.push(goal.clone());
         return pts;
       }
 
       if (kind === 'seat') {
-        // Counter -> clear front corridor -> align with aisle -> step neatly into seat
+        if (from.z < -6.1) {
+          pts.push(new THREE.Vector3(doorX, 0, -7.05));
+          pts.push(new THREE.Vector3(doorX, 0, -5.25));
+        }
         if (from.z > -1.4 || from.x < -0.8) {
           pts.push(new THREE.Vector3(-1.1, 0, corridorZ));
         }
@@ -6641,13 +8014,15 @@ export class KlasikCafeScene3D {
         return pts;
       }
 
-      // Exit cleanly to glass bay doorway (1.35, 0, -5.8)
+      // Exit cleanly through the swinging glass entrance door onto the outdoor sidewalk
       if (from.z > -3.5) {
         pts.push(new THREE.Vector3(from.x, 0, corridorZ));
-        pts.push(new THREE.Vector3(1.45, 0, corridorZ));
+        pts.push(new THREE.Vector3(doorX, 0, corridorZ));
       } else {
-        pts.push(new THREE.Vector3(1.45, 0, centerAisleZ));
+        pts.push(new THREE.Vector3(doorX, 0, centerAisleZ));
       }
+      pts.push(new THREE.Vector3(doorX, 0, -5.25));
+      pts.push(new THREE.Vector3(doorX, 0, -7.15));
       pts.push(goal.clone());
       return pts;
     };
@@ -6675,15 +8050,15 @@ export class KlasikCafeScene3D {
       } else if (cust.state === 'ordering') {
         goalKind = 'queue';
         goalKey = `queue-${orderQueueIdx}`;
-        // Clear left-center register queue (x = -1.65, strictly clear of Miata showroom bay!)
-        _targetPos.set(-1.65, 0, -0.82 - orderQueueIdx * 0.62);
+        // Generously staggered queue slots (0.78m separation) strictly clear of Miata showroom bay!
+        _targetPos.set(-1.48 + orderQueueIdx * 0.22, 0, -0.82 - orderQueueIdx * 0.78);
         targetFacing = 0;
         orderQueueIdx++;
       } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
         goalKind = 'car_selfie';
         goalKey = 'car_selfie';
         // Stand respectfully beside the Miata showroom plinth (outside plinth footprint)
-        _targetPos.set(-1.82, 0, -3.25);
+        _targetPos.set(-1.75, 0, -3.25);
         targetFacing = -1.15;
         actor.heldCup.visible = true;
       } else if (cust.state === 'seated' && cust.seatIndex !== null) {
@@ -6697,11 +8072,11 @@ export class KlasikCafeScene3D {
       } else {
         goalKind = 'exit';
         goalKey = 'exit';
-        _targetPos.set(1.35, 0, -5.8);
-        targetFacing = Math.PI;
+        _targetPos.set(-4.2, 0, -7.75);
+        targetFacing = -Math.PI / 2;
       }
 
-      // Recompute smooth 2-step aisle waypoints whenever destination key changes
+      // Recompute smooth aisle waypoints whenever destination key changes
       if (actor.finalGoalKey !== goalKey) {
         actor.finalGoalKey = goalKey;
         actor.waypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
@@ -6709,7 +8084,7 @@ export class KlasikCafeScene3D {
 
       // Advance along active waypoint queue at natural bipedal walking speed
       actor.lastPos.copy(actor.currentPos);
-      const walkSpeed = isPickingUpDrink ? 2.15 : 1.55;
+      const walkSpeed = isPickingUpDrink ? 2.15 : 1.62;
       let moveDx = 0;
       let moveDz = 0;
       let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
@@ -6720,7 +8095,7 @@ export class KlasikCafeScene3D {
         const wDz = nextWp.z - actor.currentPos.z;
         const wDist = Math.hypot(wDx, wDz);
 
-        if (wDist <= 0.08 && actor.waypoints.length > 1) {
+        if (wDist <= 0.12 && actor.waypoints.length > 1) {
           actor.waypoints.shift();
         } else if (wDist > 0.025) {
           const step = Math.min(wDist, walkSpeed * dt);
@@ -6734,6 +8109,38 @@ export class KlasikCafeScene3D {
           actor.waypoints.shift();
         }
         remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
+      }
+
+      // Zero-allocation 2D obstacle & neighbor separation while walking (prevents Miata, table & body clipping)
+      const shouldApplyAvoidance = remainingDistToFinal > 0.22 && !isPickingUpDrink;
+      if (shouldApplyAvoidance) {
+        const actorRadius = 0.28;
+        for (let ci = 0; ci < this.staticColliders.length; ci++) {
+          const col = this.staticColliders[ci];
+          const dx = actor.currentPos.x - col.x;
+          const dz = actor.currentPos.z - col.z;
+          const minR = col.radius + actorRadius;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < minR * minR && distSq > 0.0001) {
+            const dist = Math.sqrt(distSq);
+            const push = (minR - dist) * 0.45;
+            actor.currentPos.x += (dx / dist) * push;
+            actor.currentPos.z += (dz / dist) * push;
+          }
+        }
+        for (const [otherId, otherActor] of this.customerActors.entries()) {
+          if (otherId === cust.id) continue;
+          const dx = actor.currentPos.x - otherActor.currentPos.x;
+          const dz = actor.currentPos.z - otherActor.currentPos.z;
+          const minSep = 0.62;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < minSep * minSep && distSq > 0.0001) {
+            const dist = Math.sqrt(distSq);
+            const push = (minSep - dist) * 0.35;
+            actor.currentPos.x += (dx / dist) * push;
+            actor.currentPos.z += (dz / dist) * push;
+          }
+        }
       }
 
       actor.group.position.copy(actor.currentPos);
@@ -7008,8 +8415,16 @@ export class KlasikCafeScene3D {
     this.floatingBadgeTexture?.dispose();
     this.pickupSpeechTexture?.dispose();
     this.stepHaloTexture?.dispose();
+    this.miataLicenseTexture?.dispose();
+    this.posScreenTexture?.dispose();
+    this.roadAsphaltTexture?.dispose();
+    this.windowRainTexture?.dispose();
     this.ticketTextures.forEach((t) => t.dispose());
+    this.pedestrianPool.forEach((p) => p.actor.activityTexture.dispose());
     this.cupLiquidShaderMat?.dispose();
+    this.skyDomeMat?.dispose();
+    this.godRayMat?.dispose();
+    this.gpuRainMat?.dispose();
     this.renderer.dispose();
   }
 }

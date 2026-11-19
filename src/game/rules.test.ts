@@ -31,6 +31,8 @@ import {
   isClearOfMiataBay,
   normalizeGraphicsQuality,
   STORAGE_GFX_KEY,
+  isStepLockActive,
+  createActiveStepLock,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -573,6 +575,75 @@ test('Phase 6: every Garage-Garden lounge table and chair is strictly clear of t
     );
   }
 });
+
+test('Phase 2 Anti-Exploit: authoritative single-flight step lock blocks rapid-tap shortcuts & serves until duration expires', () => {
+  let state = createInitialGameState();
+  const t0 = 10_000;
+
+  // Create an active lock for 'grind' (1800ms on starter equipment)
+  const grindMs = getStepDurationMs(state, 'grind');
+  assert.equal(grindMs, 1800);
+  const lock = createActiveStepLock(state, 'grind', 2, 'Grinding...', t0);
+  assert.equal(isStepLockActive(lock, t0), true);
+  assert.equal(isStepLockActive(lock, t0 + 500), true);
+  assert.equal(isStepLockActive(lock, t0 + grindMs - 1), true);
+  assert.equal(isStepLockActive(lock, t0 + grindMs), false);
+
+  // Attach active lock to state -> rapid-tap quick_brew_step, tamp, pull_espresso, and serve MUST be rejected!
+  state = { ...state, activeStepLock: lock };
+  const spamQuick = performCupAction(state, 'quick_brew_step', undefined, t0 + 200);
+  assert.equal(spamQuick.currentCup.hasGrounds, false);
+  assert.equal(spamQuick.currentCup.isTamped, false);
+
+  const spamGrind = performCupAction(state, 'grind', undefined, t0 + 350);
+  assert.equal(spamGrind.currentCup.hasGrounds, false);
+
+  // Even if cup were full, serving while locked MUST be rejected!
+  const readyLocked = {
+    ...state,
+    currentCup: {
+      hasGrounds: true,
+      isTamped: true,
+      hasEspresso: true,
+      hasSteepedTea: false,
+      hasSteamedMilk: true,
+      hasIce: false,
+      syrup: 'none' as const,
+    },
+  };
+  const spamServe = serveCurrentCupToCustomer(readyLocked, undefined, t0 + 400);
+  assert.equal(spamServe.cupsServedToday, 0);
+  assert.equal(spamServe.cash, state.cash);
+
+  // Once lock expires (nowMs >= endsAtMs), performCupAction succeeds normally!
+  const unlocked = performCupAction(state, 'grind', undefined, t0 + grindMs);
+  assert.equal(unlocked.currentCup.hasGrounds, true);
+  assert.equal(unlocked.activeStepLock, null);
+});
+
+test('Phase 2 Anti-Exploit: fully upgraded equipment durations always remain strictly positive (>= 380ms)', () => {
+  let state = createInitialGameState();
+  state.cash = 10000;
+  for (const upg of INITIAL_UPGRADES) {
+    state = purchaseUpgrade(state, upg.id);
+  }
+  const actions: Array<'grind' | 'tamp' | 'pull_espresso' | 'steep_tea' | 'steam_milk' | 'add_ice' | 'add_syrup' | 'rinse_cup' | 'serve_drink'> = [
+    'grind',
+    'tamp',
+    'pull_espresso',
+    'steep_tea',
+    'steam_milk',
+    'add_ice',
+    'add_syrup',
+    'rinse_cup',
+    'serve_drink',
+  ];
+  for (const act of actions) {
+    const dur = getStepDurationMs(state, act);
+    assert.ok(dur >= 380, `Action ${act} duration ${dur}ms fell below minimum realistic floor`);
+  }
+});
+
 
 
 

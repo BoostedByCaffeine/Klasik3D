@@ -28,7 +28,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
 }) => {
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="customize-modal-title"
@@ -53,6 +53,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
           </div>
           <button
             type="button"
+            data-testid="btn-close-customize"
             onClick={onClose}
             className="glass-btn-inner px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer flex items-center gap-1"
           >
@@ -203,6 +204,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                     <button
                       key={opt.id}
                       type="button"
+                      data-testid={`btn-weather-${opt.id}`}
                       onClick={() => onUpdateWeather(opt.id)}
                       className={`py-1.5 px-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all flex items-center justify-center gap-1 ${
                         weather === opt.id

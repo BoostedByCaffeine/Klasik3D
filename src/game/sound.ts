@@ -607,6 +607,33 @@ class SoundEngine {
     });
   }
 
+  // Gentle Hanging Brass Shopkeeper Doorbell Chime when a customer swings open the glass entrance door
+  public playDoorChime() {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const chimes = [
+      { freq: 1318.51, delay: 0, peak: 0.055, decay: 0.55 },
+      { freq: 1567.98, delay: 0.09, peak: 0.05, decay: 0.65 },
+      { freq: 2637.02, delay: 0.09, peak: 0.018, decay: 0.35 },
+    ];
+    chimes.forEach(({ freq, delay, peak, decay }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + delay);
+      gain.gain.setValueAtTime(0.001, now + delay);
+      gain.gain.exponentialRampToValueAtTime(peak, now + delay + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + decay);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + delay);
+      osc.stop(now + delay + decay + 0.04);
+    });
+  }
+
   // Warm brass cash register chime
   public playCashRegister() {
     if (this.isMuted) return;
