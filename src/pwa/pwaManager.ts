@@ -62,6 +62,66 @@ export function resolveRuntimeVersionFromHints(hints: {
   return 'web';
 }
 
+export function resolveShouldShowLandscapeCue(hints: {
+  queryForceCue?: string | null;
+  appVersion: AppRuntimeVersion;
+  isCapacitorNative?: boolean;
+  isStandaloneDisplay?: boolean;
+  userAgent?: string;
+  hasCoarsePointer?: boolean;
+  maxTouchPoints?: number;
+}): boolean {
+  if (hints.queryForceCue === '1' || hints.queryForceCue === 'true') {
+    return true;
+  }
+  if (hints.queryForceCue === '0' || hints.queryForceCue === 'false') {
+    return false;
+  }
+  if (hints.isCapacitorNative || hints.appVersion === 'apk') {
+    return true;
+  }
+  const ua = (hints.userAgent || '').toLowerCase();
+  const isMobileUa = /android|iphone|ipad|ipod|mobile/i.test(ua);
+  const isTouch = Boolean(hints.hasCoarsePointer) || (hints.maxTouchPoints ?? 0) > 0;
+  if (hints.isStandaloneDisplay && (isMobileUa || isTouch)) {
+    return true;
+  }
+  return isMobileUa || (hints.hasCoarsePointer === true && (hints.maxTouchPoints ?? 0) > 0);
+}
+
+export function shouldShowLandscapeCue(): boolean {
+  if (typeof window === 'undefined') return false;
+  let queryForceCue: string | null = null;
+  try {
+    queryForceCue = new URLSearchParams(window.location.search).get('landscape_cue');
+  } catch {
+    queryForceCue = null;
+  }
+  const status = pwaManager.getStatus();
+  const cap = (
+    window as unknown as {
+      Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string };
+    }
+  ).Capacitor;
+  const isCapacitorNative = Boolean(
+    cap?.isNativePlatform?.() || cap?.getPlatform?.() === 'android'
+  );
+  const hasCoarsePointer =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(pointer: coarse)').matches
+      : false;
+
+  return resolveShouldShowLandscapeCue({
+    queryForceCue,
+    appVersion: status.appVersion,
+    isCapacitorNative,
+    isStandaloneDisplay: status.isStandalone,
+    userAgent: window.navigator.userAgent || '',
+    hasCoarsePointer,
+    maxTouchPoints: window.navigator.maxTouchPoints || 0,
+  });
+}
+
 class PwaManager {
   private deferredPrompt: BeforeInstallPromptEvent | null = null;
   private listeners: Set<(status: PwaEnvironmentStatus) => void> = new Set();
@@ -234,7 +294,11 @@ class PwaManager {
   public async lockLandscape(): Promise<boolean> {
     try {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
+        try {
+          await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        } catch {
+          await document.documentElement.requestFullscreen();
+        }
       }
       const orientation = screen.orientation as unknown as {
         lock?: (mode: string) => Promise<void>;
@@ -260,7 +324,7 @@ class PwaManager {
         return;
       }
 
-      ctx.fillStyle = '#1c1410';
+      ctx.fillStyle = '#090705';
       ctx.fillRect(0, 0, size, size);
 
       ctx.strokeStyle = '#d97706';

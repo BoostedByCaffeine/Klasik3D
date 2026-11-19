@@ -1,22 +1,17 @@
 {
-  "id": "./",
   "name": "Klasik 3D: Garage Garden Cafe",
   "short_name": "Klasik 3D",
-  "description": "Cozy first-person 3D barista simulation and coffee shop management game by BoostedByCaffeine Studios.",
-  "start_url": "./",
+  "description": "Cozy 3D Barista Simulator & Garage Garden Cafe by BoostedByCaffeine Studios. Brew espresso, pour latte art, spin vinyl records, and build your dream cafe offline or online.",
+  "start_url": "./?source=pwa",
   "scope": "./",
+  "id": "klasik-3d-garage-garden-cafe",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone"],
   "orientation": "landscape",
-  "background_color": "#0c0a09",
-  "theme_color": "#0c0a09",
+  "background_color": "#090705",
+  "theme_color": "#090705",
+  "categories": ["games", "simulation", "entertainment"],
   "icons": [
-    {
-      "src": "./favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
     {
       "src": "./pwa-192x192.png",
       "sizes": "192x192",
@@ -34,6 +29,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }

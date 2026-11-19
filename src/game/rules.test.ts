@@ -25,6 +25,12 @@ import {
   importSaveJson,
   spawnCustomerOrder,
   stripKeyboardShortcutsForApk,
+  MIATA_BAY,
+  LOUNGE_TABLE_LAYOUT,
+  LOUNGE_SEAT_COORDS,
+  isClearOfMiataBay,
+  normalizeGraphicsQuality,
+  STORAGE_GFX_KEY,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -301,7 +307,10 @@ test('exportSaveJson and importSaveJson round-trip game state, realismMode, 150k
 });
 
 import { computeGranularWeatherParams } from './sound';
-import { resolveRuntimeVersionFromHints } from '../pwa/pwaManager';
+import {
+  resolveRuntimeVersionFromHints,
+  resolveShouldShowLandscapeCue,
+} from '../pwa/pwaManager';
 import { buildNativePhoneSpotifyLinks } from './spotifyManager';
 
 test('computeGranularWeatherParams generates rhythmic roof raindrops for rainy mode and distant birds/wind chimes for sunny modes', () => {
@@ -467,6 +476,104 @@ test('stripKeyboardShortcutsForApk removes bracketed keyboard hints only for And
     'Stainless Rinse Sink — Click to Dump & Rinse Cup'
   );
 });
+
+test('Phase 3: graphicsQuality defaults to low on fresh startup and normalizes unknown values to low', () => {
+  const initial = createInitialGameState();
+  assert.equal(initial.graphicsQuality, 'low');
+  assert.equal(STORAGE_GFX_KEY, 'klasik3d_gfx_quality_v2');
+  assert.equal(normalizeGraphicsQuality(undefined), 'low');
+  assert.equal(normalizeGraphicsQuality('medium'), 'low');
+  assert.equal(normalizeGraphicsQuality('low'), 'low');
+  assert.equal(normalizeGraphicsQuality('max'), 'max');
+});
+
+test('Phase 2: resolveShouldShowLandscapeCue gates the 1s landscape indicator to mobile/PWA/APK only', () => {
+  // Desktop mouse/keyboard browser -> skip
+  assert.equal(
+    resolveShouldShowLandscapeCue({
+      appVersion: 'web',
+      isCapacitorNative: false,
+      isStandaloneDisplay: false,
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/126.0',
+      hasCoarsePointer: false,
+      maxTouchPoints: 0,
+    }),
+    false
+  );
+
+  // Android Capacitor APK -> show
+  assert.equal(
+    resolveShouldShowLandscapeCue({
+      appVersion: 'apk',
+      isCapacitorNative: true,
+      isStandaloneDisplay: true,
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv)',
+      hasCoarsePointer: true,
+      maxTouchPoints: 5,
+    }),
+    true
+  );
+
+  // Mobile standalone PWA -> show
+  assert.equal(
+    resolveShouldShowLandscapeCue({
+      appVersion: 'pwa',
+      isCapacitorNative: false,
+      isStandaloneDisplay: true,
+      userAgent: 'Mozilla/5.0 (Linux; Android 14; Mobile) Chrome/126.0',
+      hasCoarsePointer: true,
+      maxTouchPoints: 5,
+    }),
+    true
+  );
+
+  // Explicit query override for deterministic QA
+  assert.equal(
+    resolveShouldShowLandscapeCue({
+      queryForceCue: '1',
+      appVersion: 'web',
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/126.0',
+      hasCoarsePointer: false,
+      maxTouchPoints: 0,
+    }),
+    true
+  );
+  assert.equal(
+    resolveShouldShowLandscapeCue({
+      queryForceCue: '0',
+      appVersion: 'apk',
+      isCapacitorNative: true,
+    }),
+    false
+  );
+});
+
+test('Phase 6: every Garage-Garden lounge table and chair is strictly clear of the 1990 Miata MX-5 showroom bay', () => {
+  assert.ok(LOUNGE_TABLE_LAYOUT.length >= 4);
+  assert.ok(LOUNGE_SEAT_COORDS.length >= 6);
+
+  for (const table of LOUNGE_TABLE_LAYOUT) {
+    assert.ok(
+      isClearOfMiataBay(table.x, table.z, table.radius),
+      `Table ${table.id} at (${table.x}, ${table.z}) overlaps MIATA_BAY`
+    );
+    const distToMiata = Math.hypot(table.x - MIATA_BAY.centerX, table.z - MIATA_BAY.centerZ);
+    assert.ok(
+      distToMiata >= 2.8,
+      `Table ${table.id} is too close to MIATA_BAY (${distToMiata.toFixed(2)}m)`
+    );
+    assert.ok(table.x >= -0.35, `Table ${table.id} x=${table.x} crosses into Miata showroom zone`);
+  }
+
+  for (const [idx, seat] of LOUNGE_SEAT_COORDS.entries()) {
+    const distToMiata = Math.hypot(seat.x - MIATA_BAY.centerX, seat.z - MIATA_BAY.centerZ);
+    assert.ok(
+      distToMiata >= 2.4,
+      `Seat ${idx} at (${seat.x}, ${seat.z}) is too close to MIATA_BAY (${distToMiata.toFixed(2)}m)`
+    );
+  }
+});
+
 
 
 

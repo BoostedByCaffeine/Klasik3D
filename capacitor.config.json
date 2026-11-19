@@ -2,20 +2,14 @@
   "appId": "com.boostedbycaffeine.klasik3d",
   "appName": "Klasik 3D",
   "webDir": "dist",
-  "backgroundColor": "#0c0a09",
+  "backgroundColor": "#090705",
   "android": {
-    "backgroundColor": "#0c0a09",
-    "allowMixedContent": true,
-    "webContentsDebuggingEnabled": true
+    "backgroundColor": "#090705",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
   },
-  "plugins": {
-    "SplashScreen": {
-      "launchShowDuration": 1200,
-      "backgroundColor": "#0c0a09",
-      "androidScaleType": "CENTER_CROP",
-      "showSpinner": false,
-      "splashFullScreen": true,
-      "splashImmersive": true
-    }
+  "server": {
+    "androidScheme": "https"
   }
 }

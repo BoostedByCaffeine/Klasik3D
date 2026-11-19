@@ -1,66 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#271a12" />
-      <stop offset="100%" stop-color="#140d09" />
-    </linearGradient>
-    <radialGradient id="saucerGrad" cx="42%" cy="38%" r="65%">
-      <stop offset="0%" stop-color="#ef4444" />
-      <stop offset="55%" stop-color="#b91c1c" />
-      <stop offset="100%" stop-color="#690d0d" />
+    <radialGradient id="kgl_bg" cx="50%" cy="46%" r="54%">
+      <stop offset="0%" stop-color="#1E140E"/>
+      <stop offset="100%" stop-color="#090705"/>
     </radialGradient>
-    <linearGradient id="cupBody" x1="0" y1="0" x2="1" y2="0.25">
-      <stop offset="0%" stop-color="#f87171" />
-      <stop offset="22%" stop-color="#dc2626" />
-      <stop offset="68%" stop-color="#991b1b" />
-      <stop offset="100%" stop-color="#580b0b" />
+    <linearGradient id="kgl_brass" x1="20" y1="18" x2="180" y2="182" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FDE68A"/>
+      <stop offset="45%" stop-color="#E59A3C"/>
+      <stop offset="100%" stop-color="#B4691E"/>
     </linearGradient>
-    <linearGradient id="cupRim" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#fca5a5" />
-      <stop offset="50%" stop-color="#dc2626" />
-      <stop offset="100%" stop-color="#7f1d1d" />
+    <linearGradient id="kgl_espresso" x1="40" y1="24" x2="140" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4A2714"/>
+      <stop offset="55%" stop-color="#2B160C"/>
+      <stop offset="100%" stop-color="#160B06"/>
     </linearGradient>
-    <radialGradient id="crema" cx="48%" cy="45%" r="55%">
-      <stop offset="0%" stop-color="#f59e0b" />
-      <stop offset="55%" stop-color="#b45309" />
-      <stop offset="100%" stop-color="#5c2808" />
-    </radialGradient>
-    <linearGradient id="steamGrad" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#fde68a" stop-opacity="0.9" />
-      <stop offset="100%" stop-color="#fffbeb" stop-opacity="0.18" />
+    <linearGradient id="kgl_foam" x1="120" y1="26" x2="88" y2="174" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFDF8"/>
+      <stop offset="55%" stop-color="#F7EBD7"/>
+      <stop offset="100%" stop-color="#DFC49C"/>
     </linearGradient>
+    <linearGradient id="kgl_leaf" x1="48" y1="54" x2="108" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#86EFAC"/>
+      <stop offset="50%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="kgl_rosetta" x1="100" y1="90" x2="152" y2="154" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9A541C"/>
+      <stop offset="100%" stop-color="#4A2510"/>
+    </linearGradient>
+    <clipPath id="kgl_inner_clip">
+      <circle cx="100" cy="100" r="82"/>
+    </clipPath>
   </defs>
 
-  <!-- Rounded espresso badge backdrop -->
-  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)" stroke="#7f1d1d" stroke-width="1.2" />
+  <!-- Full-bleed dark-roast espresso backdrop -->
+  <rect width="200" height="200" rx="44" fill="url(#kgl_bg)"/>
 
-  <!-- Soft 3D drop shadow under saucer -->
-  <ellipse cx="32" cy="52" rx="21" ry="5.5" fill="#090503" opacity="0.65" />
+  <!-- Warm Brushed Brass Outer Ring -->
+  <circle cx="100" cy="100" r="90" fill="#140C08" stroke="url(#kgl_brass)" stroke-width="5.5"/>
+  <circle cx="100" cy="100" r="84" fill="none" stroke="#FDE68A" stroke-opacity="0.32" stroke-width="1.2"/>
 
-  <!-- 3D Red Ceramic Saucer -->
-  <ellipse cx="31" cy="46.5" rx="21.5" ry="7.2" fill="#6b0f0f" />
-  <ellipse cx="31" cy="45" rx="21.2" ry="6.8" fill="url(#saucerGrad)" />
-  <ellipse cx="31" cy="44.8" rx="13.5" ry="4" fill="#7f1d1d" opacity="0.65" />
+  <!-- Clipped Yin-Yang Interior -->
+  <g clip-path="url(#kgl_inner_clip)">
+    <!-- Base: Velvety Steamed Milk Foam (Right / Lower Half) -->
+    <circle cx="100" cy="100" r="82" fill="url(#kgl_foam)"/>
 
-  <!-- 3D Cup Handle -->
-  <path d="M44.5 31.5 C52.5 31.5, 53 41, 43.5 42" fill="none" stroke="#690d0d" stroke-width="4.4" stroke-linecap="round" />
-  <path d="M44.5 31 C51.5 31, 52 40, 43.5 41.2" fill="none" stroke="#dc2626" stroke-width="2.6" stroke-linecap="round" />
-  <path d="M45.5 30.8 C49.5 31, 50.5 34.5, 48.8 37.5" fill="none" stroke="#fca5a5" stroke-width="0.9" stroke-linecap="round" opacity="0.7" />
+    <!-- Left / Upper Half: Deep Espresso Crema Yin-Yang S-Curve -->
+    <path d="M 100 18 A 82 82 0 0 0 100 182 A 41 41 0 0 0 100 100 A 41 41 0 0 1 100 18 Z" fill="url(#kgl_espresso)"/>
 
-  <!-- 3D Red Ceramic Cup Bowl -->
-  <path d="M16 28.5 C16 42.5, 22.5 46.8, 31 46.8 C39.5 46.8, 46 42.5, 46 28.5 Z" fill="url(#cupBody)" />
-  <!-- Glossy vertical 3D specular highlight on left curve -->
-  <path d="M19.5 31.5 C19.5 39, 22 43, 25 44.5" fill="none" stroke="#fecaca" stroke-width="1.8" stroke-linecap="round" opacity="0.45" />
+    <!-- Subtle Golden S-Curve Rim Highlight -->
+    <path d="M 100 18 A 41 41 0 0 0 100 100 A 41 41 0 0 1 100 182" fill="none" stroke="url(#kgl_brass)" stroke-opacity="0.65" stroke-width="2.2"/>
 
-  <!-- 3D Cup Top Rim -->
-  <ellipse cx="31" cy="28.5" rx="15" ry="6.4" fill="url(#cupRim)" />
-  <ellipse cx="31" cy="28.8" rx="13.2" ry="5" fill="#450a0a" />
+    <!-- LEFT YIN HALF: Botanical Garden Leaf -->
+    <g transform="translate(-4, 0)">
+      <path d="M 60 102 C 42 78, 52 44, 86 38 C 94 64, 88 94, 60 102 Z" fill="url(#kgl_leaf)" stroke="#064E3B" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M 55 112 C 62 94, 72 72, 82 47" stroke="#D1FAE5" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M 67 84 L 56 76 M 73 70 L 63 63 M 72 74 L 83 68 M 66 88 L 78 84" stroke="#A7F3D0" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.88"/>
+      <circle cx="96" cy="59" r="9.5" fill="url(#kgl_foam)" stroke="#E59A3C" stroke-width="1.4"/>
+      <circle cx="96" cy="59" r="3.4" fill="#10B981"/>
+    </g>
 
-  <!-- Rich Golden Espresso Crema & Latte Heart -->
-  <ellipse cx="31" cy="29.3" rx="12.4" ry="4.4" fill="url(#crema)" />
-  <path d="M31 32.1 C28.6 30.7, 27.6 29.5, 28.4 28.4 C29 27.6, 30.3 27.9, 31 28.8 C31.7 27.9, 33 27.6, 33.6 28.4 C34.4 29.5, 33.4 30.7, 31 32.1 Z" fill="#fef3c7" opacity="0.95" />
+    <!-- RIGHT YANG HALF: Cappuccino Rosetta & Roasted Coffee Bean -->
+    <g transform="translate(2, 0)">
+      <g fill="url(#kgl_rosetta)">
+        <path d="M 122 104 C 134 94, 152 100, 148 112 C 142 117, 130 112, 122 104 Z"/>
+        <path d="M 118 114 C 106 108, 102 120, 112 126 C 118 128, 124 122, 118 114 Z"/>
+        <path d="M 126 118 C 138 112, 152 120, 146 130 C 139 135, 130 128, 126 118 Z"/>
+        <path d="M 116 130 C 104 128, 104 140, 114 144 C 121 146, 124 138, 116 130 Z"/>
+        <path d="M 124 134 C 136 130, 146 138, 140 148 C 133 152, 126 144, 124 134 Z"/>
+        <path d="M 122 146 C 122 142, 129 142, 129 148 C 129 154, 122 158, 122 162 C 122 158, 115 154, 115 148 C 115 142, 122 142, 122 146 Z"/>
+      </g>
+      <path d="M 123 102 Q 125 128 122 154" stroke="#FFFDF8" stroke-width="1.8" stroke-linecap="round" stroke-opacity="0.85"/>
+      <g transform="translate(103, 140) rotate(-24)">
+        <ellipse cx="0" cy="0" rx="8.5" ry="11.5" fill="#2A140A" stroke="#E59A3C" stroke-width="1.4"/>
+        <path d="M 0 -9.5 C 2.5 -3, -2.5 3, 0 9.5" stroke="#FDE68A" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+      </g>
+    </g>
+  </g>
 
-  <!-- Warm Rising 3D Steam Curl -->
-  <path d="M29.5 26 C26.5 22, 33.5 18.5, 29.5 13.5 C27.5 11, 31 8.5, 32.5 7.5" fill="none" stroke="url(#steamGrad)" stroke-width="2.6" stroke-linecap="round" />
-  <path d="M34.5 24.5 C32.5 21.5, 37.5 18.5, 34.5 14" fill="none" stroke="url(#steamGrad)" stroke-width="1.6" stroke-linecap="round" opacity="0.7" />
+  <!-- Crisp Inner Rim Bevel -->
+  <circle cx="100" cy="100" r="82" fill="none" stroke="url(#kgl_brass)" stroke-width="2.4"/>
 </svg>

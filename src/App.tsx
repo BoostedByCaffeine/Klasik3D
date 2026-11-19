@@ -4,6 +4,7 @@ import { BizUpgradesModal } from './components/BizUpgradesModal';
 import { CodeExportModal } from './components/CodeExportModal';
 import { CustomizeModal } from './components/CustomizeModal';
 import { HudOverlay } from './components/HudOverlay';
+import { LandscapeIntroGate } from './components/LandscapeIntroGate';
 import { LoadingScreen } from './components/LoadingScreen';
 import { PwaApkModal } from './components/PwaApkModal';
 import { RecipeMenuModal } from './components/RecipeMenuModal';
@@ -27,9 +28,11 @@ import {
   getRecipeById,
   getStepDurationMs,
   loadGameFromStorage,
+  loadSavedGraphicsQuality,
   performCupAction,
   purchaseUpgrade,
   saveGameToStorage,
+  saveGraphicsQuality,
   serveCurrentCupToCustomer,
   startNextDayShift,
   unlockOrEquipCustomerSkinPack,
@@ -39,7 +42,7 @@ import { KlasikCafeScene3D, StepAnimType } from './game/scene3d';
 import { triggerBaristaHaptic } from './game/haptics';
 import { soundEngine } from './game/sound';
 import { spotifyManager, SpotifyVinylState } from './game/spotifyManager';
-import { pwaManager, PwaEnvironmentStatus } from './pwa/pwaManager';
+import { pwaManager, PwaEnvironmentStatus, shouldShowLandscapeCue } from './pwa/pwaManager';
 
 type ActiveModal =
   | null
@@ -55,7 +58,12 @@ export default function App() {
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('autostart') === '1';
 
-  const [isLoading, setIsLoading] = useState<boolean>(!isAutostart);
+  const [bootStage, setBootStage] = useState<'landscape-cue' | 'studio-splash' | 'ready'>(() => {
+    if (isAutostart) return 'ready';
+    return shouldShowLandscapeCue() ? 'landscape-cue' : 'studio-splash';
+  });
+  const [splashFadingOut, setSplashFadingOut] = useState<boolean>(isAutostart);
+  const isLoading = bootStage !== 'ready';
   const [isSceneReady, setIsSceneReady] = useState<boolean>(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [isPortraitRotated, setIsPortraitRotated] = useState<boolean>(() =>
@@ -64,10 +72,13 @@ export default function App() {
   const [gameState, setGameState] = useState<KlasikGameState>(() => {
     const saved = loadGameFromStorage();
     const initial = saved || createInitialGameState();
+    // Fresh launch defaults to 'low'; explicit user toggles persist via STORAGE_GFX_KEY
+    const savedGfx = loadSavedGraphicsQuality();
+    const withGfx = { ...initial, graphicsQuality: savedGfx };
     if (isAutostart) {
-      return { ...initial, phase: 'playing' };
+      return { ...withGfx, phase: 'playing' };
     }
-    return { ...initial, phase: 'title' };
+    return { ...withGfx, phase: 'title' };
   });
 
   const [spotifyState, setSpotifyState] = useState<SpotifyVinylState>(() =>
@@ -380,10 +391,15 @@ export default function App() {
     document.body.dataset.state = 'playing';
 
     try {
-      const orientation = screen.orientation as ScreenOrientation & {
-        lock?: (mode: string) => Promise<void>;
-      };
-      orientation?.lock?.('landscape')?.catch(() => {});
+      const status = pwaManager.getStatus();
+      if (status.isAndroid || status.appVersion === 'apk' || status.appVersion === 'pwa') {
+        pwaManager.lockLandscape().catch(() => {});
+      } else {
+        const orientation = screen.orientation as ScreenOrientation & {
+          lock?: (mode: string) => Promise<void>;
+        };
+        orientation?.lock?.('landscape')?.catch(() => {});
+      }
     } catch {
       // Fallback handled automatically by .klasik-root-portrait-rotated
     }
@@ -401,8 +417,11 @@ export default function App() {
     pwaManager.lockLandscape();
   }, []);
 
-  // Mount Three.js WebGLRenderer once in isolated container
+  const shouldMountScene = bootStage !== 'landscape-cue';
+
+  // Mount Three.js WebGLRenderer once in isolated container (deferred until after 1s mobile landscape cue)
   useEffect(() => {
+    if (!shouldMountScene) return;
     const container = canvasMountRef.current;
     if (!container) return;
 
@@ -455,7 +474,7 @@ export default function App() {
       scene?.dispose();
       sceneRef.current = null;
     };
-  }, [handleCupAction, handleSelectStation, handleServeCustomer]);
+  }, [shouldMountScene, handleCupAction, handleSelectStation, handleServeCustomer]);
 
   // Sync gameState changes to Three.js scene & Granular Synthesis Weather Audio Engine
   useEffect(() => {
@@ -567,6 +586,7 @@ export default function App() {
   };
 
   const handleChangeGraphics = (graphicsQuality: GraphicsQuality) => {
+    saveGraphicsQuality(graphicsQuality);
     setGameState((prev) => ({ ...prev, graphicsQuality }));
   };
 
@@ -608,15 +628,17 @@ export default function App() {
   return (
     <main
       data-landscape-enforced={isPortraitRotated ? 'rotated-90' : 'native-landscape'}
-      className={`bg-[#0c0a09] select-none ${
+      className={`bg-[#090705] select-none ${
         isPortraitRotated ? 'klasik-root-portrait-rotated' : 'klasik-root-landscape'
       }`}
     >
-      {/* Isolated Full-Bleed WebGL Canvas Container */}
+      {/* Isolated Full-Bleed WebGL Canvas Container (hidden until splash exit fade begins) */}
       <div
         ref={canvasMountRef}
         data-testid="klasik-3d-canvas-container"
-        className="absolute inset-0 w-full h-full z-0"
+        className={`game-canvas-container z-0 transition-opacity duration-300 ${
+          !isLoading || splashFadingOut ? 'opacity-100 visible' : 'opacity-0 invisible'
+        }`}
       />
 
       {/* Safe On-Screen Recovery Fallback if WebGL or Service Worker Encounters an Error */}
@@ -638,11 +660,20 @@ export default function App() {
         </div>
       )}
 
-      {/* Minimalist Cinematic "Crema Ring" Studio Splash */}
-      {isLoading && (
+      {/* Stage 1 (Mobile / PWA / APK Only): 1-Second "Turn your phone into landscape" Indicator */}
+      {bootStage === 'landscape-cue' && (
+        <LandscapeIntroGate onComplete={() => setBootStage('studio-splash')} />
+      )}
+
+      {/* Stage 2: Minimalist Cinematic "Crema Ring" Studio Splash (Portaled outside rotated <main>) */}
+      {bootStage === 'studio-splash' && (
         <LoadingScreen
           isReady={isSceneReady}
-          onComplete={() => setIsLoading(false)}
+          onStartFade={() => setSplashFadingOut(true)}
+          onComplete={() => {
+            setSplashFadingOut(true);
+            setBootStage('ready');
+          }}
         />
       )}
 

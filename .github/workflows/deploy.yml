@@ -51,35 +51,9 @@ jobs:
           npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           rm -rf android
           npx cap add android
-          node << 'EOF'
-          const fs = require('fs');
-          const p = 'android/app/src/main/AndroidManifest.xml';
-          if (!fs.existsSync(p)) {
-            throw new Error('Missing AndroidManifest.xml at ' + p);
-          }
-          let xml = fs.readFileSync(p, 'utf8');
-          if (!/\bandroid:screenOrientation=/.test(xml)) {
-            xml = xml.replace(
-              /(<activity\b[^>]*?)(>)/,
-              '$1\n            android:screenOrientation="sensorLandscape"$2'
-            );
-          }
-          if (!/\bandroid:configChanges=/.test(xml)) {
-            xml = xml.replace(
-              /(<activity\b[^>]*?)(>)/,
-              '$1\n            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"$2'
-            );
-          }
-          if (!xml.includes('android.permission.VIBRATE')) {
-            xml = xml.replace(
-              '</manifest>',
-              '    <uses-permission android:name="android.permission.VIBRATE" />\n</manifest>'
-            );
-          }
-          fs.writeFileSync(p, xml, 'utf8');
-          console.log('Patched AndroidManifest.xml:\n' + xml);
-          EOF
-          python3 -c "import xml.etree.ElementTree as ET; ET.parse('android/app/src/main/AndroidManifest.xml'); print('AndroidManifest.xml XML validation passed')"
+          node scripts/patch-android-capacitor.mjs
+          node scripts/generate-icons.mjs --android-res android/app/src/main/res
+          python3 -c "import xml.etree.ElementTree as ET; ET.parse('android/app/src/main/AndroidManifest.xml'); ET.parse('android/app/src/main/res/values/styles.xml'); ET.parse('android/app/src/main/res/values/ic_launcher_background.xml'); print('Android XML validation passed')"
           npx cap sync android
           if [ -n "${ANDROID_HOME:-}" ]; then
             echo "sdk.dir=$ANDROID_HOME" > android/local.properties

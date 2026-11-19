@@ -9,8 +9,117 @@ export type WeatherMode = 'morning' | 'golden' | 'rainy';
 export type BaristaStationId = 1 | 2 | 3 | 4 | 5;
 export type GraphicsQuality = 'low' | 'max';
 
+export const STORAGE_GFX_KEY = 'klasik3d_gfx_quality_v2';
+
 export function normalizeGraphicsQuality(val: unknown): GraphicsQuality {
-  return val === 'low' ? 'low' : 'max';
+  return val === 'max' ? 'max' : 'low';
+}
+
+export function loadSavedGraphicsQuality(): GraphicsQuality {
+  if (typeof window === 'undefined') return 'low';
+  try {
+    const saved = window.localStorage.getItem(STORAGE_GFX_KEY);
+    return saved === 'max' ? 'max' : 'low';
+  } catch {
+    return 'low';
+  }
+}
+
+export function saveGraphicsQuality(quality: GraphicsQuality): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_GFX_KEY, quality);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export const MIATA_BAY = {
+  centerX: -3.55,
+  centerZ: -3.65,
+  rotationY: 0.42,
+  plinthWidth: 2.35,
+  plinthLength: 4.1,
+  exclusionRadiusX: 2.35,
+  exclusionRadiusZ: 1.75,
+} as const;
+
+export interface LoungeTableDef {
+  id: number;
+  x: number;
+  z: number;
+  shape: 'round' | 'rect';
+  radius: number;
+  hasLaptop: boolean;
+  seats: ReadonlyArray<{ x: number; z: number; facingRotY: number }>;
+}
+
+/**
+ * 4 Garage-Garden Lounge Tables strictly positioned in the center-right open zone (x >= -0.35),
+ * guaranteeing >= 1.35m clearance from MIATA_BAY and >= 1.25m clear walkway behind the counter.
+ */
+export const LOUNGE_TABLE_LAYOUT: readonly LoungeTableDef[] = [
+  {
+    id: 0,
+    x: 0.15,
+    z: -2.75,
+    shape: 'round',
+    radius: 0.56,
+    hasLaptop: false,
+    seats: [
+      { x: 0.15 - 0.66, z: -2.75, facingRotY: Math.PI / 2 },
+      { x: 0.15 + 0.66, z: -2.75, facingRotY: -Math.PI / 2 },
+    ],
+  },
+  {
+    id: 1,
+    x: 2.45,
+    z: -2.55,
+    shape: 'rect',
+    radius: 0.62,
+    hasLaptop: true,
+    seats: [
+      { x: 2.45 - 0.68, z: -2.55, facingRotY: Math.PI / 2 },
+      { x: 2.45 + 0.68, z: -2.55, facingRotY: -Math.PI / 2 },
+    ],
+  },
+  {
+    id: 2,
+    x: 0.55,
+    z: -4.65,
+    shape: 'rect',
+    radius: 0.62,
+    hasLaptop: true,
+    seats: [
+      { x: 0.55 - 0.68, z: -4.65, facingRotY: Math.PI / 2 },
+      { x: 0.55 + 0.68, z: -4.65, facingRotY: -Math.PI / 2 },
+    ],
+  },
+  {
+    id: 3,
+    x: 2.75,
+    z: -4.55,
+    shape: 'round',
+    radius: 0.56,
+    hasLaptop: true,
+    seats: [
+      { x: 2.75 - 0.66, z: -4.55, facingRotY: Math.PI / 2 },
+      { x: 2.75 + 0.66, z: -4.55, facingRotY: -Math.PI / 2 },
+    ],
+  },
+] as const;
+
+export const LOUNGE_SEAT_COORDS: ReadonlyArray<{ x: number; z: number; facingRotY: number }> =
+  LOUNGE_TABLE_LAYOUT.flatMap((t) => t.seats);
+
+export function isClearOfMiataBay(x: number, z: number, tableRadius = 0.6): boolean {
+  const dx = Math.abs(x - MIATA_BAY.centerX);
+  const dz = Math.abs(z - MIATA_BAY.centerZ);
+  // Elliptical exclusion envelope + table radius
+  const rx = MIATA_BAY.exclusionRadiusX + tableRadius;
+  const rz = MIATA_BAY.exclusionRadiusZ + tableRadius;
+  const normalizedDist = Math.hypot(dx / rx, dz / rz);
+  return normalizedDist >= 1.0 && x >= -0.35;
 }
 export type SyrupFlavor = 'none' | 'vanilla' | 'caramel' | 'chocolate' | 'matcha';
 export type DrinkCategory = 'hot_coffee' | 'iced_coffee' | 'tea' | 'cold_drink';
@@ -936,7 +1045,7 @@ export function createInitialGameState(): KlasikGameState {
     mode: 'career',
     weather: 'morning',
     activeStation: 2,
-    graphicsQuality: 'max',
+    graphicsQuality: 'low',
     realismMode: false,
     day,
     cash: 45,

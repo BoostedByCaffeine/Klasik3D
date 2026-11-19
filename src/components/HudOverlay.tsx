@@ -212,7 +212,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   // PURE 3D IMMERSIVE MODE (When HUD is Hidden via Hide HUD Toggle)
   if (hudHidden) {
     return (
-      <div className="fixed inset-0 z-10 pointer-events-none overflow-hidden">
+      <div className="fixed inset-0 z-10 pointer-events-none hud-safe-frame overflow-hidden">
         {/* Ultra-minimal floating controls in top-right corner so 98% of 3D view is open */}
         <div className="pointer-events-auto fixed top-2 right-2 flex items-center gap-1.5 glass-pill rounded-full px-2.5 py-1">
           <button
@@ -305,7 +305,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       <div className="flex flex-col w-full pointer-events-none relative">
         <div
           data-testid="hud-top-bar"
-          className="pointer-events-auto h-9 sm:h-10 w-full glass-pill !rounded-none !border-x-0 !border-t-0 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
+          className="pointer-events-auto min-h-9 sm:min-h-10 w-full glass-pill !rounded-none !border-x-0 !border-t-0 hud-top-safe flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
         >
           {/* Left Cluster: Direct Non-Shrinking Station Indicator + Flexible Mini Order Tickets */}
           <button
@@ -696,7 +696,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       </div>
 
       {/* 2. SINGLE-ROW EDGE-TO-EDGE BOTTOM BAR */}
-      <div className="pointer-events-auto h-9 sm:h-10 w-full glass-panel !rounded-none !border-x-0 !border-b-0 px-2 sm:px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0">
+      <div
+        className="pointer-events-auto min-h-9 sm:min-h-10 w-full glass-panel !rounded-none !border-x-0 !border-b-0 hud-bottom-safe flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
+      >
         {/* Left Side: Compact Switchable Station Pill <-Station-> */}
         <div
           data-testid="station-switcher-pill"

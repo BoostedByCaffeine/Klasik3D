@@ -6,10 +6,14 @@ import {
   CustomerOrder,
   CustomerSkinPackId,
   KlasikGameState,
+  LOUNGE_SEAT_COORDS,
+  LOUNGE_TABLE_LAYOUT,
+  MIATA_BAY,
   SyrupFlavor,
   WeatherMode,
   getNextRecommendedStep,
   getRecipeById,
+  isClearOfMiataBay,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
 
@@ -186,6 +190,13 @@ interface ArticulatedCustomerActor {
   activityTexture: THREE.CanvasTexture;
   lastActivityLabel: string;
   currentPos: THREE.Vector3;
+  lastPos: THREE.Vector3;
+  waypoints: THREE.Vector3[];
+  finalGoalKey: string;
+  walkPhase: number;
+  walkBlend: number;
+  seatedBlend: number;
+  facingAngle: number;
   seed: number;
   appliedSkinPack: CustomerSkinPackId;
   appliedShirtColor: string;
@@ -216,6 +227,7 @@ export class KlasikCafeScene3D {
   private isSoftwareGl: boolean;
   private isMobileDevice: boolean;
   private resizeObserver: ResizeObserver | null = null;
+  private resizeDebounceTimer: number | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -240,6 +252,7 @@ export class KlasikCafeScene3D {
   private studioLogoTexture!: THREE.CanvasTexture;
   private studioCupEmblemTexture!: THREE.CanvasTexture;
   private woodBumpTexture!: THREE.CanvasTexture;
+  private microCementTexture!: THREE.CanvasTexture;
   private herringboneFloorTexture!: THREE.CanvasTexture;
   private patioCobbleTexture!: THREE.CanvasTexture;
   private tampedPuckTexture!: THREE.CanvasTexture;
@@ -257,6 +270,12 @@ export class KlasikCafeScene3D {
   private counterWoodMat!: THREE.MeshStandardMaterial;
   private ceramicMugMat!: THREE.MeshStandardMaterial;
   private neonTubeMat!: THREE.MeshStandardMaterial;
+  private underCounterNeonMat!: THREE.MeshStandardMaterial;
+  private skylightPaneMat!: THREE.MeshStandardMaterial;
+  private garageGlassMat!: THREE.MeshStandardMaterial;
+  private pendantBulbMats: THREE.MeshStandardMaterial[] = [];
+  private glassRainStreaksGroup!: THREE.Group;
+  private botanicalPlanterExtras: THREE.Object3D[] = [];
   private hangingSignFaceMat!: THREE.MeshStandardMaterial;
   private lastNeonSignColor = '';
   private ghostSnapMat!: THREE.MeshStandardMaterial;
@@ -479,12 +498,24 @@ export class KlasikCafeScene3D {
       this.sunLight.castShadow = enableShadows;
     }
 
+    const targetAniso = isLow ? 1 : Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    [
+      this.microCementTexture,
+      this.herringboneFloorTexture,
+      this.patioCobbleTexture,
+      this.studioLogoTexture,
+      this.studioCupEmblemTexture,
+      this.hangingSignTexture,
+    ].forEach((tex) => {
+      if (tex && tex.anisotropy !== targetAniso) {
+        tex.anisotropy = targetAniso;
+        tex.needsUpdate = true;
+      }
+    });
+
     if (this.monsteraLeavesInstanced) {
-      this.monsteraLeavesInstanced.count = isLow
-        ? 14
-        : this.gameState.decor.plantDensity === 'lush-jungle'
-        ? 36
-        : 22;
+      const lush = this.gameState.decor.plantDensity === 'lush-jungle';
+      this.monsteraLeavesInstanced.count = isLow ? (lush ? 16 : 10) : lush ? 36 : 18;
     }
 
     const { width, height } = this.getEffectiveLandscapeDimensions();
@@ -769,7 +800,47 @@ export class KlasikCafeScene3D {
     this.woodBumpTexture.wrapT = THREE.RepeatWrapping;
     this.woodBumpTexture.repeat.set(4, 2);
 
-    // C. Warm Herringbone Hardwood Flooring Texture (Interior Lounge)
+    // C0. Polished Architectural Micro-Cement Garage Floor Texture
+    const cementCanvas = document.createElement('canvas');
+    cementCanvas.width = 256;
+    cementCanvas.height = 256;
+    const cmCtx = cementCanvas.getContext('2d')!;
+    cmCtx.fillStyle = '#3b3733';
+    cmCtx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 420; i++) {
+      const cx = (i * 53) % 256;
+      const cy = (i * 97) % 256;
+      const r = 6 + (i % 18);
+      cmCtx.fillStyle =
+        i % 3 === 0
+          ? 'rgba(255,248,238,0.032)'
+          : i % 3 === 1
+          ? 'rgba(20,16,13,0.048)'
+          : 'rgba(138,124,108,0.035)';
+      cmCtx.beginPath();
+      cmCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      cmCtx.fill();
+    }
+    // Subtle architectural expansion joint lines
+    cmCtx.strokeStyle = 'rgba(22, 18, 15, 0.35)';
+    cmCtx.lineWidth = 2;
+    cmCtx.strokeRect(1, 1, 254, 254);
+    cmCtx.strokeStyle = 'rgba(255, 245, 230, 0.06)';
+    cmCtx.lineWidth = 1;
+    cmCtx.beginPath();
+    cmCtx.moveTo(0, 128);
+    cmCtx.lineTo(256, 128);
+    cmCtx.moveTo(128, 0);
+    cmCtx.lineTo(128, 256);
+    cmCtx.stroke();
+
+    this.microCementTexture = new THREE.CanvasTexture(cementCanvas);
+    this.microCementTexture.colorSpace = THREE.SRGBColorSpace;
+    this.microCementTexture.wrapS = THREE.RepeatWrapping;
+    this.microCementTexture.wrapT = THREE.RepeatWrapping;
+    this.microCementTexture.repeat.set(7, 5);
+
+    // C. Warm Herringbone Hardwood Flooring Texture (Walnut Lounge Deck Inset)
     const floorCanvas = document.createElement('canvas');
     floorCanvas.width = 256;
     floorCanvas.height = 256;
@@ -778,7 +849,7 @@ export class KlasikCafeScene3D {
     fCtx.fillRect(0, 0, 256, 256);
     const plankW = 32;
     const plankH = 64;
-    const tones = ['#4a2e1b', '#3d2516', '#54341f', '#331e11'];
+    const tones = ['#523320', '#442a1a', '#5d3a24', '#392214'];
     for (let y = 0; y < 256; y += plankW) {
       for (let x = 0; x < 256; x += plankH) {
         fCtx.fillStyle = tones[((x + y) / 32) % tones.length];
@@ -789,7 +860,7 @@ export class KlasikCafeScene3D {
     this.herringboneFloorTexture.colorSpace = THREE.SRGBColorSpace;
     this.herringboneFloorTexture.wrapS = THREE.RepeatWrapping;
     this.herringboneFloorTexture.wrapT = THREE.RepeatWrapping;
-    this.herringboneFloorTexture.repeat.set(8, 6);
+    this.herringboneFloorTexture.repeat.set(4, 3);
 
     // D. Sunlit Garden Patio Cobblestone / Terrace Tile Texture
     const patioCanvas = document.createElement('canvas');
@@ -1193,6 +1264,13 @@ export class KlasikCafeScene3D {
       roughness: 0.2,
     });
 
+    this.underCounterNeonMat = new THREE.MeshStandardMaterial({
+      color: 0xfef3c7,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 1.35,
+      roughness: 0.25,
+    });
+
     this.ghostSnapMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
       emissive: 0xf59e0b,
@@ -1203,52 +1281,225 @@ export class KlasikCafeScene3D {
     });
   }
 
-  // Expansive 18m x 16m Industrial-Botanical Garage Garden Architecture & 1990 Mazda Miata MX-5 Showroom
+  // Helper: Sculpted multi-plane low-poly Monstera / Fiddle-Leaf / Olive foliage planter
+  private createArchitecturalPlanter(
+    kind: 'monstera' | 'fiddle' | 'olive',
+    width = 0.95,
+    depth = 0.42
+  ): THREE.Group {
+    const planter = new THREE.Group();
+    const concreteMat = new THREE.MeshStandardMaterial({
+      color: 0x3f3b37,
+      roughness: 0.78,
+      metalness: 0.06,
+    });
+    const soilMat = new THREE.MeshStandardMaterial({
+      color: 0x1e140e,
+      roughness: 0.95,
+    });
+    const stemMat = new THREE.MeshStandardMaterial({
+      color: 0x2d4a26,
+      roughness: 0.7,
+    });
+    const leafDark = new THREE.MeshStandardMaterial({
+      color: kind === 'olive' ? 0x4d6b45 : 0x165b33,
+      roughness: 0.48,
+      side: THREE.DoubleSide,
+    });
+    const leafBright = new THREE.MeshStandardMaterial({
+      color: kind === 'olive' ? 0x6b8e5a : 0x228b49,
+      roughness: 0.42,
+      side: THREE.DoubleSide,
+    });
+
+    // Sleek concrete-and-walnut trough
+    const base = new THREE.Mesh(new THREE.BoxGeometry(width, 0.42, depth), concreteMat);
+    base.position.y = 0.21;
+    base.castShadow = true;
+    base.receiveShadow = true;
+    planter.add(base);
+
+    const walnutCollar = new THREE.Mesh(
+      new THREE.BoxGeometry(width + 0.04, 0.055, depth + 0.04),
+      this.counterWoodMat
+    );
+    walnutCollar.position.y = 0.43;
+    planter.add(walnutCollar);
+
+    const soil = new THREE.Mesh(
+      new THREE.BoxGeometry(width - 0.08, 0.04, depth - 0.08),
+      soilMat
+    );
+    soil.position.y = 0.43;
+    planter.add(soil);
+
+    // Contact shadow disc under planter (keeps grounded in LOW gfx)
+    const planterShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(width + 0.22, depth + 0.22),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.34,
+        depthWrite: false,
+      })
+    );
+    planterShadow.rotation.x = -Math.PI / 2;
+    planterShadow.position.y = 0.008;
+    planter.add(planterShadow);
+
+    if (kind === 'monstera') {
+      // Sculpted arching stems with angled split leaf blades
+      const bladeGeo = new THREE.CircleGeometry(0.18, 6);
+      bladeGeo.scale(0.85, 1.32, 1);
+      const count = 8;
+      for (let i = 0; i < count; i++) {
+        const t = count > 1 ? i / (count - 1) - 0.5 : 0;
+        const sx = t * (width * 0.68);
+        const h = 0.48 + (i % 3) * 0.16;
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.014, h, 6), stemMat);
+        stem.position.set(sx, 0.44 + h * 0.46, ((i % 2) - 0.5) * 0.1);
+        stem.rotation.z = -t * 0.45 + (i % 2 === 0 ? 0.12 : -0.12);
+        stem.rotation.x = (i % 2 === 0 ? 0.22 : -0.18);
+        planter.add(stem);
+
+        const blade = new THREE.Mesh(bladeGeo, i % 2 === 0 ? leafDark : leafBright);
+        blade.position.set(
+          sx + Math.sin(-stem.rotation.z) * h * 0.48,
+          0.44 + h * 0.92,
+          stem.position.z + Math.sin(stem.rotation.x) * 0.18
+        );
+        blade.rotation.set(-0.55 + (i % 3) * 0.22, t * 1.1 + i * 0.4, stem.rotation.z * 0.7);
+        planter.add(blade);
+      }
+    } else if (kind === 'fiddle') {
+      // Tall branched Fiddle-Leaf Fig
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.036, 1.25, 8), new THREE.MeshStandardMaterial({ color: 0x4b321e, roughness: 0.85 }));
+      trunk.position.set(0, 1.04, 0);
+      planter.add(trunk);
+
+      const leafGeo = new THREE.CircleGeometry(0.21, 7);
+      leafGeo.scale(0.75, 1.35, 1);
+      for (let i = 0; i < 9; i++) {
+        const angle = i * 1.18;
+        const ly = 0.82 + i * 0.12;
+        const leaf = new THREE.Mesh(leafGeo, i % 2 === 0 ? leafDark : leafBright);
+        leaf.position.set(Math.cos(angle) * 0.2, ly, Math.sin(angle) * 0.2);
+        leaf.rotation.set(-0.65 + (i % 3) * 0.15, -angle, 0.25);
+        planter.add(leaf);
+      }
+    } else {
+      // Sculpted potted Olive / Ficus tree with multi-branch foliage fans
+      const barkMat = new THREE.MeshStandardMaterial({ color: 0x5c4633, roughness: 0.88 });
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.042, 1.1, 8), barkMat);
+      trunk.position.set(0, 0.98, 0);
+      trunk.rotation.z = 0.08;
+      planter.add(trunk);
+
+      const clusterGeo = new THREE.OctahedronGeometry(0.24, 1);
+      clusterGeo.scale(1.25, 0.72, 1.1);
+      [
+        [-0.22, 1.48, 0.08, 0.92],
+        [0.24, 1.56, -0.06, 0.88],
+        [0.02, 1.76, 0.04, 1.05],
+        [-0.12, 1.66, -0.18, 0.78],
+        [0.16, 1.42, 0.16, 0.72],
+      ].forEach(([cx, cy, cz, cs], idx) => {
+        const c = new THREE.Mesh(clusterGeo, idx % 2 === 0 ? leafDark : leafBright);
+        c.position.set(cx, cy, cz);
+        c.scale.setScalar(cs);
+        c.rotation.set(idx * 0.4, idx * 0.9, idx * 0.3);
+        planter.add(c);
+      });
+    }
+
+    return planter;
+  }
+
+  // Expansive Modern Architectural Garage-Garden Cafe & 1990 Mazda Miata MX-5 Showroom
   private buildCafeArchitecture() {
     const archGroup = new THREE.Group();
+    this.pendantBulbMats = [];
+    this.botanicalPlanterExtras = [];
 
-    // 1. Expansive Warm Herringbone Hardwood Interior Lounge Floor (18m x 8.5m)
-    const loungeFloorMat = new THREE.MeshStandardMaterial({
+    const charcoalSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x1f2428,
+      roughness: 0.38,
+      metalness: 0.78,
+    });
+    const brassMat = new THREE.MeshStandardMaterial({
+      color: 0xd4af37,
+      roughness: 0.22,
+      metalness: 0.88,
+    });
+    const warmPlasterMat = new THREE.MeshStandardMaterial({
+      color: 0x2d241e,
+      roughness: 0.82,
+      metalness: 0.04,
+    });
+    const concreteDadoMat = new THREE.MeshStandardMaterial({
+      color: 0x35322f,
+      roughness: 0.76,
+      metalness: 0.08,
+    });
+
+    // 1. Polished Architectural Micro-Cement Interior Garage Floor (16m x 11m, z = -6.2 to +4.8)
+    const microCementFloorMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: this.microCementTexture,
+      roughness: 0.44,
+      metalness: 0.08,
+    });
+    const interiorFloor = new THREE.Mesh(new THREE.PlaneGeometry(16, 11.2), microCementFloorMat);
+    interiorFloor.rotation.x = -Math.PI / 2;
+    interiorFloor.position.set(0, 0, -0.8);
+    interiorFloor.receiveShadow = true;
+    archGroup.add(interiorFloor);
+
+    // Warm Herringbone Walnut Lounge Deck inset beneath the 4 relocated bistro tables (x: -0.75 to +3.95, z: -5.6 to -1.7)
+    const loungeDeckMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: this.herringboneFloorTexture,
-      roughness: 0.52,
-      metalness: 0.05,
+      roughness: 0.5,
+      metalness: 0.06,
     });
-    const loungeFloor = new THREE.Mesh(new THREE.PlaneGeometry(18, 8.5), loungeFloorMat);
-    loungeFloor.rotation.x = -Math.PI / 2;
-    loungeFloor.position.set(0, 0, 1.2);
-    loungeFloor.receiveShadow = true;
-    archGroup.add(loungeFloor);
+    const loungeDeck = new THREE.Mesh(new THREE.BoxGeometry(4.75, 0.016, 3.85), loungeDeckMat);
+    loungeDeck.position.set(1.55, 0.008, -3.65);
+    loungeDeck.receiveShadow = true;
+    archGroup.add(loungeDeck);
 
-    // 2. Expansive Cobblestone & Terracotta Garden Patio Terrace (18m x 9.5m, z = -11.5 to -2.0)
+    // Subtle brass border strip framing the walnut lounge deck
+    const deckFrame = new THREE.Mesh(new THREE.BoxGeometry(4.83, 0.012, 3.93), brassMat);
+    deckFrame.position.set(1.55, 0.004, -3.65);
+    archGroup.add(deckFrame);
+
+    // 2. Outdoor Courtyard Cobblestone Terrace outside the Glass Garage Bay Doors (z = -6.2 to -13.5)
     const patioFloorMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: this.patioCobbleTexture,
-      roughness: 0.76,
+      roughness: 0.78,
       metalness: 0.04,
     });
-    const patioFloor = new THREE.Mesh(new THREE.PlaneGeometry(18, 9.5), patioFloorMat);
+    const patioFloor = new THREE.Mesh(new THREE.PlaneGeometry(20, 7.6), patioFloorMat);
     patioFloor.rotation.x = -Math.PI / 2;
-    patioFloor.position.set(0, -0.008, -6.75);
+    patioFloor.position.set(0, -0.01, -10.0);
     patioFloor.receiveShadow = true;
     archGroup.add(patioFloor);
 
-    // Outer Garden Lawn & Landscaping Perimeter
+    // Outer Botanical Garden Lawn Perimeter beyond courtyard
     const grassMat = new THREE.MeshStandardMaterial({
-      color: 0x1e3a1e,
-      roughness: 0.9,
+      color: 0x1b331d,
+      roughness: 0.92,
     });
-    const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(34, 26), grassMat);
+    const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(38, 22), grassMat);
     grassPlane.rotation.x = -Math.PI / 2;
-    grassPlane.position.set(0, -0.025, -13.0);
-    grassPlane.receiveShadow = true;
+    grassPlane.position.set(0, -0.028, -16.0);
     archGroup.add(grassPlane);
 
-    // 3. Main Walnut Barista Counter (Cleanly spans x = -2.55 to +2.65, y = 0..1.0, extended front depth so walnut fills bottom viewport)
+    // 3. Main Fluted-Timber & Brushed-Brass Barista Counter (Top surface strictly y = 1.00)
     const counterBaseMat = new THREE.MeshStandardMaterial({
-      color: 0x1c1512,
-      roughness: 0.7,
-      metalness: 0.15,
+      color: 0x181310,
+      roughness: 0.68,
+      metalness: 0.14,
     });
     const counterBody = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.94, 1.36), counterBaseMat);
     counterBody.position.set(0.05, 0.47, 0.44);
@@ -1256,7 +1507,26 @@ export class KlasikCafeScene3D {
     counterBody.receiveShadow = true;
     archGroup.add(counterBody);
 
-    // Beveled Walnut Countertop Slab (Top surface strictly at y = 1.00, front edge at z = 1.18)
+    // Vertical fluted timber slats across the customer-facing rear fascia of the bar counter
+    for (let s = 0; s < 28; s++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.84, 0.03), this.counterWoodMat);
+      slat.position.set(-2.62 + s * 0.198, 0.48, -0.25);
+      archGroup.add(slat);
+    }
+
+    // Brushed-brass toe kickplate + under-counter warm LED accent strip
+    const kickplate = new THREE.Mesh(new THREE.BoxGeometry(5.66, 0.075, 1.4), brassMat);
+    kickplate.position.set(0.05, 0.038, 0.44);
+    archGroup.add(kickplate);
+
+    const underCounterLed = new THREE.Mesh(
+      new THREE.BoxGeometry(5.55, 0.022, 0.025),
+      this.underCounterNeonMat
+    );
+    underCounterLed.position.set(0.05, 0.91, -0.265);
+    archGroup.add(underCounterLed);
+
+    // Beveled Walnut Countertop Slab (Top surface strictly at y = 1.00)
     const counterTop = new THREE.Mesh(
       new THREE.BoxGeometry(5.76, 0.06, 1.48),
       this.counterWoodMat
@@ -1266,188 +1536,434 @@ export class KlasikCafeScene3D {
     counterTop.receiveShadow = true;
     archGroup.add(counterTop);
 
-    const brassMat = new THREE.MeshStandardMaterial({
-      color: 0xd4af37,
-      roughness: 0.22,
-      metalness: 0.88,
-    });
     const brassTrim = new THREE.Mesh(new THREE.BoxGeometry(5.78, 0.022, 1.5), brassMat);
     brassTrim.position.set(0.05, 0.935, 0.44);
     archGroup.add(brassTrim);
 
-    // 4. Open-Concept Vintage Brick Garage Showroom Wall on Left (x = -5.4) with Framed Posters & Bookshelves
-    const brickMat = new THREE.MeshStandardMaterial({
-      color: 0x432316,
-      roughness: 0.85,
-      metalness: 0.04,
-    });
-    const leftBrickWall = new THREE.Mesh(new THREE.BoxGeometry(0.38, 4.2, 11.5), brickMat);
-    leftBrickWall.position.set(-5.4, 2.1, -3.2);
-    leftBrickWall.receiveShadow = true;
-    archGroup.add(leftBrickWall);
+    // 4. Solid Architectural Left & Right Showroom Walls (x = -5.6 and x = +5.6)
+    const leftWallUpper = new THREE.Mesh(new THREE.BoxGeometry(0.32, 3.1, 10.6), warmPlasterMat);
+    leftWallUpper.position.set(-5.6, 2.7, -1.6);
+    leftWallUpper.receiveShadow = true;
+    archGroup.add(leftWallUpper);
 
-    // Framed Vintage Coffee & Roadster Posters on Left Brick Wall
+    const leftWallDado = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.18, 10.6), concreteDadoMat);
+    leftWallDado.position.set(-5.58, 0.59, -1.6);
+    leftWallDado.receiveShadow = true;
+    archGroup.add(leftWallDado);
+
+    const leftDadoRail = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.045, 10.6), this.counterWoodMat);
+    leftDadoRail.position.set(-5.56, 1.19, -1.6);
+    archGroup.add(leftDadoRail);
+
+    // Vertical acoustic walnut wood slats framing the left gallery section
+    for (let i = 0; i < 10; i++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.75, 0.09), this.counterWoodMat);
+      slat.position.set(-5.41, 2.6, -5.6 + i * 0.2);
+      archGroup.add(slat);
+    }
+
+    // Solid Right Architectural Wall (x = +5.6) with acoustic slats & concrete dado
+    const rightWallUpper = new THREE.Mesh(new THREE.BoxGeometry(0.32, 3.1, 10.6), warmPlasterMat);
+    rightWallUpper.position.set(5.6, 2.7, -1.6);
+    rightWallUpper.receiveShadow = true;
+    archGroup.add(rightWallUpper);
+
+    const rightWallDado = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.18, 10.6), concreteDadoMat);
+    rightWallDado.position.set(5.58, 0.59, -1.6);
+    rightWallDado.receiveShadow = true;
+    archGroup.add(rightWallDado);
+
+    for (let i = 0; i < 14; i++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.7, 0.09), this.counterWoodMat);
+      slat.position.set(5.41, 2.58, -5.4 + i * 0.28);
+      archGroup.add(slat);
+    }
+
+    // Framed Vintage Coffee & Roadster Posters on Left Showroom Wall
     const posterConfigs = [
-      { title: 'ROAST & VINYL', sub: 'GARAGE SESSIONS', color: '#d97706', z: -1.2 },
-      { title: '1990 MIATA MX-5', sub: 'CLASSIC RED NA ROADSTER', color: '#dc2626', z: -2.6 },
-      { title: 'UJI CEREMONIAL', sub: 'FIRST HARVEST MATCHA', color: '#65a30d', z: -4.0 },
+      { title: 'ROAST & VINYL', sub: 'GARAGE SESSIONS', color: '#d97706', z: -1.15 },
+      { title: '1990 MIATA MX-5', sub: 'CLASSIC RED NA ROADSTER', color: '#dc2626', z: -2.55 },
+      { title: 'UJI CEREMONIAL', sub: 'FIRST HARVEST MATCHA', color: '#65a30d', z: -3.95 },
     ];
     posterConfigs.forEach((p) => {
       const pTex = this.createVintagePosterTexture(p.title, p.sub, p.color);
       const frame = new THREE.Mesh(
-        new THREE.BoxGeometry(0.05, 0.88, 0.66),
-        this.counterWoodMat
+        new THREE.BoxGeometry(0.05, 0.9, 0.68),
+        charcoalSteelMat
       );
-      frame.position.set(-5.18, 2.25, p.z);
+      frame.position.set(-5.39, 2.38, p.z);
       archGroup.add(frame);
 
       const art = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.58, 0.8),
+        new THREE.PlaneGeometry(0.6, 0.82),
         new THREE.MeshStandardMaterial({ map: pTex, roughness: 0.4 })
       );
       art.rotation.y = Math.PI / 2;
-      art.position.set(-5.14, 2.25, p.z);
+      art.position.set(-5.35, 2.38, p.z);
       archGroup.add(art);
     });
 
-    // Wooden Wall Bookshelf filled with 3D Books & Ceramic Pots
+    // Floating Walnut Wall Shelves with Stacked Vinyl Records, Roasted Bean Bags & Ceramic Carafes
     const shelfGroup = new THREE.Group();
-    [1.15, 1.52].forEach((sy) => {
-      const plank = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.038, 2.2), this.counterWoodMat);
-      plank.position.set(-5.08, sy, -2.5);
+    [1.32, 1.72].forEach((sy) => {
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.038, 2.5), this.counterWoodMat);
+      plank.position.set(-5.28, sy, -2.55);
       shelfGroup.add(plank);
     });
-    const bookColors = [0xd97706, 0x10b981, 0x3b82f6, 0xf43f5e, 0xa855f7, 0xeab308];
-    for (let b = 0; b < 12; b++) {
-      const book = new THREE.Mesh(
-        new THREE.BoxGeometry(0.16, 0.23, 0.048),
+    const vinylColors = [0xd97706, 0x10b981, 0x3b82f6, 0xf43f5e, 0xa855f7, 0xeab308];
+    for (let b = 0; b < 10; b++) {
+      const sleeve = new THREE.Mesh(
+        new THREE.BoxGeometry(0.22, 0.26, 0.032),
         new THREE.MeshStandardMaterial({
-          color: bookColors[b % bookColors.length],
-          roughness: 0.6,
+          color: vinylColors[b % vinylColors.length],
+          roughness: 0.55,
         })
       );
-      book.position.set(-5.08, 1.28, -3.35 + b * 0.085);
-      book.rotation.x = b % 3 === 0 ? 0.08 : 0;
-      shelfGroup.add(book);
+      sleeve.position.set(-5.26, 1.47, -3.55 + b * 0.068);
+      sleeve.rotation.x = b === 9 ? 0.14 : 0;
+      shelfGroup.add(sleeve);
     }
+    // Roasted bean bags & ceramic carafes on upper shelf
+    [
+      { z: -2.4, color: 0x78350f, w: 0.14, h: 0.22 },
+      { z: -2.18, color: 0x065f46, w: 0.14, h: 0.21 },
+      { z: -1.96, color: 0x1f2937, w: 0.14, h: 0.23 },
+    ].forEach((bag) => {
+      const bagMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.11, bag.h, bag.w),
+        new THREE.MeshStandardMaterial({ color: bag.color, roughness: 0.72 })
+      );
+      bagMesh.position.set(-5.26, 1.85, bag.z);
+      shelfGroup.add(bagMesh);
+    });
+    [-1.65, -1.45].forEach((cz, idx) => {
+      const carafe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.042, 0.062, 0.18 + idx * 0.03, 14),
+        this.ceramicMugMat
+      );
+      carafe.position.set(-5.26, 1.84, cz);
+      shelfGroup.add(carafe);
+    });
     archGroup.add(shelfGroup);
 
-    // 5. Industrial Black Steel-Framed Glass Rollup Garage Archway, Truss Ceiling & Skylights
-    const steelFrameMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: 0.35,
-      metalness: 0.82,
-    });
-    [-5.0, 5.2].forEach((px) => {
-      const column = new THREE.Mesh(new THREE.BoxGeometry(0.48, 4.2, 0.48), brickMat);
-      column.position.set(px, 2.1, -1.85);
-      column.castShadow = true;
-      archGroup.add(column);
+    // 5. Sectional Black-Steel Framed Glass Garage Bay Doors (z = -6.2) replacing old picket fence!
+    const garageWallZ = -6.2;
+    this.garageGlassMat = new THREE.MeshStandardMaterial({
+      color: 0xcbe3ee,
+      roughness: 0.12,
+      metalness: 0.18,
+      transparent: true,
+      opacity: 0.24,
+      depthWrite: false,
     });
 
-    const steelHeader = new THREE.Mesh(new THREE.BoxGeometry(10.8, 0.34, 0.4), steelFrameMat);
-    steelHeader.position.set(0.1, 3.82, -1.85);
-    archGroup.add(steelHeader);
+    // Overhead rolled-steel garage header beam & structural pilasters
+    const garageHeaderBeam = new THREE.Mesh(
+      new THREE.BoxGeometry(11.6, 0.42, 0.34),
+      charcoalSteelMat
+    );
+    garageHeaderBeam.position.set(0, 3.85, garageWallZ);
+    archGroup.add(garageHeaderBeam);
 
-    // Glass Rollup Garage Door Overhead Tracks & Mullions
-    for (let m = -2; m <= 2; m++) {
-      const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.55, 0.06), steelFrameMat);
-      mullion.position.set(m * 2.1, 3.45, -1.85);
-      archGroup.add(mullion);
+    // Concrete knee-wall base beneath outer bays
+    const baseCurb = new THREE.Mesh(new THREE.BoxGeometry(11.4, 0.24, 0.22), concreteDadoMat);
+    baseCurb.position.set(0, 0.12, garageWallZ);
+    archGroup.add(baseCurb);
+
+    // 3 Wide Sectional Glass Garage Bay Doors (Left Showroom Bay, Center Entry Bay, Right Garden Bay)
+    const bayCenters = [-3.65, 0.0, 3.65];
+    const bayWidth = 3.35;
+    [-5.45, -1.82, 1.82, 5.45].forEach((px) => {
+      const steelPost = new THREE.Mesh(
+        new THREE.BoxGeometry(0.22, 4.1, 0.26),
+        charcoalSteelMat
+      );
+      steelPost.position.set(px, 2.05, garageWallZ);
+      steelPost.castShadow = true;
+      archGroup.add(steelPost);
+    });
+
+    bayCenters.forEach((bx) => {
+      // Translucent conservatory glass pane per bay
+      const glassPane = new THREE.Mesh(
+        new THREE.PlaneGeometry(bayWidth, 3.4),
+        this.garageGlassMat
+      );
+      glassPane.position.set(bx, 1.94, garageWallZ);
+      archGroup.add(glassPane);
+
+      // Horizontal sectional garage door rails (slim steel mullions)
+      [0.95, 1.85, 2.75, 3.62].forEach((my) => {
+        const hBar = new THREE.Mesh(
+          new THREE.BoxGeometry(bayWidth, 0.055, 0.07),
+          charcoalSteelMat
+        );
+        hBar.position.set(bx, my, garageWallZ);
+        archGroup.add(hBar);
+      });
+
+      // Vertical inner stile mullions (3 panes across each garage bay)
+      [-bayWidth / 3, bayWidth / 3].forEach((mx) => {
+        const vBar = new THREE.Mesh(
+          new THREE.BoxGeometry(0.045, 3.45, 0.065),
+          charcoalSteelMat
+        );
+        vBar.position.set(bx + mx, 1.94, garageWallZ);
+        archGroup.add(vBar);
+      });
+    });
+
+    // Subtle rain streaks on the glass garage doors (visible only in rainy weather)
+    this.glassRainStreaksGroup = new THREE.Group();
+    const streakMat = new THREE.MeshBasicMaterial({
+      color: 0xdbeafe,
+      transparent: true,
+      opacity: 0.46,
+      depthWrite: false,
+    });
+    for (let s = 0; s < 30; s++) {
+      const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.016, 0.48 + (s % 4) * 0.16), streakMat);
+      streak.position.set(-5.0 + s * 0.34, 1.0 + (s % 5) * 0.48, garageWallZ + 0.045);
+      streak.rotation.z = -0.08;
+      this.glassRainStreaksGroup.add(streak);
     }
+    this.glassRainStreaksGroup.visible = false;
+    archGroup.add(this.glassRainStreaksGroup);
 
-    // Overhead Timber-and-Steel Ceiling Rafters, Skylight Sunbeams & Glowing Warm Edison Fairy Lights
-    const bulbMat = new THREE.MeshStandardMaterial({
-      color: 0xfffbeb,
-      emissive: 0xf59e0b,
-      emissiveIntensity: 2.2,
+    // 6. Exposed Matte-Charcoal Steel Roof Trusses, Cedar Rafters, Recessed Skylights & 5 Brass Pendant Lamps
+    [-1.4, -3.7, -5.9].forEach((tz) => {
+      const lowerChord = new THREE.Mesh(
+        new THREE.BoxGeometry(11.4, 0.12, 0.14),
+        charcoalSteelMat
+      );
+      lowerChord.position.set(0, 3.82, tz);
+      archGroup.add(lowerChord);
+
+      const upperChord = new THREE.Mesh(
+        new THREE.BoxGeometry(11.4, 0.1, 0.12),
+        charcoalSteelMat
+      );
+      upperChord.position.set(0, 4.35, tz);
+      archGroup.add(upperChord);
+
+      // Diagonal truss web struts
+      for (let d = -4; d <= 4; d++) {
+        const strut = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.64, 0.05), charcoalSteelMat);
+        strut.position.set(d * 1.15, 4.08, tz);
+        strut.rotation.z = d % 2 === 0 ? 0.48 : -0.48;
+        archGroup.add(strut);
+      }
     });
-    const bulbGeo = new THREE.SphereGeometry(0.034, 8, 8);
 
-    for (let r = -3; r <= 3; r++) {
-      const rafterX = r * 1.55;
+    // Warm Cedar / Walnut longitudinal ceiling rafters + Recessed Skylight Bays
+    for (let r = -4; r <= 4; r++) {
+      const rafterX = r * 1.3;
       const rafter = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.18, 7.6),
+        new THREE.BoxGeometry(0.11, 0.14, 8.2),
         this.counterWoodMat
       );
-      rafter.position.set(rafterX, 3.65, -3.6);
+      rafter.position.set(rafterX, 4.18, -2.5);
       archGroup.add(rafter);
-
-      // Edison fairy bulbs strung along the rafters
-      for (let b = 0; b < 5; b++) {
-        const bulb = new THREE.Mesh(bulbGeo, bulbMat);
-        bulb.position.set(rafterX, 3.52 - (b % 2) * 0.04, -1.2 - b * 1.25);
-        archGroup.add(bulb);
-      }
     }
 
-    // Volumetric Skylight Sunbeams over the 1990 Miata Showroom & Garden Lounge
+    this.skylightPaneMat = new THREE.MeshStandardMaterial({
+      color: 0xfff8e7,
+      emissive: 0xffe4b5,
+      emissiveIntensity: 0.72,
+      roughness: 0.3,
+    });
+    [-3.1, 0.2, 3.1].forEach((sx) => {
+      const skylight = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 4.4), this.skylightPaneMat);
+      skylight.rotation.x = Math.PI / 2;
+      skylight.position.set(sx, 4.32, -3.5);
+      archGroup.add(skylight);
+    });
+
+    // 5 Suspended Brushed-Brass Industrial Dome Pendant Lamps (over Miata bay, counter & lounge)
+    const pendantCoords: Array<[number, number, number]> = [
+      [-3.45, 2.52, -3.55],
+      [-1.05, 2.56, 0.38],
+      [1.15, 2.56, 0.38],
+      [0.35, 2.48, -3.6],
+      [2.65, 2.48, -3.55],
+    ];
+    pendantCoords.forEach(([px, py, pz]) => {
+      const pGroup = new THREE.Group();
+      const cordH = 4.15 - py;
+      const cord = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.009, 0.009, cordH, 6),
+        charcoalSteelMat
+      );
+      cord.position.y = cordH / 2 + 0.14;
+      pGroup.add(cord);
+
+      const shade = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.56),
+        brassMat
+      );
+      shade.position.y = 0.02;
+      pGroup.add(shade);
+
+      const collar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045, 0.06, 0.08, 12),
+        charcoalSteelMat
+      );
+      collar.position.y = 0.22;
+      pGroup.add(collar);
+
+      const bulbMat = new THREE.MeshStandardMaterial({
+        color: 0xfffbeb,
+        emissive: 0xfde68a,
+        emissiveIntensity: 2.0,
+        roughness: 0.2,
+      });
+      this.pendantBulbMats.push(bulbMat);
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.065, 10, 8), bulbMat);
+      bulb.position.y = 0.02;
+      pGroup.add(bulb);
+
+      pGroup.position.set(px, py, pz);
+      archGroup.add(pGroup);
+    });
+
+    // Volumetric Skylight Sunbeams softly illuminating the Miata Showroom & Walnut Lounge
     const sunbeamMat = new THREE.MeshBasicMaterial({
       color: 0xfffbeb,
       transparent: true,
-      opacity: 0.055,
+      opacity: 0.042,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
     [
-      [-3.4, -3.6],
-      [0.2, -3.4],
-      [2.6, -3.2],
+      [MIATA_BAY.centerX, MIATA_BAY.centerZ],
+      [1.35, -3.45],
     ].forEach(([bx, bz]) => {
-      const beam = new THREE.Mesh(new THREE.ConeGeometry(1.45, 3.8, 18, 1, true), sunbeamMat);
-      beam.position.set(bx, 1.9, bz);
-      beam.rotation.z = -0.12;
+      const beam = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3.8, 16, 1, true), sunbeamMat);
+      beam.position.set(bx, 2.0, bz);
+      beam.rotation.z = -0.1;
       archGroup.add(beam);
     });
 
-    // 6. Back Garden Wooden Privacy Fence Slats & Layered 3D Garden Trees/Bushes
-    const fenceSlatsGroup = new THREE.Group();
-    for (let f = -14; f <= 14; f++) {
-      const slat = new THREE.Mesh(
-        new THREE.BoxGeometry(0.36, 2.5, 0.06),
-        this.counterWoodMat
+    // 7. Sculpted Courtyard Canopy Trees Strictly OUTSIDE the Glass Garage Bay Doors (z = -8.4 to -11.2)
+    const barkMat = new THREE.MeshStandardMaterial({ color: 0x3f2514, roughness: 0.9 });
+    const canopyShades = [0x1b5e36, 0x266d3e, 0x357a44, 0x204e2e].map(
+      (hex) => new THREE.MeshStandardMaterial({ color: hex, roughness: 0.72 })
+    );
+    const courtyardTrees: Array<[number, number, number]> = [
+      [-5.2, -8.8, 1.15],
+      [-2.1, -9.6, 1.05],
+      [1.2, -9.2, 1.2],
+      [4.4, -8.7, 1.1],
+      [-0.4, -11.2, 1.25],
+      [3.1, -11.0, 1.15],
+    ];
+    courtyardTrees.forEach(([tx, tz, sc], idx) => {
+      const tree = new THREE.Group();
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.18, 2.1, 8), barkMat);
+      trunk.position.y = 1.05;
+      trunk.rotation.z = (idx % 2 === 0 ? 1 : -1) * 0.04;
+      tree.add(trunk);
+
+      // Sculpted forked branches
+      [-0.25, 0.25].forEach((dir) => {
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.95, 6), barkMat);
+        branch.position.set(dir * 0.7, 2.05, dir * 0.2);
+        branch.rotation.z = -dir * 1.4;
+        tree.add(branch);
+      });
+
+      // Layered multi-cluster sculpted canopies (zero primitive single sphere!)
+      [
+        [0, 2.45, 0, 1.05, 0.68, 0.95],
+        [-0.58, 2.25, 0.22, 0.76, 0.56, 0.72],
+        [0.56, 2.32, -0.18, 0.78, 0.54, 0.75],
+        [0.12, 2.86, 0.15, 0.68, 0.52, 0.68],
+      ].forEach(([cx, cy, cz, sx, sy, sz], cIdx) => {
+        const puff = new THREE.Mesh(
+          new THREE.IcosahedronGeometry(0.85, 1),
+          canopyShades[(idx + cIdx) % canopyShades.length]
+        );
+        puff.scale.set(sx, sy, sz);
+        puff.position.set(cx, cy, cz);
+        puff.rotation.set(cIdx * 0.5, idx * 0.8, cIdx * 0.3);
+        tree.add(puff);
+      });
+
+      tree.position.set(tx, 0, tz);
+      tree.scale.setScalar(sc);
+      archGroup.add(tree);
+    });
+
+    // 8. Architectural Interior Botanical Planters & Trailing Hanging Rafter Vines
+    const planterSpecs: Array<{
+      kind: 'monstera' | 'fiddle' | 'olive';
+      x: number;
+      z: number;
+      rotY: number;
+      w: number;
+      d: number;
+      extra?: boolean;
+    }> = [
+      { kind: 'monstera', x: -4.92, z: -1.35, rotY: Math.PI / 2, w: 1.05, d: 0.42 },
+      { kind: 'fiddle', x: -4.88, z: -5.62, rotY: 0.35, w: 0.58, d: 0.58 },
+      { kind: 'monstera', x: -1.15, z: -5.78, rotY: 0, w: 1.1, d: 0.4, extra: true },
+      { kind: 'olive', x: 4.78, z: -2.25, rotY: -Math.PI / 2, w: 0.62, d: 0.62 },
+      { kind: 'monstera', x: 4.72, z: -5.35, rotY: -0.4, w: 1.05, d: 0.42, extra: true },
+    ];
+    planterSpecs.forEach((p) => {
+      const obj = this.createArchitecturalPlanter(p.kind, p.w, p.d);
+      obj.position.set(p.x, 0, p.z);
+      obj.rotation.y = p.rotY;
+      if (p.extra) {
+        this.botanicalPlanterExtras.push(obj);
+      }
+      archGroup.add(obj);
+    });
+
+    // Hanging trailing pothos vines draped from ceiling rafters
+    const vineLeafGeo = new THREE.CircleGeometry(0.065, 5);
+    const vineMat = new THREE.MeshStandardMaterial({
+      color: 0x228b49,
+      roughness: 0.5,
+      side: THREE.DoubleSide,
+    });
+    const vineLocations: Array<[number, number]> = [
+      [-4.2, -1.5],
+      [-1.3, -5.85],
+      [1.3, -5.85],
+      [4.2, -2.6],
+      [3.9, -5.6],
+    ];
+    vineLocations.forEach(([vx, vz], vIdx) => {
+      const vineGroup = new THREE.Group();
+      const hangerPot = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.11, 0.08, 0.16, 10),
+        new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.72 })
       );
-      slat.position.set(f * 0.46, 1.25, -7.8);
-      fenceSlatsGroup.add(slat);
-    }
-    archGroup.add(fenceSlatsGroup);
+      hangerPot.position.y = 3.72;
+      vineGroup.add(hangerPot);
 
-    const foliageMat = new THREE.MeshStandardMaterial({
-      color: 0x166534,
-      roughness: 0.75,
-    });
-    const trunkMat = new THREE.MeshStandardMaterial({
-      color: 0x451a03,
-      roughness: 0.85,
-    });
-    [
-      [-4.6, -6.8],
-      [-2.2, -7.1],
-      [0.2, -7.2],
-      [2.4, -7.0],
-      [4.5, -6.7],
-    ].forEach(([tx, tz], idx) => {
-      const treeGroup = new THREE.Group();
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 1.7, 10), trunkMat);
-      trunk.position.y = 0.85;
-      treeGroup.add(trunk);
-
-      const canopy1 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.76, 1), foliageMat);
-      canopy1.position.set(0, 1.95, 0);
-      treeGroup.add(canopy1);
-
-      const canopy2 = new THREE.Mesh(new THREE.DodecahedronGeometry(0.58, 1), foliageMat);
-      canopy2.position.set(idx % 2 === 0 ? 0.38 : -0.38, 2.38, 0.15);
-      treeGroup.add(canopy2);
-
-      treeGroup.position.set(tx, 0, tz);
-      archGroup.add(treeGroup);
+      for (let l = 0; l < 8; l++) {
+        const leaf = new THREE.Mesh(vineLeafGeo, vineMat);
+        leaf.position.set(
+          Math.sin(l * 1.1 + vIdx) * 0.09,
+          3.62 - l * 0.11,
+          Math.cos(l * 1.1 + vIdx) * 0.09
+        );
+        leaf.rotation.set(0.5, l * 0.8, 0.25);
+        vineGroup.add(leaf);
+      }
+      vineGroup.position.set(vx, 0, vz);
+      if (vIdx >= 3) {
+        this.botanicalPlanterExtras.push(vineGroup);
+      }
+      archGroup.add(vineGroup);
     });
 
-    // 7. 1990 Mazda Miata MX-5 (NA Generation) Showroom Bay on Left (x = -3.4, z = -3.6)
+    // 9. 1990 Mazda Miata MX-5 (NA Generation) Dedicated Showroom Plinth Bay (Phase 6)
     this.buildMazdaMiata1990(archGroup);
 
-    // 8. Title-Only Studio Plaque & Relocated Hero Cup Showcase at (1.68, 1.01, 0.44)
+    // 10. Title-Only Studio Plaque & Relocated Hero Cup Showcase at (1.68, 1.01, 0.44)
     this.titlePlaqueGroup = new THREE.Group();
     const plaqueFrame = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.58, 0.06), brassMat);
     this.titlePlaqueGroup.add(plaqueFrame);
@@ -1496,7 +2012,7 @@ export class KlasikCafeScene3D {
 
     archGroup.add(this.titleHeroCupGroup);
 
-    // 9. Subtle Diegetic Step Halo Ring on Counter Surface
+    // 11. Subtle Diegetic Step Halo Ring on Counter Surface
     this.buildStepHaloHighlight();
 
     this.scene.add(archGroup);
@@ -1551,40 +2067,68 @@ export class KlasikCafeScene3D {
     this.scene.add(this.stepHaloGroup);
   }
 
-  // Detailed Procedural 1990 Mazda Miata MX-5 (NA Generation) parked in the Garage Showroom Bay
+  // Detailed Procedural 1990 Mazda Miata MX-5 (NA Generation) parked on its Dedicated Showroom Plinth Bay
   private buildMazdaMiata1990(parentGroup: THREE.Group) {
     this.miataGroup = new THREE.Group();
-    // Parked at a 3/4 heroic showroom angle in the Left Garage Showroom Bay (-3.4, 0.0, -3.6)
-    this.miataGroup.position.set(-3.4, 0.0, -3.6);
-    this.miataGroup.rotation.y = 0.52;
+    // Strictly positioned in the dedicated MIATA_BAY left showroom zone (zero table overlap!)
+    this.miataGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
+    this.miataGroup.rotation.y = MIATA_BAY.rotationY;
 
-
-
-    // 1. Checkered / Polished Garage Showroom Pad & Brass Stanchions
-    const padCanvas = document.createElement('canvas');
-    padCanvas.width = 256;
-    padCanvas.height = 256;
-    const pCtx = padCanvas.getContext('2d');
-    if (pCtx) {
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          pCtx.fillStyle = (x + y) % 2 === 0 ? '#1e293b' : '#0f172a';
-          pCtx.fillRect(x * 32, y * 32, 32, 32);
-        }
-      }
-      pCtx.strokeStyle = '#d97706';
-      pCtx.lineWidth = 6;
-      pCtx.strokeRect(3, 3, 250, 250);
-    }
-    const padTex = new THREE.CanvasTexture(padCanvas);
-    padTex.colorSpace = THREE.SRGBColorSpace;
-    const showroomPad = new THREE.Mesh(
-      new THREE.BoxGeometry(2.35, 0.028, 3.85),
-      new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.25, metalness: 0.2 })
+    // 1. Sleek Recessed Concrete & Walnut Showroom Plinth (2.4m x 4.15m x 0.06m) + Wheel Stops + Soft Contact Shadow
+    const plinthSlab = new THREE.Mesh(
+      new THREE.BoxGeometry(2.42, 0.055, 4.15),
+      new THREE.MeshStandardMaterial({
+        color: 0x262321,
+        roughness: 0.32,
+        metalness: 0.16,
+      })
     );
-    showroomPad.position.y = 0.014;
-    showroomPad.receiveShadow = true;
-    this.miataGroup.add(showroomPad);
+    plinthSlab.position.y = 0.0275;
+    plinthSlab.receiveShadow = true;
+    this.miataGroup.add(plinthSlab);
+
+    // Warm walnut perimeter framing trim around the plinth
+    const walnutPlinthTrim = new THREE.Mesh(
+      new THREE.BoxGeometry(2.52, 0.042, 4.25),
+      this.counterWoodMat
+    );
+    walnutPlinthTrim.position.y = 0.021;
+    this.miataGroup.add(walnutPlinthTrim);
+
+    // Subtle warm recessed brass/LED edge highlight
+    const plinthRim = new THREE.Mesh(
+      new THREE.BoxGeometry(2.56, 0.012, 4.29),
+      new THREE.MeshStandardMaterial({
+        color: 0xf59e0b,
+        emissive: 0xd97706,
+        emissiveIntensity: 0.65,
+        roughness: 0.25,
+      })
+    );
+    plinthRim.position.y = 0.008;
+    this.miataGroup.add(plinthRim);
+
+    // Matte-black wheel stops in front & rear of tires
+    const wheelStopMat = new THREE.MeshStandardMaterial({ color: 0x111315, roughness: 0.65 });
+    [-1.45, 1.45].forEach((wz) => {
+      const stop = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.05, 0.12), wheelStopMat);
+      stop.position.set(0, 0.075, wz);
+      this.miataGroup.add(stop);
+    });
+
+    // Soft contact shadow directly underneath the Miata chassis (keeps grounded even in LOW quality!)
+    const carShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.95, 3.65),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+      })
+    );
+    carShadow.rotation.x = -Math.PI / 2;
+    carShadow.position.y = 0.062;
+    this.miataGroup.add(carShadow);
 
     // Classic Red (#c8102e) Clearcoat Automotive Paint & Trim Materials
     const classicRedMat = new THREE.MeshPhysicalMaterial({
@@ -3325,154 +3869,231 @@ export class KlasikCafeScene3D {
     );
     st4Group.add(serveTrayGroup);
 
-    // 2. 6 Detailed Cafe & Garden Tables Across the 18m x 16m Garage Garden Space
-    const tablePositions = [
-      new THREE.Vector3(-1.95, 0, -2.85),
-      new THREE.Vector3(-0.65, 0, -4.55),
-      new THREE.Vector3(2.75, 0, -2.85),
-      new THREE.Vector3(-2.15, 0, -5.4),
-      new THREE.Vector3(1.45, 0, -5.6),
-      new THREE.Vector3(3.95, 0, -4.4),
-    ];
-
-
+    // 2. 4 Modern Architectural Bistro Tables Strictly Relocated to Center-Right Lounge Zone (Zero Miata Collision!)
     const ironMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.5,
-      metalness: 0.7,
+      color: 0x1a1d20,
+      roughness: 0.42,
+      metalness: 0.78,
     });
-    const cushionMat = new THREE.MeshStandardMaterial({
-      color: 0x92400e,
-      roughness: 0.75,
+    const leatherMat = new THREE.MeshStandardMaterial({
+      color: 0x7c3f1c,
+      roughness: 0.56,
+      metalness: 0.06,
     });
-    const rugColors = [0x78350f, 0x065f46, 0x9a3412, 0x3f6212, 0x7c2d12, 0x1e3a8a];
+    const tableShadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
+    });
 
-    tablePositions.forEach((pos, idx) => {
+    LOUNGE_TABLE_LAYOUT.forEach((tableDef) => {
+      // Runtime Phase 6 clearance assertion against MIATA_BAY
+      if (!isClearOfMiataBay(tableDef.x, tableDef.z, tableDef.radius)) {
+        console.warn(`[Klasik3D] Table ${tableDef.id} encroaches MIATA_BAY — skipping placement.`);
+        return;
+      }
+
       const tGroup = new THREE.Group();
 
-      // Woven Area Rug under Table
-      const rug = new THREE.Mesh(
-        new THREE.CircleGeometry(0.95, 28),
-        new THREE.MeshStandardMaterial({
-          color: rugColors[idx % rugColors.length],
-          roughness: 0.9,
-        })
+      // Grounding Contact Shadow Disc (keeps tables grounded in LOW graphics quality!)
+      const shadowDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(tableDef.shape === 'rect' ? 0.88 : 0.78, 22),
+        tableShadowMat
       );
-      rug.rotation.x = -Math.PI / 2;
-      rug.position.y = 0.008;
-      tGroup.add(rug);
+      shadowDisc.rotation.x = -Math.PI / 2;
+      shadowDisc.position.y = 0.018;
+      tGroup.add(shadowDisc);
 
-      const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.24, 0.74, 16), ironMat);
-      pedestal.position.y = 0.37;
+      // Matte-black pedestal base + slim central column + brushed-brass foot ring
+      const baseFoot = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.27, 0.035, 18), ironMat);
+      baseFoot.position.y = 0.034;
+      tGroup.add(baseFoot);
+
+      const brassFootRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.255, 0.011, 8, 24),
+        brassMat
+      );
+      brassFootRing.rotation.x = Math.PI / 2;
+      brassFootRing.position.y = 0.05;
+      tGroup.add(brassFootRing);
+
+      const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.052, 0.72, 14), ironMat);
+      pedestal.position.y = 0.39;
       tGroup.add(pedestal);
 
-      // Tables 1 & 4 are rectangular communal wooden tables; others are round walnut bistro tables
+      // Beveled walnut bistro tabletop + slim brass inlay bevel
       const tabletop =
-        idx === 1 || idx === 4
-          ? new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.05, 0.86), this.counterWoodMat)
-          : new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.05, 24), this.counterWoodMat);
-      tabletop.position.y = 0.75;
+        tableDef.shape === 'rect'
+          ? new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.048, 0.78), this.counterWoodMat)
+          : new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.50, 0.048, 24), this.counterWoodMat);
+      tabletop.position.y = 0.76;
       tabletop.castShadow = true;
       tabletop.receiveShadow = true;
       tGroup.add(tabletop);
 
-      // Mid-Century Wooden Chair with Cushioned Seat
-      const chairSeat = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16),
-        this.counterWoodMat
-      );
-      chairSeat.position.set(0, 0.43, 0.62);
-      tGroup.add(chairSeat);
+      const tableBevel =
+        tableDef.shape === 'rect'
+          ? new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.012, 0.8), brassMat)
+          : new THREE.Mesh(new THREE.CylinderGeometry(0.528, 0.528, 0.012, 24), brassMat);
+      tableBevel.position.y = 0.736;
+      tGroup.add(tableBevel);
 
-      const seatCushion = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.19, 0.2, 0.025, 16),
-        cushionMat
-      );
-      seatCushion.position.set(0, 0.46, 0.62);
-      tGroup.add(seatCushion);
+      // Pair of Curved Mid-Century Leather Chairs (Seat A on Left, Seat B on Right facing table)
+      tableDef.seats.forEach((seat) => {
+        const chair = new THREE.Group();
+        const localX = seat.x - tableDef.x;
+        const localZ = seat.z - tableDef.z;
+        const isLeftChair = localX < 0;
 
-      const chairBack = new THREE.Mesh(
-        new THREE.BoxGeometry(0.38, 0.34, 0.04),
-        this.counterWoodMat
-      );
-      chairBack.position.set(0, 0.68, 0.8);
-      tGroup.add(chairBack);
+        // Contact shadow disc under chair
+        const cShadow = new THREE.Mesh(new THREE.CircleGeometry(0.26, 14), tableShadowMat);
+        cShadow.rotation.x = -Math.PI / 2;
+        cShadow.position.y = 0.018;
+        chair.add(cShadow);
 
-      // Cozy Tabletop Props: Tiny Ceramic Vase with Monstera Cutting + Wooden Napkin Holder
+        // 4 Tapered Mid-Century Legs with Brass Ferrules
+        [
+          [-0.14, -0.14],
+          [0.14, -0.14],
+          [-0.14, 0.14],
+          [0.14, 0.14],
+        ].forEach(([lx, lz]) => {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.01, 0.42, 6), ironMat);
+          leg.position.set(lx, 0.21, lz);
+          leg.rotation.z = lx * 0.4;
+          leg.rotation.x = -lz * 0.4;
+          chair.add(leg);
+        });
+
+        // Curved Walnut Seat Shell + Warm Saddle-Leather Cushion
+        const seatShell = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.21, 0.2, 0.036, 16),
+          this.counterWoodMat
+        );
+        seatShell.position.y = 0.43;
+        chair.add(seatShell);
+
+        const seatCushion = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.185, 0.195, 0.028, 16),
+          leatherMat
+        );
+        seatCushion.position.y = 0.46;
+        chair.add(seatCushion);
+
+        // Curved Mid-Century Backrest Arc (faces inward toward table)
+        const backOffset = isLeftChair ? -0.18 : 0.18;
+        const backSupport = new THREE.Mesh(
+          new THREE.BoxGeometry(0.036, 0.3, 0.34),
+          this.counterWoodMat
+        );
+        backSupport.position.set(backOffset, 0.65, 0);
+        chair.add(backSupport);
+
+        const backPad = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.22, 0.28), leatherMat);
+        backPad.position.set(backOffset + (isLeftChair ? 0.022 : -0.022), 0.66, 0);
+        chair.add(backPad);
+
+        chair.position.set(localX, 0, localZ);
+        tGroup.add(chair);
+      });
+
+      // Tabletop Props: Stoneware Bud Vase + Sculpted Botanical Cutting + Walnut Napkin Caddy
       const vase = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.032, 0.045, 0.11, 14),
+        new THREE.CylinderGeometry(0.026, 0.042, 0.11, 14),
         this.ceramicMugMat
       );
-      vase.position.set(-0.18, 0.83, -0.12);
+      vase.position.set(-0.08, 0.84, -0.12);
       tGroup.add(vase);
 
       const cuttingLeaf = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 10, 8),
-        new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.45 })
+        new THREE.CircleGeometry(0.068, 6),
+        new THREE.MeshStandardMaterial({
+          color: 0x1f7a41,
+          roughness: 0.45,
+          side: THREE.DoubleSide,
+        })
       );
-      cuttingLeaf.scale.set(1.2, 0.3, 1.6);
-      cuttingLeaf.position.set(-0.18, 0.92, -0.14);
-      cuttingLeaf.rotation.x = 0.4;
+      cuttingLeaf.scale.set(0.85, 1.35, 1);
+      cuttingLeaf.position.set(-0.08, 0.93, -0.12);
+      cuttingLeaf.rotation.set(-0.45, 0.35, 0.2);
       tGroup.add(cuttingLeaf);
 
       const napkinHolder = new THREE.Mesh(
-        new THREE.BoxGeometry(0.09, 0.075, 0.045),
+        new THREE.BoxGeometry(0.085, 0.072, 0.042),
         this.counterWoodMat
       );
-      napkinHolder.position.set(0.18, 0.81, -0.12);
+      napkinHolder.position.set(0.12, 0.82, -0.12);
       tGroup.add(napkinHolder);
 
-      // 3D Open Laptop with Glowing Screen on Tables 1, 2, 4 for Laptop-Work Customers
-      if (idx === 1 || idx === 2 || idx === 4) {
+      // Sleek Aluminum Laptop on designated work-friendly lounge tables
+      if (tableDef.hasLaptop) {
         const laptopBase = new THREE.Mesh(
-          new THREE.BoxGeometry(0.28, 0.012, 0.2),
+          new THREE.BoxGeometry(0.24, 0.012, 0.18),
           new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.25 })
         );
-        laptopBase.position.set(0, 0.782, 0.18);
+        laptopBase.position.set(0.14, 0.79, 0.12);
+        laptopBase.rotation.y = -0.35;
         tGroup.add(laptopBase);
 
         const laptopScreen = new THREE.Mesh(
-          new THREE.BoxGeometry(0.28, 0.18, 0.01),
+          new THREE.BoxGeometry(0.24, 0.16, 0.009),
           new THREE.MeshStandardMaterial({
             color: 0x1e293b,
             emissive: 0x38bdf8,
-            emissiveIntensity: 0.55,
+            emissiveIntensity: 0.48,
           })
         );
-        laptopScreen.position.set(0, 0.87, 0.08);
-        laptopScreen.rotation.x = -0.25;
+        laptopScreen.position.set(0.08, 0.87, 0.05);
+        laptopScreen.rotation.y = -0.35;
+        laptopScreen.rotation.x = -0.22;
         tGroup.add(laptopScreen);
       }
 
-      tGroup.position.copy(pos);
+      tGroup.position.set(tableDef.x, 0, tableDef.z);
       st4Group.add(tGroup);
     });
 
-    // 3. Instanced Monstera Botanical Leaves Framing the Garage Garden
-    const leafGeo = new THREE.CylinderGeometry(0.28, 0.18, 0.02, 7);
-    leafGeo.scale(1, 1, 1.6);
+    // 3. Instanced Sculpted Monstera Botanical Wall Accents along Architectural Perimeter (Zero Floating Mid-Air Balls!)
+    const leafGeo = new THREE.CircleGeometry(0.22, 6);
+    leafGeo.scale(0.85, 1.4, 1);
     const leafMat = new THREE.MeshStandardMaterial({
-      color: 0x15803d,
-      roughness: 0.45,
-      metalness: 0.05,
+      color: 0x1c723c,
+      roughness: 0.48,
+      metalness: 0.04,
+      side: THREE.DoubleSide,
     });
     const leafCount = 36;
     this.monsteraLeavesInstanced = new THREE.InstancedMesh(leafGeo, leafMat, leafCount);
     const tintColor = new THREE.Color();
 
     for (let i = 0; i < leafCount; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const x = side * (3.8 + (i % 5) * 0.48) + Math.sin(i) * 0.5;
-      const y = 0.6 + (i % 6) * 0.48;
-      const z = -1.6 - (i % 7) * 0.85;
+      // Cluster naturally near the left/right planter troughs and back conservatory glass wall
+      const cluster = i % 4;
+      let x = 0;
+      let y = 0.72 + (i % 5) * 0.24;
+      let z = -5.6;
+      if (cluster === 0) {
+        x = -4.92 + ((i % 3) - 1) * 0.22;
+        z = -1.35 + ((i % 4) - 1.5) * 0.24;
+      } else if (cluster === 1) {
+        x = -4.85 + ((i % 3) - 1) * 0.24;
+        z = -5.55 + ((i % 3) - 1) * 0.2;
+      } else if (cluster === 2) {
+        x = 4.78 + ((i % 3) - 1) * 0.24;
+        z = -2.35 - (i % 5) * 0.58;
+      } else {
+        x = -1.15 + ((i % 5) - 2) * 0.24;
+        z = -5.78 + ((i % 2) - 0.5) * 0.16;
+      }
       _dummyObj.position.set(x, y, z);
-      _dummyObj.rotation.set(0.3 + (i % 3) * 0.15, i * 0.6, side * 0.25);
-      const s = 0.85 + (i % 4) * 0.12;
+      _dummyObj.rotation.set(-0.45 + (i % 3) * 0.2, i * 0.75, ((i % 2) - 0.5) * 0.4);
+      const s = 0.72 + (i % 4) * 0.12;
       _dummyObj.scale.setScalar(s);
       _dummyObj.updateMatrix();
       this.monsteraLeavesInstanced.setMatrixAt(i, _dummyObj.matrix);
 
-      tintColor.setHSL(0.35 + (i % 5) * 0.015, 0.65, 0.24 + (i % 4) * 0.05);
+      tintColor.setHSL(0.37 + (i % 5) * 0.015, 0.58, 0.24 + (i % 4) * 0.045);
       this.monsteraLeavesInstanced.setColorAt(i, tintColor);
     }
     this.monsteraLeavesInstanced.instanceMatrix.needsUpdate = true;
@@ -3812,7 +4433,7 @@ export class KlasikCafeScene3D {
       })
     );
     concoursRing.rotation.x = -Math.PI / 2;
-    concoursRing.position.set(-2.8, 0.025, -4.5);
+    concoursRing.position.set(MIATA_BAY.centerX, 0.064, MIATA_BAY.centerZ);
     this.upgradeMiataStageGroup.add(concoursRing);
     this.upgradeMiataStageGroup.visible = false;
     this.scene.add(this.upgradeMiataStageGroup);
@@ -3962,7 +4583,10 @@ export class KlasikCafeScene3D {
     avatarColor: string,
     shirtColor: string,
     skinPackId: CustomerSkinPackId = 'casual-garden'
-  ): Omit<ArticulatedCustomerActor, 'currentPos'> {
+  ): Omit<
+    ArticulatedCustomerActor,
+    'currentPos' | 'lastPos' | 'waypoints' | 'finalGoalKey' | 'walkPhase' | 'walkBlend' | 'seatedBlend' | 'facingAngle'
+  > {
     const group = new THREE.Group();
 
     const skinMat = new THREE.MeshStandardMaterial({
@@ -4740,6 +5364,12 @@ export class KlasikCafeScene3D {
         const preservedPos = actor.currentPos.clone();
         const preservedRotY = actor.group.rotation.y;
         const preservedSeed = actor.seed;
+        const preservedWaypoints = actor.waypoints.map((w) => w.clone());
+        const preservedGoalKey = actor.finalGoalKey;
+        const preservedWalkPhase = actor.walkPhase;
+        const preservedWalkBlend = actor.walkBlend;
+        const preservedSeatedBlend = actor.seatedBlend;
+        const preservedFacing = actor.facingAngle;
         this.customersRoot.remove(actor.group);
         actor.activityTexture.dispose();
 
@@ -4755,6 +5385,13 @@ export class KlasikCafeScene3D {
         actor = {
           ...rebuilt,
           currentPos: preservedPos,
+          lastPos: preservedPos.clone(),
+          waypoints: preservedWaypoints,
+          finalGoalKey: preservedGoalKey,
+          walkPhase: preservedWalkPhase,
+          walkBlend: preservedWalkBlend,
+          seatedBlend: preservedSeatedBlend,
+          facingAngle: preservedFacing,
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -4768,13 +5405,20 @@ export class KlasikCafeScene3D {
           cust.shirtColor,
           activePackId
         );
-        // Spawn arriving customers at the cafe entrance door (-4.2, 0, -4.5) so they walk in 1-by-1
-        const startPos = new THREE.Vector3(-4.2, 0, -4.5);
+        // Spawn arriving customers at the center-right glass garage entrance (clear of Miata & tables!)
+        const startPos = new THREE.Vector3(1.35, 0, -5.8);
         built.group.position.copy(startPos);
         this.customersRoot.add(built.group);
         actor = {
           ...built,
           currentPos: startPos.clone(),
+          lastPos: startPos.clone(),
+          waypoints: [],
+          finalGoalKey: '',
+          walkPhase: seed * 0.7,
+          walkBlend: 0,
+          seatedBlend: 0,
+          facingAngle: 0,
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -4864,32 +5508,74 @@ export class KlasikCafeScene3D {
 
   private applyWeatherLighting(weather: WeatherMode) {
     if (weather === 'morning') {
-      this.scene.background = new THREE.Color(0x231a14);
-      this.scene.fog = new THREE.FogExp2(0x231a14, 0.028);
-      this.sunLight.color.setHex(0xfff1d0);
-      this.sunLight.intensity = 2.4;
-      this.hemiLight.color.setHex(0xbae6fd);
-      this.hemiLight.groundColor.setHex(0x451a03);
-      this.hemiLight.intensity = 0.95;
+      this.scene.background = new THREE.Color(0xc4dde8);
+      this.scene.fog = new THREE.FogExp2(0xd2e4ec, 0.014);
+      this.sunLight.color.setHex(0xfff4d6);
+      this.sunLight.intensity = 2.45;
+      this.hemiLight.color.setHex(0xdbeafe);
+      this.hemiLight.groundColor.setHex(0x5c4033);
+      this.hemiLight.intensity = 1.05;
       this.rainDropsInstanced.visible = false;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0xfffaf0);
+        this.skylightPaneMat.emissive.setHex(0xffe4b5);
+        this.skylightPaneMat.emissiveIntensity = 0.78;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0xdbeafe);
+        this.garageGlassMat.opacity = 0.18;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfde68a);
+        m.emissiveIntensity = 1.65;
+      });
     } else if (weather === 'golden') {
-      this.scene.background = new THREE.Color(0x2b150d);
-      this.scene.fog = new THREE.FogExp2(0x2b150d, 0.032);
-      this.sunLight.color.setHex(0xf97316);
+      this.scene.background = new THREE.Color(0xc47341);
+      this.scene.fog = new THREE.FogExp2(0xa85d32, 0.018);
+      this.sunLight.color.setHex(0xfb923c);
       this.sunLight.intensity = 2.6;
-      this.hemiLight.color.setHex(0xfdba74);
-      this.hemiLight.groundColor.setHex(0x27120b);
-      this.hemiLight.intensity = 0.85;
+      this.hemiLight.color.setHex(0xfed7aa);
+      this.hemiLight.groundColor.setHex(0x3a1c10);
+      this.hemiLight.intensity = 0.92;
       this.rainDropsInstanced.visible = false;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0xffedd5);
+        this.skylightPaneMat.emissive.setHex(0xf59e0b);
+        this.skylightPaneMat.emissiveIntensity = 0.88;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0xfed7aa);
+        this.garageGlassMat.opacity = 0.22;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfbbf24);
+        m.emissiveIntensity = 2.25;
+      });
     } else {
-      this.scene.background = new THREE.Color(0x0f172a);
-      this.scene.fog = new THREE.FogExp2(0x0f172a, 0.038);
-      this.sunLight.color.setHex(0x60a5fa);
-      this.sunLight.intensity = 0.75;
-      this.hemiLight.color.setHex(0x38bdf8);
+      this.scene.background = new THREE.Color(0x1e293b);
+      this.scene.fog = new THREE.FogExp2(0x1e293b, 0.026);
+      this.sunLight.color.setHex(0x7dd3fc);
+      this.sunLight.intensity = 0.95;
+      this.hemiLight.color.setHex(0x60a5fa);
       this.hemiLight.groundColor.setHex(0x1e1b4b);
-      this.hemiLight.intensity = 0.6;
+      this.hemiLight.intensity = 0.68;
       this.rainDropsInstanced.visible = true;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
+      if (this.skylightPaneMat) {
+        this.skylightPaneMat.color.setHex(0x94a3b8);
+        this.skylightPaneMat.emissive.setHex(0x38bdf8);
+        this.skylightPaneMat.emissiveIntensity = 0.45;
+      }
+      if (this.garageGlassMat) {
+        this.garageGlassMat.color.setHex(0x93c5fd);
+        this.garageGlassMat.opacity = 0.30;
+      }
+      this.pendantBulbMats.forEach((m) => {
+        m.emissive.setHex(0xfde68a);
+        m.emissiveIntensity = 2.65;
+      });
     }
   }
 
@@ -4948,6 +5634,10 @@ export class KlasikCafeScene3D {
     }
     this.neonTubeMat.color.setHex(neonHex);
     this.neonTubeMat.emissive.setHex(neonHex);
+    if (this.underCounterNeonMat) {
+      this.underCounterNeonMat.color.setHex(neonHex);
+      this.underCounterNeonMat.emissive.setHex(neonHex);
+    }
     this.neonSignLight.color.setHex(neonHex);
     if (this.hangingSignFaceMat) {
       this.hangingSignFaceMat.emissive.setHex(neonHex);
@@ -5035,7 +5725,12 @@ export class KlasikCafeScene3D {
       this.upgradeGuildCharterGroup.visible = hasUpgrade('tokyo-roastery-guild-charter');
     }
 
-    this.monsteraLeavesInstanced.count = plantDensity === 'lush-jungle' ? 36 : 18;
+    const isLush = plantDensity === 'lush-jungle';
+    const isLow = this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
+    this.monsteraLeavesInstanced.count = isLow ? (isLush ? 16 : 10) : isLush ? 36 : 18;
+    this.botanicalPlanterExtras.forEach((obj) => {
+      obj.visible = isLush;
+    });
   }
 
   // Updates Coffee Grounds, Tamped Puck visibility, and Cup Progression State Machine target
@@ -5180,10 +5875,11 @@ export class KlasikCafeScene3D {
       { passive: true }
     );
 
-    window.addEventListener('resize', this.handleResize);
-    window.visualViewport?.addEventListener('resize', this.handleResize);
+    window.addEventListener('resize', this.scheduleDebouncedResize);
+    window.addEventListener('orientationchange', this.scheduleDebouncedResize);
+    window.visualViewport?.addEventListener('resize', this.scheduleDebouncedResize);
     if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(() => this.handleResize());
+      this.resizeObserver = new ResizeObserver(() => this.scheduleDebouncedResize());
       this.resizeObserver.observe(this.container);
     }
   }
@@ -5192,6 +5888,17 @@ export class KlasikCafeScene3D {
     this.manualCameraYawOffset = 0;
     this.manualCameraZoomOffset = 0;
   }
+
+  private scheduleDebouncedResize = () => {
+    if (this.isDisposed) return;
+    if (this.resizeDebounceTimer !== null) {
+      window.clearTimeout(this.resizeDebounceTimer);
+    }
+    this.resizeDebounceTimer = window.setTimeout(() => {
+      this.resizeDebounceTimer = null;
+      this.handleResize();
+    }, 120);
+  };
 
   private handleResize = () => {
     if (this.isDisposed) return;
@@ -5874,15 +6581,76 @@ export class KlasikCafeScene3D {
       this.rainDropsInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 9. Animate Articulated 3D Customers (1-by-1 Queue Markers, 2-Stage Pickup Handoff, 6 Garden Seats, & Car Selfie by 1990 Miata)
-    const seatCoords = [
-      new THREE.Vector3(-1.95, 0, -2.23),
-      new THREE.Vector3(-0.65, 0, -3.93),
-      new THREE.Vector3(2.75, 0, -2.23),
-      new THREE.Vector3(-2.15, 0, -4.78),
-      new THREE.Vector3(1.45, 0, -4.98),
-      new THREE.Vector3(3.95, 0, -3.78),
-    ];
+    // 9. Animate Articulated 3D Customers (2-Step Aisle Waypoints, Speed-Synchronized Walk Cycle & Smooth Seated Blend)
+    const shortestAngleLerp = (current: number, target: number, alpha: number): number => {
+      let diff = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
+      if (diff < -Math.PI) diff += Math.PI * 2;
+      return current + diff * alpha;
+    };
+
+    const buildAisleWaypoints = (
+      from: THREE.Vector3,
+      goal: THREE.Vector3,
+      kind: 'pickup' | 'queue' | 'seat' | 'car_selfie' | 'exit'
+    ): THREE.Vector3[] => {
+      const corridorZ = -1.78; // Open clear walkway between bar counter & front lounge tables
+      const centerAisleZ = -3.65; // Open aisle between front & back lounge table rows
+      const pts: THREE.Vector3[] = [];
+
+      if (kind === 'pickup') {
+        pts.push(goal.clone());
+        return pts;
+      }
+
+      if (kind === 'queue') {
+        // From entrance or lounge -> corridor -> queue slot (never cuts through Miata or tables)
+        if (from.z < -2.6 && from.x > -0.8) {
+          pts.push(new THREE.Vector3(Math.max(1.35, from.x), 0, corridorZ));
+        }
+        if (Math.abs(from.x - goal.x) > 0.65 || from.z < -2.4) {
+          pts.push(new THREE.Vector3(-1.35, 0, corridorZ));
+        }
+        pts.push(goal.clone());
+        return pts;
+      }
+
+      if (kind === 'car_selfie') {
+        // Walk along clear front aisle, then approach Miata bay respectfully outside plinth
+        if (from.z > -1.4) {
+          pts.push(new THREE.Vector3(-1.35, 0, corridorZ));
+        }
+        pts.push(goal.clone());
+        return pts;
+      }
+
+      if (kind === 'seat') {
+        // Counter -> clear front corridor -> align with aisle -> step neatly into seat
+        if (from.z > -1.4 || from.x < -0.8) {
+          pts.push(new THREE.Vector3(-1.1, 0, corridorZ));
+        }
+        if (goal.z < -3.8) {
+          // Back row tables (2 & 3): route cleanly through central aisle x = 1.45
+          pts.push(new THREE.Vector3(1.45, 0, corridorZ));
+          pts.push(new THREE.Vector3(1.45, 0, centerAisleZ));
+          pts.push(new THREE.Vector3(goal.x, 0, centerAisleZ));
+        } else {
+          // Front row tables (0 & 1)
+          pts.push(new THREE.Vector3(goal.x, 0, corridorZ));
+        }
+        pts.push(goal.clone());
+        return pts;
+      }
+
+      // Exit cleanly to glass bay doorway (1.35, 0, -5.8)
+      if (from.z > -3.5) {
+        pts.push(new THREE.Vector3(from.x, 0, corridorZ));
+        pts.push(new THREE.Vector3(1.45, 0, corridorZ));
+      } else {
+        pts.push(new THREE.Vector3(1.45, 0, centerAisleZ));
+      }
+      pts.push(goal.clone());
+      return pts;
+    };
 
     let orderQueueIdx = 0;
     this.gameState.customers.forEach((cust) => {
@@ -5894,31 +6662,118 @@ export class KlasikCafeScene3D {
         this.stepAnim?.type === 'serve_drink' &&
         this.stepAnim.progress < 0.82;
 
+      let goalKind: 'pickup' | 'queue' | 'seat' | 'car_selfie' | 'exit' = 'exit';
+      let goalKey = 'exit';
+      let targetFacing = 0;
+
       if (isPickingUpDrink) {
-        _targetPos.set(-1.35, 0, -0.65);
+        goalKind = 'pickup';
+        goalKey = 'pickup';
+        _targetPos.set(-1.32, 0, -0.72);
+        targetFacing = 0;
         actor.heldCup.visible = (this.stepAnim?.progress || 0) >= 0.55;
       } else if (cust.state === 'ordering') {
-        // Line ordering customers up 1-by-1 at z = -0.85, -1.55, -2.25 along x = -1.95
-        _targetPos.set(-1.95, 0, -0.85 - orderQueueIdx * 0.70);
+        goalKind = 'queue';
+        goalKey = `queue-${orderQueueIdx}`;
+        // Clear left-center register queue (x = -1.65, strictly clear of Miata showroom bay!)
+        _targetPos.set(-1.65, 0, -0.82 - orderQueueIdx * 0.62);
+        targetFacing = 0;
         orderQueueIdx++;
       } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
-        // Walk over to the 1990 Mazda Miata MX-5 display bay (-3.4, 0, -3.6) to admire & take a selfie with the roadster!
-        _targetPos.set(-2.15, 0, -3.15);
+        goalKind = 'car_selfie';
+        goalKey = 'car_selfie';
+        // Stand respectfully beside the Miata showroom plinth (outside plinth footprint)
+        _targetPos.set(-1.82, 0, -3.25);
+        targetFacing = -1.15;
         actor.heldCup.visible = true;
       } else if (cust.state === 'seated' && cust.seatIndex !== null) {
-        _targetPos.copy(seatCoords[cust.seatIndex % seatCoords.length] || seatCoords[0]);
+        goalKind = 'seat';
+        const seatIdx = cust.seatIndex % LOUNGE_SEAT_COORDS.length;
+        const seat = LOUNGE_SEAT_COORDS[seatIdx] || LOUNGE_SEAT_COORDS[0];
+        goalKey = `seat-${seatIdx}`;
+        _targetPos.set(seat.x, 0, seat.z);
+        targetFacing = seat.facingRotY;
         actor.heldCup.visible = true;
       } else {
-        _targetPos.set(-4.2, 0, -5.2);
+        goalKind = 'exit';
+        goalKey = 'exit';
+        _targetPos.set(1.35, 0, -5.8);
+        targetFacing = Math.PI;
       }
 
+      // Recompute smooth 2-step aisle waypoints whenever destination key changes
+      if (actor.finalGoalKey !== goalKey) {
+        actor.finalGoalKey = goalKey;
+        actor.waypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
+      }
 
-      const dx = _targetPos.x - actor.currentPos.x;
-      const dz = _targetPos.z - actor.currentPos.z;
-      const dist = Math.hypot(dx, dz);
+      // Advance along active waypoint queue at natural bipedal walking speed
+      actor.lastPos.copy(actor.currentPos);
+      const walkSpeed = isPickingUpDrink ? 2.15 : 1.55;
+      let moveDx = 0;
+      let moveDz = 0;
+      let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
 
-      actor.currentPos.lerp(_targetPos, dampFactor * (isPickingUpDrink ? 0.95 : 0.65));
+      if (actor.waypoints.length > 0) {
+        const nextWp = actor.waypoints[0];
+        const wDx = nextWp.x - actor.currentPos.x;
+        const wDz = nextWp.z - actor.currentPos.z;
+        const wDist = Math.hypot(wDx, wDz);
+
+        if (wDist <= 0.08 && actor.waypoints.length > 1) {
+          actor.waypoints.shift();
+        } else if (wDist > 0.025) {
+          const step = Math.min(wDist, walkSpeed * dt);
+          actor.currentPos.x += (wDx / wDist) * step;
+          actor.currentPos.z += (wDz / wDist) * step;
+          moveDx = wDx;
+          moveDz = wDz;
+        } else {
+          actor.currentPos.x = nextWp.x;
+          actor.currentPos.z = nextWp.z;
+          actor.waypoints.shift();
+        }
+        remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
+      }
+
       actor.group.position.copy(actor.currentPos);
+
+      // Compute true linear ground speed for zero-skate speed-synchronized stride
+      const frameDisp = Math.hypot(
+        actor.currentPos.x - actor.lastPos.x,
+        actor.currentPos.z - actor.lastPos.z
+      );
+      const actualSpeed = dt > 0.0001 ? frameDisp / dt : 0;
+      const isActivelyWalking = actualSpeed > 0.08 && remainingDistToFinal > 0.04;
+
+      const walkBlendTarget = isActivelyWalking ? Math.min(1, actualSpeed / 1.35) : 0;
+      actor.walkBlend += (walkBlendTarget - actor.walkBlend) * (1 - Math.exp(-10 * dt));
+
+      const isArrivedSeated =
+        !isActivelyWalking &&
+        cust.state === 'seated' &&
+        cust.socialBehavior !== 'car_selfie' &&
+        !isPickingUpDrink &&
+        remainingDistToFinal <= 0.12;
+      const seatedTarget = isArrivedSeated ? 1 : 0;
+      actor.seatedBlend += (seatedTarget - actor.seatedBlend) * (1 - Math.exp(-7 * dt));
+
+      if (isActivelyWalking) {
+        actor.walkPhase += actualSpeed * dt * 5.2;
+        const moveHeading = Math.atan2(moveDx, moveDz);
+        actor.facingAngle = shortestAngleLerp(
+          actor.facingAngle,
+          moveHeading,
+          1 - Math.exp(-10 * dt)
+        );
+      } else {
+        actor.facingAngle = shortestAngleLerp(
+          actor.facingAngle,
+          targetFacing,
+          1 - Math.exp(-7 * dt)
+        );
+      }
+      actor.group.rotation.y = actor.facingAngle;
 
       // Periodic Eye Blinking
       const blinkCycle = (this.elapsed + actor.seed * 0.37) % 3.6;
@@ -5926,11 +6781,12 @@ export class KlasikCafeScene3D {
       actor.leftEyeMesh.scale.y = eyeScaleY;
       actor.rightEyeMesh.scale.y = eyeScaleY;
 
-      if (isPickingUpDrink && dist <= 0.18) {
-        // Stage 2 Customer Pickup Pose at (-1.35, -0.65): Both articulated arms reach forward to lift the cup!
-        actor.group.rotation.y = 0;
+      if (isPickingUpDrink && remainingDistToFinal <= 0.18) {
+        // Stage 2 Customer Pickup Pose at counter: both articulated arms reach forward to lift the cup!
         actor.pelvisGroup.position.y = 0.58;
         actor.pelvisGroup.rotation.z = 0;
+        actor.torsoGroup.rotation.y = 0;
+        actor.torsoGroup.rotation.z = 0;
         actor.leftHipJoint.rotation.x = 0;
         actor.rightHipJoint.rotation.x = 0;
         actor.leftKneeJoint.rotation.x = 0;
@@ -5941,36 +6797,53 @@ export class KlasikCafeScene3D {
         actor.rightShoulderJoint.rotation.x = -0.98;
         actor.rightElbowJoint.rotation.x = -0.48;
         actor.neckJoint.rotation.x = 0.12;
+        actor.neckJoint.rotation.y = 0;
         actor.activitySprite.visible = false;
-      } else if (dist > 0.08) {
-        // Walking Gait Cycle with Articulated Hips, Knees & Arms
-        const walkPhase = this.elapsed * 8.0 + actor.seed;
-        actor.pelvisGroup.position.y = 0.58 + Math.abs(Math.sin(walkPhase)) * 0.035;
-        actor.pelvisGroup.rotation.z = 0;
-        actor.group.rotation.y = Math.atan2(dx, dz);
+      } else if (actor.walkBlend > 0.12) {
+        // Speed-Synchronized Fluid Bipedal Walk Cycle (zero ice-skating, natural arm swing & cup carry!)
+        const wb = actor.walkBlend;
+        const s = Math.sin(actor.walkPhase);
+        const c = Math.cos(actor.walkPhase);
+        const bob = Math.abs(s) * 0.036 * wb;
 
-        actor.leftHipJoint.rotation.x = Math.sin(walkPhase) * 0.45;
-        actor.rightHipJoint.rotation.x = -Math.sin(walkPhase) * 0.45;
-        actor.leftKneeJoint.rotation.x = Math.max(0, -Math.cos(walkPhase) * 0.45);
-        actor.rightKneeJoint.rotation.x = Math.max(0, Math.cos(walkPhase) * 0.45);
+        actor.pelvisGroup.position.y = THREE.MathUtils.lerp(0.58 + bob, 0.44, actor.seatedBlend);
+        actor.pelvisGroup.rotation.z = s * 0.035 * wb;
+        actor.torsoGroup.rotation.y = -s * 0.075 * wb;
+        actor.torsoGroup.rotation.z = -s * 0.025 * wb;
+        actor.neckJoint.rotation.y = s * 0.04 * wb;
+        actor.neckJoint.rotation.x = 0.04 * wb;
 
-        actor.leftShoulderJoint.rotation.x = -Math.sin(walkPhase) * 0.35;
-        actor.leftElbowJoint.rotation.x = -0.25;
+        actor.leftHipJoint.rotation.x = THREE.MathUtils.lerp(s * 0.5 * wb, -1.32, actor.seatedBlend);
+        actor.rightHipJoint.rotation.x = THREE.MathUtils.lerp(-s * 0.5 * wb, -1.32, actor.seatedBlend);
+        actor.leftKneeJoint.rotation.x = THREE.MathUtils.lerp(
+          Math.max(0, -c * 0.52 * wb),
+          1.32,
+          actor.seatedBlend
+        );
+        actor.rightKneeJoint.rotation.x = THREE.MathUtils.lerp(
+          Math.max(0, c * 0.52 * wb),
+          1.32,
+          actor.seatedBlend
+        );
+
+        actor.leftShoulderJoint.rotation.x = -s * 0.4 * wb;
+        actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.25 * wb;
         actor.phoneMesh.visible = false;
         actor.activitySprite.visible = false;
 
         if (actor.heldCup.visible) {
-          actor.rightShoulderJoint.rotation.x = -0.55;
-          actor.rightElbowJoint.rotation.x = -0.85;
+          // Steady cup-carrying pose on right arm while walking
+          actor.rightShoulderJoint.rotation.x = -0.56 + Math.abs(s) * 0.04 * wb;
+          actor.rightElbowJoint.rotation.x = -0.88;
         } else {
-          actor.rightShoulderJoint.rotation.x = Math.sin(walkPhase) * 0.35;
-          actor.rightElbowJoint.rotation.x = -0.25;
+          actor.rightShoulderJoint.rotation.x = s * 0.4 * wb;
+          actor.rightElbowJoint.rotation.x = -0.22 - Math.max(0, s) * 0.25 * wb;
         }
       } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
-        // Standing beside the 1990 Mazda Miata MX-5 taking a Car Selfie!
-        actor.group.rotation.y = -0.65;
+        // Standing beside the 1990 Mazda Miata MX-5 showroom plinth taking a Car Selfie!
         actor.pelvisGroup.position.y = 0.58;
         actor.pelvisGroup.rotation.z = 0.04;
+        actor.torsoGroup.rotation.y = 0;
         actor.leftHipJoint.rotation.x = 0;
         actor.rightHipJoint.rotation.x = 0;
         actor.leftKneeJoint.rotation.x = 0;
@@ -5989,15 +6862,17 @@ export class KlasikCafeScene3D {
           this.drawCustomerActivityBadge(actor.activityTexture, carIcon);
         }
       } else if (cust.state === 'seated') {
-        // Lifelike Seated Cafe Activity Behaviors (SELFIE_MODE, CHATTING_MODE, LAPTOP_WORK_MODE, SIPPING & RELAXING)
-        actor.group.rotation.y = Math.PI;
-        actor.pelvisGroup.position.y = 0.44;
+        // Smooth Seated Cafe Activity Behaviors (blended smoothly via actor.seatedBlend!)
+        const sb = actor.seatedBlend;
+        actor.pelvisGroup.position.y = THREE.MathUtils.lerp(0.58, 0.44, sb);
         actor.pelvisGroup.rotation.z = 0;
-        actor.leftHipJoint.rotation.x = -1.35;
-        actor.rightHipJoint.rotation.x = -1.35;
-        actor.leftKneeJoint.rotation.x = 1.35;
-        actor.rightKneeJoint.rotation.x = 1.35;
-        actor.activitySprite.visible = true;
+        actor.torsoGroup.rotation.y = 0;
+        actor.torsoGroup.rotation.z = 0;
+        actor.leftHipJoint.rotation.x = -1.32 * sb;
+        actor.rightHipJoint.rotation.x = -1.32 * sb;
+        actor.leftKneeJoint.rotation.x = 1.32 * sb;
+        actor.rightKneeJoint.rotation.x = 1.32 * sb;
+        actor.activitySprite.visible = sb > 0.55;
 
         const behavior = cust.socialBehavior || 'relaxing';
         const wave = Math.sin(this.elapsed * 2.2 + actor.seed);
@@ -6066,14 +6941,12 @@ export class KlasikCafeScene3D {
           }
         }
       } else {
-        // Expressive Waiting Idle Animations at Station 1 Order Queue:
-        // Contrapposto weight shift, head turns (looking at menu board, pastry case, or 1990 Mazda Miata MX-5),
-        // checking wristwatch / scrolling 3D smartphone, and friendly wave!
-        actor.group.rotation.y = 0;
+        // Expressive Waiting Idle Animations at Station 1 Order Queue
         const idlePhase = this.elapsed * 1.4 + actor.seed;
         const weightShift = Math.sin(idlePhase * 0.8);
         actor.pelvisGroup.position.y = 0.58 + Math.sin(idlePhase * 1.6) * 0.008;
         actor.pelvisGroup.rotation.z = weightShift * 0.045;
+        actor.torsoGroup.rotation.y = 0;
         actor.torsoGroup.rotation.z = -weightShift * 0.035;
         actor.leftHipJoint.rotation.x = 0;
         actor.rightHipJoint.rotation.x = 0;
@@ -6082,7 +6955,6 @@ export class KlasikCafeScene3D {
 
         const idleMode = (Math.floor(this.elapsed * 0.25) + actor.seed) % 3;
         if (idleMode === 0) {
-          // Checking 3D Smartphone or Wristwatch
           actor.phoneMesh.visible = actor.seed % 2 === 0;
           actor.leftShoulderJoint.rotation.x = -0.65;
           actor.leftElbowJoint.rotation.x = -0.95;
@@ -6091,7 +6963,6 @@ export class KlasikCafeScene3D {
           actor.neckJoint.rotation.x = 0.22;
           actor.neckJoint.rotation.y = -0.12;
         } else if (idleMode === 1) {
-          // Looking over shoulder at the 1990 Mazda Miata MX-5 or up at the Menu Board
           actor.phoneMesh.visible = false;
           actor.leftShoulderJoint.rotation.x = -0.22;
           actor.leftElbowJoint.rotation.x = -0.4;
@@ -6100,7 +6971,6 @@ export class KlasikCafeScene3D {
           actor.neckJoint.rotation.y = Math.sin(idlePhase * 0.9) * 0.42;
           actor.neckJoint.rotation.x = -0.12 * Math.cos(idlePhase * 0.7);
         } else {
-          // Friendly wave / eager tap toward barista
           actor.phoneMesh.visible = false;
           actor.leftShoulderJoint.rotation.x = -0.25;
           actor.leftElbowJoint.rotation.x = -0.45;
@@ -6117,12 +6987,18 @@ export class KlasikCafeScene3D {
     this.isDisposed = true;
     window.cancelAnimationFrame(this.frameId);
     window.clearTimeout(this.frameId);
-    window.removeEventListener('resize', this.handleResize);
-    window.visualViewport?.removeEventListener('resize', this.handleResize);
+    if (this.resizeDebounceTimer !== null) {
+      window.clearTimeout(this.resizeDebounceTimer);
+      this.resizeDebounceTimer = null;
+    }
+    window.removeEventListener('resize', this.scheduleDebouncedResize);
+    window.removeEventListener('orientationchange', this.scheduleDebouncedResize);
+    window.visualViewport?.removeEventListener('resize', this.scheduleDebouncedResize);
     this.resizeObserver?.disconnect();
     this.studioLogoTexture?.dispose();
     this.studioCupEmblemTexture?.dispose();
     this.woodBumpTexture?.dispose();
+    this.microCementTexture?.dispose();
     this.herringboneFloorTexture?.dispose();
     this.patioCobbleTexture?.dispose();
     this.tampedPuckTexture?.dispose();

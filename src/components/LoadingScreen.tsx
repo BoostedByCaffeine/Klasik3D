@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface LoadingScreenProps {
   /** Resolves true once the 3D scene / WebGL assets finish initial boot */
   isReady?: boolean;
+  /** Called right as the opaque backdrop starts fading out so the 3D scene can reveal smoothly */
+  onStartFade?: () => void;
   /** Called once the splash screen has fully faded out and unmounted */
   onComplete: () => void;
 }
@@ -14,6 +17,7 @@ const FADE_OUT_FAILSAFE_MS = 650;
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   isReady = true,
+  onStartFade,
   onComplete,
 }) => {
   const uid = useId().replace(/:/g, '');
@@ -23,7 +27,9 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   const [unmounted, setUnmounted] = useState(false);
   const completedRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
+  const onStartFadeRef = useRef(onStartFade);
   onCompleteRef.current = onComplete;
+  onStartFadeRef.current = onStartFade;
 
   const finishAndUnmount = useCallback(() => {
     if (completedRef.current) return;
@@ -62,6 +68,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
     if (exitStage !== 'dim') return;
 
     const fadeTimer = window.setTimeout(() => {
+      onStartFadeRef.current?.();
       setExitStage('fade');
     }, HALO_DIM_MS);
 
@@ -99,7 +106,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
     .filter(Boolean)
     .join(' ');
 
-  return (
+  const splashNode = (
     <div
       data-testid="crema-ring-splash"
       className={backdropClass}
@@ -240,4 +247,9 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined' && document.body) {
+    return createPortal(splashNode, document.body);
+  }
+  return splashNode;
 };

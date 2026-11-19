@@ -61,7 +61,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between px-3 py-1.5 sm:p-5 overflow-hidden">
+    <div className="fixed inset-0 z-20 pointer-events-none hud-safe-frame flex flex-col justify-between overflow-hidden">
+      <div className="flex flex-col justify-between w-full h-full px-3 py-1.5 sm:p-5">
       {/* Top Bar: Rocket-Coffee Studio Corner Badge & Version-Specific Utility Actions */}
       <div className="flex items-center justify-between gap-2 pointer-events-auto shrink-0">
         <div
@@ -273,6 +274,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         <span className="font-mono text-amber-300 hidden sm:inline shrink-0">
           {isApkVersion ? '100% Offline APK Ready' : 'Landscape 3D Barista Sim'}
         </span>
+      </div>
       </div>
     </div>
   );
