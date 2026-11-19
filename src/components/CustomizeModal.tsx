@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Cat,
   CloudLightning,
   CloudRain,
   Coffee,
@@ -16,16 +17,22 @@ import { DecorCustomization, WeatherMode } from '../game/rules';
 interface CustomizeModalProps {
   decor: DecorCustomization;
   weather: WeatherMode;
+  equippedCatName?: string;
+  unlockedCatsCount?: number;
   onUpdateDecor: (next: DecorCustomization) => void;
   onUpdateWeather: (weather: WeatherMode) => void;
+  onOpenCafeCats?: () => void;
   onClose: () => void;
 }
 
 export const CustomizeModal: React.FC<CustomizeModalProps> = ({
   decor,
   weather,
+  equippedCatName = 'Champy',
+  unlockedCatsCount = 1,
   onUpdateDecor,
   onUpdateWeather,
+  onOpenCafeCats,
   onClose,
 }) => {
   return (
@@ -223,6 +230,26 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                 })}
               </div>
             </div>
+
+            {onOpenCafeCats && (
+              <div className="pt-1 border-t border-amber-400/20 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs text-[#FAF5EE]">
+                  <Cat className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <span>
+                    Counter Cat: <strong className="text-amber-300">{equippedCatName}</strong>{' '}
+                    <span className="text-[#E7D7C1]/80">({unlockedCatsCount}/9 Unlocked)</span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="btn-customize-open-cats"
+                  onClick={onOpenCafeCats}
+                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] text-xs font-bold cursor-pointer shadow"
+                >
+                  Cafe Cats Roster
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

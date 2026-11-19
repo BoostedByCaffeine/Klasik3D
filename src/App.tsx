@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Disc3 } from 'lucide-react';
-import { BizUpgradesModal } from './components/BizUpgradesModal';
+import { BizUpgradesModal, UpgradesHubTab } from './components/BizUpgradesModal';
 import { CodeExportModal } from './components/CodeExportModal';
 import { CustomizeModal } from './components/CustomizeModal';
 import { HudOverlay } from './components/HudOverlay';
@@ -15,6 +15,7 @@ import {
   ActiveStepAction,
   BaristaStationId,
   BaristaStepActionType,
+  CafeCatId,
   DecorCustomization,
   GameMode,
   GraphicsQuality,
@@ -22,10 +23,12 @@ import {
   RECIPES,
   SyrupFlavor,
   WeatherMode,
+  acceptCustomerOrder,
   advanceSimulationTick,
   claimLoginReward,
   createActiveStepLock,
   createInitialGameState,
+  getCafeCatSpec,
   getEffectiveRecipeForOrder,
   getNextRecommendedStep,
   getRecipeById,
@@ -35,11 +38,13 @@ import {
   loadSavedGraphicsQuality,
   markCustomerAtCounter,
   performCupAction,
+  purchaseOrEquipCafeCat,
   purchaseUpgrade,
   saveGameToStorage,
   saveGraphicsQuality,
   serveCurrentCupToCustomer,
   startNextDayShift,
+  unlockAllEverythingCheat,
   unlockOrEquipCustomerSkinPack,
   unlockOrEquipEquipmentSkin,
 } from './game/rules';
@@ -94,6 +99,7 @@ export default function App() {
     pwaManager.getStatus()
   );
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
+  const [upgradesInitialTab, setUpgradesInitialTab] = useState<UpgradesHubTab>('upgrades');
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [hoveredToolLabel, setHoveredToolLabel] = useState<string | null>(null);
   const [activeAnimLabel, setActiveAnimLabel] = useState<string | null>(null);
@@ -113,6 +119,7 @@ export default function App() {
   const activeModalRef = useRef<ActiveModal>(activeModal);
   activeModalRef.current = activeModal;
   const lastExpiredSeqRef = useRef<number>(gameState.lastExpiredEventSeq ?? 0);
+  const lastCatUnlockSeqRef = useRef<number>(gameState.lastCatUnlockSeq ?? 0);
   const champyPetCountRef = useRef<number>(0);
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
@@ -265,6 +272,69 @@ export default function App() {
     }));
   }, []);
 
+  const handleAcceptOrder = useCallback(
+    (orderId: string) => {
+      soundEngine.init();
+      const target = gameStateRef.current.customers.find(
+        (c) => c.id === orderId && c.state === 'ordering'
+      );
+      if (!target) return;
+      if (!target.orderAccepted) {
+        soundEngine.playOrderAcceptedChime();
+        triggerBaristaHaptic('pin_ticket', pwaManager.getStatus().appVersion);
+        const rec = getRecipeById(target.recipeId);
+        setGameState((prev) => {
+          const next = acceptCustomerOrder(prev, orderId);
+          sceneRef.current?.updateGameState(next);
+          return next;
+        });
+        flashAnimBanner(`Order accepted: ${target.customerName}'s ${rec.name}`, 1500, false);
+      } else {
+        setGameState((prev) => ({ ...prev, pinnedOrderId: orderId }));
+      }
+    },
+    [flashAnimBanner]
+  );
+
+  const handleCookieJarTap = useCallback(
+    (tapCount: number) => {
+      soundEngine.init();
+      soundEngine.playCookieJarClink(tapCount);
+      triggerBaristaHaptic('pin_ticket', pwaManager.getStatus().appVersion);
+      if (tapCount >= 7) {
+        setGameState((prev) => {
+          const unlocked = unlockAllEverythingCheat(prev);
+          saveGameToStorage(unlocked);
+          sceneRef.current?.updateGameState(unlocked);
+          return unlocked;
+        });
+        flashAnimBanner('you got what you wanted, now enjoy', 4800, false);
+      }
+    },
+    [flashAnimBanner]
+  );
+
+  const handlePurchaseOrEquipCafeCat = useCallback(
+    (catId: CafeCatId) => {
+      soundEngine.init();
+      soundEngine.preloadChampyAudio();
+      const prev = gameStateRef.current;
+      const next = purchaseOrEquipCafeCat(prev, catId);
+      if (next === prev) {
+        soundEngine.playErrorThud();
+        return;
+      }
+      if (next.cash < prev.cash) {
+        soundEngine.playCashRegister();
+      }
+      soundEngine.playChampyMeow('chirp');
+      setGameState(next);
+      sceneRef.current?.updateGameState(next);
+      flashAnimBanner(next.lastActionFeedback, 1900, false);
+    },
+    [flashAnimBanner]
+  );
+
   const handleServeCustomer = useCallback(
     (customerId?: string) => {
       soundEngine.init();
@@ -359,7 +429,10 @@ export default function App() {
           );
           const finalState: KlasikGameState = { ...committed, activeStepLock: null };
           sceneRef.current?.updateGameState(finalState);
-          if (finalState.lastActionFeedback.includes('Fast Service!')) {
+          if (
+            finalState.lastActionFeedback.includes('Happy Tip') ||
+            finalState.lastActionFeedback.includes('Fast Service!')
+          ) {
             soundEngine.playSpeedTipChime();
             flashAnimBanner(finalState.lastActionFeedback, 1900, false);
           }
@@ -666,6 +739,12 @@ export default function App() {
           onCustomerReachedCounter: (customerId) => {
             setGameState((prev) => markCustomerAtCounter(prev, customerId));
           },
+          onAcceptCustomerOrder: (orderId) => {
+            handleAcceptOrder(orderId);
+          },
+          onCookieJarTap: (tapCount) => {
+            handleCookieJarTap(tapCount);
+          },
           onPetChampy: () => {
             soundEngine.init();
             soundEngine.preloadChampyAudio();
@@ -675,7 +754,8 @@ export default function App() {
               soundEngine.playChampyMeow('chirp');
             }
             triggerChampyPurrHaptic(pwaManager.getStatus().appVersion);
-            flashAnimBanner('Champy is purring!', 2100, false);
+            const activeCat = getCafeCatSpec(gameStateRef.current.equippedCatId);
+            flashAnimBanner(`${activeCat.name} is purring!`, 2100, false);
           },
           onChampyGreet: () => {
             if (gameStateRef.current.phase !== 'playing') return;
@@ -708,6 +788,8 @@ export default function App() {
     shouldMountScene,
     clearStepTimers,
     flashAnimBanner,
+    handleAcceptOrder,
+    handleCookieJarTap,
     handleCupAction,
     handleSelectStation,
     handleServeCustomer,
@@ -719,7 +801,7 @@ export default function App() {
     soundEngine.setRainAmbience(gameState.phase === 'playing', gameState.weather);
   }, [gameState]);
 
-  // Play order-expired sound + crimson toast whenever an ordering customer times out ($0 walkout)
+  // Play order-expired sound + crimson toast whenever an ordering customer leaves dissatisfied ($0)
   useEffect(() => {
     const seq = gameState.lastExpiredEventSeq ?? 0;
     if (seq > lastExpiredSeqRef.current) {
@@ -727,9 +809,21 @@ export default function App() {
       soundEngine.playOrderExpired();
       triggerBaristaHaptic('blocked_or_error', pwaManager.getStatus().appVersion);
       const expiredName = gameState.lastExpiredCustomerName || 'Customer';
-      flashAnimBanner(`⏱ ${expiredName} ran out of patience and left! ($0)`, 2600, false);
+      flashAnimBanner(`${expiredName} left dissatisfied ($0)`, 2600, false);
     }
   }, [gameState.lastExpiredEventSeq, gameState.lastExpiredCustomerName, flashAnimBanner]);
+
+  // Celebratory toast whenever a new Cafe Cat unlocks automatically via Revenue or 7/7 Lilo Mastery
+  useEffect(() => {
+    const seq = gameState.lastCatUnlockSeq ?? 0;
+    if (seq > lastCatUnlockSeqRef.current) {
+      lastCatUnlockSeqRef.current = seq;
+      if (gameState.lastCatUnlockToast) {
+        soundEngine.playSpeedTipChime();
+        flashAnimBanner(gameState.lastCatUnlockToast, 3400, false);
+      }
+    }
+  }, [gameState.lastCatUnlockSeq, gameState.lastCatUnlockToast, flashAnimBanner]);
 
   // 4 Hz Gameplay Simulation Timer (respects modal pause, 0.35x Recipe Book grace, and staggered door arrivals)
   useEffect(() => {
@@ -995,6 +1089,7 @@ export default function App() {
           onPinOrder={(orderId) =>
             setGameState((prev) => ({ ...prev, pinnedOrderId: orderId }))
           }
+          onAcceptOrder={handleAcceptOrder}
           onCupAction={handleCupAction}
           onServeCustomer={handleServeCustomer}
           onToggleMute={handleToggleMute}
@@ -1008,7 +1103,10 @@ export default function App() {
           onChangeGraphics={handleChangeGraphics}
           onToggleRealismMode={handleToggleRealismMode}
           onRequestFullscreenLandscape={handleRequestFullscreenLandscape}
-          onOpenModal={(modal) => setActiveModal(modal)}
+          onOpenModal={(modal) => {
+            if (modal === 'upgrades') setUpgradesInitialTab('upgrades');
+            setActiveModal(modal);
+          }}
         />
       )}
 
@@ -1060,6 +1158,7 @@ export default function App() {
       {activeModal === 'upgrades' && (
         <BizUpgradesModal
           gameState={gameState}
+          initialTab={upgradesInitialTab}
           onPurchaseUpgrade={(upgradeId) => {
             soundEngine.playCashRegister();
             setGameState((prev) => purchaseUpgrade(prev, upgradeId));
@@ -1072,6 +1171,7 @@ export default function App() {
             soundEngine.playCashRegister();
             setGameState((prev) => unlockOrEquipCustomerSkinPack(prev, packId));
           }}
+          onPurchaseOrEquipCafeCat={handlePurchaseOrEquipCafeCat}
           onClaimLoginReward={(rewardDay) => {
             soundEngine.playCashRegister();
             setGameState((prev) => claimLoginReward(prev, rewardDay));
@@ -1084,8 +1184,14 @@ export default function App() {
         <CustomizeModal
           decor={gameState.decor}
           weather={gameState.weather}
+          equippedCatName={getCafeCatSpec(gameState.equippedCatId).name}
+          unlockedCatsCount={gameState.unlockedCats.length}
           onUpdateDecor={handleUpdateDecor}
           onUpdateWeather={handleChangeWeather}
+          onOpenCafeCats={() => {
+            setUpgradesInitialTab('cafe_cats');
+            setActiveModal('upgrades');
+          }}
           onClose={() => setActiveModal(null)}
         />
       )}

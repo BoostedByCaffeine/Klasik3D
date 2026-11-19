@@ -1138,6 +1138,85 @@ class SoundEngine {
     });
   }
 
+  // Crisp POS ticket chime when barista accepts a waiting customer's order
+  public playOrderAcceptedChime() {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = [783.99, 1046.5]; // G5 -> C6 warm POS confirm
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t0 = now + idx * 0.06;
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.09, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.24);
+    });
+  }
+
+  // Subtle glass jar clink + cookie rattle for taps 1-6, and sparkling harmonic chord on tap 7!
+  public playCookieJarClink(tapCount: number) {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const clamped = Math.max(1, Math.min(7, tapCount));
+
+    // Glass jar ping (subtle ascending pitch per cookie removed)
+    const glassOsc = ctx.createOscillator();
+    const glassGain = ctx.createGain();
+    glassOsc.type = 'sine';
+    const baseFreq = 1650 + clamped * 115;
+    glassOsc.frequency.setValueAtTime(baseFreq, now);
+    glassOsc.frequency.exponentialRampToValueAtTime(baseFreq * 1.04, now + 0.09);
+    glassGain.gain.setValueAtTime(0.001, now);
+    glassGain.gain.linearRampToValueAtTime(0.085, now + 0.008);
+    glassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    glassOsc.connect(glassGain).connect(ctx.destination);
+    glassOsc.start(now);
+    glassOsc.stop(now + 0.15);
+
+    // Soft cookie crunch/rattle burst
+    if (this.beanCrunchBuffer) {
+      const crunch = ctx.createBufferSource();
+      crunch.buffer = this.beanCrunchBuffer;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(1900, now);
+      bp.Q.value = 1.8;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, now);
+      g.gain.linearRampToValueAtTime(0.07, now + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      crunch.connect(bp).connect(g).connect(ctx.destination);
+      crunch.start(now, Math.random() * 0.4, 0.1);
+    }
+
+    // 7th tap: celebratory golden chime arpeggio
+    if (clamped >= 7) {
+      const chord = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98];
+      chord.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'triangle';
+        const t0 = now + 0.06 + i * 0.055;
+        osc.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(0.001, t0);
+        g.gain.linearRampToValueAtTime(0.11, t0 + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.45);
+        osc.connect(g).connect(ctx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.48);
+      });
+    }
+  }
+
   // Phase 6: Hybrid Local Audio Loader for Champy the Cafe Cat (100% offline-safe)
   public async preloadChampyAudio(): Promise<void> {
     if (this.champyLoaded || !this.ctx || typeof fetch === 'undefined') return;

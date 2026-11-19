@@ -4,11 +4,11 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  Cat,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Coffee,
   Compass,
   CupSoda,
@@ -17,20 +17,24 @@ import {
   Eye,
   EyeOff,
   Flame,
+  Frown,
+  Hand,
+  Infinity as InfinityIcon,
   Leaf,
   Lock,
   Maximize2,
+  Meh,
   Menu,
   Minus,
   Pin,
   RotateCcw,
   ShoppingBag,
   SlidersHorizontal,
+  Smile,
   Snowflake,
   Sparkles,
   Sprout,
   Store,
-  Timer,
   Trophy,
   Volume2,
   VolumeX,
@@ -42,6 +46,8 @@ import {
   GraphicsQuality,
   KlasikGameState,
   SyrupFlavor,
+  getCafeCatSpec,
+  getMoodTier,
   getNextRecommendedStep,
   getRecipeById,
   stripKeyboardShortcutsForApk,
@@ -69,6 +75,7 @@ interface HudOverlayProps {
   onUnpinHudRecipe?: () => void;
   onSelectStation: (station: BaristaStationId) => void;
   onPinOrder: (orderId: string) => void;
+  onAcceptOrder: (orderId: string) => void;
   onCupAction: (
     action:
       | 'grind'
@@ -124,6 +131,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onUnpinHudRecipe,
   onSelectStation,
   onPinOrder,
+  onAcceptOrder,
   onCupAction,
   onServeCustomer,
   onToggleMute,
@@ -175,6 +183,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   const isDrinkReadyToServe =
     Boolean(targetRecipe) && drinkValidation.isComplete && !drinkValidation.hasWrongIngredient;
   const isGoldenEquipped = gameState.equippedMachineSkin === 'golden-espresso-machine';
+  const equippedCat = getCafeCatSpec(gameState.equippedCatId);
+  const isLiloActive = gameState.equippedCatId === 'lilo';
+  const isMikmikActive = gameState.equippedCatId === 'mikmik';
+  const firstWaitingOrder = orderingCustomers.find((c) => !c.orderAccepted) || null;
   const unclaimedLoginCount = (gameState.loginRewards || []).filter(
     (r) =>
       !r.claimed &&
@@ -364,6 +376,28 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </span>
           )}
 
+          {isLiloActive && (
+            <span
+              data-testid="hud-lilo-passive-badge"
+              className="px-1.5 py-0.5 rounded-md bg-sky-500/25 border border-sky-400/70 text-[9px] font-mono font-bold text-sky-200 whitespace-nowrap shrink-0 inline-flex items-center gap-1"
+              title="Lilo Passive: Customer Mood Meter Disabled"
+            >
+              <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+              <span>Lilo</span>
+            </span>
+          )}
+
+          {isMikmikActive && (
+            <span
+              data-testid="hud-mikmik-passive-badge"
+              className="px-1.5 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/70 text-[9px] font-mono font-bold text-amber-200 whitespace-nowrap shrink-0 inline-flex items-center gap-1"
+              title="Mikmik Passive: +30% Drink Revenue & +30% Mood Drain"
+            >
+              <Cat className="w-2.5 h-2.5 shrink-0" strokeWidth={2.3} />
+              <span>+30%</span>
+            </span>
+          )}
+
           {!ticketsCollapsed ? (
             <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
               {orderingCustomers.map((cust) => {
@@ -371,30 +405,45 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 const isPinned = pinnedOrder?.id === cust.id;
                 const isTakeout = cust.orderType === 'takeout';
                 const isZenMode = gameState.mode === 'zen';
-                const limitSec = Math.max(1, cust.orderTimeLimitSec || 16);
-                const remSec = Math.max(0, cust.orderTimeRemainingSec ?? limitSec);
-                const displaySec = Math.ceil(remSec);
-                const timerPct = cust.timerStarted && !isZenMode
-                  ? Math.max(0, Math.min(100, (remSec / limitSec) * 100))
-                  : 100;
-                const isUrgent = cust.timerStarted && !isZenMode && displaySec <= 4;
-                const isWarning = cust.timerStarted && !isZenMode && !isUrgent && timerPct < 50;
+                const isAccepted = Boolean(cust.orderAccepted);
+                const moodVal = isLiloActive
+                  ? 100
+                  : Math.max(0, Math.min(100, Math.round(cust.mood ?? cust.patience ?? 100)));
+                const moodTier = getMoodTier(moodVal);
+                const isImpatient = isAccepted && !isZenMode && !isLiloActive && moodTier === 'impatient';
+                const isNeutral = isAccepted && !isZenMode && !isLiloActive && moodTier === 'content';
+                const displayPrice = Math.round(
+                  recipe.price * (isGoldenEquipped ? 2 : 1) * (isMikmikActive ? 1.3 : 1)
+                );
+
                 return (
                   <button
                     key={cust.id}
                     type="button"
-                    data-testid={`hud-order-chip-${cust.id}`}
-                    onClick={() => onPinOrder(cust.id)}
-                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[186px] overflow-hidden glass-text-crisp ${
-                      isUrgent
+                    data-testid={
+                      isAccepted ? `hud-order-chip-${cust.id}` : `hud-accept-order-${cust.id}`
+                    }
+                    onClick={() => (isAccepted ? onPinOrder(cust.id) : onAcceptOrder(cust.id))}
+                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[205px] overflow-hidden glass-text-crisp ${
+                      !isAccepted
+                        ? 'bg-amber-500/30 hover:bg-amber-500/40 border-amber-300/80 text-amber-100 font-bold'
+                        : isImpatient
                         ? 'bg-rose-500/30 border-rose-400 text-rose-100 font-bold'
                         : isPinned
                         ? 'bg-amber-500/25 border-amber-400 text-[#FAF5EE] font-semibold'
                         : 'glass-btn-inner text-[#E7D7C1]'
                     }`}
-                    title={`${cust.customerName} (${isTakeout ? 'Takeout' : 'Dine-In'}): ${recipe.name}${
-                      cust.timerStarted && !isZenMode ? ` · ${displaySec}s left` : ''
-                    }`}
+                    title={
+                      !isAccepted
+                        ? `Tap to accept ${cust.customerName}'s order (${recipe.name})`
+                        : `${cust.customerName} (${isTakeout ? 'Takeout' : 'Dine-In'}): ${recipe.name}${
+                            isLiloActive
+                              ? ' · Mood Disabled (Lilo)'
+                              : isZenMode
+                              ? ' · Zen Mode'
+                              : ` · Mood ${moodVal}/100`
+                          }`
+                    }
                   >
                     <span
                       className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -415,33 +464,69 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       />
                     )}
                     <span className="font-mono tabular-nums text-emerald-300 font-bold shrink-0">
-                      ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
+                      ${displayPrice}
                     </span>
-                    <span
-                      data-testid={`hud-order-timer-${cust.id}`}
-                      className={`font-mono tabular-nums text-[9px] font-bold shrink-0 px-1 rounded ${
-                        isZenMode
-                          ? 'bg-sky-500/20 text-sky-200'
-                          : !cust.timerStarted
-                          ? 'bg-white/10 text-[#E7D7C1]/75'
-                          : isUrgent
-                          ? 'bg-rose-500/45 text-rose-100 animate-pulse'
-                          : isWarning
-                          ? 'bg-amber-500/30 text-amber-200'
-                          : 'bg-emerald-500/25 text-emerald-200'
-                      }`}
-                    >
-                      {isZenMode ? 'Zen' : !cust.timerStarted ? '…' : `${displaySec}s`}
-                    </span>
+
+                    {!isAccepted ? (
+                      <span className="inline-flex items-center gap-0.5 font-mono text-[9px] font-bold shrink-0 px-1 rounded bg-amber-400 text-[#160E09]">
+                        <Hand className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                        <span>Take Order</span>
+                      </span>
+                    ) : (
+                      <span
+                        data-testid={`hud-order-mood-${cust.id}`}
+                        className={`inline-flex items-center gap-0.5 font-mono tabular-nums text-[9px] font-bold shrink-0 px-1 rounded ${
+                          isLiloActive || isZenMode
+                            ? 'bg-sky-500/25 text-sky-200'
+                            : isImpatient
+                            ? 'bg-rose-500/45 text-rose-100 animate-pulse'
+                            : isNeutral
+                            ? 'bg-amber-500/30 text-amber-200'
+                            : 'bg-emerald-500/25 text-emerald-200'
+                        }`}
+                      >
+                        {isLiloActive ? (
+                          <>
+                            <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                            <span>Lilo</span>
+                          </>
+                        ) : isZenMode ? (
+                          <>
+                            <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                            <span>Zen</span>
+                          </>
+                        ) : isImpatient ? (
+                          <>
+                            <Frown className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                            <span>{moodVal}</span>
+                          </>
+                        ) : isNeutral ? (
+                          <>
+                            <Meh className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                            <span>{moodVal}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Smile className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                            <span>{moodVal}</span>
+                          </>
+                        )}
+                      </span>
+                    )}
+
                     <span
                       className={`absolute bottom-0 left-0 h-[2px] transition-all ${
-                        isUrgent || timerPct < 25
+                        !isAccepted
+                          ? 'bg-amber-300'
+                          : isLiloActive || isZenMode
+                          ? 'bg-sky-400'
+                          : isImpatient
                           ? 'bg-rose-500'
-                          : timerPct < 50
+                          : isNeutral
                           ? 'bg-amber-400'
                           : 'bg-emerald-400'
                       }`}
-                      style={{ width: `${Math.round(timerPct)}%` }}
+                      style={{ width: `${!isAccepted || isLiloActive || isZenMode ? 100 : moodVal}%` }}
                     />
                   </button>
                 );
@@ -601,8 +686,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             >
               <Zap className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
-                <div className="truncate">Upgrades</div>
-                <div className="text-[10px] text-amber-300 truncate">150K Gold &amp; Skins</div>
+                <div className="truncate">Upgrades &amp; Cats</div>
+                <div className="text-[10px] text-amber-300 truncate">
+                  {equippedCat.name} · 150K &amp; Skins
+                </div>
               </div>
               {unclaimedLoginCount > 0 && (
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute top-1.5 right-1.5" />
@@ -764,31 +851,61 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </span>
               {(() => {
                 const isZenMode = gameState.mode === 'zen';
-                const limitSec = Math.max(1, pinnedOrder.orderTimeLimitSec || 16);
-                const remSec = Math.max(0, pinnedOrder.orderTimeRemainingSec ?? limitSec);
-                const displaySec = Math.ceil(remSec);
-                const ratio = remSec / limitSec;
-                const isUrgent = pinnedOrder.timerStarted && !isZenMode && displaySec <= 4;
-                const isWarning = pinnedOrder.timerStarted && !isZenMode && !isUrgent && ratio < 0.5;
+                if (!pinnedOrder.orderAccepted) {
+                  return (
+                    <button
+                      type="button"
+                      data-testid="btn-accept-pinned-order"
+                      onClick={() => onAcceptOrder(pinnedOrder.id)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-[#160E09] text-[9px] font-bold uppercase tracking-wide shrink-0 cursor-pointer shadow"
+                    >
+                      <Hand className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                      <span>Accept Order</span>
+                    </button>
+                  );
+                }
+
+                const moodVal = isLiloActive
+                  ? 100
+                  : Math.max(0, Math.min(100, Math.round(pinnedOrder.mood ?? pinnedOrder.patience ?? 100)));
+                const moodTier = getMoodTier(moodVal);
+                const isImpatient = !isZenMode && !isLiloActive && moodTier === 'impatient';
+                const isNeutral = !isZenMode && !isLiloActive && moodTier === 'content';
                 return (
                   <span
-                    data-testid="active-order-countdown"
+                    data-testid="active-order-mood"
                     className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] font-mono font-bold tabular-nums shrink-0 ${
-                      isZenMode
-                        ? 'bg-sky-500/20 border-sky-400/40 text-sky-200'
-                        : !pinnedOrder.timerStarted
-                        ? 'bg-white/10 border-white/20 text-[#E7D7C1]'
-                        : isUrgent
+                      isLiloActive || isZenMode
+                        ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
+                        : isImpatient
                         ? 'bg-rose-500/35 border-rose-400 text-rose-100 animate-pulse'
-                        : isWarning
+                        : isNeutral
                         ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
                         : 'bg-emerald-500/20 border-emerald-400/45 text-emerald-200'
                     }`}
                   >
-                    <Timer className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
-                    <span>
-                      {isZenMode ? 'Zen' : !pinnedOrder.timerStarted ? 'Arriving' : `${displaySec}s`}
-                    </span>
+                    {isLiloActive ? (
+                      <>
+                        <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                        <span>Mood Disabled · Lilo</span>
+                      </>
+                    ) : isZenMode ? (
+                      <>
+                        <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                        <span>Zen</span>
+                      </>
+                    ) : (
+                      <>
+                        {isImpatient ? (
+                          <Frown className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                        ) : isNeutral ? (
+                          <Meh className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                        ) : (
+                          <Smile className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                        )}
+                        <span>Mood {moodVal}</span>
+                      </>
+                    )}
                   </span>
                 );
               })()}
@@ -809,20 +926,31 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           {/* Right Stack: Slim Progress Pill + Minimizable Pinned Recipe Card */}
           <div className="flex flex-col items-end gap-1.5 shrink-0">
             {displayBannerText && (() => {
+              const isCheatToast = displayBannerText.includes(
+                'you got what you wanted, now enjoy'
+              );
               const isExpiredAlert =
+                displayBannerText.includes('left dissatisfied') ||
                 displayBannerText.includes('ran out of patience') ||
                 displayBannerText.includes('($0)');
-              const isChampyToast = displayBannerText.includes('Champy');
-              const isFastServiceToast = displayBannerText.includes('Fast Service!');
+              const isCatToast =
+                /(Champy|Chimny|Chunky|Kicks|Cheeto|Katkat|Luna|Mikmik|Lilo|purring|Cafe Cat|adopted)/i.test(
+                  displayBannerText
+                );
+              const isHappyTipToast =
+                displayBannerText.includes('Happy Tip') ||
+                displayBannerText.includes('Fast Service!');
               return (
                 <div
                   data-testid="hud-feedback-banner"
-                  className={`pointer-events-none inline-flex items-center gap-2 glass-pill glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[55vw] truncate ${
-                    isExpiredAlert
+                  className={`pointer-events-none inline-flex items-center gap-2 glass-pill glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[60vw] truncate ${
+                    isCheatToast
+                      ? '!bg-amber-950/90 !border-amber-300 text-amber-200 font-bold shadow-[0_0_22px_rgba(251,191,36,0.55)]'
+                      : isExpiredAlert
                       ? '!bg-rose-950/90 !border-rose-400/80 text-rose-100 shadow-[0_0_16px_rgba(244,63,94,0.45)]'
-                      : isChampyToast
+                      : isCatToast
                       ? '!border-teal-400/70 text-teal-100'
-                      : isFastServiceToast
+                      : isHappyTipToast
                       ? '!border-emerald-400/75 text-emerald-100'
                       : 'text-[#FAF5EE]'
                   }`}
@@ -858,16 +986,15 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 orderingCustomers.find((c) => c.recipeId === hudPinnedRecipeId) ||
                 null;
               const isZenMode = gameState.mode === 'zen';
-              const limitSec = Math.max(1, linkedOrder?.orderTimeLimitSec || 16);
-              const remSec = Math.max(0, linkedOrder?.orderTimeRemainingSec ?? limitSec);
-              const displaySec = Math.ceil(remSec);
-              const timerPct =
-                linkedOrder && linkedOrder.timerStarted && !isZenMode
-                  ? Math.max(0, Math.min(100, (remSec / limitSec) * 100))
-                  : 100;
-              const isUrgent = Boolean(linkedOrder && linkedOrder.timerStarted && !isZenMode && displaySec <= 4);
+              const moodVal = isLiloActive
+                ? 100
+                : Math.max(0, Math.min(100, Math.round(linkedOrder?.mood ?? linkedOrder?.patience ?? 100)));
+              const moodTier = getMoodTier(moodVal);
+              const isUrgent = Boolean(
+                linkedOrder && linkedOrder.orderAccepted && !isZenMode && !isLiloActive && moodTier === 'impatient'
+              );
               const isWarning = Boolean(
-                linkedOrder && linkedOrder.timerStarted && !isZenMode && !isUrgent && timerPct < 50
+                linkedOrder && linkedOrder.orderAccepted && !isZenMode && !isLiloActive && moodTier === 'content'
               );
 
               const steps = buildStepPipeline(pinnedBookRecipe);
@@ -895,17 +1022,19 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     >
                       <Pin className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.4} />
                       <span className="max-w-[140px] truncate">{pinnedBookRecipe.name}</span>
-                      {linkedOrder && linkedOrder.timerStarted && !isZenMode && (
+                      {linkedOrder && linkedOrder.orderAccepted && (
                         <span
                           className={`text-[10px] font-mono tabular-nums font-bold ${
-                            isUrgent
+                            isLiloActive || isZenMode
+                              ? 'text-sky-300'
+                              : isUrgent
                               ? 'text-rose-300 animate-pulse'
                               : isWarning
                               ? 'text-amber-300'
                               : 'text-emerald-300'
                           }`}
                         >
-                          {displaySec}s
+                          {isLiloActive ? '∞ Lilo' : isZenMode ? '∞ Zen' : `M:${moodVal}`}
                         </span>
                       )}
                       <span className="text-[10px] font-mono text-amber-300 font-bold">
@@ -944,12 +1073,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     <div className="flex items-center gap-1 shrink-0">
                       {linkedOrder && (
                         <span
-                          data-testid="pinned-recipe-timer"
+                          data-testid="pinned-recipe-mood"
                           className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
-                            isZenMode
-                              ? 'bg-sky-500/20 text-sky-200'
-                              : !linkedOrder.timerStarted
-                              ? 'bg-white/10 text-[#E7D7C1]'
+                            !linkedOrder.orderAccepted
+                              ? 'bg-amber-500/25 text-amber-200'
+                              : isLiloActive || isZenMode
+                              ? 'bg-sky-500/25 text-sky-200'
                               : isUrgent
                               ? 'bg-rose-500/40 text-rose-100 animate-pulse'
                               : isWarning
@@ -957,10 +1086,30 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                               : 'bg-emerald-500/25 text-emerald-200'
                           }`}
                         >
-                          <Timer className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
-                          <span>
-                            {isZenMode ? 'Zen' : !linkedOrder.timerStarted ? '…' : `${displaySec}s`}
-                          </span>
+                          {!linkedOrder.orderAccepted ? (
+                            <span>Waiting</span>
+                          ) : isLiloActive ? (
+                            <>
+                              <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                              <span>Lilo</span>
+                            </>
+                          ) : isZenMode ? (
+                            <>
+                              <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                              <span>Zen</span>
+                            </>
+                          ) : (
+                            <>
+                              {isUrgent ? (
+                                <Frown className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                              ) : isWarning ? (
+                                <Meh className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                              ) : (
+                                <Smile className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                              )}
+                              <span>{moodVal}</span>
+                            </>
+                          )}
                         </span>
                       )}
                       <button
@@ -1033,17 +1182,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       );
                     })}
                   </div>
-                  {linkedOrder && linkedOrder.timerStarted && !isZenMode && (
+                  {linkedOrder && linkedOrder.orderAccepted && !isZenMode && !isLiloActive && (
                     <div className="w-full h-1 rounded-full bg-black/50 overflow-hidden">
                       <div
                         className={`h-full transition-all duration-200 ${
-                          isUrgent || timerPct < 25
+                          isUrgent
                             ? 'bg-rose-500'
-                            : timerPct < 50
+                            : isWarning
                             ? 'bg-amber-400'
                             : 'bg-emerald-400'
                         }`}
-                        style={{ width: `${Math.round(timerPct)}%` }}
+                        style={{ width: `${moodVal}%` }}
                       />
                     </div>
                   )}
@@ -1204,6 +1353,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         <div className="flex items-center gap-1 shrink-0">
           {!isRealismMode && gameState.activeStation === 1 && (
             <>
+              {firstWaitingOrder && (
+                <button
+                  type="button"
+                  data-testid="btn-station1-accept-order"
+                  onClick={() => onAcceptOrder(firstWaitingOrder.id)}
+                  className="px-2 py-1 rounded-md bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] text-[10px] sm:text-xs font-bold cursor-pointer whitespace-nowrap flex items-center gap-1 shadow"
+                >
+                  <Hand className="w-3 h-3 shrink-0" strokeWidth={2.4} />
+                  <span>Take {firstWaitingOrder.customerName}&apos;s Order</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onOpenModal('recipes')}

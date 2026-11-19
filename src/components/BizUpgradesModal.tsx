@@ -1,47 +1,68 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  Cat,
   Check,
   Clock,
   Coffee,
   Crown,
+  Flame,
   Gift,
+  Infinity as InfinityIcon,
   Lock,
   Shirt,
+  Sparkles,
   Trophy,
   X,
   Zap,
 } from 'lucide-react';
 import {
+  CAFE_CATS,
+  CafeCatId,
   CustomerSkinPackId,
   GOLDEN_MACHINE_GROSS_THRESHOLD,
   GrinderSkinId,
   KlasikGameState,
+  LILO_REQUIRED_CAT_IDS,
   MachineSkinId,
   PitcherSkinId,
+  getCafeCatSpec,
 } from '../game/rules';
+
+export type UpgradesHubTab =
+  | 'upgrades'
+  | 'equipment_skins'
+  | 'customer_skins'
+  | 'cafe_cats'
+  | 'login_rewards';
 
 interface BizUpgradesModalProps {
   gameState: KlasikGameState;
+  initialTab?: UpgradesHubTab;
   onPurchaseUpgrade: (upgradeId: string) => void;
   onUnlockOrEquipEquipmentSkin: (
     skinId: MachineSkinId | GrinderSkinId | PitcherSkinId
   ) => void;
   onUnlockOrEquipCustomerPack: (packId: CustomerSkinPackId) => void;
+  onPurchaseOrEquipCafeCat: (catId: CafeCatId) => void;
   onClaimLoginReward: (day: number) => void;
   onClose: () => void;
 }
 
-type HubTab = 'upgrades' | 'equipment_skins' | 'customer_skins' | 'login_rewards';
-
 export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
   gameState,
+  initialTab = 'upgrades',
   onPurchaseUpgrade,
   onUnlockOrEquipEquipmentSkin,
   onUnlockOrEquipCustomerPack,
+  onPurchaseOrEquipCafeCat,
   onClaimLoginReward,
   onClose,
 }) => {
-  const [activeTab, setActiveTab] = useState<HubTab>('upgrades');
+  const [activeTab, setActiveTab] = useState<UpgradesHubTab>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const {
     cash,
@@ -54,6 +75,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
     customerSkinPacks,
     activeCustomerSkinPack,
     loginRewards,
+    unlockedCats = ['champy'],
+    equippedCatId = 'champy',
   } = gameState;
 
   const grossPct = Math.min(
@@ -64,7 +87,12 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
     0,
     Math.round(GOLDEN_MACHINE_GROSS_THRESHOLD - lifetimeGrossIncome)
   );
+  const goldenSkin = equipmentSkins.find((s) => s.id === 'golden-espresso-machine');
+  const isGoldenUnlocked =
+    Boolean(goldenSkin?.unlocked) || lifetimeGrossIncome >= GOLDEN_MACHINE_GROSS_THRESHOLD;
   const isGoldenEquipped = equippedMachineSkin === 'golden-espresso-machine';
+  const activeCatSpec = getCafeCatSpec(equippedCatId);
+  const liloOwnedPrereqs = LILO_REQUIRED_CAT_IDS.filter((id) => unlockedCats.includes(id)).length;
 
   return (
     <div
@@ -73,7 +101,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
       aria-modal="true"
       aria-labelledby="upgrades-modal-title"
     >
-      <div className="w-full max-w-2xl glass-modal rounded-2xl p-3.5 sm:p-5 space-y-3 max-h-[86vh] flex flex-col">
+      <div className="w-full max-w-3xl glass-modal rounded-2xl p-3.5 sm:p-5 space-y-3 max-h-[86vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-amber-400/20 pb-2.5 shrink-0 gap-2">
           <div>
@@ -109,10 +137,15 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           {(
             [
               { id: 'upgrades', label: `Upgrades (${upgrades.length})`, Icon: Zap },
-              { id: 'equipment_skins', label: 'Golden 150K & Skins', Icon: Crown },
+              {
+                id: 'cafe_cats',
+                label: `Cafe Cats (${unlockedCats.length}/${CAFE_CATS.length})`,
+                Icon: Cat,
+              },
+              { id: 'equipment_skins', label: '150K & Skins', Icon: Crown },
               {
                 id: 'customer_skins',
-                label: `Customer Skins (${customerSkinPacks.length})`,
+                label: `Patrons (${customerSkinPacks.length})`,
                 Icon: Shirt,
               },
               { id: 'login_rewards', label: 'Login Rewards (7)', Icon: Gift },
@@ -123,6 +156,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               <button
                 key={t.id}
                 type="button"
+                data-testid={`tab-upgrades-${t.id}`}
                 onClick={() => setActiveTab(t.id)}
                 className={`px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap cursor-pointer transition-all flex items-center gap-1.5 ${
                   activeTab === t.id
@@ -219,7 +253,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   sale income &amp; table tips once equipped!
                 </span>
                 <div className="flex items-center gap-2">
-                  {lifetimeGrossIncome < GOLDEN_MACHINE_GROSS_THRESHOLD ? (
+                  {!isGoldenUnlocked ? (
                     <span
                       data-testid="golden-machine-locked-badge"
                       className="px-3 py-1.5 rounded-lg bg-black/45 border border-amber-400/35 text-[#E7D7C1]/75 font-mono font-bold text-xs inline-flex items-center gap-1.5"
@@ -259,6 +293,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   equippedGrinderSkin === skin.id ||
                   equippedPitcherSkin === skin.id;
                 const needsGross =
+                  !skin.unlocked &&
                   Boolean(skin.grossIncomeRequirement) &&
                   lifetimeGrossIncome < (skin.grossIncomeRequirement || 0);
                 const canAfford = !needsGross && (skin.unlocked || cash >= skin.cost);
@@ -388,6 +423,214 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
             })}
           </div>
         )}
+
+        {/* Tab 3.5: Unlockable Cafe Cats Roster (9 Real Cats with Custom 3D Models & Passives) */}
+        {activeTab === 'cafe_cats' && (() => {
+          const milestoneCats = CAFE_CATS.filter(
+            (c) => c.unlockType === 'revenue' || c.unlockType === 'master'
+          );
+          const shopCats = CAFE_CATS.filter(
+            (c) => c.unlockType === 'starter' || c.unlockType === 'shop'
+          );
+          const liloPct = Math.min(100, Math.round((liloOwnedPrereqs / LILO_REQUIRED_CAT_IDS.length) * 100));
+
+          const renderCatCard = (cat: (typeof CAFE_CATS)[number]) => {
+            const isUnlocked = unlockedCats.includes(cat.id);
+            const isEquipped = equippedCatId === cat.id;
+            const isShopBuyable =
+              !isUnlocked && cat.unlockType === 'shop' && cash >= cat.unlockAmount;
+            const revReq = cat.unlockType === 'revenue' ? cat.unlockAmount : 0;
+            const revPct =
+              revReq > 0 ? Math.min(100, Math.round((lifetimeGrossIncome / revReq) * 100)) : 100;
+            const coatCss = `#${cat.furHex.toString(16).padStart(6, '0')}`;
+            const leftEyeCss = `#${cat.leftEyeHex.toString(16).padStart(6, '0')}`;
+            const rightEyeCss = `#${cat.rightEyeHex.toString(16).padStart(6, '0')}`;
+            const collarCss = cat.hasCollar
+              ? `#${cat.collarHex.toString(16).padStart(6, '0')}`
+              : null;
+
+            return (
+              <div
+                key={cat.id}
+                data-testid={`cat-card-${cat.id}`}
+                className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
+                  isEquipped
+                    ? 'bg-amber-500/15 border-amber-400/80 shadow-[0_0_16px_rgba(245,158,11,0.18)]'
+                    : cat.id === 'lilo'
+                    ? 'bg-sky-950/35 border-sky-400/45'
+                    : cat.id === 'mikmik'
+                    ? 'bg-amber-950/35 border-amber-400/45'
+                    : 'bg-white/[0.06] border-amber-400/20'
+                }`}
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/40 shadow-inner"
+                        style={{ backgroundColor: coatCss }}
+                        title={cat.coatSummary}
+                      />
+                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                        {cat.name}
+                      </span>
+                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-black/40 border border-white/15 text-[#E7D7C1]/90 shrink-0">
+                        {cat.sizeSummary}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0" title={cat.eyesSummary}>
+                      <span
+                        className="w-2.5 h-2.5 rounded-full border border-white/40"
+                        style={{ backgroundColor: leftEyeCss }}
+                      />
+                      <span
+                        className="w-2.5 h-2.5 rounded-full border border-white/40"
+                        style={{ backgroundColor: rightEyeCss }}
+                      />
+                      {collarCss && (
+                        <span
+                          className="w-2.5 h-2.5 rounded-sm border border-white/35"
+                          style={{ backgroundColor: collarCss }}
+                          title={cat.collarSummary}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-[#E7D7C1]/90 leading-snug">
+                    {cat.coatSummary} · {cat.eyesSummary} · {cat.collarSummary}
+                  </p>
+
+                  {cat.id === 'mikmik' && (
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/60 text-[10px] font-mono font-bold text-amber-200">
+                      <Flame className="w-3 h-3 shrink-0" strokeWidth={2.3} />
+                      <span>+30% Drink Revenue · +30% Mood Drain</span>
+                    </div>
+                  )}
+
+                  {cat.id === 'lilo' && (
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/25 border border-sky-400/65 text-[10px] font-mono font-bold text-sky-200">
+                      <InfinityIcon className="w-3 h-3 shrink-0" strokeWidth={2.4} />
+                      <span>Pure Peace: Disables Customer Mood Meter</span>
+                    </div>
+                  )}
+
+                  {!isUnlocked && cat.unlockType === 'revenue' && (
+                    <div className="space-y-0.5 pt-0.5">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#E7D7C1]/85">
+                        <span>Revenue Unlock</span>
+                        <span>
+                          ${Math.round(lifetimeGrossIncome).toLocaleString()} / ${revReq.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-amber-400/25">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-400"
+                          style={{ width: `${revPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {!isUnlocked && cat.unlockType === 'master' && (
+                    <div className="space-y-0.5 pt-0.5">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-sky-200">
+                        <span>Master Unlock</span>
+                        <span>
+                          {liloOwnedPrereqs} / {LILO_REQUIRED_CAT_IDS.length} Cats Unlocked
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-sky-400/35">
+                        <div
+                          className="h-full bg-gradient-to-r from-sky-400 to-cyan-300"
+                          style={{ width: `${liloPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  data-testid={`btn-cat-${cat.id}`}
+                  disabled={isEquipped || (!isUnlocked && !isShopBuyable)}
+                  onClick={() => onPurchaseOrEquipCafeCat(cat.id)}
+                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
+                    isEquipped
+                      ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
+                      : isUnlocked || isShopBuyable
+                      ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                      : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                  }`}
+                >
+                  {isEquipped ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                      <span>Active on Counter</span>
+                    </>
+                  ) : isUnlocked ? (
+                    <span>Equip {cat.name}</span>
+                  ) : cat.unlockType === 'shop' ? (
+                    <span>Adopt · ${cat.unlockAmount.toLocaleString()}</span>
+                  ) : cat.unlockType === 'revenue' ? (
+                    <>
+                      <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                      <span>Reach ${revReq.toLocaleString()} Rev</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                      <span>
+                        Unlock All {LILO_REQUIRED_CAT_IDS.length} Cats ({liloOwnedPrereqs}/7)
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          };
+
+          return (
+            <div className="space-y-3 overflow-y-auto pr-1" data-testid="cafe-cats-panel">
+              <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <div className="text-[11px] text-[#FAF5EE]">
+                    <span className="font-bold">Active Counter Cat: {activeCatSpec.name}</span>
+                    {activeCatSpec.passiveTitle ? (
+                      <span className="text-amber-300 ml-1.5">
+                        · {activeCatSpec.passiveTitle}: {activeCatSpec.passiveDescription}
+                      </span>
+                    ) : (
+                      <span className="text-[#E7D7C1]/80 ml-1.5">· Tap on counter cushion to pet!</span>
+                    )}
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono text-sky-200 bg-sky-950/60 border border-sky-400/35 px-2 py-0.5 rounded-md">
+                  Lilo Mastery: {liloOwnedPrereqs} / {LILO_REQUIRED_CAT_IDS.length}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-[11px] font-mono uppercase tracking-wider text-amber-300 font-bold">
+                  Cat Adoption Shop &amp; Starter
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {shopCats.map(renderCatCard)}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-[11px] font-mono uppercase tracking-wider text-emerald-300 font-bold">
+                  Revenue Milestone &amp; Master Unlock Cats
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {milestoneCats.map(renderCatCard)}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Tab 4: Playtime & Milestone-Gated Loyalty / Login Unlockables */}
         {activeTab === 'login_rewards' && (

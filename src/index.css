@@ -212,85 +212,104 @@
   scrollbar-width: none;
 }
 
-/* ===== KLASIK 3D HIGH-LEGIBILITY ESPRESSO GLASSMORPHISM ===== */
+/* ===== KLASIK 3D RE-OPTIMIZED TIERED ESPRESSO GLASSMORPHISM (PHASE 2) ===== */
 .glass-panel {
   background: linear-gradient(
-    160deg,
-    rgba(28, 18, 13, 0.76) 0%,
-    rgba(16, 11, 8, 0.72) 100%
+    165deg,
+    rgba(24, 16, 12, 0.72) 0%,
+    rgba(16, 10, 8, 0.66) 100%
   );
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  border: 1px solid rgba(251, 191, 36, 0.24);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(251, 191, 36, 0.28);
   box-shadow:
-    0 18px 42px -12px rgba(0, 0, 0, 0.68),
-    inset 0 1px 0 rgba(255, 245, 230, 0.15),
+    0 14px 36px -10px rgba(0, 0, 0, 0.66),
+    inset 0 1px 0 rgba(255, 245, 230, 0.16),
     inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+  transform: translateZ(0);
+  contain: layout style paint;
 }
 
 .glass-pill {
-  background: rgba(18, 12, 9, 0.68);
-  backdrop-filter: blur(14px) saturate(135%);
-  -webkit-backdrop-filter: blur(14px) saturate(135%);
-  border: 1px solid rgba(251, 191, 36, 0.22);
+  background: linear-gradient(
+    160deg,
+    rgba(24, 16, 12, 0.72) 0%,
+    rgba(15, 10, 7, 0.66) 100%
+  );
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(251, 191, 36, 0.28);
   box-shadow:
-    0 8px 22px -6px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 245, 230, 0.14);
+    0 8px 22px -6px rgba(0, 0, 0, 0.56),
+    inset 0 1px 0 rgba(255, 245, 230, 0.16);
+  transform: translateZ(0);
+  contain: layout style paint;
 }
 
 .glass-modal {
   background: linear-gradient(
     165deg,
     rgba(26, 17, 12, 0.86) 0%,
-    rgba(14, 9, 7, 0.84) 100%
+    rgba(14, 9, 7, 0.85) 100%
   );
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  border: 1px solid rgba(251, 191, 36, 0.28);
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  border: 1px solid rgba(251, 191, 36, 0.32);
   box-shadow:
     0 24px 60px -12px rgba(0, 0, 0, 0.78),
     inset 0 1px 0 rgba(255, 245, 230, 0.16);
+  transform: translateZ(0);
 }
 
-/* Interactive button INSIDE a glass-panel (no nested backdrop-filter for crispness & GPU speed) */
+/* Zero Double-Blur Rule: Nested buttons inside glass containers carry NO backdrop-filter */
 .glass-btn-inner {
   background: rgba(255, 248, 235, 0.08);
   border: 1px solid rgba(251, 191, 36, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 248, 235, 0.12);
   color: #FAF5EE;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
   transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease;
 }
 
 .glass-btn-inner:hover {
-  background: rgba(251, 191, 36, 0.16);
-  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.48);
 }
 
 .glass-btn-inner:active {
   transform: scale(0.98);
 }
 
-/* Standalone floating HUD glass button (e.g. Top Bar / Station Switcher / Action Bar) */
+/* Standalone floating HUD glass button */
 .glass-hud-btn {
-  background: rgba(20, 13, 10, 0.72);
+  background: linear-gradient(
+    165deg,
+    rgba(26, 17, 12, 0.72) 0%,
+    rgba(16, 11, 8, 0.68) 100%
+  );
   backdrop-filter: blur(12px) saturate(135%);
   -webkit-backdrop-filter: blur(12px) saturate(135%);
-  border: 1px solid rgba(251, 191, 36, 0.26);
+  border: 1px solid rgba(251, 191, 36, 0.28);
   color: #FAF5EE;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
   box-shadow:
     0 6px 18px -4px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 245, 230, 0.14);
+    inset 0 1px 0 rgba(255, 245, 230, 0.16);
   transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease;
+  transform: translateZ(0);
 }
 
 .glass-hud-btn:hover {
-  background: rgba(36, 24, 17, 0.84);
-  border-color: rgba(251, 191, 36, 0.5);
+  background: linear-gradient(
+    165deg,
+    rgba(42, 27, 18, 0.84) 0%,
+    rgba(24, 15, 10, 0.80) 100%
+  );
+  border-color: rgba(251, 191, 36, 0.52);
 }
 
 .glass-text-crisp {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -304,18 +323,37 @@
   }
 }
 
-/* On GFX: LOW, preserve the exact warm smoked-glass aesthetic via layered gradients & specular rims
-   without triggering expensive per-frame WebGL backdrop-filter readbacks on low-end Android GPUs */
+/* GFX: LOW — Lightweight Re-Optimized Single-Pass Frosted Glass (preserves translucent frosted aesthetic!) */
 [data-gfx='low'] .glass-panel,
 [data-gfx='low'] .glass-pill,
 [data-gfx='low'] .glass-hud-btn {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  backdrop-filter: blur(6px) saturate(115%) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(115%) !important;
+  background: linear-gradient(
+    155deg,
+    rgba(32, 22, 16, 0.74) 0%,
+    rgba(16, 10, 7, 0.70) 100%
+  ) !important;
+  border-color: rgba(251, 191, 36, 0.30) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 235, 0.22),
+    0 6px 18px -6px rgba(0, 0, 0, 0.54) !important;
+  transform: translateZ(0);
+  contain: layout style paint;
+}
+
+[data-gfx='low'] .glass-modal {
+  backdrop-filter: blur(8px) saturate(118%) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(118%) !important;
   background: linear-gradient(
     160deg,
-    rgba(26, 17, 12, 0.90) 0%,
-    rgba(15, 10, 7, 0.88) 100%
-  );
+    rgba(30, 20, 14, 0.84) 0%,
+    rgba(14, 9, 7, 0.85) 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 235, 0.20),
+    0 20px 46px -12px rgba(0, 0, 0, 0.74) !important;
+  transform: translateZ(0);
 }
 
 /* Diegetic 3D Klasik Roastery POS Tablet Bezel & Warm Espresso-Crema Surface */

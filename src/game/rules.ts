@@ -169,6 +169,275 @@ export type CustomerSkinPackId =
   | 'botanical-artists'
   | 'cyber-neon-night';
 
+export type CafeCatId =
+  | 'champy'
+  | 'chimny'
+  | 'chunky'
+  | 'kicks'
+  | 'cheeto'
+  | 'lilo'
+  | 'katkat'
+  | 'luna'
+  | 'mikmik';
+
+export interface CafeCatSpec {
+  id: CafeCatId;
+  name: string;
+  coatSummary: string;
+  eyesSummary: string;
+  collarSummary: string;
+  sizeSummary: string;
+  furHex: number;
+  stripeHex?: number;
+  bellyPatchHex?: number;
+  tailHex?: number;
+  coatPattern: 'solid' | 'tabby' | 'tuxedo-tabby' | 'calico-mikmik';
+  leftEyeHex: number; // Cat's anatomical left eye (+X in head local space)
+  rightEyeHex: number; // Cat's anatomical right eye (-X in head local space)
+  hasCollar: boolean;
+  collarHex: number;
+  collarThin?: boolean;
+  hasBell: boolean;
+  scale: readonly [number, number, number]; // [width X, height Y, length Z]
+  unlockType: 'starter' | 'revenue' | 'shop' | 'master';
+  unlockAmount: number; // Revenue milestone ($) or Shop cost ($)
+  passiveTitle: string | null;
+  passiveDescription: string;
+  moodDrainMultiplier: number; // 1.0 default, 1.3 for Mikmik, 0 for Lilo
+  revenueMultiplier: number; // 1.0 default, 1.3 for Mikmik
+  disablesMoodMeter?: boolean;
+}
+
+export const LILO_REQUIRED_CAT_IDS: readonly CafeCatId[] = [
+  'chimny',
+  'chunky',
+  'kicks',
+  'cheeto',
+  'katkat',
+  'luna',
+  'mikmik',
+] as const;
+
+export const CAFE_CATS: readonly CafeCatSpec[] = [
+  {
+    id: 'champy',
+    name: 'Champy',
+    coatSummary: 'Sleek Obsidian Black',
+    eyesSummary: 'Emerald Green Eyes',
+    collarSummary: 'Teal Collar + Gold Bell',
+    sizeSummary: 'Standard',
+    furHex: 0x15171c,
+    coatPattern: 'solid',
+    leftEyeHex: 0x22c55e,
+    rightEyeHex: 0x22c55e,
+    hasCollar: true,
+    collarHex: 0x0d9488,
+    hasBell: true,
+    scale: [1.0, 1.0, 1.0],
+    unlockType: 'starter',
+    unlockAmount: 0,
+    passiveTitle: null,
+    passiveDescription: 'Cozy starter cafe companion.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'chimny',
+    name: 'Chimny',
+    coatSummary: 'Brown-Gray Tabby Stripes',
+    eyesSummary: 'Emerald Green Eyes',
+    collarSummary: 'Royal Blue Collar + Bell',
+    sizeSummary: 'Standard',
+    furHex: 0x78716c,
+    stripeHex: 0x44403c,
+    coatPattern: 'tabby',
+    leftEyeHex: 0x22c55e,
+    rightEyeHex: 0x22c55e,
+    hasCollar: true,
+    collarHex: 0x2563eb,
+    hasBell: true,
+    scale: [1.0, 1.0, 1.0],
+    unlockType: 'revenue',
+    unlockAmount: 1000,
+    passiveTitle: null,
+    passiveDescription: 'Unlocks automatically at $1,000 lifetime cafe revenue.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'chunky',
+    name: 'Chunky',
+    coatSummary: 'Pure White Coat',
+    eyesSummary: 'Heterochromia: Left Yellow, Right Blue',
+    collarSummary: 'Pink Collar + Gold Bell',
+    sizeSummary: 'Plush',
+    furHex: 0xf8fafc,
+    coatPattern: 'solid',
+    leftEyeHex: 0xeab308,
+    rightEyeHex: 0x38bdf8,
+    hasCollar: true,
+    collarHex: 0xec4899,
+    hasBell: true,
+    scale: [1.06, 0.98, 1.06],
+    unlockType: 'revenue',
+    unlockAmount: 1500,
+    passiveTitle: null,
+    passiveDescription: 'Unlocks automatically at $1,500 lifetime cafe revenue.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'kicks',
+    name: 'Kicks',
+    coatSummary: 'Pure White Coat',
+    eyesSummary: 'Sky Blue Eyes',
+    collarSummary: 'Thin Black Collar',
+    sizeSummary: 'Largest Cat',
+    furHex: 0xf8fafc,
+    coatPattern: 'solid',
+    leftEyeHex: 0x38bdf8,
+    rightEyeHex: 0x38bdf8,
+    hasCollar: true,
+    collarHex: 0x111827,
+    collarThin: true,
+    hasBell: false,
+    scale: [1.26, 1.24, 1.26],
+    unlockType: 'revenue',
+    unlockAmount: 2000,
+    passiveTitle: null,
+    passiveDescription: 'Unlocks automatically at $2,000 lifetime cafe revenue.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'cheeto',
+    name: 'Cheeto',
+    coatSummary: 'Warm Ivory-White Coat',
+    eyesSummary: 'Heterochromia: Left Blue, Right Yellow',
+    collarSummary: 'No Collar',
+    sizeSummary: 'Standard',
+    furHex: 0xfef7e6,
+    coatPattern: 'solid',
+    leftEyeHex: 0x38bdf8,
+    rightEyeHex: 0xeab308,
+    hasCollar: false,
+    collarHex: 0x000000,
+    hasBell: false,
+    scale: [1.0, 1.0, 1.0],
+    unlockType: 'revenue',
+    unlockAmount: 2250,
+    passiveTitle: null,
+    passiveDescription: 'Unlocks automatically at $2,250 lifetime cafe revenue.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'katkat',
+    name: 'Katkat',
+    coatSummary: 'Ginger Tabby Tuxedo + White Chest & Paws',
+    eyesSummary: 'Warm Amber Eyes',
+    collarSummary: 'Warm Brass Collar',
+    sizeSummary: 'Standard',
+    furHex: 0xea580c,
+    stripeHex: 0xc2410c,
+    bellyPatchHex: 0xf8fafc,
+    coatPattern: 'tuxedo-tabby',
+    leftEyeHex: 0xf59e0b,
+    rightEyeHex: 0xf59e0b,
+    hasCollar: true,
+    collarHex: 0xb45309,
+    hasBell: true,
+    scale: [1.0, 1.0, 1.0],
+    unlockType: 'shop',
+    unlockAmount: 150,
+    passiveTitle: null,
+    passiveDescription: 'Playful marmalade tuxedo cat available in the Cat Adoption Shop.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'luna',
+    name: 'Luna',
+    coatSummary: 'Pure White Coat',
+    eyesSummary: 'Sky Blue Eyes',
+    collarSummary: 'Silver-Indigo Collar',
+    sizeSummary: 'Slender',
+    furHex: 0xf8fafc,
+    coatPattern: 'solid',
+    leftEyeHex: 0x38bdf8,
+    rightEyeHex: 0x38bdf8,
+    hasCollar: true,
+    collarHex: 0x6366f1,
+    hasBell: true,
+    scale: [0.82, 1.02, 0.88],
+    unlockType: 'shop',
+    unlockAmount: 500,
+    passiveTitle: null,
+    passiveDescription: 'Graceful slender white cat available in the Cat Adoption Shop.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'mikmik',
+    name: 'Mikmik',
+    coatSummary: 'White + Ginger Head Patch, 2 Stomach Patches & Ginger Tail',
+    eyesSummary: 'Warm Amber-Hazel Eyes',
+    collarSummary: 'Cream-Amber Collar',
+    sizeSummary: '2nd Largest',
+    furHex: 0xf8fafc,
+    bellyPatchHex: 0xea580c,
+    tailHex: 0xea580c,
+    coatPattern: 'calico-mikmik',
+    leftEyeHex: 0xd97706,
+    rightEyeHex: 0xd97706,
+    hasCollar: true,
+    collarHex: 0xd97706,
+    hasBell: true,
+    scale: [1.15, 1.13, 1.15],
+    unlockType: 'shop',
+    unlockAmount: 1000,
+    passiveTitle: 'High-Stakes Rush: +30% Coffee Revenue / +30% Mood Drain',
+    passiveDescription:
+      'Customer Mood drains 30% faster (1.3x), AND all coffee & drink sales earn +30% revenue (1.3x)!',
+    moodDrainMultiplier: 1.3,
+    revenueMultiplier: 1.3,
+  },
+  {
+    id: 'lilo',
+    name: 'Lilo',
+    coatSummary: 'Pure White Coat',
+    eyesSummary: 'Sky Blue Eyes',
+    collarSummary: 'Blue Collar + Gold Bell',
+    sizeSummary: 'Smallest & Chubby',
+    furHex: 0xf8fafc,
+    coatPattern: 'solid',
+    leftEyeHex: 0x38bdf8,
+    rightEyeHex: 0x38bdf8,
+    hasCollar: true,
+    collarHex: 0x2563eb,
+    hasBell: true,
+    scale: [1.12, 0.78, 0.86],
+    unlockType: 'master',
+    unlockAmount: 7,
+    passiveTitle: 'Pure Peace: Disables Customer Mood Meter',
+    passiveDescription:
+      'Unlocks automatically once all 7 other unlockable cats are owned. Locks Customer Mood at 100% with zero walkouts!',
+    moodDrainMultiplier: 0.0,
+    revenueMultiplier: 1.0,
+    disablesMoodMeter: true,
+  },
+] as const;
+
+export const ALL_CAFE_CAT_IDS: readonly CafeCatId[] = CAFE_CATS.map((c) => c.id);
+
+export function getCafeCatSpec(catId: CafeCatId | undefined | null): CafeCatSpec {
+  return CAFE_CATS.find((c) => c.id === catId) || CAFE_CATS[0];
+}
+
+export function isValidCafeCatId(val: unknown): val is CafeCatId {
+  return typeof val === 'string' && ALL_CAFE_CAT_IDS.includes(val as CafeCatId);
+}
+
 export const SHIFT_SECONDS = 300;
 export const MAX_QUEUE = 3;
 export const MAX_GARDEN_SEATS = 6;
@@ -176,8 +445,41 @@ export const DAILY_QUOTA_COMPLETION_BONUS = 50;
 export const GOLDEN_MACHINE_GROSS_THRESHOLD = 150000;
 export const MIN_ARRIVAL_GAP_SEC = 3.2;
 
+export function rollMoodDurationSec(rng: () => number = Math.random): number {
+  return Math.floor(rng() * 61) + 60; // Inclusive 60s (1 min) to 120s (2 min)
+}
+
 export function rollOrderTimeLimitSec(rng: () => number = Math.random): number {
-  return Math.floor(rng() * 11) + 10; // Inclusive 10..20 seconds
+  return rollMoodDurationSec(rng);
+}
+
+export type CustomerMoodTier = 'happy' | 'content' | 'impatient' | 'dissatisfied';
+
+export function getMoodTier(mood: number): CustomerMoodTier {
+  if (mood >= 75) return 'happy';
+  if (mood >= 40) return 'content';
+  if (mood >= 1) return 'impatient';
+  return 'dissatisfied';
+}
+
+export function computeMoodTipBonus(
+  mood: number
+): {
+  tip: number;
+  tier: CustomerMoodTier;
+  label: string | null;
+} {
+  const clamped = Math.max(0, Math.min(100, mood));
+  if (clamped >= 75) {
+    return { tip: 3, tier: 'happy', label: 'Happy Mood! +$3 Tip' };
+  }
+  if (clamped >= 40) {
+    return { tip: 1, tier: 'content', label: 'Content Mood! +$1 Tip' };
+  }
+  if (clamped >= 1) {
+    return { tip: 0, tier: 'impatient', label: null };
+  }
+  return { tip: 0, tier: 'dissatisfied', label: null };
 }
 
 export function computeSpeedTipBonus(
@@ -191,12 +493,12 @@ export function computeSpeedTipBonus(
 } {
   const safeLimit = Math.max(1, limitSec);
   const ratio = Math.max(0, Math.min(1, remainingSec / safeLimit));
-  if (ratio >= 0.5) {
+  if (ratio >= 0.75) {
     const tip = isSpecialty ? 4 : 3;
-    return { tip, tier: 'fast', label: `Fast Service! +$${tip} Tip` };
+    return { tip, tier: 'fast', label: `Happy Mood! +$${tip} Tip` };
   }
-  if (ratio >= 0.25) {
-    return { tip: 1, tier: 'prompt', label: 'Nice Speed! +$1 Tip' };
+  if (ratio >= 0.4) {
+    return { tip: 1, tier: 'prompt', label: 'Content Mood! +$1 Tip' };
   }
   return { tip: 0, tier: 'ontime', label: null };
 }
@@ -502,12 +804,16 @@ export interface CustomerOrder {
   shirtColor: string;
   recipeId: string;
   orderType: OrderType;
-  patience: number; // 0..100 (synced with orderTimeRemainingSec / orderTimeLimitSec)
+  orderAccepted: boolean; // False while waiting calmly in line; true once barista accepts the order
+  mood: number; // 100 (Happy) down to 0 (Dissatisfied / Disappointed)
+  moodDurationSec: number; // Randomized 60..120 seconds (1 to 2 minutes) to drain 100 -> 0
+  moodExpired?: boolean; // True when mood hits 0 -> triggers dissatisfied walkout ($0)
+  patience: number; // Mirror of mood (0..100) for compatibility
   maxPatience: number;
-  orderTimeLimitSec: number; // Randomized integer in [10, 20] seconds
-  orderTimeRemainingSec: number;
-  timerStarted: boolean; // Starts ticking ONLY once customer reaches the counter!
-  expired?: boolean; // True when countdown hits 0 -> triggers walkout
+  orderTimeLimitSec: number; // Mirror of moodDurationSec (60..120s)
+  orderTimeRemainingSec: number; // Derived remaining seconds from mood & moodDurationSec
+  timerStarted: boolean; // True once customer reached counter (arrived)
+  expired?: boolean; // Mirror of moodExpired
   state: 'ordering' | 'seated' | 'departing';
   seatIndex: number | null; // 0..5 for the 6 cafe & garden tables (always null for takeout)
   seatedTimer: number;
@@ -651,6 +957,11 @@ export interface KlasikGameState {
   loginRewards: LoginRewardItem[];
   loginStreakDays: number;
   decor: DecorCustomization;
+  unlockedCats: CafeCatId[];
+  equippedCatId: CafeCatId;
+  cookieJarCheatUnlocked?: boolean;
+  lastCatUnlockToast?: string | null;
+  lastCatUnlockSeq?: number;
   missedOrders?: number;
   lastExpiredCustomerName?: string | null;
   lastExpiredEventSeq?: number;
@@ -1090,10 +1401,14 @@ export function createInitialGameState(): KlasikGameState {
     shirtColor: '#d97706',
     recipeId: 'velvet-latte',
     orderType: 'dine-in',
+    orderAccepted: false,
+    mood: 100,
+    moodDurationSec: 90,
+    moodExpired: false,
     patience: 100,
     maxPatience: 100,
-    orderTimeLimitSec: 18,
-    orderTimeRemainingSec: 18,
+    orderTimeLimitSec: 90,
+    orderTimeRemainingSec: 90,
     timerStarted: true,
     state: 'ordering',
     seatIndex: null,
@@ -1112,10 +1427,14 @@ export function createInitialGameState(): KlasikGameState {
     shirtColor: '#059669',
     recipeId: 'iced-caramel-macchiato',
     orderType: 'takeout',
+    orderAccepted: false,
+    mood: 100,
+    moodDurationSec: 84,
+    moodExpired: false,
     patience: 100,
     maxPatience: 100,
-    orderTimeLimitSec: 16,
-    orderTimeRemainingSec: 16,
+    orderTimeLimitSec: 84,
+    orderTimeRemainingSec: 84,
     timerStarted: true,
     state: 'ordering',
     seatIndex: null,
@@ -1136,10 +1455,14 @@ export function createInitialGameState(): KlasikGameState {
     shirtColor: '#2563eb',
     recipeId: 'london-fog-tea-latte',
     orderType: 'dine-in',
+    orderAccepted: false,
+    mood: 100,
+    moodDurationSec: 108,
+    moodExpired: false,
     patience: 100,
     maxPatience: 100,
-    orderTimeLimitSec: 20,
-    orderTimeRemainingSec: 20,
+    orderTimeLimitSec: 108,
+    orderTimeRemainingSec: 108,
     timerStarted: true,
     state: 'ordering',
     seatIndex: null,
@@ -1193,11 +1516,16 @@ export function createInitialGameState(): KlasikGameState {
       neonSignColor: 'amber',
       plantDensity: 'lush-jungle',
     },
+    unlockedCats: ['champy'],
+    equippedCatId: 'champy',
+    cookieJarCheatUnlocked: false,
+    lastCatUnlockToast: null,
+    lastCatUnlockSeq: 0,
     missedOrders: 0,
     lastExpiredCustomerName: null,
     lastExpiredEventSeq: 0,
     lastActionFeedback:
-      'Welcome to Klasik 3D! Dose & tamp beans at Station 2 or brew Tea & Cold Drinks at Station 3.',
+      'Welcome to Klasik 3D! Tap "Take Order" or click a waiting customer to accept their order at your own pace.',
   };
 }
 
@@ -1517,10 +1845,8 @@ export function calculateDrinkPayout(
   state: KlasikGameState,
   recipe: DrinkRecipe,
   accuracy: number,
-  customerPatience: number,
-  customBonusTip = 0,
-  orderTimeRemainingSec?: number,
-  orderTimeLimitSec?: number
+  customerMood: number,
+  customBonusTip = 0
 ): {
   totalPayout: number;
   basePrice: number;
@@ -1529,6 +1855,7 @@ export function calculateDrinkPayout(
   speedTipLabel: string | null;
   customTip: number;
   multiplier: number;
+  catRevenueMultiplier: number;
 } {
   const basePrice = Math.max(1, Math.round(recipe.price * (accuracy / 100)));
   let upgradeBonus = 0;
@@ -1537,34 +1864,35 @@ export function calculateDrinkPayout(
     upgradeBonus += upg.tipBonus || 2;
   }
 
-  let speedTip = 0;
-  let speedTipLabel: string | null = null;
+  let moodTip = 0;
+  let moodTipLabel: string | null = null;
   if (accuracy === 100) {
-    if (orderTimeRemainingSec !== undefined && orderTimeLimitSec !== undefined) {
-      const isSpecialty =
-        recipe.syrup !== 'none' || Boolean(recipe.needsTeaSteep) || (recipe.needsIce && recipe.needsSteamedMilk);
-      const speedRes = computeSpeedTipBonus(orderTimeRemainingSec, orderTimeLimitSec, isSpecialty);
-      speedTip = speedRes.tip;
-      speedTipLabel = speedRes.label;
-    } else {
-      speedTip = Math.max(1, Math.round((customerPatience / 100) * 4));
-    }
+    const moodRes = computeMoodTipBonus(customerMood);
+    moodTip = moodRes.tip;
+    moodTipLabel = moodRes.label;
   }
 
   const earnedCustomTip = accuracy === 100 ? customBonusTip : 0;
-  const tip = accuracy >= 75 ? speedTip + upgradeBonus + earnedCustomTip : 0;
+  const tip = accuracy >= 75 ? moodTip + upgradeBonus + earnedCustomTip : 0;
 
   // Golden Espresso Machine Skin doubles (2x) all drink sale income once equipped!
-  const multiplier = state.equippedMachineSkin === 'golden-espresso-machine' ? 2 : 1;
+  const machineMultiplier = state.equippedMachineSkin === 'golden-espresso-machine' ? 2 : 1;
+  // Mikmik Passive: +30% revenue multiplier (1.3x) on all coffee & drink sales!
+  const equippedCat = getCafeCatSpec(state.equippedCatId);
+  const catRevenueMultiplier = equippedCat.revenueMultiplier || 1.0;
+  const totalMultiplier = machineMultiplier * catRevenueMultiplier;
+
   const rawTotal = basePrice + tip;
+  const totalPayout = Math.round(rawTotal * totalMultiplier);
   return {
-    totalPayout: rawTotal * multiplier,
-    basePrice: basePrice * multiplier,
-    tip: tip * multiplier,
-    speedTip: speedTip * multiplier,
-    speedTipLabel,
-    customTip: earnedCustomTip * multiplier,
-    multiplier,
+    totalPayout,
+    basePrice: Math.round(basePrice * totalMultiplier),
+    tip: Math.round(tip * totalMultiplier),
+    speedTip: Math.round(moodTip * totalMultiplier),
+    speedTipLabel: moodTipLabel,
+    customTip: Math.round(earnedCustomTip * totalMultiplier),
+    multiplier: machineMultiplier,
+    catRevenueMultiplier,
   };
 }
 
@@ -1740,10 +2068,183 @@ function syncGrossIncomeUnlocks(
 ): EquipmentSkinItem[] {
   return equipmentSkins.map((s) => {
     if (s.id === 'golden-espresso-machine') {
-      return { ...s, unlocked: lifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD };
+      return { ...s, unlocked: Boolean(s.unlocked) || lifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD };
     }
     return s;
   });
+}
+
+export function syncCatUnlocks(
+  currentUnlocked: CafeCatId[] | undefined,
+  lifetimeRevenue: number
+): {
+  unlockedCats: CafeCatId[];
+  newlyUnlocked: CafeCatId[];
+  unlockToast: string | null;
+} {
+  const unlockedSet = new Set<CafeCatId>(
+    Array.isArray(currentUnlocked) && currentUnlocked.length > 0
+      ? currentUnlocked.filter(isValidCafeCatId)
+      : ['champy']
+  );
+  unlockedSet.add('champy');
+
+  const newlyUnlocked: CafeCatId[] = [];
+  for (const spec of CAFE_CATS) {
+    if (spec.unlockType === 'revenue' && lifetimeRevenue >= spec.unlockAmount) {
+      if (!unlockedSet.has(spec.id)) {
+        unlockedSet.add(spec.id);
+        newlyUnlocked.push(spec.id);
+      }
+    }
+  }
+
+  // Master Unlock: Lilo automatically unlocks once all 7 other unlockable cats are owned!
+  const ownsAllSeven = LILO_REQUIRED_CAT_IDS.every((id) => unlockedSet.has(id));
+  if (ownsAllSeven && !unlockedSet.has('lilo')) {
+    unlockedSet.add('lilo');
+    newlyUnlocked.push('lilo');
+  }
+
+  let unlockToast: string | null = null;
+  if (newlyUnlocked.includes('lilo')) {
+    unlockToast =
+      '👑 Secret Master Cat Unlocked: Lilo! Equip Lilo to disable Customer Mood Meters!';
+  } else if (newlyUnlocked.length > 0) {
+    const first = getCafeCatSpec(newlyUnlocked[0]);
+    unlockToast =
+      first.unlockType === 'revenue'
+        ? `🐾 New Cafe Cat Unlocked: ${first.name} ($${first.unlockAmount.toLocaleString()} Revenue)!`
+        : `🐾 New Cafe Cat Unlocked: ${first.name}!`;
+  }
+
+  const ordered = ALL_CAFE_CAT_IDS.filter((id) => unlockedSet.has(id));
+  return { unlockedCats: ordered, newlyUnlocked, unlockToast };
+}
+
+export function acceptCustomerOrder(
+  state: KlasikGameState,
+  orderId: string
+): KlasikGameState {
+  const target = state.customers.find(
+    (c) => c.id === orderId && c.state === 'ordering'
+  );
+  if (!target) return state;
+
+  if (target.orderAccepted) {
+    return {
+      ...state,
+      pinnedOrderId: target.id,
+    };
+  }
+
+  const duration = Math.max(60, Math.min(120, target.moodDurationSec || rollMoodDurationSec()));
+  const updatedCustomers = state.customers.map((c) => {
+    if (c.id !== orderId) return c;
+    return {
+      ...c,
+      orderAccepted: true,
+      timerStarted: true,
+      mood: 100,
+      moodDurationSec: duration,
+      moodExpired: false,
+      patience: 100,
+      orderTimeLimitSec: duration,
+      orderTimeRemainingSec: duration,
+    };
+  });
+
+  // Select this order automatically if no currently accepted order is pinned
+  const currentPinned = state.customers.find(
+    (c) => c.id === state.pinnedOrderId && c.state === 'ordering' && c.orderAccepted
+  );
+  const nextPinnedId = currentPinned ? currentPinned.id : target.id;
+  const recipe = getRecipeById(target.recipeId);
+
+  return {
+    ...state,
+    customers: updatedCustomers,
+    pinnedOrderId: nextPinnedId,
+    lastActionFeedback: `Accepted ${target.customerName}'s ${recipe.name} (${target.orderType === 'takeout' ? 'Takeout' : 'Dine-In'})! Ticket hung on rail.`,
+  };
+}
+
+export function purchaseOrEquipCafeCat(
+  state: KlasikGameState,
+  catId: CafeCatId
+): KlasikGameState {
+  const spec = getCafeCatSpec(catId);
+  const currentUnlocked = state.unlockedCats || ['champy'];
+  const alreadyUnlocked = currentUnlocked.includes(catId);
+
+  if (alreadyUnlocked) {
+    return {
+      ...state,
+      equippedCatId: catId,
+      lastActionFeedback: spec.passiveTitle
+        ? `Equipped ${spec.name} on the counter! (${spec.passiveTitle})`
+        : `Equipped ${spec.name} on the counter cushion!`,
+    };
+  }
+
+  if (spec.unlockType === 'revenue') {
+    return {
+      ...state,
+      lastActionFeedback: `Reach $${spec.unlockAmount.toLocaleString()} lifetime cafe revenue to unlock ${spec.name}!`,
+    };
+  }
+
+  if (spec.unlockType === 'master') {
+    const ownedCount = LILO_REQUIRED_CAT_IDS.filter((id) =>
+      currentUnlocked.includes(id)
+    ).length;
+    return {
+      ...state,
+      lastActionFeedback: `Unlock all 7 other Cafe Cats (${ownedCount}/7 owned) to unlock Master Cat Lilo!`,
+    };
+  }
+
+  // Shop purchase
+  if (state.cash < spec.unlockAmount) {
+    return {
+      ...state,
+      lastActionFeedback: `Need $${spec.unlockAmount.toLocaleString()} cash to adopt ${spec.name}!`,
+    };
+  }
+
+  const withPurchased = [...currentUnlocked, catId];
+  const synced = syncCatUnlocks(withPurchased, state.lifetimeGrossIncome || 0);
+  const nextSeq =
+    synced.newlyUnlocked.includes('lilo')
+      ? (state.lastCatUnlockSeq ?? 0) + 1
+      : state.lastCatUnlockSeq ?? 0;
+
+  return {
+    ...state,
+    cash: state.cash - spec.unlockAmount,
+    unlockedCats: synced.unlockedCats,
+    equippedCatId: catId,
+    lastCatUnlockToast: synced.newlyUnlocked.includes('lilo')
+      ? synced.unlockToast
+      : state.lastCatUnlockToast,
+    lastCatUnlockSeq: nextSeq,
+    lastActionFeedback: synced.newlyUnlocked.includes('lilo')
+      ? `Adopted & equipped ${spec.name}! ${synced.unlockToast}`
+      : `Adopted & equipped ${spec.name} for $${spec.unlockAmount.toLocaleString()}!`,
+  };
+}
+
+export function unlockAllEverythingCheat(state: KlasikGameState): KlasikGameState {
+  return {
+    ...state,
+    upgrades: state.upgrades.map((u) => ({ ...u, purchased: true })),
+    equipmentSkins: state.equipmentSkins.map((s) => ({ ...s, unlocked: true })),
+    customerSkinPacks: state.customerSkinPacks.map((p) => ({ ...p, unlocked: true })),
+    loginRewards: state.loginRewards.map((r) => ({ ...r, claimed: true })),
+    unlockedCats: [...ALL_CAFE_CAT_IDS],
+    cookieJarCheatUnlocked: true,
+    lastActionFeedback: 'you got what you wanted, now enjoy',
+  };
 }
 
 export function serveCurrentCupToCustomer(
@@ -1801,14 +2302,18 @@ export function serveCurrentCupToCustomer(
   }
 
   const evaluation = evaluateDrinkMatch(state.currentCup, recipe, targetCustomer);
+  const customerMood =
+    state.equippedCatId === 'lilo' || state.mode === 'zen'
+      ? 100
+      : typeof targetCustomer.mood === 'number'
+      ? targetCustomer.mood
+      : targetCustomer.patience;
   const payout = calculateDrinkPayout(
     state,
     recipe,
     evaluation.accuracy,
-    targetCustomer.patience,
-    targetCustomer.customBonusTip,
-    targetCustomer.orderTimeRemainingSec,
-    targetCustomer.orderTimeLimitSec
+    customerMood,
+    targetCustomer.customBonusTip
   );
 
   // Takeout patrons leave straight through the front entrance without occupying any indoor seat!
@@ -1848,7 +2353,9 @@ export function serveCurrentCupToCustomer(
     nextSpawnTimer = 15;
   }
 
-  const nextOrdering = updatedCustomers.find((c) => c.state === 'ordering');
+  const nextOrdering =
+    updatedCustomers.find((c) => c.state === 'ordering' && c.orderAccepted) ||
+    updatedCustomers.find((c) => c.state === 'ordering');
   const newCupsToday = state.cupsServedToday + 1;
   const newTotalCups = state.totalCupsServed + 1;
 
@@ -1862,6 +2369,7 @@ export function serveCurrentCupToCustomer(
   const newDailyRevenue = state.dailyRevenue + grossEarned;
   const newLifetimeGross = (state.lifetimeGrossIncome || 0) + grossEarned;
   const updatedSkins = syncGrossIncomeUnlocks(state.equipmentSkins, newLifetimeGross);
+  const catSync = syncCatUnlocks(state.unlockedCats, newLifetimeGross);
   const justUnlockedGolden =
     (state.lifetimeGrossIncome || 0) < GOLDEN_MACHINE_GROSS_THRESHOLD &&
     newLifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD;
@@ -1872,6 +2380,7 @@ export function serveCurrentCupToCustomer(
   );
 
   const goldenBadge = payout.multiplier === 2 ? ' [2x GOLDEN MACHINE!]' : '';
+  const mikmikBadge = payout.catRevenueMultiplier > 1 ? ' [+30% MIKMIK!]' : '';
   const unlockSuffix = justUnlockedGolden
     ? ' · $150K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
     : '';
@@ -1883,8 +2392,8 @@ export function serveCurrentCupToCustomer(
   const speedBadge =
     payout.speedTipLabel && payout.speedTip > 0 ? ` · ${payout.speedTipLabel}` : '';
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
-    : `Served ${recipe.name}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}.${quotaSuffix}${unlockSuffix}`;
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
+    : `Served ${recipe.name}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}${mikmikBadge}.${quotaSuffix}${unlockSuffix}`;
 
   return {
     ...state,
@@ -1901,6 +2410,12 @@ export function serveCurrentCupToCustomer(
     currentCup: createEmptyCup(),
     customers: updatedCustomers,
     equipmentSkins: updatedSkins,
+    unlockedCats: catSync.unlockedCats,
+    lastCatUnlockToast: catSync.unlockToast || state.lastCatUnlockToast,
+    lastCatUnlockSeq:
+      catSync.newlyUnlocked.length > 0
+        ? (state.lastCatUnlockSeq ?? 0) + 1
+        : state.lastCatUnlockSeq ?? 0,
     pinnedOrderId: nextOrdering ? nextOrdering.id : null,
     lastActionFeedback: feedbackMsg,
   };
@@ -1986,7 +2501,7 @@ export function spawnCustomerOrder(
       ? customPalette
       : INITIAL_CUSTOMER_SKIN_PACKS[0].paletteColors;
 
-  const orderTimeLimitSec = rollOrderTimeLimitSec();
+  const moodDurationSec = rollMoodDurationSec();
 
   return {
     id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1995,10 +2510,14 @@ export function spawnCustomerOrder(
     shirtColor: palette[(nameIdx + seedOffset) % palette.length],
     recipeId: recipe.id,
     orderType,
+    orderAccepted: false,
+    mood: 100,
+    moodDurationSec,
+    moodExpired: false,
     patience: 100,
     maxPatience: 100,
-    orderTimeLimitSec,
-    orderTimeRemainingSec: orderTimeLimitSec,
+    orderTimeLimitSec: moodDurationSec,
+    orderTimeRemainingSec: moodDurationSec,
     timerStarted: false,
     state: 'ordering',
     seatIndex: null,
@@ -2190,6 +2709,8 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
     }
   }
 
+  const catSync = syncCatUnlocks(state.unlockedCats, newGross);
+
   return {
     ...state,
     cash: newCash,
@@ -2203,6 +2724,12 @@ export function claimLoginReward(state: KlasikGameState, rewardDay: number): Kla
     equippedPitcherSkin: equippedPitcher,
     activeCustomerSkinPack: activePackId,
     customers: updatedCustomers,
+    unlockedCats: catSync.unlockedCats,
+    lastCatUnlockToast: catSync.unlockToast || state.lastCatUnlockToast,
+    lastCatUnlockSeq:
+      catSync.newlyUnlocked.length > 0
+        ? (state.lastCatUnlockSeq ?? 0) + 1
+        : state.lastCatUnlockSeq ?? 0,
     lastActionFeedback: `Claimed ${reward.title}! (${reward.rewardLabel})`,
   };
 }
@@ -2242,11 +2769,16 @@ export function advanceSimulationTick(
   const dt = Math.min(Math.max(0, dtSeconds), 0.3);
   const hasPidBoiler = state.upgrades.some((u) => u.id === 'dual-pid-boiler' && u.purchased);
   const hasBonsai = state.upgrades.some((u) => u.id === 'japanese-bonsai-terrarium' && u.purchased);
-  // Subtle upgrade grace on order timers while keeping authentic 10-20s pace
-  const upgradeGrace = hasPidBoiler && hasBonsai ? 0.8 : hasPidBoiler ? 0.88 : 1.0;
-  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode
+  const upgradeGrace = hasPidBoiler && hasBonsai ? 0.85 : hasPidBoiler ? 0.92 : 1.0;
+  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode or with Lilo equipped
   const modalTimeScale = options.isRecipeBookOpen ? 0.35 : 1.0;
-  const orderTickRate = state.mode === 'zen' ? 0 : upgradeGrace * modalTimeScale;
+  const equippedCat = getCafeCatSpec(state.equippedCatId);
+  const isLiloActive = Boolean(equippedCat.disablesMoodMeter);
+  const catMoodDrainMult = equippedCat.moodDrainMultiplier ?? 1.0;
+  const moodTickScale =
+    state.mode === 'zen' || isLiloActive
+      ? 0
+      : upgradeGrace * modalTimeScale * catMoodDrainMult;
 
   let bonusTableTip = 0;
   let tipMessage: string | null = null;
@@ -2258,35 +2790,45 @@ export function advanceSimulationTick(
   const nextCustomers: CustomerOrder[] = [];
   for (const cust of state.customers) {
     if (cust.state === 'ordering') {
-      const limitSec = Math.max(10, Math.min(20, cust.orderTimeLimitSec || 15));
-      const curRemaining =
-        typeof cust.orderTimeRemainingSec === 'number'
-          ? cust.orderTimeRemainingSec
-          : (cust.patience / 100) * limitSec;
+      const durationSec = Math.max(60, Math.min(120, cust.moodDurationSec || cust.orderTimeLimitSec || 90));
+      const curMood =
+        typeof cust.mood === 'number'
+          ? Math.max(0, Math.min(100, cust.mood))
+          : Math.max(0, Math.min(100, cust.patience ?? 100));
 
-      if (!cust.timerStarted || orderTickRate <= 0) {
+      // Phase 1 Order Queueing: Unaccepted orders wait calmly at 100% mood with ZERO decay!
+      // Also lock mood at 100% when Lilo is equipped or in Zen Mode.
+      if (!cust.orderAccepted || isLiloActive || state.mode === 'zen') {
+        const keptMood = !cust.orderAccepted || isLiloActive ? 100 : curMood;
+        const keptRemaining = (keptMood / 100) * durationSec;
         nextCustomers.push({
           ...cust,
-          orderTimeLimitSec: limitSec,
-          orderTimeRemainingSec: curRemaining,
-          patience: Math.max(0, Math.min(100, (curRemaining / limitSec) * 100)),
+          mood: keptMood,
+          moodDurationSec: durationSec,
+          patience: keptMood,
+          orderTimeLimitSec: durationSec,
+          orderTimeRemainingSec: keptRemaining,
         });
         continue;
       }
 
-      const nextRemaining = Math.max(0, curRemaining - dt * orderTickRate);
-      const nextPatience = Math.max(0, Math.min(100, (nextRemaining / limitSec) * 100));
+      const baseDrainPerSec = 100 / durationSec;
+      const nextMood = Math.max(0, curMood - dt * baseDrainPerSec * moodTickScale);
+      const nextRemaining = (nextMood / 100) * durationSec;
 
-      if (nextRemaining <= 0 && state.mode !== 'zen') {
+      if (nextMood <= 0) {
         nextSatisfaction = Math.max(0, nextSatisfaction - 8);
         nextMissedOrders += 1;
         nextExpiredSeq += 1;
         nextExpiredName = cust.customerName;
-        tipMessage = `${cust.customerName} ran out of patience and left! ($0)`;
+        tipMessage = `${cust.customerName} left dissatisfied ($0)`;
         nextCustomers.push({
           ...cust,
+          mood: 0,
+          moodDurationSec: durationSec,
+          moodExpired: true,
           patience: 0,
-          orderTimeLimitSec: limitSec,
+          orderTimeLimitSec: durationSec,
           orderTimeRemainingSec: 0,
           expired: true,
           state: 'departing',
@@ -2295,8 +2837,10 @@ export function advanceSimulationTick(
       } else {
         nextCustomers.push({
           ...cust,
-          patience: nextPatience,
-          orderTimeLimitSec: limitSec,
+          mood: nextMood,
+          moodDurationSec: durationSec,
+          patience: nextMood,
+          orderTimeLimitSec: durationSec,
           orderTimeRemainingSec: nextRemaining,
         });
       }
@@ -2354,7 +2898,6 @@ export function advanceSimulationTick(
     );
     nextCustomers.push(newlyArrived);
     waveRemaining -= 1;
-    // Enforce >= 3.2s staggered spawn spacing (5.0s between patrons; 12s wave breathing cooldown)
     spawnTimer = Math.max(MIN_ARRIVAL_GAP_SEC, waveRemaining > 0 ? 5.0 : 12.0);
     if (!tipMessage) {
       tipMessage = `${newlyArrived.customerName} walked in through the Garage Garden door!`;
@@ -2365,7 +2908,6 @@ export function advanceSimulationTick(
     spawnTimer <= 0 &&
     activeArrivingCount < 1
   ) {
-    // Wave breathing cooldown completed -> start a fresh 2-3 customer wave!
     const firstOfNewWave = spawnCustomerOrder(
       state.day,
       nextCustomers.length + 1,
@@ -2392,13 +2934,19 @@ export function advanceSimulationTick(
   const pinnedExists = nextCustomers.some(
     (c) => c.id === state.pinnedOrderId && c.state === 'ordering'
   );
-  const fallbackOrder = nextCustomers.find((c) => c.state === 'ordering');
+  const fallbackOrder =
+    nextCustomers.find((c) => c.state === 'ordering' && c.orderAccepted) ||
+    nextCustomers.find((c) => c.state === 'ordering');
 
   const newLifetimeGross = (state.lifetimeGrossIncome || 0) + bonusTableTip;
   const updatedSkins =
     bonusTableTip > 0
       ? syncGrossIncomeUnlocks(state.equipmentSkins, newLifetimeGross)
       : state.equipmentSkins;
+  const catSync =
+    bonusTableTip > 0
+      ? syncCatUnlocks(state.unlockedCats, newLifetimeGross)
+      : { unlockedCats: state.unlockedCats || ['champy'], newlyUnlocked: [], unlockToast: null };
 
   return {
     ...state,
@@ -2411,6 +2959,12 @@ export function advanceSimulationTick(
     lastExpiredCustomerName: nextExpiredName,
     lastExpiredEventSeq: nextExpiredSeq,
     equipmentSkins: updatedSkins,
+    unlockedCats: catSync.unlockedCats,
+    lastCatUnlockToast: catSync.unlockToast || state.lastCatUnlockToast,
+    lastCatUnlockSeq:
+      catSync.newlyUnlocked.length > 0
+        ? (state.lastCatUnlockSeq ?? 0) + 1
+        : state.lastCatUnlockSeq ?? 0,
     shiftTimeRemaining: nextShiftTime,
     activeShiftSeconds: (state.activeShiftSeconds ?? 0) + dt,
     waveCustomersRemaining: waveRemaining,
@@ -2505,6 +3059,9 @@ export function exportSaveJson(state: KlasikGameState): string {
         loginRewards: state.loginRewards,
         loginStreakDays: state.loginStreakDays,
         decor: state.decor,
+        unlockedCats: state.unlockedCats || ['champy'],
+        equippedCatId: state.equippedCatId || 'champy',
+        cookieJarCheatUnlocked: Boolean(state.cookieJarCheatUnlocked),
       },
     },
     null,
@@ -2567,6 +3124,19 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       shirtColor: activePackObj.paletteColors[idx % activePackObj.paletteColors.length],
     }));
 
+    const goldenSkinUnlocked = Boolean(
+      mergedSkins.find((s) => s.id === 'golden-espresso-machine')?.unlocked
+    );
+
+    const savedCatsRaw: CafeCatId[] = Array.isArray(d.unlockedCats)
+      ? d.unlockedCats.filter(isValidCafeCatId)
+      : ['champy'];
+    const syncedCats = syncCatUnlocks(savedCatsRaw, restoredGross).unlockedCats;
+    const restoredEquippedCat: CafeCatId =
+      isValidCafeCatId(d.equippedCatId) && syncedCats.includes(d.equippedCatId)
+        ? d.equippedCatId
+        : 'champy';
+
     return {
       ...base,
       day: restoredDay,
@@ -2586,8 +3156,7 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       upgrades: mergedUpgrades,
       equipmentSkins: mergedSkins,
       equippedMachineSkin:
-        d.equippedMachineSkin === 'golden-espresso-machine' &&
-        restoredGross < GOLDEN_MACHINE_GROSS_THRESHOLD
+        d.equippedMachineSkin === 'golden-espresso-machine' && !goldenSkinUnlocked
           ? 'classic-steel'
           : d.equippedMachineSkin || base.equippedMachineSkin,
       equippedGrinderSkin: d.equippedGrinderSkin || base.equippedGrinderSkin,
@@ -2598,6 +3167,9 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       loginRewards: mergedLogin,
       loginStreakDays: typeof d.loginStreakDays === 'number' ? d.loginStreakDays : restoredDay,
       decor: d.decor ? { ...base.decor, ...d.decor } : base.decor,
+      unlockedCats: syncedCats,
+      equippedCatId: restoredEquippedCat,
+      cookieJarCheatUnlocked: Boolean(d.cookieJarCheatUnlocked),
       lastActionFeedback: 'Restored cafe save backup successfully!',
     };
   } catch {

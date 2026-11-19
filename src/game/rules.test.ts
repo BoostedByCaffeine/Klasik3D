@@ -40,9 +40,20 @@ import {
   normalizeWeatherMode,
   MIN_ARRIVAL_GAP_SEC,
   rollOrderTimeLimitSec,
+  rollMoodDurationSec,
   computeSpeedTipBonus,
+  computeMoodTipBonus,
+  getMoodTier,
+  acceptCustomerOrder,
   markCustomerAtCounter,
   advanceSimulationTick,
+  CAFE_CATS,
+  LILO_REQUIRED_CAT_IDS,
+  ALL_CAFE_CAT_IDS,
+  getCafeCatSpec,
+  purchaseOrEquipCafeCat,
+  syncCatUnlocks,
+  unlockAllEverythingCheat,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -745,78 +756,99 @@ test('Phase 7: Night Shift & Rainy Night weather modes round-trip through save i
   assert.equal(restoredNight.weather, 'night');
 });
 
-test('Phase 4: rollOrderTimeLimitSec produces integers in 10..20s and computeSpeedTipBonus awards tiered fast-service tips', () => {
+test('Phase 1: rollMoodDurationSec produces integers in 60..120s and computeMoodTipBonus awards tiered mood tips', () => {
   for (let i = 0; i < 40; i++) {
-    const limit = rollOrderTimeLimitSec(() => i / 40);
-    assert.ok(Number.isInteger(limit), `Expected integer time limit, got ${limit}`);
-    assert.ok(limit >= 10 && limit <= 20, `Expected 10..20s, got ${limit}`);
+    const dur = rollMoodDurationSec(() => i / 40);
+    assert.ok(Number.isInteger(dur), `Expected integer mood duration, got ${dur}`);
+    assert.ok(dur >= 60 && dur <= 120, `Expected 60..120s, got ${dur}`);
+    assert.equal(rollOrderTimeLimitSec(() => i / 40), dur);
   }
-  assert.equal(rollOrderTimeLimitSec(() => 0), 10);
-  assert.equal(rollOrderTimeLimitSec(() => 0.999), 20);
+  assert.equal(rollMoodDurationSec(() => 0), 60);
+  assert.equal(rollMoodDurationSec(() => 0.999), 120);
 
-  // >= 50% remaining -> +$3 standard, +$4 specialty
-  assert.equal(computeSpeedTipBonus(16, 16, true).tip, 4);
-  assert.equal(computeSpeedTipBonus(10, 16, false).tip, 3);
-  assert.equal(computeSpeedTipBonus(10, 16, false).tier, 'fast');
-  // 25%..49% remaining -> +$1
-  assert.equal(computeSpeedTipBonus(5, 16).tip, 1);
-  assert.equal(computeSpeedTipBonus(5, 16).tier, 'prompt');
-  // < 25% remaining -> $0
-  assert.equal(computeSpeedTipBonus(2, 16).tip, 0);
-  assert.equal(computeSpeedTipBonus(2, 16).tier, 'ontime');
+  // Mood 75..100 -> Happy (+$3), 40..74 -> Neutral (+$1), 1..39 -> Impatient ($0)
+  assert.equal(getMoodTier(95), 'happy');
+  assert.equal(getMoodTier(75), 'happy');
+  assert.equal(computeMoodTipBonus(95).tip, 3);
+  assert.equal(computeSpeedTipBonus(90, 90, false).tip, 3);
+
+  // Mood 40..74 -> Content (+$1)
+  assert.equal(getMoodTier(74), 'content');
+  assert.equal(getMoodTier(40), 'content');
+  assert.equal(computeMoodTipBonus(55).tip, 1);
+
+  // Mood 1..39 -> Impatient ($0)
+  assert.equal(getMoodTier(39), 'impatient');
+  assert.equal(getMoodTier(1), 'impatient');
+  assert.equal(computeMoodTipBonus(20).tip, 0);
 });
 
-test('Phase 4: active order countdown triggers $0 walkout, -8% Vibe, and expired flag on timeout, while pausing in Zen/modals and slowing to 0.35x in Recipe Book', () => {
+test('Phase 1: Barista Order Queueing keeps unaccepted patrons at Mood 100 and drains accepted patrons over 60..120s to dissatisfied $0 walkout', () => {
   let state = createInitialGameState();
   state.phase = 'playing';
   state.mode = 'career';
-  // Give customer 1 an exact 10s started timer and customer 2/3 unstarted timers
-  state.customers = state.customers.map((c, idx) =>
-    idx === 0
-      ? { ...c, orderTimeLimitSec: 10, orderTimeRemainingSec: 10, timerStarted: true, expired: false }
-      : { ...c, orderTimeLimitSec: 14, orderTimeRemainingSec: 14, timerStarted: false, expired: false }
-  );
 
-  // 1. Non-recipe modal pauses countdown completely
-  const modalPaused = advanceSimulationTick(state, 0.25, { modalOpen: true, isRecipeBookOpen: false });
-  assert.equal(modalPaused.customers[0].orderTimeRemainingSec, 10);
+  // Initial customers start waiting in line with orderAccepted=false and mood=100 (NO drain!)
+  assert.equal(state.customers[0].orderAccepted, false);
+  assert.equal(state.customers[0].mood, 100);
+  const afterWait = advanceSimulationTick(state, 0.25);
+  assert.equal(afterWait.customers[0].mood, 100);
+  assert.equal(afterWait.customers[1].mood, 100);
+
+  // Reaching counter alone does NOT start draining mood before Barista accepts the order
+  const arrived = markCustomerAtCounter(afterWait, afterWait.customers[0].id);
+  const afterArrivedWait = advanceSimulationTick(arrived, 0.25);
+  assert.equal(afterArrivedWait.customers[0].mood, 100);
+  assert.equal(afterArrivedWait.customers[0].orderAccepted, false);
+
+  // Barista accepts Customer 0's order -> orderAccepted=true, mood begins draining over moodDurationSec (100s => 1 pt/s)
+  let accepted = acceptCustomerOrder(afterArrivedWait, afterArrivedWait.customers[0].id);
+  accepted = {
+    ...accepted,
+    customers: accepted.customers.map((c, idx) =>
+      idx === 0 ? { ...c, moodDurationSec: 100, orderTimeLimitSec: 100, orderTimeRemainingSec: 100, mood: 100, patience: 100 } : c
+    ),
+  };
+  assert.equal(accepted.customers[0].orderAccepted, true);
+  assert.equal(accepted.customers[1].orderAccepted, false);
+
+  // 1. Non-recipe modal pauses mood drain completely
+  const modalPaused = advanceSimulationTick(accepted, 0.25, { modalOpen: true, isRecipeBookOpen: false });
+  assert.equal(modalPaused.customers[0].mood, 100);
 
   // 2. Recipe Book modal grants 0.35x grace slowdown
-  const recipeBookGrace = advanceSimulationTick(state, 0.25, { modalOpen: true, isRecipeBookOpen: true });
-  assert.ok(
-    Math.abs((recipeBookGrace.customers[0].orderTimeRemainingSec ?? 0) - (10 - 0.25 * 0.35)) < 1e-6
-  );
+  const recipeBookGrace = advanceSimulationTick(accepted, 0.25, { modalOpen: true, isRecipeBookOpen: true });
+  assert.ok(Math.abs(recipeBookGrace.customers[0].mood - (100 - 0.25 * 0.35)) < 1e-6);
 
-  // 3. Zen mode pauses countdown completely
-  const zenState = advanceSimulationTick({ ...state, mode: 'zen' }, 0.25);
-  assert.equal(zenState.customers[0].orderTimeRemainingSec, 10);
+  // 3. Zen mode pauses mood drain completely
+  const zenState = advanceSimulationTick({ ...accepted, mode: 'zen' }, 0.25);
+  assert.equal(zenState.customers[0].mood, 100);
 
-  // 4. Unstarted customer timer stays frozen until markCustomerAtCounter fires
-  const ticked = advanceSimulationTick(state, 0.25);
-  assert.equal(ticked.customers[0].orderTimeRemainingSec, 9.75);
-  assert.equal(ticked.customers[1].orderTimeRemainingSec, 14);
-  const atCounter = markCustomerAtCounter(ticked, ticked.customers[1].id);
-  assert.equal(atCounter.customers[1].timerStarted, true);
+  // 4. Normal tick drains accepted customer 0 while keeping unaccepted customer 1 frozen at 100
+  const ticked = advanceSimulationTick(accepted, 0.25);
+  assert.ok(Math.abs(ticked.customers[0].mood - 99.75) < 1e-6);
+  assert.equal(ticked.customers[1].mood, 100);
 
-  // 5. Running customer 1 down to 0s causes $0 walkout, -8% satisfaction, missedOrders++, and expired=true
-  const cashBefore = state.cash;
-  const vibeBefore = state.satisfactionScore;
+  // 5. Running accepted customer 0 down to Mood 0 triggers dissatisfied $0 walkout & -8% satisfaction
+  const cashBefore = accepted.cash;
+  const vibeBefore = accepted.satisfactionScore;
   let expiring = {
-    ...state,
-    customers: state.customers.map((c, idx) =>
-      idx === 0 ? { ...c, orderTimeRemainingSec: 0.2, timerStarted: true } : c
+    ...accepted,
+    customers: accepted.customers.map((c, idx) =>
+      idx === 0 ? { ...c, mood: 0.2, patience: 0.2, orderTimeRemainingSec: 0.2 } : c
     ),
   };
   expiring = advanceSimulationTick(expiring, 0.25);
   const walkedOut = expiring.customers.find((c) => c.id === 'cust-initial-1');
   assert.ok(walkedOut);
   assert.equal(walkedOut.state, 'departing');
+  assert.equal(walkedOut.moodExpired, true);
   assert.equal(walkedOut.expired, true);
   assert.equal(expiring.cash, cashBefore);
   assert.equal(expiring.satisfactionScore, vibeBefore - 8);
   assert.equal(expiring.missedOrders, 1);
   assert.equal(expiring.lastExpiredEventSeq, 1);
-  assert.equal(expiring.lastExpiredCustomerName, walkedOut.customerName);
+  assert.ok(expiring.lastActionFeedback.includes('left dissatisfied ($0)'));
 });
 
 test('Phase 1: staggered spawn guard enforces MIN_ARRIVAL_GAP_SEC >= 3.2s and blocks spawns while an actor is already arriving', () => {
@@ -866,6 +898,153 @@ test('Phase 6: Champy petting & hanging ticket pin haptics work with valid vibra
     }
   }
 });
+
+test('Phase 3: All 9 Cafe Cats have exact coat/heterochromia/collar/size specs and unlock via revenue, shop adoption, and 7/7 Lilo mastery', () => {
+  assert.equal(CAFE_CATS.length, 9);
+  assert.equal(LILO_REQUIRED_CAT_IDS.length, 7);
+
+  // Exact heterochromia checks (Chunky = Left Yellow / Right Blue; Cheeto = Left Blue / Right Yellow)
+  const chunky = getCafeCatSpec('chunky');
+  assert.equal(chunky.leftEyeHex, 0xeab308);
+  assert.equal(chunky.rightEyeHex, 0x38bdf8);
+  assert.equal(chunky.hasCollar, true);
+
+  const cheeto = getCafeCatSpec('cheeto');
+  assert.equal(cheeto.leftEyeHex, 0x38bdf8);
+  assert.equal(cheeto.rightEyeHex, 0xeab308);
+  assert.equal(cheeto.hasCollar, false);
+
+  // Exact relative scale hierarchy: Kicks (largest) > Mikmik (2nd largest) > Champy (standard); Luna slender; Lilo shortest & chubby
+  const kicks = getCafeCatSpec('kicks');
+  const mikmik = getCafeCatSpec('mikmik');
+  const champy = getCafeCatSpec('champy');
+  const luna = getCafeCatSpec('luna');
+  const lilo = getCafeCatSpec('lilo');
+
+  assert.equal(kicks.collarThin, true);
+  assert.equal(kicks.hasBell, false);
+  assert.ok(kicks.scale[1] > mikmik.scale[1]);
+  assert.ok(mikmik.scale[1] > champy.scale[1]);
+  assert.ok(luna.scale[0] < champy.scale[0]);
+  assert.ok(lilo.scale[1] < champy.scale[1]);
+  assert.ok(lilo.scale[0] > champy.scale[0]);
+
+  // Automatic Revenue Milestone unlocks ($1000 Chimny, $1500 Chunky, $2000 Kicks, $2250 Cheeto)
+  let state = createInitialGameState();
+  assert.deepEqual(state.unlockedCats, ['champy']);
+  assert.equal(state.equippedCatId, 'champy');
+
+  const sync1500 = syncCatUnlocks(state.unlockedCats, 1500);
+  assert.ok(sync1500.unlockedCats.includes('chimny'));
+  assert.ok(sync1500.unlockedCats.includes('chunky'));
+  assert.ok(!sync1500.unlockedCats.includes('kicks'));
+
+  const sync2250 = syncCatUnlocks(sync1500.unlockedCats, 2250);
+  assert.ok(sync2250.unlockedCats.includes('kicks'));
+  assert.ok(sync2250.unlockedCats.includes('cheeto'));
+  assert.ok(!sync2250.unlockedCats.includes('lilo')); // Still missing shop cats!
+
+  // Shop adoption purchases (Katkat $150, Luna $500, Mikmik $1000) automatically trigger Lilo mastery unlock!
+  state = { ...state, cash: 2000, lifetimeGrossIncome: 2250, unlockedCats: sync2250.unlockedCats };
+  state = purchaseOrEquipCafeCat(state, 'katkat');
+  assert.equal(state.cash, 1850);
+  assert.equal(state.equippedCatId, 'katkat');
+  assert.ok(!state.unlockedCats.includes('lilo'));
+
+  state = purchaseOrEquipCafeCat(state, 'luna');
+  assert.equal(state.cash, 1350);
+  assert.equal(state.equippedCatId, 'luna');
+  assert.ok(!state.unlockedCats.includes('lilo'));
+
+  state = purchaseOrEquipCafeCat(state, 'mikmik');
+  assert.equal(state.cash, 350);
+  assert.equal(state.equippedCatId, 'mikmik');
+  assert.ok(state.unlockedCats.includes('lilo'), 'Lilo MUST auto-unlock once all 7 prerequisite cats are owned!');
+});
+
+test('Phase 3 Passives: Mikmik multiplies drink revenue & mood drain by 1.3x; Lilo disables Customer Mood Meter completely', () => {
+  const baseState = createInitialGameState();
+  const recipe = getRecipeById('velvet-latte');
+
+  // 1. Mikmik +30% drink revenue multiplier
+  const champyPayout = calculateDrinkPayout(baseState, recipe, 100, 100, 2);
+  const mikmikState: typeof baseState = {
+    ...baseState,
+    phase: 'playing',
+    unlockedCats: ['champy', 'mikmik'],
+    equippedCatId: 'mikmik',
+  };
+  const mikmikPayout = calculateDrinkPayout(mikmikState, recipe, 100, 100, 2);
+  assert.equal(mikmikPayout.catRevenueMultiplier, 1.3);
+  assert.equal(mikmikPayout.totalPayout, Math.round(champyPayout.totalPayout * 1.3));
+
+  // 2. Mikmik +30% faster mood drain (40 ticks * 0.25s = 10s elapsed)
+  const prepOrderState = (catId: 'champy' | 'mikmik' | 'lilo') => {
+    let s = createInitialGameState();
+    s.phase = 'playing';
+    s.mode = 'career';
+    s.unlockedCats = ['champy', 'mikmik', 'lilo'];
+    s.equippedCatId = catId;
+    s = acceptCustomerOrder(s, 'cust-initial-1');
+    s.customers = s.customers.map((c) =>
+      c.id === 'cust-initial-1'
+        ? { ...c, mood: 100, patience: 100, moodDurationSec: 100, orderTimeLimitSec: 100, orderTimeRemainingSec: 100 }
+        : c
+    );
+    return s;
+  };
+
+  let champyAfter = prepOrderState('champy');
+  let mikmikAfter = prepOrderState('mikmik');
+  for (let i = 0; i < 40; i++) {
+    champyAfter = advanceSimulationTick(champyAfter, 0.25);
+    mikmikAfter = advanceSimulationTick(mikmikAfter, 0.25);
+  }
+  assert.ok(Math.abs(champyAfter.customers[0].mood - 90) < 1e-6);
+  assert.ok(Math.abs(mikmikAfter.customers[0].mood - 87) < 1e-6);
+
+  // 3. Lilo locks mood at 100 even after long simulation ticks (zero walkouts!)
+  let liloState = prepOrderState('lilo');
+  liloState.customers = liloState.customers.map((c) =>
+    c.id === 'cust-initial-1' ? { ...c, mood: 45, patience: 45 } : c
+  );
+  let liloAfter = liloState;
+  for (let i = 0; i < 40; i++) {
+    liloAfter = advanceSimulationTick(liloAfter, 0.25);
+  }
+  assert.equal(liloAfter.customers[0].mood, 100);
+  assert.equal(liloAfter.customers[0].state, 'ordering');
+  assert.equal(liloAfter.missedOrders, 0);
+});
+
+test('Phase 4 & 5: 7-Cookie Jar cheat unlocks ALL upgrades, skins (incl. Golden Machine), customer packs, login rewards, all 9 cats, exact message, and persists via save JSON', () => {
+  const initial = createInitialGameState();
+  const unlocked = unlockAllEverythingCheat(initial);
+
+  assert.equal(unlocked.cookieJarCheatUnlocked, true);
+  assert.equal(unlocked.lastActionFeedback, 'you got what you wanted, now enjoy');
+  assert.ok(unlocked.upgrades.every((u) => u.purchased));
+  assert.ok(unlocked.equipmentSkins.every((s) => s.unlocked));
+  assert.ok(unlocked.customerSkinPacks.every((p) => p.unlocked));
+  assert.ok(unlocked.loginRewards.every((r) => r.claimed));
+  for (const catId of ALL_CAFE_CAT_IDS) {
+    assert.ok(unlocked.unlockedCats.includes(catId), `Expected cat ${catId} to be unlocked by cheat`);
+  }
+
+  // Equip Golden Espresso Machine + Lilo after cheat and verify save/import preserves both!
+  let equipped = unlockOrEquipEquipmentSkin(unlocked, 'golden-espresso-machine');
+  equipped = purchaseOrEquipCafeCat(equipped, 'lilo');
+  assert.equal(equipped.equippedMachineSkin, 'golden-espresso-machine');
+  assert.equal(equipped.equippedCatId, 'lilo');
+
+  const restored = importSaveJson(exportSaveJson(equipped));
+  assert.ok(restored);
+  assert.equal(restored.cookieJarCheatUnlocked, true);
+  assert.equal(restored.equippedMachineSkin, 'golden-espresso-machine');
+  assert.equal(restored.equippedCatId, 'lilo');
+  assert.equal(restored.unlockedCats.length, 9);
+});
+
 
 
 
