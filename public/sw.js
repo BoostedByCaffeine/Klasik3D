@@ -1,4 +1,4 @@
-const CACHE_NAME = 'klasik-3d-v2.3.0';
+const CACHE_NAME = 'klasik-3d-v2.4.0';
 const PRECACHE_ASSETS = [
   './',
   './index.html',
@@ -13,12 +13,22 @@ const PRECACHE_ASSETS = [
   './pwa-512x512.png',
   './pwa-maskable-512x512.png'
 ];
+const OPTIONAL_AUDIO_ASSETS = [
+  './audio/champy/purr.wav',
+  './audio/champy/meow_greet.wav',
+  './audio/champy/chirp_trill.wav'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(PRECACHE_ASSETS))
+      .then(async (cache) => {
+        await cache.addAll(PRECACHE_ASSETS);
+        await Promise.allSettled(
+          OPTIONAL_AUDIO_ASSETS.map((url) => cache.add(url).catch(() => null))
+        );
+      })
       .then(() => self.skipWaiting())
   );
 });

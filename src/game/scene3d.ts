@@ -71,6 +71,10 @@ export interface SceneInteractionCallbacks {
   onHoverToolChange: (label: string | null) => void;
   onFpsUpdate?: (fps: number) => void;
   onDoorOpen?: () => void;
+  onPinOrderFromTicket?: (orderId: string, recipeId: string) => void;
+  onCustomerReachedCounter?: (customerId: string) => void;
+  onPetChampy?: () => void;
+  onChampyGreet?: () => void;
 }
 
 interface StationCameraPreset {
@@ -78,11 +82,11 @@ interface StationCameraPreset {
   look: THREE.Vector3;
 }
 
-// Re-spaced camera presets matching the non-overlapping X-zones (-2.35 to +2.52)
+// Re-spaced camera presets matching the non-overlapping X-zones (-3.98 to +2.93)
 const STATION_CAMERAS: Record<BaristaStationId, StationCameraPreset> = {
   1: {
-    pos: new THREE.Vector3(-1.92, 1.62, 1.88),
-    look: new THREE.Vector3(-1.85, 1.24, -0.75),
+    pos: new THREE.Vector3(-2.26, 1.64, 2.08),
+    look: new THREE.Vector3(-2.16, 1.28, -0.65),
   },
   2: {
     pos: new THREE.Vector3(-0.36, 1.58, 1.76),
@@ -322,6 +326,10 @@ interface PooledPedestrian {
     | 'seatedBlend'
     | 'facingAngle'
     | 'moveState'
+    | 'stuckTimer'
+    | 'stuckAnchorPos'
+    | 'ghostPassTimer'
+    | 'counterArrivedSignaled'
   >;
   laneZ: number;
   x: number;
@@ -375,9 +383,56 @@ interface ArticulatedCustomerActor {
   seatedBlend: number;
   facingAngle: number;
   moveState: 'walking' | 'idle-queue' | 'yielding-door' | 'seated';
+  stuckTimer: number;
+  stuckAnchorPos: THREE.Vector3;
+  ghostPassTimer: number;
+  counterArrivedSignaled: boolean;
   seed: number;
   appliedSkinPack: CustomerSkinPackId;
   appliedShirtColor: string;
+}
+
+type ChampyState = 'sitting' | 'sleeping' | 'grooming' | 'greeting' | 'petted';
+
+interface ChampyParticle {
+  sprite: THREE.Sprite;
+  age: number;
+  duration: number;
+  active: boolean;
+  startX: number;
+  startZ: number;
+  driftX: number;
+}
+
+interface ChampyRig {
+  root: THREE.Group;
+  bodyPivot: THREE.Group;
+  headPivot: THREE.Group;
+  leftEar: THREE.Group;
+  rightEar: THREE.Group;
+  leftEyelid: THREE.Mesh;
+  rightEyelid: THREE.Mesh;
+  eyeIrisMat: THREE.MeshStandardMaterial;
+  frontLeftLeg: THREE.Group;
+  frontRightLeg: THREE.Group;
+  hindGroup: THREE.Group;
+  tailBase: THREE.Group;
+  tailMid: THREE.Group;
+  tailTip: THREE.Group;
+  collarBell: THREE.Group;
+  heartParticles: ChampyParticle[];
+  sleepParticles: ChampyParticle[];
+  heartTexture: THREE.CanvasTexture;
+  zzzTexture: THREE.CanvasTexture;
+  nameplateTexture: THREE.CanvasTexture;
+  state: ChampyState;
+  stateTimer: number;
+  stateDuration: number;
+  blinkTimer: number;
+  blinkDuration: number;
+  greetCooldown: number;
+  petTimer: number;
+  sleepParticleTimer: number;
 }
 
 interface ActiveStepAnimation {
@@ -446,6 +501,14 @@ export class KlasikCafeScene3D {
   private roadAsphaltTexture!: THREE.CanvasTexture;
   private windowRainTexture!: THREE.CanvasTexture;
   private ticketTextures: THREE.CanvasTexture[] = [];
+  private ticketGlowMats: THREE.MeshBasicMaterial[] = [];
+  private ticketHitboxes: THREE.Mesh[] = [];
+  private ticketOrderSlots: Array<{ orderId: string; recipeId: string; isUrgent: boolean; isPinned: boolean } | null> = [
+    null,
+    null,
+    null,
+  ];
+  private hudPinnedRecipeId: string | null = null;
   private lastTicketSignature = '';
   private lastPosOrderCount = -1;
 
@@ -491,8 +554,10 @@ export class KlasikCafeScene3D {
   private doorAngle = 0;
   private doorWasOpen = false;
   private doorChimeCooldown = 0;
-  private doorOccupantId: string | null = null;
-  private doorOccupantTimer = 0;
+  private doorwayQueue: string[] = [];
+  private activeDoorCrossId: string | null = null;
+  private activeDoorCrossTimer = 0;
+  private champyRig: ChampyRig | null = null;
   private titleHeroCupGroup!: THREE.Group;
   private titlePlaqueGroup!: THREE.Group;
 
@@ -607,6 +672,8 @@ export class KlasikCafeScene3D {
   private manualCameraZoomOffset = 0;
   private isPointerDragging = false;
   private dragStartCoord = 0;
+  private pointerDownX = 0;
+  private pointerDownY = 0;
 
   constructor(
     container: HTMLElement,
@@ -719,6 +786,36 @@ export class KlasikCafeScene3D {
       this.manualCameraYawOffset = 0;
       this.manualCameraZoomOffset = 0;
     }
+  }
+
+  public setHudPinnedRecipeId(recipeId: string | null) {
+    if (this.hudPinnedRecipeId !== recipeId) {
+      this.hudPinnedRecipeId = recipeId;
+      this.lastTicketSignature = '';
+      this.redrawOrderTicketTextures();
+    }
+  }
+
+  public getActiveArrivingCount(): number {
+    let count = 0;
+    for (const cust of this.gameState.customers) {
+      if (cust.state !== 'ordering') continue;
+      const actor = this.customerActors.get(cust.id);
+      if (actor && actor.currentPos.z < -4.7) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  public petChampy() {
+    if (!this.champyRig) return;
+    const rig = this.champyRig;
+    rig.state = 'petted';
+    rig.stateTimer = 0;
+    rig.stateDuration = 3.2;
+    rig.petTimer = 3.2;
+    this.spawnChampyHearts(3);
   }
 
   private shouldUsePhysicalTransmission(): boolean {
@@ -1395,7 +1492,7 @@ export class KlasikCafeScene3D {
     ctx.fillStyle = '#faf5ee';
     ctx.font = 'bold 42px Georgia, serif';
     ctx.textAlign = 'center';
-    ctx.fillText('BARISTA CODEX', 256, 152);
+    ctx.fillText('RECIPE BOOK', 256, 152);
 
     ctx.fillStyle = '#a7f3d0';
     ctx.font = '600 22px sans-serif';
@@ -1408,7 +1505,7 @@ export class KlasikCafeScene3D {
     ctx.fill();
     ctx.fillStyle = '#160e09';
     ctx.font = 'bold 24px sans-serif';
-    ctx.fillText('TAP FOR BARISTA CODEX', 256, 273);
+    ctx.fillText('TAP FOR RECIPE BOOK', 256, 273);
 
     this.posScreenTexture.needsUpdate = true;
   }
@@ -1528,10 +1625,12 @@ export class KlasikCafeScene3D {
     const ordering = this.gameState.customers.filter((c) => c.state === 'ordering');
     const sig = ordering
       .slice(0, 3)
-      .map(
-        (c) =>
-          `${c.id}:${c.recipeId}:${Math.round(c.patience / 5)}:${(c.customAddons || []).join(',')}`
-      )
+      .map((c) => {
+        const secs = Math.ceil(c.orderTimeRemainingSec ?? 15);
+        const isPinned =
+          this.gameState.pinnedOrderId === c.id && this.hudPinnedRecipeId === c.recipeId;
+        return `${c.id}:${c.recipeId}:${secs}:${isPinned ? 1 : 0}:${c.orderType}`;
+      })
       .join('|');
     if (sig === this.lastTicketSignature) return;
     this.lastTicketSignature = sig;
@@ -1543,72 +1642,120 @@ export class KlasikCafeScene3D {
       if (!ctx) continue;
 
       const cust: CustomerOrder | undefined = ordering[i];
-      ctx.fillStyle = '#fef9c3';
+      const hitbox = this.ticketHitboxes[i];
+
+      ctx.fillStyle = '#fffbeb';
       ctx.fillRect(0, 0, 256, 320);
 
-      // Top brass ticket clip bar
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(0, 0, 256, 36);
-      ctx.fillStyle = '#fef3c7';
-      ctx.font = 'bold 18px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`ORDER #${i + 1}`, 128, 24);
-
       if (!cust) {
+        this.ticketOrderSlots[i] = null;
+        if (hitbox) {
+          hitbox.userData.label = `Order Ticket Slot #${i + 1} (Empty)`;
+        }
+        ctx.fillStyle = '#57534e';
+        ctx.fillRect(0, 0, 256, 40);
+        ctx.fillStyle = '#e7e5e4';
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`ORDER #${i + 1}`, 128, 27);
         ctx.fillStyle = '#a8a29e';
-        ctx.font = 'italic 20px sans-serif';
-        ctx.fillText('OPEN SLOT', 128, 160);
+        ctx.font = 'bold 22px sans-serif';
+        ctx.fillText('OPEN SLOT', 128, 170);
         tex.needsUpdate = true;
         continue;
       }
 
       const recipe = getRecipeById(cust.recipeId);
+      const limitSec = Math.max(10, Math.min(20, cust.orderTimeLimitSec || 15));
+      const remSec = Math.max(
+        0,
+        typeof cust.orderTimeRemainingSec === 'number'
+          ? cust.orderTimeRemainingSec
+          : (cust.patience / 100) * limitSec
+      );
+      const displaySec = Math.ceil(remSec);
+      const isUrgent = cust.timerStarted && remSec <= 5 && this.gameState.mode !== 'zen';
+      const isPinned =
+        this.gameState.pinnedOrderId === cust.id && this.hudPinnedRecipeId === cust.recipeId;
+
+      this.ticketOrderSlots[i] = {
+        orderId: cust.id,
+        recipeId: cust.recipeId,
+        isUrgent,
+        isPinned,
+      };
+
+      if (hitbox) {
+        hitbox.userData.label = `Pin ${cust.customerName}'s ${recipe.name} (${displaySec}s)`;
+      }
+
+      // High-contrast top header bar (Emerald when pinned, Crimson when urgent, Espresso-Gold otherwise)
+      ctx.fillStyle = isPinned ? '#047857' : isUrgent ? '#be123c' : '#78350f';
+      ctx.fillRect(0, 0, 256, 44);
+      ctx.fillStyle = '#fef3c7';
+      ctx.font = 'bold 20px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(isPinned ? 'PINNED RECIPE' : isUrgent ? `URGENT ${displaySec}s` : `TAP TO PIN #${i + 1}`, 128, 29);
+
+      // Bold customer first name (crisp even on GFX: LOW)
       ctx.fillStyle = '#1c1917';
-      ctx.font = 'bold 28px sans-serif';
-      ctx.fillText(cust.customerName.toUpperCase(), 128, 80);
+      ctx.font = 'bold 34px sans-serif';
+      ctx.fillText(cust.customerName.toUpperCase(), 128, 92);
 
-      ctx.strokeStyle = '#d6d3d1';
-      ctx.lineWidth = 2;
+      // Service & temperature pill (HOT / ICED / TAKEOUT)
+      const isTakeout = cust.orderType === 'takeout';
+      const isIced = Boolean(cust.customNeedsIce ?? recipe.needsIce);
+      const badgeLabel = `${isIced ? 'ICED' : 'HOT'} · ${isTakeout ? 'TO-GO' : 'DINE-IN'}`;
+      ctx.fillStyle = isTakeout ? '#065f46' : isIced ? '#0369a1' : '#92400e';
       ctx.beginPath();
-      ctx.moveTo(20, 96);
-      ctx.lineTo(236, 96);
-      ctx.stroke();
+      ctx.roundRect(30, 108, 196, 34, 10);
+      ctx.fill();
+      ctx.fillStyle = '#fafaf9';
+      ctx.font = 'bold 18px monospace';
+      ctx.fillText(badgeLabel, 128, 131);
 
-      // Drink Name (wrapped in 2 lines)
-      ctx.fillStyle = '#78350f';
-      ctx.font = 'bold 21px Georgia, serif';
+      // Bold Drink Name (high contrast 2-line wrap)
+      ctx.fillStyle = '#292524';
+      ctx.font = 'bold 24px sans-serif';
       const words = recipe.name.split(' ');
       const line1 = words.slice(0, 2).join(' ');
       const line2 = words.slice(2).join(' ');
-      ctx.fillText(line1, 128, 132);
-      if (line2) ctx.fillText(line2, 128, 158);
+      ctx.fillText(line1, 128, 180);
+      if (line2) ctx.fillText(line2, 128, 210);
 
-      // Custom Add-On Modifiers Badges
-      const addons = cust.customAddons || [];
-      addons.slice(0, 2).forEach((addon, aIdx) => {
-        const y = 182 + aIdx * 36;
+      // Primary Add-on badge if present
+      const firstAddon = (cust.customAddons || [])[0];
+      if (firstAddon) {
         ctx.fillStyle = '#fef3c7';
         ctx.strokeStyle = '#d97706';
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.roundRect(32, y, 192, 28, 8);
+        ctx.roundRect(32, 224, 192, 30, 8);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = '#92400e';
-        ctx.font = 'bold 16px monospace';
-        ctx.fillText(addon, 128, y + 19);
-      });
+        ctx.font = 'bold 17px monospace';
+        ctx.fillText(firstAddon, 128, 245);
+      }
 
-      // Live Color-Coded Patience Bar at Bottom of Ticket
+      // Chunky Live Countdown Bar + Seconds Readout at bottom
       ctx.fillStyle = '#e7e5e4';
-      ctx.fillRect(24, 276, 208, 20);
-      const patRatio = Math.max(0, Math.min(1, cust.patience / 100));
+      ctx.fillRect(20, 270, 216, 32);
+      const patRatio = Math.max(0, Math.min(1, remSec / limitSec));
       ctx.fillStyle =
-        cust.patience > 50 ? '#10b981' : cust.patience > 25 ? '#f59e0b' : '#ef4444';
-      ctx.fillRect(24, 276, Math.round(208 * patRatio), 20);
-      ctx.strokeStyle = '#44403c';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(24, 276, 208, 20);
+        patRatio >= 0.5 ? '#10b981' : patRatio >= 0.25 ? '#f59e0b' : '#f43f5e';
+      ctx.fillRect(20, 270, Math.round(216 * patRatio), 32);
+      ctx.strokeStyle = '#1c1917';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(20, 270, 216, 32);
+
+      ctx.fillStyle = '#111827';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(
+        this.gameState.mode === 'zen' ? 'ZEN' : cust.timerStarted ? `${displaySec}s` : 'WALKING',
+        128,
+        293
+      );
 
       tex.needsUpdate = true;
     }
@@ -2072,49 +2219,49 @@ export class KlasikCafeScene3D {
     grassPlane.position.set(0, -0.04, -22.0);
     archGroup.add(grassPlane);
 
-    // 3. Main Fluted-Timber & Brushed-Brass Barista Counter (Top surface strictly y = 1.00)
+    // 3. Main Fluted-Timber & Brushed-Brass Barista Counter (Extended +1.15m Left Wing for Champy's Perch; Top strictly y = 1.00)
     const counterBaseMat = new THREE.MeshStandardMaterial({
       color: 0x181310,
       roughness: 0.68,
       metalness: 0.14,
     });
-    const counterBody = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.94, 1.36), counterBaseMat);
-    counterBody.position.set(0.05, 0.47, 0.44);
+    const counterBody = new THREE.Mesh(new THREE.BoxGeometry(6.75, 0.94, 1.36), counterBaseMat);
+    counterBody.position.set(-0.525, 0.47, 0.44);
     counterBody.castShadow = true;
     counterBody.receiveShadow = true;
     archGroup.add(counterBody);
 
-    // Vertical fluted timber slats across the customer-facing rear fascia of the bar counter
-    for (let s = 0; s < 28; s++) {
+    // Vertical fluted timber slats across the entire extended customer-facing fascia
+    for (let s = 0; s < 34; s++) {
       const slat = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.84, 0.03), this.counterWoodMat);
-      slat.position.set(-2.62 + s * 0.198, 0.48, -0.25);
+      slat.position.set(-3.78 + s * 0.198, 0.48, -0.25);
       archGroup.add(slat);
     }
 
-    // Brushed-brass toe kickplate + under-counter warm LED accent strip
-    const kickplate = new THREE.Mesh(new THREE.BoxGeometry(5.66, 0.075, 1.4), brassMat);
-    kickplate.position.set(0.05, 0.038, 0.44);
+    // Brushed-brass toe kickplate + under-counter warm LED accent strip (extended seamlessly left)
+    const kickplate = new THREE.Mesh(new THREE.BoxGeometry(6.81, 0.075, 1.4), brassMat);
+    kickplate.position.set(-0.525, 0.038, 0.44);
     archGroup.add(kickplate);
 
     const underCounterLed = new THREE.Mesh(
-      new THREE.BoxGeometry(5.55, 0.022, 0.025),
+      new THREE.BoxGeometry(6.7, 0.022, 0.025),
       this.underCounterNeonMat
     );
-    underCounterLed.position.set(0.05, 0.91, -0.265);
+    underCounterLed.position.set(-0.525, 0.91, -0.265);
     archGroup.add(underCounterLed);
 
-    // Beveled Walnut Countertop Slab (Top surface strictly at y = 1.00)
+    // Beveled Walnut Countertop Slab (Top surface strictly at y = 1.00, left edge x = -3.98, right edge x = +2.93)
     const counterTop = new THREE.Mesh(
-      new THREE.BoxGeometry(5.76, 0.06, 1.48),
+      new THREE.BoxGeometry(6.91, 0.06, 1.48),
       this.counterWoodMat
     );
-    counterTop.position.set(0.05, 0.97, 0.44);
+    counterTop.position.set(-0.525, 0.97, 0.44);
     counterTop.castShadow = true;
     counterTop.receiveShadow = true;
     archGroup.add(counterTop);
 
-    const brassTrim = new THREE.Mesh(new THREE.BoxGeometry(5.78, 0.022, 1.5), brassMat);
-    brassTrim.position.set(0.05, 0.935, 0.44);
+    const brassTrim = new THREE.Mesh(new THREE.BoxGeometry(6.93, 0.022, 1.5), brassMat);
+    brassTrim.position.set(-0.525, 0.935, 0.44);
     archGroup.add(brassTrim);
 
     // 4. Solid Architectural Left & Right Showroom Walls (x = -5.6 and x = +5.6)
@@ -4112,7 +4259,7 @@ export class KlasikCafeScene3D {
     this.registerInteractiveTool(
       'register',
       registerGroup,
-      'KLASIK POS · Tap to Open Barista Codex',
+      'KLASIK POS · Tap to Open Recipe Book',
       1,
       () => this.callbacks.onToolAction('open_recipes_modal')
     );
@@ -4165,14 +4312,24 @@ export class KlasikCafeScene3D {
     pastryCaseGroup.position.set(-1.86, 1.0, 0.22);
     st1Group.add(pastryCaseGroup);
 
-    // 3. Overhead Hanging Order Tickets (x = -2.28 to -1.68, y = 1.82) with Dynamic CanvasTextures
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.032, 0.032), brassMat);
+    // 3. Overhead Glowing & Clickable Hanging Order Tickets (x = -2.28 to -1.68, y = 1.82)
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.032, 0.032), brassMat);
     rail.position.set(-1.98, 1.98, 0.18);
     st1Group.add(rail);
 
     this.ticketTextures = [];
+    this.ticketGlowMats = [];
+    this.ticketHitboxes = [];
     const ticketXs = [-2.28, -1.98, -1.68];
-    ticketXs.forEach((tx) => {
+    const invisibleHitMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.0,
+      depthWrite: false,
+    });
+    ticketXs.forEach((tx, slotIdx) => {
+      const ticketGroup = new THREE.Group();
+      ticketGroup.position.set(tx, 1.82, 0.19);
+
       const tCanvas = document.createElement('canvas');
       tCanvas.width = 256;
       tCanvas.height = 320;
@@ -4180,17 +4337,665 @@ export class KlasikCafeScene3D {
       tTex.colorSpace = THREE.SRGBColorSpace;
       this.ticketTextures.push(tTex);
 
+      // Additive glowing border halo behind the hanging paper (zero extra dynamic GPU lights!)
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        transparent: true,
+        opacity: 0.55,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      this.ticketGlowMats.push(glowMat);
+      const glowFrame = new THREE.Mesh(new THREE.PlaneGeometry(0.285, 0.345), glowMat);
+      glowFrame.position.z = -0.008;
+      ticketGroup.add(glowFrame);
+
       const ticketMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         map: tTex,
-        roughness: 0.6,
+        roughness: 0.55,
       });
       const ticketMesh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.012), ticketMat);
-      ticketMesh.position.set(tx, 1.82, 0.19);
-      st1Group.add(ticketMesh);
+      ticketGroup.add(ticketMesh);
+
+      // Generous 1.25x tap/click hitbox for effortless mobile & desktop pinning
+      const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.285, 0.36, 0.06), invisibleHitMat);
+      ticketGroup.add(hitbox);
+      this.ticketHitboxes.push(hitbox);
+
+      this.registerInteractiveTool(
+        `order-ticket-${slotIdx}`,
+        ticketGroup,
+        `Tap to Pin Order #${slotIdx + 1}`,
+        1,
+        () => {
+          const slotData = this.ticketOrderSlots[slotIdx];
+          if (slotData) {
+            this.callbacks.onPinOrderFromTicket?.(slotData.orderId, slotData.recipeId);
+          }
+        }
+      );
+
+      st1Group.add(ticketGroup);
     });
 
+    // 4. Phase 5: Champy's Cozy Left-Counter Perch & Articulated 3D Black Cafe Cat (-2.90, 1.00, 0.24)
+    const champyPerch = this.buildChampyPerchAndCat(brassMat);
+    st1Group.add(champyPerch);
+
     this.scene.add(st1Group);
+  }
+
+  private buildChampyPerchAndCat(brassMat: THREE.MeshStandardMaterial): THREE.Group {
+    const perchGroup = new THREE.Group();
+    perchGroup.position.set(-2.90, 1.0, 0.24);
+
+    // 1. Woven Oatmeal & Warm-Terracotta Cat Cushion Bed
+    const oatmealMat = new THREE.MeshStandardMaterial({
+      color: 0xe6d5bc,
+      roughness: 0.88,
+      metalness: 0.02,
+    });
+    const terracottaMat = new THREE.MeshStandardMaterial({
+      color: 0xb45334,
+      roughness: 0.82,
+      metalness: 0.03,
+    });
+    const cushionBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.23, 0.255, 0.045, 20),
+      terracottaMat
+    );
+    cushionBase.position.y = 0.0225;
+    cushionBase.receiveShadow = true;
+    perchGroup.add(cushionBase);
+
+    const cushionCenter = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.195, 0.205, 0.024, 18),
+      oatmealMat
+    );
+    cushionCenter.position.y = 0.042;
+    perchGroup.add(cushionCenter);
+
+    const cushionRim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.215, 0.032, 10, 22),
+      oatmealMat
+    );
+    cushionRim.rotation.x = Math.PI / 2;
+    cushionRim.position.y = 0.05;
+    perchGroup.add(cushionRim);
+
+    // 2. Tiny Ceramic Cream Saucer beside Cushion (framed cleanly in Station 1)
+    const saucerGroup = new THREE.Group();
+    saucerGroup.position.set(-0.25, 0.0, 0.25);
+    const saucerDish = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.068, 0.048, 0.018, 16),
+      this.ceramicMugMat
+    );
+    saucerDish.position.y = 0.009;
+    saucerGroup.add(saucerDish);
+    const milkPool = new THREE.Mesh(
+      new THREE.CircleGeometry(0.052, 16),
+      new THREE.MeshStandardMaterial({ color: 0xfffbeb, roughness: 0.22 })
+    );
+    milkPool.rotation.x = -Math.PI / 2;
+    milkPool.position.y = 0.019;
+    saucerGroup.add(milkPool);
+    perchGroup.add(saucerGroup);
+
+    // 3. Small Brushed-Brass Tabletop Nameplate Reading "CHAMPY"
+    const plateCanvas = document.createElement('canvas');
+    plateCanvas.width = 256;
+    plateCanvas.height = 64;
+    const pCtx = plateCanvas.getContext('2d')!;
+    pCtx.fillStyle = '#1c140e';
+    pCtx.fillRect(0, 0, 256, 64);
+    pCtx.strokeStyle = '#fbbf24';
+    pCtx.lineWidth = 6;
+    pCtx.strokeRect(4, 4, 248, 56);
+    pCtx.fillStyle = '#fef3c7';
+    pCtx.font = 'bold 34px Georgia, serif';
+    pCtx.textAlign = 'center';
+    pCtx.fillText('CHAMPY', 128, 44);
+    const nameplateTexture = new THREE.CanvasTexture(plateCanvas);
+    nameplateTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const plateStand = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.044, 0.022), brassMat);
+    plateStand.position.set(0.05, 0.022, 0.30);
+    plateStand.rotation.set(-0.35, 0.14, 0);
+    perchGroup.add(plateStand);
+
+    const plateFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.168, 0.036),
+      new THREE.MeshStandardMaterial({ map: nameplateTexture, roughness: 0.68, metalness: 0.08 })
+    );
+    plateFace.position.set(0.052, 0.024, 0.312);
+    plateFace.rotation.set(-0.35, 0.14, 0);
+    perchGroup.add(plateFace);
+
+    // 4. Articulated 3D Black Cafe Cat Rig — "Champy"
+    const furMat = new THREE.MeshStandardMaterial({
+      color: 0x15171c,
+      roughness: 0.62,
+      metalness: 0.08,
+    });
+    const innerEarMat = new THREE.MeshStandardMaterial({
+      color: 0x2d2429,
+      roughness: 0.78,
+    });
+    const noseMat = new THREE.MeshStandardMaterial({
+      color: 0x4a353f,
+      roughness: 0.45,
+    });
+    const eyeIrisMat = new THREE.MeshStandardMaterial({
+      color: 0x22c55e,
+      emissive: 0x15803d,
+      emissiveIntensity: 0.28,
+      roughness: 0.16,
+    });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x050507 });
+    const sparkleMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const collarMat = new THREE.MeshStandardMaterial({
+      color: 0x0d9488, // Vibrant bluish-green teal collar
+      roughness: 0.35,
+      metalness: 0.12,
+    });
+    const bellMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      roughness: 0.2,
+      metalness: 0.85,
+    });
+
+    const catRoot = new THREE.Group();
+    catRoot.position.set(0, 0.055, 0);
+    // Face toward the barista & slightly toward Station 1 POS / customers
+    catRoot.rotation.y = 0.24;
+
+    const bodyPivot = new THREE.Group();
+    catRoot.add(bodyPivot);
+
+    // Sculpted feline torso + rounded haunches
+    const torsoMesh = new THREE.Mesh(new THREE.SphereGeometry(0.095, 16, 14), furMat);
+    torsoMesh.scale.set(0.88, 1.18, 1.05);
+    torsoMesh.position.set(0, 0.115, -0.01);
+    bodyPivot.add(torsoMesh);
+
+    const chestMesh = new THREE.Mesh(new THREE.SphereGeometry(0.068, 14, 12), furMat);
+    chestMesh.scale.set(0.95, 1.05, 0.9);
+    chestMesh.position.set(0, 0.14, 0.052);
+    bodyPivot.add(chestMesh);
+
+    const hindGroup = new THREE.Group();
+    hindGroup.position.set(0, 0.065, -0.045);
+    const haunchL = new THREE.Mesh(new THREE.SphereGeometry(0.062, 12, 10), furMat);
+    haunchL.scale.set(0.75, 1.05, 1.15);
+    haunchL.position.set(-0.055, 0, 0);
+    hindGroup.add(haunchL);
+    const haunchR = haunchL.clone();
+    haunchR.position.x = 0.055;
+    hindGroup.add(haunchR);
+    bodyPivot.add(hindGroup);
+
+    // Front legs & velvety paws
+    const makeFrontLeg = (xSign: number): THREE.Group => {
+      const leg = new THREE.Group();
+      leg.position.set(xSign * 0.044, 0.12, 0.068);
+      const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.017, 0.115, 10), furMat);
+      limb.position.y = -0.055;
+      leg.add(limb);
+      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), furMat);
+      paw.scale.set(1.0, 0.65, 1.25);
+      paw.position.set(0, -0.11, 0.012);
+      leg.add(paw);
+      return leg;
+    };
+    const frontLeftLeg = makeFrontLeg(-1);
+    const frontRightLeg = makeFrontLeg(1);
+    bodyPivot.add(frontLeftLeg, frontRightLeg);
+
+    // Bluish-Green Teal Collar & Swinging Gold Bell
+    const collarMesh = new THREE.Mesh(new THREE.TorusGeometry(0.056, 0.011, 10, 20), collarMat);
+    collarMesh.rotation.x = Math.PI / 2 + 0.22;
+    collarMesh.position.set(0, 0.205, 0.048);
+    bodyPivot.add(collarMesh);
+
+    const collarBell = new THREE.Group();
+    collarBell.position.set(0, 0.192, 0.102);
+    const bellBall = new THREE.Mesh(new THREE.SphereGeometry(0.013, 10, 10), bellMat);
+    bellBall.position.y = -0.012;
+    collarBell.add(bellBall);
+    bodyPivot.add(collarBell);
+
+    // Articulated Head Pivot + Ears + Expressive Emerald-Jade Eyes + Blinking Eyelids
+    const headPivot = new THREE.Group();
+    headPivot.position.set(0, 0.245, 0.058);
+    bodyPivot.add(headPivot);
+
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.072, 16, 14), furMat);
+    skull.scale.set(1.08, 0.96, 1.0);
+    headPivot.add(skull);
+
+    // Soft muzzle & tiny charcoal-pink nose
+    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10), furMat);
+    muzzle.scale.set(1.25, 0.78, 0.85);
+    muzzle.position.set(0, -0.015, 0.062);
+    headPivot.add(muzzle);
+
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 8), noseMat);
+    nose.scale.set(1.2, 0.85, 0.8);
+    nose.position.set(0, -0.008, 0.086);
+    headPivot.add(nose);
+
+    // Sculpted triangular cat ears with dark-charcoal inner triangles
+    const makeEar = (xSign: number): THREE.Group => {
+      const ear = new THREE.Group();
+      ear.position.set(xSign * 0.045, 0.056, 0.004);
+      ear.rotation.z = -xSign * 0.26;
+      const outer = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.058, 4), furMat);
+      outer.position.y = 0.024;
+      outer.rotation.y = Math.PI / 4;
+      ear.add(outer);
+      const inner = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.04, 4), innerEarMat);
+      inner.position.set(0, 0.02, 0.008);
+      inner.rotation.y = Math.PI / 4;
+      ear.add(inner);
+      return ear;
+    };
+    const leftEar = makeEar(-1);
+    const rightEar = makeEar(1);
+    headPivot.add(leftEar, rightEar);
+
+    // Expressive Emerald Green Eyes with vertical slit pupils, catchlights & animated eyelids
+    const makeEye = (xSign: number): THREE.Mesh => {
+      const eyeGroup = new THREE.Group();
+      eyeGroup.position.set(xSign * 0.032, 0.012, 0.062);
+      eyeGroup.rotation.y = xSign * 0.22;
+
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 10), eyeIrisMat);
+      iris.scale.set(1.05, 0.96, 0.55);
+      eyeGroup.add(iris);
+
+      const slit = new THREE.Mesh(new THREE.BoxGeometry(0.0055, 0.021, 0.006), pupilMat);
+      slit.position.z = 0.0085;
+      eyeGroup.add(slit);
+
+      const catchlight = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 8, 8), sparkleMat);
+      catchlight.position.set(-0.0045, 0.005, 0.0115);
+      eyeGroup.add(catchlight);
+
+      const eyelid = new THREE.Mesh(
+        new THREE.SphereGeometry(0.0185, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        furMat
+      );
+      eyelid.scale.set(1.08, 1.0, 0.62);
+      eyelid.rotation.x = -0.95; // Open by default; tilts forward to close for blink/sleep/squint
+      eyeGroup.add(eyelid);
+
+      headPivot.add(eyeGroup);
+      return eyelid;
+    };
+    const leftEyelid = makeEye(-1);
+    const rightEyelid = makeEye(1);
+
+    // 3-Segment Articulated Tail
+    const tailBase = new THREE.Group();
+    tailBase.position.set(0, 0.065, -0.095);
+    const tSeg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.016, 0.11, 8), furMat);
+    tSeg1.position.set(0, 0.045, -0.03);
+    tSeg1.rotation.x = -0.6;
+    tailBase.add(tSeg1);
+
+    const tailMid = new THREE.Group();
+    tailMid.position.set(0, 0.088, -0.06);
+    const tSeg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.105, 8), furMat);
+    tSeg2.position.set(0, 0.05, -0.012);
+    tSeg2.rotation.x = -0.22;
+    tailMid.add(tSeg2);
+    tailBase.add(tailMid);
+
+    const tailTip = new THREE.Group();
+    tailTip.position.set(0, 0.098, -0.022);
+    const tSeg3 = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.08, 8), furMat);
+    tSeg3.position.set(0, 0.038, 0.008);
+    tSeg3.rotation.x = 0.25;
+    tailTip.add(tSeg3);
+    const tTipBall = new THREE.Mesh(new THREE.SphereGeometry(0.0095, 8, 8), furMat);
+    tTipBall.position.set(0, 0.076, 0.018);
+    tailTip.add(tTipBall);
+    tailMid.add(tailTip);
+    bodyPivot.add(tailBase);
+
+    // Pre-allocated Floating Heart & Sleep zZz Sprite Pools (Zero-GC in animate loop!)
+    const heartCanvas = document.createElement('canvas');
+    heartCanvas.width = 64;
+    heartCanvas.height = 64;
+    const hCtx = heartCanvas.getContext('2d')!;
+    hCtx.fillStyle = '#fb7185';
+    hCtx.beginPath();
+    hCtx.moveTo(32, 54);
+    hCtx.bezierCurveTo(8, 36, 6, 16, 20, 12);
+    hCtx.bezierCurveTo(28, 10, 32, 18, 32, 22);
+    hCtx.bezierCurveTo(32, 18, 36, 10, 44, 12);
+    hCtx.bezierCurveTo(58, 16, 56, 36, 32, 54);
+    hCtx.fill();
+    hCtx.fillStyle = '#fde68a';
+    hCtx.beginPath();
+    hCtx.arc(23, 21, 3.8, 0, Math.PI * 2);
+    hCtx.fill();
+    const heartTexture = new THREE.CanvasTexture(heartCanvas);
+    heartTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const zzzCanvas = document.createElement('canvas');
+    zzzCanvas.width = 64;
+    zzzCanvas.height = 64;
+    const zCtx = zzzCanvas.getContext('2d')!;
+    zCtx.fillStyle = '#e0f2fe';
+    zCtx.font = 'bold 34px Georgia, serif';
+    zCtx.textAlign = 'center';
+    zCtx.fillText('zZ', 32, 44);
+    const zzzTexture = new THREE.CanvasTexture(zzzCanvas);
+    zzzTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const heartParticles: ChampyParticle[] = [];
+    for (let i = 0; i < 4; i++) {
+      const sp = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: heartTexture, transparent: true, opacity: 0, depthWrite: false })
+      );
+      sp.scale.set(0.085, 0.085, 1);
+      sp.visible = false;
+      catRoot.add(sp);
+      heartParticles.push({ sprite: sp, age: 0, duration: 1.25, active: false, startX: 0, startZ: 0, driftX: 0 });
+    }
+
+    const sleepParticles: ChampyParticle[] = [];
+    for (let i = 0; i < 3; i++) {
+      const sp = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: zzzTexture, transparent: true, opacity: 0, depthWrite: false })
+      );
+      sp.scale.set(0.08, 0.08, 1);
+      sp.visible = false;
+      catRoot.add(sp);
+      sleepParticles.push({ sprite: sp, age: 0, duration: 1.9, active: false, startX: 0, startZ: 0, driftX: 0 });
+    }
+
+    // Generous invisible 0.28m hit-sphere for reliable mobile tapping & desktop clicking
+    const hitSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.28, 12, 10),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    hitSphere.position.set(0, 0.16, 0.02);
+    catRoot.add(hitSphere);
+
+    const petLabel = this.isMobileDevice ? 'Champy · Tap to Pet' : 'Champy · Click to Pet';
+    this.registerInteractiveTool('pet-champy', catRoot, petLabel, 1, () => {
+      this.petChampy();
+      this.callbacks.onPetChampy?.();
+    });
+
+    perchGroup.add(catRoot);
+
+    this.champyRig = {
+      root: catRoot,
+      bodyPivot,
+      headPivot,
+      leftEar,
+      rightEar,
+      leftEyelid,
+      rightEyelid,
+      eyeIrisMat,
+      frontLeftLeg,
+      frontRightLeg,
+      hindGroup,
+      tailBase,
+      tailMid,
+      tailTip,
+      collarBell,
+      heartParticles,
+      sleepParticles,
+      heartTexture,
+      zzzTexture,
+      nameplateTexture,
+      state: 'sitting',
+      stateTimer: 0,
+      stateDuration: 10.5,
+      blinkTimer: 2.2,
+      blinkDuration: 0,
+      greetCooldown: 0,
+      petTimer: 0,
+      sleepParticleTimer: 0,
+    };
+
+    return perchGroup;
+  }
+
+  private spawnChampyHearts(count = 3) {
+    if (!this.champyRig) return;
+    let spawned = 0;
+    for (let i = 0; i < this.champyRig.heartParticles.length && spawned < count; i++) {
+      const p = this.champyRig.heartParticles[i];
+      p.active = true;
+      p.age = -spawned * 0.16;
+      p.duration = 1.2 + Math.random() * 0.35;
+      p.startX = (Math.random() - 0.5) * 0.14;
+      p.startZ = 0.04 + (Math.random() - 0.5) * 0.08;
+      p.driftX = (Math.random() - 0.5) * 0.12;
+      p.sprite.visible = true;
+      spawned++;
+    }
+  }
+
+  private triggerChampyGreeting() {
+    if (!this.champyRig) return;
+    const rig = this.champyRig;
+    if (rig.greetCooldown > 0 || rig.state === 'petted') return;
+    rig.greetCooldown = 18.0;
+    rig.state = 'greeting';
+    rig.stateTimer = 0;
+    rig.stateDuration = 2.8;
+    this.callbacks.onChampyGreet?.();
+  }
+
+  private updateChampy(dt: number) {
+    const rig = this.champyRig;
+    if (!rig) return;
+
+    const isNight = isNightWeather(this.gameState.weather);
+    const isCozyWeather = isNight || isRainyWeather(this.gameState.weather);
+    rig.eyeIrisMat.emissiveIntensity = isNight ? 0.55 : 0.26;
+
+    rig.greetCooldown = Math.max(0, rig.greetCooldown - dt);
+    rig.stateTimer += dt;
+
+    // Autonomous behavior transitions every 8-16s
+    if (rig.stateTimer >= rig.stateDuration) {
+      rig.stateTimer = 0;
+      if (rig.state === 'petted' || rig.state === 'greeting') {
+        rig.state = Math.random() < 0.35 ? 'grooming' : 'sitting';
+        rig.stateDuration = 8.5 + Math.random() * 6.5;
+      } else if (rig.state === 'sitting') {
+        const roll = Math.random();
+        const sleepThreshold = isCozyWeather ? 0.58 : 0.32;
+        if (roll < sleepThreshold) {
+          rig.state = 'sleeping';
+          rig.stateDuration = 11 + Math.random() * 6;
+        } else {
+          rig.state = 'grooming';
+          rig.stateDuration = 6.5 + Math.random() * 3.5;
+        }
+      } else if (rig.state === 'sleeping') {
+        rig.state = 'sitting';
+        rig.stateDuration = 9 + Math.random() * 6;
+      } else {
+        rig.state = 'sitting';
+        rig.stateDuration = 8.5 + Math.random() * 6;
+      }
+    }
+
+    // Periodic natural blink timer
+    rig.blinkTimer -= dt;
+    if (rig.blinkTimer <= 0) {
+      rig.blinkDuration = 0.14;
+      rig.blinkTimer = 3.2 + Math.random() * 2.4;
+    }
+    if (rig.blinkDuration > 0) {
+      rig.blinkDuration = Math.max(0, rig.blinkDuration - dt);
+    }
+
+    const t = this.elapsed;
+    const damp = 1 - Math.exp(-8.5 * dt);
+    let targetBodyY = 0;
+    let targetBodyPitch = 0;
+    let targetHeadX = 0;
+    let targetHeadY = 0;
+    let targetHeadZ = 0;
+    let targetLid = rig.blinkDuration > 0 ? 0.05 : -0.95;
+    let targetRightLegX = 0;
+    let targetLeftLegX = 0;
+    let tailLift = 0.0;
+    let tailWaveAmp = 0.24;
+    let tailFreq = 1.65;
+
+    if (rig.state === 'sleeping') {
+      targetBodyY = -0.052;
+      targetBodyPitch = 0.28;
+      targetHeadX = 0.42;
+      targetHeadY = 0.48;
+      targetHeadZ = 0.22;
+      targetLid = 0.12; // Eyes peacefully closed
+      targetLeftLegX = -0.65;
+      targetRightLegX = -0.65;
+      tailLift = -0.55;
+      tailWaveAmp = 0.05;
+      tailFreq = 0.55;
+      // Gentle slow chest breathing (0.45 Hz)
+      rig.bodyPivot.scale.set(
+        1.0 + Math.sin(t * 2.8) * 0.025,
+        0.92 + Math.sin(t * 2.8) * 0.028,
+        1.02
+      );
+      rig.sleepParticleTimer -= dt;
+      if (rig.sleepParticleTimer <= 0 && this.gameState.activeStation !== 5) {
+        rig.sleepParticleTimer = 1.65;
+        const slot = rig.sleepParticles.find((p) => !p.active);
+        if (slot) {
+          slot.active = true;
+          slot.age = 0;
+          slot.duration = 1.9;
+          slot.startX = 0.05;
+          slot.startZ = 0.06;
+          slot.driftX = 0.07;
+          slot.sprite.visible = true;
+        }
+      }
+    } else if (rig.state === 'grooming') {
+      rig.bodyPivot.scale.set(1, 1 + Math.sin(t * 3.0) * 0.012, 1);
+      const lickPhase = Math.sin(t * 9.5);
+      targetHeadX = 0.34 + lickPhase * 0.09;
+      targetHeadY = -0.22;
+      targetHeadZ = -0.14 + lickPhase * 0.06;
+      targetLid = -0.35; // Relaxed half-lidded eyes
+      targetRightLegX = -1.25 + lickPhase * 0.16;
+      tailWaveAmp = 0.14;
+      tailFreq = 1.2;
+    } else if (rig.state === 'greeting') {
+      rig.bodyPivot.scale.set(1, 1.02 + Math.sin(t * 5.0) * 0.015, 1);
+      targetBodyPitch = -0.08;
+      targetHeadX = -0.12;
+      targetHeadY = -0.45; // Curious glance toward Slot 0 / entrance door
+      targetLid = rig.blinkDuration > 0 ? 0.05 : -1.05;
+      tailLift = 0.38; // Tall happy tail
+      tailWaveAmp = 0.32;
+      tailFreq = 2.8;
+    } else if (rig.state === 'petted') {
+      const knead = Math.sin(t * 8.2);
+      rig.bodyPivot.scale.set(1.02, 1.04 + Math.sin(t * 6.5) * 0.022, 1.0);
+      targetBodyY = 0.012;
+      targetBodyPitch = -0.11;
+      targetHeadX = -0.16 + Math.sin(t * 4.5) * 0.06;
+      targetHeadY = Math.sin(t * 2.5) * 0.18;
+      targetHeadZ = Math.sin(t * 3.2) * 0.12;
+      targetLid = 0.02; // Happy curved squint
+      targetLeftLegX = -0.22 + Math.max(0, knead) * 0.22;
+      targetRightLegX = -0.22 + Math.max(0, -knead) * 0.22;
+      tailLift = 0.42;
+      tailWaveAmp = 0.38;
+      tailFreq = 3.4;
+      // Swinging gold collar bell jingle
+      rig.collarBell.rotation.z = Math.sin(t * 14.0) * 0.28;
+    } else {
+      // Regal sitting pose with subtle breathing, ear twitches & curious look-around
+      rig.bodyPivot.scale.set(1, 1 + Math.sin(t * 2.2) * 0.014, 1);
+      targetHeadY = Math.sin(t * 0.52) * 0.28;
+      targetHeadX = Math.sin(t * 0.37) * 0.06;
+    }
+
+    rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * damp;
+    rig.bodyPivot.rotation.x += (targetBodyPitch - rig.bodyPivot.rotation.x) * damp;
+    rig.headPivot.rotation.x += (targetHeadX - rig.headPivot.rotation.x) * damp;
+    rig.headPivot.rotation.y += (targetHeadY - rig.headPivot.rotation.y) * damp;
+    rig.headPivot.rotation.z += (targetHeadZ - rig.headPivot.rotation.z) * damp;
+    rig.leftEyelid.rotation.x += (targetLid - rig.leftEyelid.rotation.x) * damp;
+    rig.rightEyelid.rotation.x += (targetLid - rig.rightEyelid.rotation.x) * damp;
+    rig.frontLeftLeg.rotation.x += (targetLeftLegX - rig.frontLeftLeg.rotation.x) * damp;
+    rig.frontRightLeg.rotation.x += (targetRightLegX - rig.frontRightLeg.rotation.x) * damp;
+
+    // Subtle ear twitches & perk when greeting
+    const twitch = Math.sin(t * 7.5) > 0.96 ? 0.18 : 0;
+    const perk = rig.state === 'greeting' ? 0.16 : 0;
+    rig.leftEar.rotation.x = perk + twitch;
+    rig.rightEar.rotation.x = perk;
+
+    // Lazy S-curve across 3 tail segments
+    rig.tailBase.rotation.x += (tailLift - rig.tailBase.rotation.x) * damp;
+    rig.tailBase.rotation.z = Math.sin(t * tailFreq) * tailWaveAmp;
+    rig.tailMid.rotation.z = Math.sin(t * tailFreq - 0.85) * (tailWaveAmp * 1.15);
+    rig.tailTip.rotation.z = Math.sin(t * tailFreq - 1.7) * (tailWaveAmp * 1.25);
+
+    if (rig.state !== 'petted') {
+      rig.collarBell.rotation.z *= Math.max(0, 1 - dt * 6);
+    }
+
+    // Skip sprite updates when zoomed into Station 5 Vinyl (off-screen optimization)
+    if (this.gameState.activeStation === 5) return;
+
+    for (let i = 0; i < rig.heartParticles.length; i++) {
+      const p = rig.heartParticles[i];
+      if (!p.active) continue;
+      p.age += dt;
+      if (p.age < 0) {
+        p.sprite.visible = false;
+        continue;
+      }
+      if (p.age >= p.duration) {
+        p.active = false;
+        p.sprite.visible = false;
+        continue;
+      }
+      const u = p.age / p.duration;
+      p.sprite.visible = true;
+      p.sprite.position.set(p.startX + p.driftX * u, 0.34 + u * 0.28, p.startZ);
+      const mat = p.sprite.material as THREE.SpriteMaterial;
+      mat.opacity = u < 0.2 ? u / 0.2 : Math.max(0, 1 - (u - 0.2) / 0.8);
+    }
+
+    for (let i = 0; i < rig.sleepParticles.length; i++) {
+      const p = rig.sleepParticles[i];
+      if (!p.active) continue;
+      p.age += dt;
+      if (p.age >= p.duration) {
+        p.active = false;
+        p.sprite.visible = false;
+        continue;
+      }
+      const u = p.age / p.duration;
+      p.sprite.position.set(
+        p.startX + Math.sin(u * Math.PI * 2) * 0.03 + p.driftX * u,
+        0.24 + u * 0.26,
+        p.startZ
+      );
+      const mat = p.sprite.material as THREE.SpriteMaterial;
+      mat.opacity = Math.sin(u * Math.PI) * 0.85;
+    }
   }
 
   // Station 2 (x: -1.06 to 0.35): Knock Box (-1.04, 0.34), Burr Grinder (-0.80, 0.22), Tamping Mat (-0.50, 0.36), Dual-Boiler Espresso Machine (-0.05, 0.18), Rinse Sink (0.32, 0.28)
@@ -6256,7 +7061,17 @@ export class KlasikCafeScene3D {
     ctx.strokeStyle = '#fbbf24';
     ctx.fillStyle = '#fbbf24';
     ctx.lineWidth = 2.2;
-    if (text.includes('PHOTO')) {
+    if (text.includes('LEFT') || text.includes('EXPIRED')) {
+      // Frustrated crimson X icon for expired walkout
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      ctx.moveTo(20, 22);
+      ctx.lineTo(36, 38);
+      ctx.moveTo(36, 22);
+      ctx.lineTo(20, 38);
+      ctx.stroke();
+    } else if (text.includes('PHOTO')) {
       // Vector Camera Icon
       ctx.strokeRect(18, 23, 20, 15);
       ctx.beginPath();
@@ -7063,6 +7878,10 @@ export class KlasikCafeScene3D {
       appliedSkinPack: skinPackId,
       appliedShirtColor: shirtColor,
       moveState: 'walking' as const,
+      stuckTimer: 0,
+      stuckAnchorPos: new THREE.Vector3(),
+      ghostPassTimer: 0,
+      counterArrivedSignaled: false,
     };
   }
 
@@ -7124,13 +7943,15 @@ export class KlasikCafeScene3D {
         this.customersRoot.remove(actor.group);
         actor.activityTexture.dispose();
         this.customerActors.delete(id);
-        if (this.doorOccupantId === id) {
-          this.doorOccupantId = null;
-          this.doorOccupantTimer = 0;
+        this.doorwayQueue = this.doorwayQueue.filter((qId) => qId !== id);
+        if (this.activeDoorCrossId === id) {
+          this.activeDoorCrossId = null;
+          this.activeDoorCrossTimer = 0;
         }
       }
     }
 
+    let initialQueuePlacementIdx = 0;
     this.gameState.customers.forEach((cust, idx) => {
       let actor = this.customerActors.get(cust.id);
 
@@ -7149,6 +7970,7 @@ export class KlasikCafeScene3D {
         const preservedSeatedBlend = actor.seatedBlend;
         const preservedFacing = actor.facingAngle;
         const preservedMoveState = actor.moveState;
+        const preservedArrived = actor.counterArrivedSignaled;
         this.customersRoot.remove(actor.group);
         actor.activityTexture.dispose();
 
@@ -7172,6 +7994,10 @@ export class KlasikCafeScene3D {
           seatedBlend: preservedSeatedBlend,
           facingAngle: preservedFacing,
           moveState: preservedMoveState,
+          stuckTimer: 0,
+          stuckAnchorPos: preservedPos.clone(),
+          ghostPassTimer: 0,
+          counterArrivedSignaled: preservedArrived,
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -7185,9 +8011,12 @@ export class KlasikCafeScene3D {
           cust.shirtColor,
           activePackId
         );
-        // Spawn arriving customers on the outdoor sidewalk staggered slightly so they don't pile on spawn
-        const spawnX = idx % 2 === 0 ? -3.4 - idx * 0.9 : 1.85 + idx * 0.85;
-        const startPos = new THREE.Vector3(spawnX, 0, -7.85);
+        // Opening shift patrons already waiting inside start calmly in the Ingress Queue Lane (x = -0.95, 1.00m spacing);
+        // Newly spawned customers arrive staggered outside on the sidewalk and queue single-file at the door!
+        const startPos =
+          cust.state === 'ordering' && cust.timerStarted
+            ? new THREE.Vector3(-0.95, 0, -1.45 - initialQueuePlacementIdx++ * 1.0)
+            : new THREE.Vector3(-3.1 - (idx % 3) * 0.75, 0, -7.85);
         built.group.position.copy(startPos);
         this.customersRoot.add(built.group);
         actor = {
@@ -7200,7 +8029,11 @@ export class KlasikCafeScene3D {
           walkBlend: 0,
           seatedBlend: 0,
           facingAngle: 0,
-          moveState: 'walking',
+          moveState: cust.state === 'ordering' && cust.timerStarted ? 'idle-queue' : 'walking',
+          stuckTimer: 0,
+          stuckAnchorPos: startPos.clone(),
+          ghostPassTimer: 0,
+          counterArrivedSignaled: Boolean(cust.timerStarted),
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -7860,6 +8693,8 @@ export class KlasikCafeScene3D {
 
     dom.addEventListener('pointerdown', (e: PointerEvent) => {
       this.isPointerDragging = true;
+      this.pointerDownX = e.clientX;
+      this.pointerDownY = e.clientY;
       const isPortraitRotated = window.innerHeight > window.innerWidth;
       this.dragStartCoord = isPortraitRotated ? e.clientY : e.clientX;
       updateNdc(e.clientX, e.clientY);
@@ -7918,6 +8753,10 @@ export class KlasikCafeScene3D {
       }
 
       if (this.gameState.phase !== 'playing') return;
+      // Confirm pointer travel < 12px so camera drags never trigger accidental clicks/pets
+      const travelDist = Math.hypot(e.clientX - this.pointerDownX, e.clientY - this.pointerDownY);
+      if (travelDist >= 12) return;
+
       updateNdc(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
       const hits = this.raycaster.intersectObjects(this.interactables, true);
@@ -8580,6 +9419,7 @@ export class KlasikCafeScene3D {
       this.doorChimeCooldown = Math.max(0, this.doorChimeCooldown - dt);
       if (shouldOpen && !this.doorWasOpen && this.doorChimeCooldown <= 0) {
         this.callbacks.onDoorOpen?.();
+        this.triggerChampyGreeting();
         this.doorChimeCooldown = 1.8;
       }
       this.doorWasOpen = shouldOpen;
@@ -8590,6 +9430,27 @@ export class KlasikCafeScene3D {
           Math.sin(this.elapsed * 18.0) * Math.min(0.32, swingVel * 0.34);
       }
     }
+
+    // 3a-ii. Phase 2: Pulse Additive Hanging Order Ticket Glow Halos (Amber Active, Emerald Pinned, Crimson Urgent < 5s)
+    for (let ti = 0; ti < this.ticketGlowMats.length; ti++) {
+      const mat = this.ticketGlowMats[ti];
+      const slot = this.ticketOrderSlots[ti];
+      if (!slot) {
+        mat.opacity = 0.0;
+      } else if (slot.isUrgent) {
+        mat.color.setHex(0xf43f5e);
+        mat.opacity = 0.45 + (0.5 + 0.5 * Math.sin(this.elapsed * 9.0)) * 0.5;
+      } else if (slot.isPinned) {
+        mat.color.setHex(0x34d399);
+        mat.opacity = 0.72;
+      } else {
+        mat.color.setHex(0xfbbf24);
+        mat.opacity = 0.38 + (0.5 + 0.5 * Math.sin(this.elapsed * 3.2 + ti * 1.1)) * 0.4;
+      }
+    }
+
+    // 3a-iii. Phase 5: Update Champy the Cafe Cat Autonomous Animation State Machine
+    this.updateChampy(dt);
 
     // 3b. 1990 Mazda Miata MX-5 Pop-Up Headlight Wink & Illumination
     if (this.miataLeftPopupGroup && this.miataRightPopupGroup) {
@@ -8702,11 +9563,17 @@ export class KlasikCafeScene3D {
     for (const [key, group] of this.toolGroups.entries()) {
       const isRecommended = this.gameState.phase === 'playing' && key === recommendedToolKey;
       const isHovered = key === this.hoveredToolKey;
-      const targetScale = isHovered ? 1.03 : 1.0;
+      const targetScale = isHovered ? (key === 'pet-champy' ? 1.035 : 1.03) : 1.0;
       group.scale.lerp(_tempVec.setScalar(targetScale), dampFactor);
+
+      // Keep Champy's sleek obsidian black fur & glowing green eyes pristine on hover
+      if (key === 'pet-champy') {
+        continue;
+      }
 
       group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
+          if (child === this.posDisplayMesh) return;
           const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
           if (
             mat &&
@@ -8886,21 +9753,44 @@ export class KlasikCafeScene3D {
       return current + step;
     };
 
-    // Release doorway reservation lock when occupant leaves corridor or exceeds 3.2s safety timeout
+    // Phase 1 Strict FIFO Doorway Airlock Queue (x ∈ [-1.95, -0.35], z ∈ [-7.45, -4.95]; 3.5s anti-deadlock failsafe)
     const DOOR_X = -1.15;
     const DOOR_Z = -6.2;
-    if (this.doorOccupantId) {
-      this.doorOccupantTimer += dt;
-      const holder = this.customerActors.get(this.doorOccupantId);
-      const holderStillInCorridor =
+    const EGRESS_LANE_X = 0.28;
+    const INGRESS_LANE_X = -0.95;
+
+    const isInsideAirlock = (pos: THREE.Vector3) =>
+      pos.x >= -1.95 && pos.x <= -0.35 && pos.z >= -7.45 && pos.z <= -4.95;
+
+    if (this.activeDoorCrossId) {
+      this.activeDoorCrossTimer += dt;
+      const holder = this.customerActors.get(this.activeDoorCrossId);
+      const holderInAirlock = holder ? isInsideAirlock(holder.currentPos) : false;
+      const holderStillCrossing =
         holder &&
-        Math.abs(holder.currentPos.x - DOOR_X) < 1.1 &&
-        holder.currentPos.z > -7.35 &&
-        holder.currentPos.z < -5.05;
-      if (!holderStillInCorridor || this.doorOccupantTimer > 3.2) {
-        this.doorOccupantId = null;
-        this.doorOccupantTimer = 0;
+        (holderInAirlock ||
+          (holder.waypoints.length > 0 &&
+            Math.hypot(holder.currentPos.x - DOOR_X, holder.currentPos.z - DOOR_Z) < 1.8));
+      if (!holderStillCrossing || this.activeDoorCrossTimer > 3.5) {
+        this.doorwayQueue = this.doorwayQueue.filter((id) => id !== this.activeDoorCrossId);
+        this.activeDoorCrossId = null;
+        this.activeDoorCrossTimer = 0;
       }
+    }
+
+    if (!this.activeDoorCrossId && this.doorwayQueue.length > 0) {
+      // Priority Rule: Exiting patrons (takeout / expired walkouts / finished dine-in) cross before arriving patrons!
+      let chosenIdx = 0;
+      for (let qi = 0; qi < this.doorwayQueue.length; qi++) {
+        const qCust = this.gameState.customers.find((c) => c.id === this.doorwayQueue[qi]);
+        if (qCust && qCust.state === 'departing') {
+          chosenIdx = qi;
+          break;
+        }
+      }
+      this.activeDoorCrossId = this.doorwayQueue[chosenIdx];
+      this.doorwayQueue.splice(chosenIdx, 1);
+      this.activeDoorCrossTimer = 0;
     }
 
     const buildAisleWaypoints = (
@@ -8909,8 +9799,8 @@ export class KlasikCafeScene3D {
       kind: 'pickup' | 'queue' | 'seat' | 'car_selfie' | 'exit'
     ): THREE.Vector3[] => {
       const doorX = DOOR_X;
-      const corridorZ = -1.78; // Open clear walkway between bar counter & front lounge tables
-      const centerAisleZ = -3.65; // Open aisle between front & back lounge table rows
+      const corridorZ = -1.78;
+      const centerAisleZ = -3.65;
       const pts: THREE.Vector3[] = [];
 
       if (kind === 'pickup') {
@@ -8919,18 +9809,14 @@ export class KlasikCafeScene3D {
       }
 
       if (kind === 'queue') {
-        // Outdoor sidewalk -> swing through glass entrance door -> corridor -> staggered register queue
+        // Outdoor sidewalk -> Exterior Hold (-1.65, -7.75) -> glass door -> Interior -> Ingress Queue Lane (x = -0.95)
         if (from.z < -6.1) {
-          pts.push(new THREE.Vector3(doorX, 0, -7.25));
-          pts.push(new THREE.Vector3(doorX, 0, -5.15));
-          pts.push(new THREE.Vector3(doorX, 0, corridorZ));
-        } else {
-          if (from.z < -2.6 && from.x > -0.8) {
-            pts.push(new THREE.Vector3(Math.max(1.35, from.x), 0, corridorZ));
-          }
-          if (Math.abs(from.x - goal.x) > 0.65 || from.z < -2.4) {
-            pts.push(new THREE.Vector3(doorX, 0, corridorZ));
-          }
+          pts.push(new THREE.Vector3(-1.65, 0, -7.75));
+          pts.push(new THREE.Vector3(doorX, 0, -7.35));
+          pts.push(new THREE.Vector3(doorX, 0, -4.95));
+          pts.push(new THREE.Vector3(INGRESS_LANE_X, 0, -4.45));
+        } else if (Math.abs(from.x - INGRESS_LANE_X) > 0.35) {
+          pts.push(new THREE.Vector3(INGRESS_LANE_X, 0, Math.min(from.z, goal.z)));
         }
         pts.push(goal.clone());
         return pts;
@@ -8938,11 +9824,12 @@ export class KlasikCafeScene3D {
 
       if (kind === 'car_selfie') {
         if (from.z < -6.1) {
-          pts.push(new THREE.Vector3(doorX, 0, -7.25));
-          pts.push(new THREE.Vector3(doorX, 0, -5.15));
-        }
-        if (from.z > -1.4) {
-          pts.push(new THREE.Vector3(doorX, 0, corridorZ));
+          pts.push(new THREE.Vector3(doorX, 0, -7.35));
+          pts.push(new THREE.Vector3(doorX, 0, -4.95));
+        } else if (from.x < -0.25 && from.z > -3.8) {
+          // Mandatory post-serve right sidestep out of Ingress Queue Lane first!
+          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
+          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, -3.25));
         }
         pts.push(goal.clone());
         return pts;
@@ -8950,34 +9837,37 @@ export class KlasikCafeScene3D {
 
       if (kind === 'seat') {
         if (from.z < -6.1) {
-          pts.push(new THREE.Vector3(doorX, 0, -7.25));
-          pts.push(new THREE.Vector3(doorX, 0, -5.15));
+          pts.push(new THREE.Vector3(doorX, 0, -7.35));
+          pts.push(new THREE.Vector3(doorX, 0, -4.95));
         }
-        if (from.z > -1.4 || from.x < -0.8) {
-          pts.push(new THREE.Vector3(-1.1, 0, corridorZ));
+        // Mandatory Waypoint 1: Immediate right-hand sidestep into Egress Lane (x = +0.28) to clear the queue column!
+        if (from.x < EGRESS_LANE_X - 0.15) {
+          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
         }
         if (goal.z < -3.8) {
-          // Back row tables (2 & 3): route cleanly through central aisle x = 1.45
+          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, corridorZ));
           pts.push(new THREE.Vector3(1.45, 0, corridorZ));
           pts.push(new THREE.Vector3(1.45, 0, centerAisleZ));
           pts.push(new THREE.Vector3(goal.x, 0, centerAisleZ));
         } else {
-          // Front row tables (0 & 1)
+          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, corridorZ));
           pts.push(new THREE.Vector3(goal.x, 0, corridorZ));
         }
         pts.push(goal.clone());
         return pts;
       }
 
-      // Exit cleanly through the swinging glass entrance door onto the outdoor sidewalk (including Takeout walk-out!)
-      if (from.z > -3.5) {
-        pts.push(new THREE.Vector3(from.x, 0, corridorZ));
-        pts.push(new THREE.Vector3(doorX, 0, corridorZ));
-      } else {
-        pts.push(new THREE.Vector3(doorX, 0, centerAisleZ));
+      // Exit (Takeout / Expired Walkout / Finished Dine-In):
+      // Mandatory right-hand sidestep into Egress Lane (x = +0.28) -> Interior Hold (-0.45, -4.75) -> Glass Door -> Sidewalk!
+      if (from.z > -4.6) {
+        if (from.x < EGRESS_LANE_X - 0.15) {
+          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
+        }
+        pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, -4.65));
       }
-      pts.push(new THREE.Vector3(doorX, 0, -5.15));
-      pts.push(new THREE.Vector3(doorX, 0, -7.35));
+      pts.push(new THREE.Vector3(-0.45, 0, -4.75));
+      pts.push(new THREE.Vector3(doorX, 0, -5.05));
+      pts.push(new THREE.Vector3(doorX, 0, -7.45));
       pts.push(goal.clone());
       return pts;
     };
@@ -8999,20 +9889,19 @@ export class KlasikCafeScene3D {
       if (isPickingUpDrink) {
         goalKind = 'pickup';
         goalKey = 'pickup';
-        _targetPos.set(-1.32, 0, -0.72);
+        _targetPos.set(-1.18, 0, -0.82);
         targetFacing = 0;
         actor.heldCup.visible = (this.stepAnim?.progress || 0) >= 0.55;
       } else if (cust.state === 'ordering') {
         goalKind = 'queue';
         goalKey = `queue-${orderQueueIdx}`;
-        // Generously staggered 0.88m queue slots (exceeds 0.62m separation radius so idle patrons NEVER push each other!)
-        _targetPos.set(-1.46 + orderQueueIdx * 0.24, 0, -0.82 - orderQueueIdx * 0.88);
+        // Dedicated One-Way Ingress Queue Lane along x = -0.95 with generous 1.00m spacing!
+        _targetPos.set(INGRESS_LANE_X, 0, -1.45 - orderQueueIdx * 1.0);
         targetFacing = 0;
         orderQueueIdx++;
       } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
         goalKind = 'car_selfie';
         goalKey = 'car_selfie';
-        // Stand respectfully beside the Miata showroom plinth (outside plinth footprint)
         _targetPos.set(-1.75, 0, -3.25);
         targetFacing = -1.15;
         actor.heldCup.visible = true;
@@ -9025,13 +9914,22 @@ export class KlasikCafeScene3D {
         targetFacing = seat.facingRotY;
         actor.heldCup.visible = true;
       } else {
-        // Departing (Takeout walk-out straight from counter or finished Dine-In exit onto sidewalk)
+        // Departing (Takeout walk-out, Expired walk-out, or finished Dine-In exit)
         goalKind = 'exit';
         const exitDir = actor.seed % 2 === 0 ? -1 : 1;
         goalKey = `exit-${exitDir}`;
         _targetPos.set(exitDir * 9.2, 0, -8.15);
         targetFacing = exitDir === 1 ? Math.PI / 2 : -Math.PI / 2;
-        actor.heldCup.visible = true;
+        actor.heldCup.visible = !cust.expired;
+      }
+
+      // Show frustrated red X overhead icon if customer walked out due to expired timer!
+      if (cust.expired && cust.state === 'departing') {
+        actor.activitySprite.visible = true;
+        if (actor.lastActivityLabel !== 'LEFT X') {
+          actor.lastActivityLabel = 'LEFT X';
+          this.drawCustomerActivityBadge(actor.activityTexture, 'LEFT X');
+        }
       }
 
       // Recompute smooth aisle waypoints whenever destination key changes
@@ -9046,13 +9944,25 @@ export class KlasikCafeScene3D {
       actor.lastPos.copy(actor.currentPos);
       let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
 
-      // Phase 1 Hysteresis: Once settled at a queue slot (< 0.07m), stay completely calm until slot moves > 0.22m!
+      // Signal fair order-timer start the moment an arriving patron settles into their counter queue slot!
+      if (
+        goalKind === 'queue' &&
+        !actor.counterArrivedSignaled &&
+        remainingDistToFinal < 0.35 &&
+        actor.currentPos.z > -4.65
+      ) {
+        actor.counterArrivedSignaled = true;
+        this.callbacks.onCustomerReachedCounter?.(cust.id);
+        this.triggerChampyGreeting();
+      }
+
+      // Phase 1 Hysteresis: Once settled at a queue slot (< 0.08m), stay completely calm until slot moves > 0.22m!
       if (goalKind === 'queue' && !isPickingUpDrink) {
         if (actor.moveState === 'idle-queue') {
           if (remainingDistToFinal > 0.22) {
             actor.moveState = 'walking';
           }
-        } else if (remainingDistToFinal < 0.07 && actor.waypoints.length <= 1) {
+        } else if (remainingDistToFinal < 0.08 && actor.waypoints.length <= 1) {
           actor.currentPos.copy(_targetPos);
           actor.waypoints = [];
           actor.moveState = 'idle-queue';
@@ -9062,28 +9972,33 @@ export class KlasikCafeScene3D {
         actor.moveState = 'walking';
       }
 
-      // Phase 1 Single-Lane Doorway Reservation Lock (prevents opposing patrons deadlocking & shaking at glass door!)
+      // Phase 1 Strict FIFO Doorway Airlock Check
       let isYieldingAtDoor = false;
       if (actor.moveState !== 'idle-queue' && actor.waypoints.length > 0 && !isPickingUpDrink) {
         const nextWp = actor.waypoints[0];
-        const distToDoor = Math.hypot(actor.currentPos.x - DOOR_X, actor.currentPos.z - DOOR_Z);
-        const crossingIn = actor.currentPos.z < -6.2 && nextWp.z > -6.3;
-        const crossingOut = actor.currentPos.z > -6.2 && nextWp.z < -6.1;
-        const approachingDoor =
-          distToDoor < 1.55 &&
-          (crossingIn || crossingOut || (Math.abs(nextWp.x - DOOR_X) < 0.5 && Math.abs(nextWp.z - DOOR_Z) < 1.2));
+        const wantsAirlock =
+          isInsideAirlock(actor.currentPos) ||
+          isInsideAirlock(nextWp) ||
+          (actor.currentPos.z < -6.2 && nextWp.z > -6.3) ||
+          (actor.currentPos.z > -6.2 && nextWp.z < -6.1);
 
-        if (approachingDoor) {
-          if (!this.doorOccupantId || this.doorOccupantId === cust.id) {
-            this.doorOccupantId = cust.id;
-            this.doorOccupantTimer = Math.min(this.doorOccupantTimer, 3.0);
+        if (wantsAirlock) {
+          if (this.activeDoorCrossId === cust.id) {
+            // Active holder proceeds uninterrupted!
+          } else if (!this.activeDoorCrossId) {
+            this.activeDoorCrossId = cust.id;
+            this.activeDoorCrossTimer = 0;
           } else {
-            // Another customer holds the doorway token — pause politely outside/inside the threshold!
-            const outsideWait = actor.currentPos.z <= -6.2 && actor.currentPos.z > -7.55;
-            const insideWait = actor.currentPos.z >= -6.2 && actor.currentPos.z < -4.85;
-            if (outsideWait || insideWait) {
+            // Queue cleanly in FIFO doorwayQueue and pause at Exterior Hold (-1.65, -7.75) or Interior Hold (-0.45, -4.75)
+            if (!this.doorwayQueue.includes(cust.id)) {
+              this.doorwayQueue.push(cust.id);
+            }
+            const atExteriorHold = actor.currentPos.z <= -7.1 && actor.currentPos.z > -8.35;
+            const atInteriorHold = actor.currentPos.z >= -5.25 && actor.currentPos.z < -4.2;
+            if (atExteriorHold || atInteriorHold) {
               isYieldingAtDoor = true;
               actor.moveState = 'yielding-door';
+              targetFacing = actor.currentPos.z <= -6.2 ? 0 : Math.PI;
             }
           }
         }
@@ -9094,7 +10009,7 @@ export class KlasikCafeScene3D {
       }
 
       // Advance along active waypoint queue at natural bipedal walking speed
-      const walkSpeed = isPickingUpDrink ? 2.15 : 1.62;
+      const walkSpeed = isPickingUpDrink ? 2.15 : cust.expired ? 1.85 : 1.65;
       let moveDx = 0;
       let moveDz = 0;
 
@@ -9120,16 +10035,34 @@ export class KlasikCafeScene3D {
         remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
       }
 
-      // Zero-allocation 2D obstacle & neighbor separation ONLY for actively walking patrons OUTSIDE doorway & queue!
-      const inDoorCorridor =
-        Math.abs(actor.currentPos.x - DOOR_X) < 1.15 &&
-        actor.currentPos.z > -7.55 &&
-        actor.currentPos.z < -4.85;
+      // Phase 1 Stuck-Detector Watchdog: if walking actor moves < 0.10m over 1.0s, activate ghostPassTimer = 1.1s!
+      if (actor.ghostPassTimer > 0) {
+        actor.ghostPassTimer = Math.max(0, actor.ghostPassTimer - dt);
+      }
+      if (actor.moveState === 'walking' && remainingDistToFinal > 0.25) {
+        actor.stuckTimer += dt;
+        if (actor.stuckTimer >= 1.0) {
+          const netMoved = actor.currentPos.distanceTo(actor.stuckAnchorPos);
+          if (netMoved < 0.1) {
+            actor.ghostPassTimer = 1.1;
+          }
+          actor.stuckAnchorPos.copy(actor.currentPos);
+          actor.stuckTimer = 0;
+        }
+      } else {
+        actor.stuckTimer = 0;
+        actor.stuckAnchorPos.copy(actor.currentPos);
+      }
+
+      // Collision-Layer Filtered Avoidance:
+      // Departing/seated patrons NEVER bounce against 'idle-queue' patrons; ghostPassTimer bypasses inter-actor repulsion!
+      const inDoorCorridor = isInsideAirlock(actor.currentPos);
       const shouldApplyAvoidance =
         actor.moveState === 'walking' &&
         remainingDistToFinal > 0.25 &&
         !isPickingUpDrink &&
-        !inDoorCorridor;
+        !inDoorCorridor &&
+        actor.ghostPassTimer <= 0;
 
       if (shouldApplyAvoidance) {
         const actorRadius = 0.28;
@@ -9146,17 +10079,19 @@ export class KlasikCafeScene3D {
             actor.currentPos.z += (dz / dist) * push;
           }
         }
+        const isDepartingOrSeated = cust.state !== 'ordering';
         for (const [otherId, otherActor] of this.customerActors.entries()) {
           if (otherId === cust.id) continue;
-          // Do not bounce against yielding doorway actors
           if (otherActor.moveState === 'yielding-door') continue;
+          // Never push departing/served patrons back into the ordering queue column!
+          if (isDepartingOrSeated && otherActor.moveState === 'idle-queue') continue;
           const dx = actor.currentPos.x - otherActor.currentPos.x;
           const dz = actor.currentPos.z - otherActor.currentPos.z;
-          const minSep = 0.58;
+          const minSep = 0.56;
           const distSq = dx * dx + dz * dz;
           if (distSq < minSep * minSep && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
-            const push = (minSep - dist) * 0.28;
+            const push = (minSep - dist) * 0.25;
             actor.currentPos.x += (dx / dist) * push;
             actor.currentPos.z += (dz / dist) * push;
           }
@@ -9466,6 +10401,12 @@ export class KlasikCafeScene3D {
     this.roadAsphaltTexture?.dispose();
     this.windowRainTexture?.dispose();
     this.ticketTextures.forEach((t) => t.dispose());
+    this.ticketGlowMats.forEach((m) => m.dispose());
+    if (this.champyRig) {
+      this.champyRig.heartTexture.dispose();
+      this.champyRig.zzzTexture.dispose();
+      this.champyRig.nameplateTexture.dispose();
+    }
     this.pedestrianPool.forEach((p) => p.actor.activityTexture.dispose());
     this.streetLampConeMat?.dispose();
     this.streetLampPoolMat?.dispose();

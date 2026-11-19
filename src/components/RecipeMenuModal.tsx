@@ -227,7 +227,7 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-display font-bold text-[#FAF5EE] tracking-tight truncate">
-                  KLASIK BARISTA CODEX
+                  KLASIK RECIPE BOOK
                 </h2>
                 <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/40 text-[10px] font-mono font-bold text-amber-300 uppercase tracking-wider">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />

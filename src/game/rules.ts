@@ -174,6 +174,32 @@ export const MAX_QUEUE = 3;
 export const MAX_GARDEN_SEATS = 6;
 export const DAILY_QUOTA_COMPLETION_BONUS = 50;
 export const GOLDEN_MACHINE_GROSS_THRESHOLD = 150000;
+export const MIN_ARRIVAL_GAP_SEC = 3.2;
+
+export function rollOrderTimeLimitSec(rng: () => number = Math.random): number {
+  return Math.floor(rng() * 11) + 10; // Inclusive 10..20 seconds
+}
+
+export function computeSpeedTipBonus(
+  remainingSec: number,
+  limitSec: number,
+  isSpecialty = false
+): {
+  tip: number;
+  tier: 'fast' | 'prompt' | 'ontime';
+  label: string | null;
+} {
+  const safeLimit = Math.max(1, limitSec);
+  const ratio = Math.max(0, Math.min(1, remainingSec / safeLimit));
+  if (ratio >= 0.5) {
+    const tip = isSpecialty ? 4 : 3;
+    return { tip, tier: 'fast', label: `Fast Service! +$${tip} Tip` };
+  }
+  if (ratio >= 0.25) {
+    return { tip: 1, tier: 'prompt', label: 'Nice Speed! +$1 Tip' };
+  }
+  return { tip: 0, tier: 'ontime', label: null };
+}
 
 export function stripKeyboardShortcutsForApk(text: string, isApk: boolean): string {
   if (!isApk || !text) return text;
@@ -476,8 +502,12 @@ export interface CustomerOrder {
   shirtColor: string;
   recipeId: string;
   orderType: OrderType;
-  patience: number; // 0..100
+  patience: number; // 0..100 (synced with orderTimeRemainingSec / orderTimeLimitSec)
   maxPatience: number;
+  orderTimeLimitSec: number; // Randomized integer in [10, 20] seconds
+  orderTimeRemainingSec: number;
+  timerStarted: boolean; // Starts ticking ONLY once customer reaches the counter!
+  expired?: boolean; // True when countdown hits 0 -> triggers walkout
   state: 'ordering' | 'seated' | 'departing';
   seatIndex: number | null; // 0..5 for the 6 cafe & garden tables (always null for takeout)
   seatedTimer: number;
@@ -621,6 +651,9 @@ export interface KlasikGameState {
   loginRewards: LoginRewardItem[];
   loginStreakDays: number;
   decor: DecorCustomization;
+  missedOrders?: number;
+  lastExpiredCustomerName?: string | null;
+  lastExpiredEventSeq?: number;
   lastActionFeedback: string;
 }
 
@@ -1059,6 +1092,9 @@ export function createInitialGameState(): KlasikGameState {
     orderType: 'dine-in',
     patience: 100,
     maxPatience: 100,
+    orderTimeLimitSec: 18,
+    orderTimeRemainingSec: 18,
+    timerStarted: true,
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
@@ -1078,6 +1114,9 @@ export function createInitialGameState(): KlasikGameState {
     orderType: 'takeout',
     patience: 100,
     maxPatience: 100,
+    orderTimeLimitSec: 16,
+    orderTimeRemainingSec: 16,
+    timerStarted: true,
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
@@ -1099,6 +1138,9 @@ export function createInitialGameState(): KlasikGameState {
     orderType: 'dine-in',
     patience: 100,
     maxPatience: 100,
+    orderTimeLimitSec: 20,
+    orderTimeRemainingSec: 20,
+    timerStarted: true,
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
@@ -1151,6 +1193,9 @@ export function createInitialGameState(): KlasikGameState {
       neonSignColor: 'amber',
       plantDensity: 'lush-jungle',
     },
+    missedOrders: 0,
+    lastExpiredCustomerName: null,
+    lastExpiredEventSeq: 0,
     lastActionFeedback:
       'Welcome to Klasik 3D! Dose & tamp beans at Station 2 or brew Tea & Cold Drinks at Station 3.',
   };
@@ -1473,11 +1518,15 @@ export function calculateDrinkPayout(
   recipe: DrinkRecipe,
   accuracy: number,
   customerPatience: number,
-  customBonusTip = 0
+  customBonusTip = 0,
+  orderTimeRemainingSec?: number,
+  orderTimeLimitSec?: number
 ): {
   totalPayout: number;
   basePrice: number;
   tip: number;
+  speedTip: number;
+  speedTipLabel: string | null;
   customTip: number;
   multiplier: number;
 } {
@@ -1488,8 +1537,20 @@ export function calculateDrinkPayout(
     upgradeBonus += upg.tipBonus || 2;
   }
 
-  const speedTip =
-    accuracy === 100 ? Math.max(1, Math.round((customerPatience / 100) * 4)) : 0;
+  let speedTip = 0;
+  let speedTipLabel: string | null = null;
+  if (accuracy === 100) {
+    if (orderTimeRemainingSec !== undefined && orderTimeLimitSec !== undefined) {
+      const isSpecialty =
+        recipe.syrup !== 'none' || Boolean(recipe.needsTeaSteep) || (recipe.needsIce && recipe.needsSteamedMilk);
+      const speedRes = computeSpeedTipBonus(orderTimeRemainingSec, orderTimeLimitSec, isSpecialty);
+      speedTip = speedRes.tip;
+      speedTipLabel = speedRes.label;
+    } else {
+      speedTip = Math.max(1, Math.round((customerPatience / 100) * 4));
+    }
+  }
+
   const earnedCustomTip = accuracy === 100 ? customBonusTip : 0;
   const tip = accuracy >= 75 ? speedTip + upgradeBonus + earnedCustomTip : 0;
 
@@ -1500,6 +1561,8 @@ export function calculateDrinkPayout(
     totalPayout: rawTotal * multiplier,
     basePrice: basePrice * multiplier,
     tip: tip * multiplier,
+    speedTip: speedTip * multiplier,
+    speedTipLabel,
     customTip: earnedCustomTip * multiplier,
     multiplier,
   };
@@ -1743,7 +1806,9 @@ export function serveCurrentCupToCustomer(
     recipe,
     evaluation.accuracy,
     targetCustomer.patience,
-    targetCustomer.customBonusTip
+    targetCustomer.customBonusTip,
+    targetCustomer.orderTimeRemainingSec,
+    targetCustomer.orderTimeLimitSec
   );
 
   // Takeout patrons leave straight through the front entrance without occupying any indoor seat!
@@ -1815,8 +1880,10 @@ export function serveCurrentCupToCustomer(
     : '';
 
   const takeoutLabel = isTakeoutOrder ? ' (Takeout)' : '';
+  const speedBadge =
+    payout.speedTipLabel && payout.speedTip > 0 ? ` · ${payout.speedTipLabel}` : '';
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
     : `Served ${recipe.name}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}.${quotaSuffix}${unlockSuffix}`;
 
   return {
@@ -1919,6 +1986,8 @@ export function spawnCustomerOrder(
       ? customPalette
       : INITIAL_CUSTOMER_SKIN_PACKS[0].paletteColors;
 
+  const orderTimeLimitSec = rollOrderTimeLimitSec();
+
   return {
     id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     customerName,
@@ -1928,6 +1997,9 @@ export function spawnCustomerOrder(
     orderType,
     patience: 100,
     maxPatience: 100,
+    orderTimeLimitSec,
+    orderTimeRemainingSec: orderTimeLimitSec,
+    timerStarted: false,
     state: 'ordering',
     seatIndex: null,
     seatedTimer: 0,
@@ -1938,6 +2010,21 @@ export function spawnCustomerOrder(
     customSyrup,
     socialBehavior,
   };
+}
+
+export function markCustomerAtCounter(
+  state: KlasikGameState,
+  customerId: string
+): KlasikGameState {
+  let changed = false;
+  const customers = state.customers.map((c) => {
+    if (c.id === customerId && c.state === 'ordering' && !c.timerStarted) {
+      changed = true;
+      return { ...c, timerStarted: true };
+    }
+    return c;
+  });
+  return changed ? { ...state, customers } : state;
 }
 
 export function purchaseUpgrade(state: KlasikGameState, upgradeId: string): KlasikGameState {
@@ -2135,36 +2222,82 @@ export function reachGoldenMachineMilestone(state: KlasikGameState): KlasikGameS
   };
 }
 
-export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number): KlasikGameState {
-  if (state.phase !== 'playing') return state;
-  const dt = Math.min(dtSeconds, 0.1);
+export interface SimulationTickOptions {
+  modalOpen?: boolean;
+  isRecipeBookOpen?: boolean;
+  activeArrivingCount?: number;
+}
 
+export function advanceSimulationTick(
+  state: KlasikGameState,
+  dtSeconds: number,
+  options: SimulationTickOptions = {}
+): KlasikGameState {
+  if (state.phase !== 'playing') return state;
+  // Pause countdowns completely while informational modals (Settings/Upgrades/Customize/Spotify/etc.) are open
+  if (options.modalOpen && !options.isRecipeBookOpen) {
+    return state;
+  }
+
+  const dt = Math.min(Math.max(0, dtSeconds), 0.3);
   const hasPidBoiler = state.upgrades.some((u) => u.id === 'dual-pid-boiler' && u.purchased);
   const hasBonsai = state.upgrades.some((u) => u.id === 'japanese-bonsai-terrarium' && u.purchased);
-  const patienceDecayRate =
-    state.mode === 'zen' ? 0 : hasPidBoiler && hasBonsai ? 0.42 : hasPidBoiler ? 0.55 : 0.85;
+  // Subtle upgrade grace on order timers while keeping authentic 10-20s pace
+  const upgradeGrace = hasPidBoiler && hasBonsai ? 0.8 : hasPidBoiler ? 0.88 : 1.0;
+  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode
+  const modalTimeScale = options.isRecipeBookOpen ? 0.35 : 1.0;
+  const orderTickRate = state.mode === 'zen' ? 0 : upgradeGrace * modalTimeScale;
 
   let bonusTableTip = 0;
   let tipMessage: string | null = null;
   let nextSatisfaction = state.satisfactionScore;
+  let nextMissedOrders = state.missedOrders ?? 0;
+  let nextExpiredSeq = state.lastExpiredEventSeq ?? 0;
+  let nextExpiredName: string | null = state.lastExpiredCustomerName ?? null;
 
   const nextCustomers: CustomerOrder[] = [];
   for (const cust of state.customers) {
     if (cust.state === 'ordering') {
-      const nextPatience = Math.max(0, cust.patience - patienceDecayRate * dt);
-      if (nextPatience <= 0 && state.mode !== 'zen') {
+      const limitSec = Math.max(10, Math.min(20, cust.orderTimeLimitSec || 15));
+      const curRemaining =
+        typeof cust.orderTimeRemainingSec === 'number'
+          ? cust.orderTimeRemainingSec
+          : (cust.patience / 100) * limitSec;
+
+      if (!cust.timerStarted || orderTickRate <= 0) {
+        nextCustomers.push({
+          ...cust,
+          orderTimeLimitSec: limitSec,
+          orderTimeRemainingSec: curRemaining,
+          patience: Math.max(0, Math.min(100, (curRemaining / limitSec) * 100)),
+        });
+        continue;
+      }
+
+      const nextRemaining = Math.max(0, curRemaining - dt * orderTickRate);
+      const nextPatience = Math.max(0, Math.min(100, (nextRemaining / limitSec) * 100));
+
+      if (nextRemaining <= 0 && state.mode !== 'zen') {
         nextSatisfaction = Math.max(0, nextSatisfaction - 8);
-        tipMessage = `${cust.customerName}: "Took way too long... I have to run!" (-8% Vibe · $0 Tip)`;
+        nextMissedOrders += 1;
+        nextExpiredSeq += 1;
+        nextExpiredName = cust.customerName;
+        tipMessage = `${cust.customerName} ran out of patience and left! ($0)`;
         nextCustomers.push({
           ...cust,
           patience: 0,
+          orderTimeLimitSec: limitSec,
+          orderTimeRemainingSec: 0,
+          expired: true,
           state: 'departing',
-          seatedTimer: 3,
+          seatedTimer: 7.5,
         });
       } else {
         nextCustomers.push({
           ...cust,
           patience: nextPatience,
+          orderTimeLimitSec: limitSec,
+          orderTimeRemainingSec: nextRemaining,
         });
       }
     } else if (cust.state === 'seated') {
@@ -2198,12 +2331,22 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
     INITIAL_CUSTOMER_SKIN_PACKS[0];
 
-  // Natural 1-by-1 Customer Arrival & Wave Breathing Cooldown Pacing
+  // Phase 1 Staggered Spawner Guard: minimum 3.2s gap AND never spawn while another arriving customer is crossing doorway
   const orderingCount = nextCustomers.filter((c) => c.state === 'ordering').length;
+  const arrivingUnstartedCount = nextCustomers.filter(
+    (c) => c.state === 'ordering' && !c.timerStarted
+  ).length;
+  const activeArrivingCount =
+    options.activeArrivingCount !== undefined ? options.activeArrivingCount : arrivingUnstartedCount;
   let waveRemaining = state.waveCustomersRemaining ?? 2;
   let spawnTimer = (state.nextCustomerSpawnTimer ?? 5) - dt;
 
-  if (orderingCount < MAX_QUEUE && waveRemaining > 0 && spawnTimer <= 0) {
+  if (
+    orderingCount < MAX_QUEUE &&
+    waveRemaining > 0 &&
+    spawnTimer <= 0 &&
+    activeArrivingCount < 1
+  ) {
     const newlyArrived = spawnCustomerOrder(
       state.day,
       nextCustomers.length + Math.floor(state.activeShiftSeconds || 0),
@@ -2211,13 +2354,17 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     );
     nextCustomers.push(newlyArrived);
     waveRemaining -= 1;
-    // 5-second stagger between individual customers in the same wave;
-    // once wave is exhausted, wait until current wave is served for 15s breathing cooldown
-    spawnTimer = waveRemaining > 0 ? 5.5 : 15;
+    // Enforce >= 3.2s staggered spawn spacing (5.0s between patrons; 12s wave breathing cooldown)
+    spawnTimer = Math.max(MIN_ARRIVAL_GAP_SEC, waveRemaining > 0 ? 5.0 : 12.0);
     if (!tipMessage) {
       tipMessage = `${newlyArrived.customerName} walked in through the Garage Garden door!`;
     }
-  } else if (orderingCount === 0 && waveRemaining <= 0 && spawnTimer <= 0) {
+  } else if (
+    orderingCount === 0 &&
+    waveRemaining <= 0 &&
+    spawnTimer <= 0 &&
+    activeArrivingCount < 1
+  ) {
     // Wave breathing cooldown completed -> start a fresh 2-3 customer wave!
     const firstOfNewWave = spawnCustomerOrder(
       state.day,
@@ -2226,9 +2373,9 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     );
     nextCustomers.push(firstOfNewWave);
     waveRemaining = 2;
-    spawnTimer = 5.5;
+    spawnTimer = Math.max(MIN_ARRIVAL_GAP_SEC, 5.0);
     if (!tipMessage) {
-      tipMessage = `New wave arriving: ${firstOfNewWave.customerName} stepped up to the counter!`;
+      tipMessage = `New wave arriving: ${firstOfNewWave.customerName} walked in!`;
     }
   }
 
@@ -2236,7 +2383,7 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
   let nextPhase: GamePhase = state.phase;
 
   if (state.mode === 'career') {
-    nextShiftTime = Math.max(0, state.shiftTimeRemaining - dt);
+    nextShiftTime = Math.max(0, state.shiftTimeRemaining - dt * modalTimeScale);
     if (nextShiftTime <= 0) {
       nextPhase = 'gameover';
     }
@@ -2260,6 +2407,9 @@ export function advanceSimulationTick(state: KlasikGameState, dtSeconds: number)
     lifetimeGrossIncome: newLifetimeGross,
     dailyRevenue: state.dailyRevenue + bonusTableTip,
     satisfactionScore: nextSatisfaction,
+    missedOrders: nextMissedOrders,
+    lastExpiredCustomerName: nextExpiredName,
+    lastExpiredEventSeq: nextExpiredSeq,
     equipmentSkins: updatedSkins,
     shiftTimeRemaining: nextShiftTime,
     activeShiftSeconds: (state.activeShiftSeconds ?? 0) + dt,

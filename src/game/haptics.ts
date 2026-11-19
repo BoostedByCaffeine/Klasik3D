@@ -11,7 +11,9 @@ export type BaristaHapticEvent =
   | 'whisk_matcha'
   | 'rinse_cup'
   | 'serve_success'
-  | 'blocked_or_error';
+  | 'blocked_or_error'
+  | 'pet_champy'
+  | 'pin_ticket';
 
 // Physically calibrated millisecond pulse waveforms for the Android Vibration API
 export const BARISTA_VIBRATION_PATTERNS: Record<BaristaHapticEvent, number | number[]> = {
@@ -26,6 +28,8 @@ export const BARISTA_VIBRATION_PATTERNS: Record<BaristaHapticEvent, number | num
   rinse_cup: [48, 28, 22],
   serve_success: [30, 38, 65],
   blocked_or_error: [75, 45, 75],
+  pet_champy: [18, 48, 24, 48, 18],
+  pin_ticket: [16, 24, 14],
 };
 
 export function getHapticPatternForTool(event: BaristaHapticEvent): number | number[] {
@@ -53,6 +57,21 @@ export function triggerBaristaHaptic(
   try {
     const pattern = getHapticPatternForTool(event);
     return navigator.vibrate(pattern);
+  } catch {
+    return false;
+  }
+}
+
+export function triggerChampyPurrHaptic(
+  appVersion: AppRuntimeVersion = pwaManager.getStatus().appVersion
+): boolean {
+  const hasVibrateApi =
+    typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  if (!hasVibrateApi || (appVersion !== 'apk' && appVersion !== 'pwa')) {
+    return false;
+  }
+  try {
+    return navigator.vibrate(BARISTA_VIBRATION_PATTERNS.pet_champy);
   } catch {
     return false;
   }

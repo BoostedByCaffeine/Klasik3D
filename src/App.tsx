@@ -33,6 +33,7 @@ import {
   isStepLockActive,
   loadGameFromStorage,
   loadSavedGraphicsQuality,
+  markCustomerAtCounter,
   performCupAction,
   purchaseUpgrade,
   saveGameToStorage,
@@ -43,7 +44,7 @@ import {
   unlockOrEquipEquipmentSkin,
 } from './game/rules';
 import { KlasikCafeScene3D, StepAnimType } from './game/scene3d';
-import { triggerBaristaHaptic } from './game/haptics';
+import { triggerBaristaHaptic, triggerChampyPurrHaptic } from './game/haptics';
 import { soundEngine } from './game/sound';
 import { spotifyManager, SpotifyVinylState } from './game/spotifyManager';
 import { pwaManager, PwaEnvironmentStatus, shouldShowLandscapeCue } from './pwa/pwaManager';
@@ -100,6 +101,7 @@ export default function App() {
   const [stepDurationMs, setStepDurationMs] = useState<number | null>(null);
   const [fps, setFps] = useState<number>(60);
   const [hudPinnedRecipeId, setHudPinnedRecipeId] = useState<string | null>(null);
+  const [hudPinnedOrderId, setHudPinnedOrderId] = useState<string | null>(null);
   const [isPinnedRecipeMinimized, setIsPinnedRecipeMinimized] = useState<boolean>(false);
 
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
@@ -108,6 +110,10 @@ export default function App() {
   const stepCommitTimerRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
   const stepLockUntilRef = useRef<number>(0);
+  const activeModalRef = useRef<ActiveModal>(activeModal);
+  activeModalRef.current = activeModal;
+  const lastExpiredSeqRef = useRef<number>(gameState.lastExpiredEventSeq ?? 0);
+  const champyPetCountRef = useRef<number>(0);
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
 
@@ -143,10 +149,28 @@ export default function App() {
     saveGameToStorage(gameState);
   }, [gameState, pwaStatus.appVersion]);
 
-  // Sync Diegetic 3D POS Camera Focus when Barista Codex opens or closes
+  // Sync Diegetic 3D POS Camera Focus when Recipe Book opens or closes
   useEffect(() => {
     sceneRef.current?.setCodexFocusMode(activeModal === 'recipes');
   }, [activeModal]);
+
+  // Sync HUD pinned recipe back to 3D hanging tickets (emerald pinned glow)
+  useEffect(() => {
+    sceneRef.current?.setHudPinnedRecipeId(hudPinnedRecipeId);
+  }, [hudPinnedRecipeId, isSceneReady]);
+
+  // Auto-unpin linked ticket recipe when that customer order is served or expires
+  useEffect(() => {
+    if (!hudPinnedOrderId) return;
+    const stillOrdering = gameState.customers.some(
+      (c) => c.id === hudPinnedOrderId && c.state === 'ordering'
+    );
+    if (!stillOrdering) {
+      setHudPinnedOrderId(null);
+      setHudPinnedRecipeId(null);
+      setIsPinnedRecipeMinimized(false);
+    }
+  }, [gameState.customers, hudPinnedOrderId]);
 
   // Clean up any pending timed step timers on unmount
   useEffect(() => {
@@ -335,6 +359,10 @@ export default function App() {
           );
           const finalState: KlasikGameState = { ...committed, activeStepLock: null };
           sceneRef.current?.updateGameState(finalState);
+          if (finalState.lastActionFeedback.includes('Fast Service!')) {
+            soundEngine.playSpeedTipChime();
+            flashAnimBanner(finalState.lastActionFeedback, 1900, false);
+          }
           return finalState;
         });
       }, serveDuration);
@@ -543,6 +571,7 @@ export default function App() {
 
   const handleStartShift = useCallback((mode: GameMode) => {
     soundEngine.init();
+    soundEngine.preloadChampyAudio();
     soundEngine.playCustomerBell();
     const spState = spotifyManager.getState();
     soundEngine.setLofiSynthActive(spState.isPlaying && spState.internalSynthEnabled);
@@ -616,6 +645,42 @@ export default function App() {
           onHoverToolChange: (label) => setHoveredToolLabel(label),
           onFpsUpdate: (measuredFps) => setFps(measuredFps),
           onDoorOpen: () => soundEngine.playDoorChime(),
+          onPinOrderFromTicket: (orderId, recipeId) => {
+            soundEngine.init();
+            soundEngine.playPaperPin();
+            triggerBaristaHaptic('pin_ticket', pwaManager.getStatus().appVersion);
+            const matched = gameStateRef.current.customers.find((c) => c.id === orderId);
+            const rec = getRecipeById(recipeId);
+            setGameState((prev) => ({ ...prev, pinnedOrderId: orderId }));
+            setHudPinnedOrderId(orderId);
+            setHudPinnedRecipeId(recipeId);
+            setIsPinnedRecipeMinimized(false);
+            flashAnimBanner(
+              matched
+                ? `Pinned ${matched.customerName}'s ${rec.name}!`
+                : `Pinned ${rec.name} to HUD!`,
+              1400,
+              false
+            );
+          },
+          onCustomerReachedCounter: (customerId) => {
+            setGameState((prev) => markCustomerAtCounter(prev, customerId));
+          },
+          onPetChampy: () => {
+            soundEngine.init();
+            soundEngine.preloadChampyAudio();
+            champyPetCountRef.current += 1;
+            soundEngine.playChampyPurr(2.6);
+            if (champyPetCountRef.current % 3 === 1) {
+              soundEngine.playChampyMeow('chirp');
+            }
+            triggerChampyPurrHaptic(pwaManager.getStatus().appVersion);
+            flashAnimBanner('Champy is purring!', 2100, false);
+          },
+          onChampyGreet: () => {
+            if (gameStateRef.current.phase !== 'playing') return;
+            soundEngine.playChampyMeow('greet');
+          },
         }
       );
       sceneRef.current = scene;
@@ -639,7 +704,14 @@ export default function App() {
       scene?.dispose();
       sceneRef.current = null;
     };
-  }, [shouldMountScene, clearStepTimers, handleCupAction, handleSelectStation, handleServeCustomer]);
+  }, [
+    shouldMountScene,
+    clearStepTimers,
+    flashAnimBanner,
+    handleCupAction,
+    handleSelectStation,
+    handleServeCustomer,
+  ]);
 
   // Sync gameState changes to Three.js scene & Granular Synthesis Weather Audio Engine
   useEffect(() => {
@@ -647,11 +719,31 @@ export default function App() {
     soundEngine.setRainAmbience(gameState.phase === 'playing', gameState.weather);
   }, [gameState]);
 
-  // 4 Hz Gameplay Simulation Timer
+  // Play order-expired sound + crimson toast whenever an ordering customer times out ($0 walkout)
+  useEffect(() => {
+    const seq = gameState.lastExpiredEventSeq ?? 0;
+    if (seq > lastExpiredSeqRef.current) {
+      lastExpiredSeqRef.current = seq;
+      soundEngine.playOrderExpired();
+      triggerBaristaHaptic('blocked_or_error', pwaManager.getStatus().appVersion);
+      const expiredName = gameState.lastExpiredCustomerName || 'Customer';
+      flashAnimBanner(`⏱ ${expiredName} ran out of patience and left! ($0)`, 2600, false);
+    }
+  }, [gameState.lastExpiredEventSeq, gameState.lastExpiredCustomerName, flashAnimBanner]);
+
+  // 4 Hz Gameplay Simulation Timer (respects modal pause, 0.35x Recipe Book grace, and staggered door arrivals)
   useEffect(() => {
     if (gameState.phase !== 'playing') return;
     const interval = window.setInterval(() => {
-      setGameState((prev) => advanceSimulationTick(prev, 0.25));
+      const modal = activeModalRef.current;
+      const activeArrivingCount = sceneRef.current?.getActiveArrivingCount() ?? 0;
+      setGameState((prev) =>
+        advanceSimulationTick(prev, 0.25, {
+          modalOpen: modal !== null,
+          isRecipeBookOpen: modal === 'recipes',
+          activeArrivingCount,
+        })
+      );
     }, 250);
     return () => window.clearInterval(interval);
   }, [gameState.phase]);
@@ -775,7 +867,7 @@ export default function App() {
       ...prev,
       realismMode: !prev.realismMode,
       lastActionFeedback: !prev.realismMode
-        ? 'Realism Mode Enabled: Step shortcuts hidden. Rely on Recipe Codex & touch 3D equipment directly!'
+        ? 'Realism Mode Enabled: Step shortcuts hidden. Rely on Recipe Book & touch 3D equipment directly!'
         : 'Realism Mode Disabled: Guided step-by-step HUD shortcuts restored.',
     }));
   };
@@ -889,11 +981,13 @@ export default function App() {
           stepProgress={stepProgress}
           stepDurationMs={stepDurationMs}
           hudPinnedRecipeId={hudPinnedRecipeId}
+          hudPinnedOrderId={hudPinnedOrderId}
           isPinnedRecipeMinimized={isPinnedRecipeMinimized}
           onToggleMinimizePinnedRecipe={() =>
             setIsPinnedRecipeMinimized((prev) => !prev)
           }
           onUnpinHudRecipe={() => {
+            setHudPinnedOrderId(null);
             setHudPinnedRecipeId(null);
             setIsPinnedRecipeMinimized(false);
           }}
@@ -943,11 +1037,15 @@ export default function App() {
             pinnedCustomerName={pinnedCust?.customerName ?? null}
             hudPinnedRecipeId={hudPinnedRecipeId}
             onTogglePinRecipe={(recipeId) => {
-              soundEngine.playCeramicClink(1.18);
+              soundEngine.playPaperPin();
               if (hudPinnedRecipeId === recipeId) {
+                setHudPinnedOrderId(null);
                 setHudPinnedRecipeId(null);
                 setIsPinnedRecipeMinimized(false);
               } else {
+                setHudPinnedOrderId(
+                  pinnedCust && pinnedCust.recipeId === recipeId ? pinnedCust.id : null
+                );
                 setHudPinnedRecipeId(recipeId);
                 setIsPinnedRecipeMinimized(false);
                 const rec = getRecipeById(recipeId);

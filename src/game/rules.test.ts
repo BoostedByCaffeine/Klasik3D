@@ -38,6 +38,11 @@ import {
   isRainyWeather,
   isNightWeather,
   normalizeWeatherMode,
+  MIN_ARRIVAL_GAP_SEC,
+  rollOrderTimeLimitSec,
+  computeSpeedTipBonus,
+  markCustomerAtCounter,
+  advanceSimulationTick,
 } from './rules';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -410,6 +415,7 @@ import {
   getHapticPatternForTool,
   shouldTriggerApkVibration,
   triggerBaristaHaptic,
+  triggerChampyPurrHaptic,
 } from './haptics';
 
 test('Android APK Vibration API gating and barista tool haptic patterns are valid', () => {
@@ -738,6 +744,129 @@ test('Phase 7: Night Shift & Rainy Night weather modes round-trip through save i
   assert.ok(restoredNight);
   assert.equal(restoredNight.weather, 'night');
 });
+
+test('Phase 4: rollOrderTimeLimitSec produces integers in 10..20s and computeSpeedTipBonus awards tiered fast-service tips', () => {
+  for (let i = 0; i < 40; i++) {
+    const limit = rollOrderTimeLimitSec(() => i / 40);
+    assert.ok(Number.isInteger(limit), `Expected integer time limit, got ${limit}`);
+    assert.ok(limit >= 10 && limit <= 20, `Expected 10..20s, got ${limit}`);
+  }
+  assert.equal(rollOrderTimeLimitSec(() => 0), 10);
+  assert.equal(rollOrderTimeLimitSec(() => 0.999), 20);
+
+  // >= 50% remaining -> +$3 standard, +$4 specialty
+  assert.equal(computeSpeedTipBonus(16, 16, true).tip, 4);
+  assert.equal(computeSpeedTipBonus(10, 16, false).tip, 3);
+  assert.equal(computeSpeedTipBonus(10, 16, false).tier, 'fast');
+  // 25%..49% remaining -> +$1
+  assert.equal(computeSpeedTipBonus(5, 16).tip, 1);
+  assert.equal(computeSpeedTipBonus(5, 16).tier, 'prompt');
+  // < 25% remaining -> $0
+  assert.equal(computeSpeedTipBonus(2, 16).tip, 0);
+  assert.equal(computeSpeedTipBonus(2, 16).tier, 'ontime');
+});
+
+test('Phase 4: active order countdown triggers $0 walkout, -8% Vibe, and expired flag on timeout, while pausing in Zen/modals and slowing to 0.35x in Recipe Book', () => {
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.mode = 'career';
+  // Give customer 1 an exact 10s started timer and customer 2/3 unstarted timers
+  state.customers = state.customers.map((c, idx) =>
+    idx === 0
+      ? { ...c, orderTimeLimitSec: 10, orderTimeRemainingSec: 10, timerStarted: true, expired: false }
+      : { ...c, orderTimeLimitSec: 14, orderTimeRemainingSec: 14, timerStarted: false, expired: false }
+  );
+
+  // 1. Non-recipe modal pauses countdown completely
+  const modalPaused = advanceSimulationTick(state, 0.25, { modalOpen: true, isRecipeBookOpen: false });
+  assert.equal(modalPaused.customers[0].orderTimeRemainingSec, 10);
+
+  // 2. Recipe Book modal grants 0.35x grace slowdown
+  const recipeBookGrace = advanceSimulationTick(state, 0.25, { modalOpen: true, isRecipeBookOpen: true });
+  assert.ok(
+    Math.abs((recipeBookGrace.customers[0].orderTimeRemainingSec ?? 0) - (10 - 0.25 * 0.35)) < 1e-6
+  );
+
+  // 3. Zen mode pauses countdown completely
+  const zenState = advanceSimulationTick({ ...state, mode: 'zen' }, 0.25);
+  assert.equal(zenState.customers[0].orderTimeRemainingSec, 10);
+
+  // 4. Unstarted customer timer stays frozen until markCustomerAtCounter fires
+  const ticked = advanceSimulationTick(state, 0.25);
+  assert.equal(ticked.customers[0].orderTimeRemainingSec, 9.75);
+  assert.equal(ticked.customers[1].orderTimeRemainingSec, 14);
+  const atCounter = markCustomerAtCounter(ticked, ticked.customers[1].id);
+  assert.equal(atCounter.customers[1].timerStarted, true);
+
+  // 5. Running customer 1 down to 0s causes $0 walkout, -8% satisfaction, missedOrders++, and expired=true
+  const cashBefore = state.cash;
+  const vibeBefore = state.satisfactionScore;
+  let expiring = {
+    ...state,
+    customers: state.customers.map((c, idx) =>
+      idx === 0 ? { ...c, orderTimeRemainingSec: 0.2, timerStarted: true } : c
+    ),
+  };
+  expiring = advanceSimulationTick(expiring, 0.25);
+  const walkedOut = expiring.customers.find((c) => c.id === 'cust-initial-1');
+  assert.ok(walkedOut);
+  assert.equal(walkedOut.state, 'departing');
+  assert.equal(walkedOut.expired, true);
+  assert.equal(expiring.cash, cashBefore);
+  assert.equal(expiring.satisfactionScore, vibeBefore - 8);
+  assert.equal(expiring.missedOrders, 1);
+  assert.equal(expiring.lastExpiredEventSeq, 1);
+  assert.equal(expiring.lastExpiredCustomerName, walkedOut.customerName);
+});
+
+test('Phase 1: staggered spawn guard enforces MIN_ARRIVAL_GAP_SEC >= 3.2s and blocks spawns while an actor is already arriving', () => {
+  assert.ok(MIN_ARRIVAL_GAP_SEC >= 3.2);
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.customers = [];
+  state.nextCustomerSpawnTimer = 0.05;
+
+  // Blocked when activeArrivingCount >= 1
+  const blocked = advanceSimulationTick(state, 0.25, { activeArrivingCount: 1 });
+  assert.equal(blocked.customers.length, 0);
+
+  // Allowed when doorway/entry is clear (activeArrivingCount === 0)
+  const spawned = advanceSimulationTick(state, 0.25, { activeArrivingCount: 0 });
+  assert.equal(spawned.customers.length, 1);
+  assert.equal(spawned.customers[0].timerStarted, false);
+  assert.ok(spawned.nextCustomerSpawnTimer >= MIN_ARRIVAL_GAP_SEC);
+});
+
+test('Phase 6: Champy petting & hanging ticket pin haptics work with valid vibration patterns across APK and PWA', () => {
+  const petPat = BARISTA_VIBRATION_PATTERNS.pet_champy;
+  const pinPat = BARISTA_VIBRATION_PATTERNS.pin_ticket;
+  assert.ok(Array.isArray(petPat) && petPat.length >= 3);
+  assert.ok(Array.isArray(pinPat) && pinPat.length >= 3);
+
+  const originalDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const calls: Array<number | number[]> = [];
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      vibrate: (pattern: number | number[]) => {
+        calls.push(pattern);
+        return true;
+      },
+    },
+  });
+  try {
+    assert.equal(triggerChampyPurrHaptic('web'), false);
+    assert.equal(triggerChampyPurrHaptic('pwa'), true);
+    assert.equal(triggerChampyPurrHaptic('apk'), true);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], BARISTA_VIBRATION_PATTERNS.pet_champy);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(globalThis, 'navigator', originalDescriptor);
+    }
+  }
+});
+
 
 
 

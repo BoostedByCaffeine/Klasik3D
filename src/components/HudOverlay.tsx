@@ -30,6 +30,7 @@ import {
   Sparkles,
   Sprout,
   Store,
+  Timer,
   Trophy,
   Volume2,
   VolumeX,
@@ -62,6 +63,7 @@ interface HudOverlayProps {
   stepProgress: number | null;
   stepDurationMs: number | null;
   hudPinnedRecipeId?: string | null;
+  hudPinnedOrderId?: string | null;
   isPinnedRecipeMinimized?: boolean;
   onToggleMinimizePinnedRecipe?: () => void;
   onUnpinHudRecipe?: () => void;
@@ -116,6 +118,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   stepProgress,
   stepDurationMs,
   hudPinnedRecipeId,
+  hudPinnedOrderId = null,
   isPinnedRecipeMinimized = false,
   onToggleMinimizePinnedRecipe,
   onUnpinHudRecipe,
@@ -367,17 +370,31 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 const recipe = getRecipeById(cust.recipeId);
                 const isPinned = pinnedOrder?.id === cust.id;
                 const isTakeout = cust.orderType === 'takeout';
+                const isZenMode = gameState.mode === 'zen';
+                const limitSec = Math.max(1, cust.orderTimeLimitSec || 16);
+                const remSec = Math.max(0, cust.orderTimeRemainingSec ?? limitSec);
+                const displaySec = Math.ceil(remSec);
+                const timerPct = cust.timerStarted && !isZenMode
+                  ? Math.max(0, Math.min(100, (remSec / limitSec) * 100))
+                  : 100;
+                const isUrgent = cust.timerStarted && !isZenMode && displaySec <= 4;
+                const isWarning = cust.timerStarted && !isZenMode && !isUrgent && timerPct < 50;
                 return (
                   <button
                     key={cust.id}
                     type="button"
+                    data-testid={`hud-order-chip-${cust.id}`}
                     onClick={() => onPinOrder(cust.id)}
-                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[152px] overflow-hidden glass-text-crisp ${
-                      isPinned
+                    className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[186px] overflow-hidden glass-text-crisp ${
+                      isUrgent
+                        ? 'bg-rose-500/30 border-rose-400 text-rose-100 font-bold'
+                        : isPinned
                         ? 'bg-amber-500/25 border-amber-400 text-[#FAF5EE] font-semibold'
                         : 'glass-btn-inner text-[#E7D7C1]'
                     }`}
-                    title={`${cust.customerName} (${isTakeout ? 'Takeout' : 'Dine-In'}): ${recipe.name}`}
+                    title={`${cust.customerName} (${isTakeout ? 'Takeout' : 'Dine-In'}): ${recipe.name}${
+                      cust.timerStarted && !isZenMode ? ` · ${displaySec}s left` : ''
+                    }`}
                   >
                     <span
                       className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -401,14 +418,30 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       ${isGoldenEquipped ? recipe.price * 2 : recipe.price}
                     </span>
                     <span
-                      className={`absolute bottom-0 left-0 h-[2px] transition-all ${
-                        cust.patience > 50
-                          ? 'bg-emerald-400'
-                          : cust.patience > 25
-                          ? 'bg-amber-400'
-                          : 'bg-rose-500'
+                      data-testid={`hud-order-timer-${cust.id}`}
+                      className={`font-mono tabular-nums text-[9px] font-bold shrink-0 px-1 rounded ${
+                        isZenMode
+                          ? 'bg-sky-500/20 text-sky-200'
+                          : !cust.timerStarted
+                          ? 'bg-white/10 text-[#E7D7C1]/75'
+                          : isUrgent
+                          ? 'bg-rose-500/45 text-rose-100 animate-pulse'
+                          : isWarning
+                          ? 'bg-amber-500/30 text-amber-200'
+                          : 'bg-emerald-500/25 text-emerald-200'
                       }`}
-                      style={{ width: `${Math.round(cust.patience)}%` }}
+                    >
+                      {isZenMode ? 'Zen' : !cust.timerStarted ? '…' : `${displaySec}s`}
+                    </span>
+                    <span
+                      className={`absolute bottom-0 left-0 h-[2px] transition-all ${
+                        isUrgent || timerPct < 25
+                          ? 'bg-rose-500'
+                          : timerPct < 50
+                          ? 'bg-amber-400'
+                          : 'bg-emerald-400'
+                      }`}
+                      style={{ width: `${Math.round(timerPct)}%` }}
                     />
                   </button>
                 );
@@ -438,7 +471,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               data-testid="btn-top-menu"
               aria-expanded={topMenuOpen}
               aria-label="Open Cafe Menu"
-              title="All Cafe Navigation: Graphics, Realism Mode, Music, Recipe Codex, Upgrades, Decor, Sound & Hide HUD"
+              title="All Cafe Navigation: Graphics, Realism Mode, Music, Recipe Book, Upgrades, Decor, Sound & Hide HUD"
               onClick={() => setTopMenuOpen((prev) => !prev)}
               className={`relative h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap transition-all ${
                 topMenuOpen
@@ -512,7 +545,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     isRealismMode ? 'text-[#160E09]/80 font-semibold' : 'text-[#E7D7C1]'
                   }`}
                 >
-                  {isRealismMode ? 'Touch 3D Tools & Codex' : 'Guided HUD & Shortcuts'}
+                  {isRealismMode ? 'Touch 3D Tools & Recipe Book' : 'Guided HUD & Shortcuts'}
                 </div>
               </div>
             </button>
@@ -539,7 +572,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 4. Recipe Codex */}
+            {/* 4. Recipe Book */}
             <button
               type="button"
               data-testid="btn-menu-recipes"
@@ -551,7 +584,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             >
               <BookOpen className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
-                <div className="truncate">Recipe Codex</div>
+                <div className="truncate">Recipe Book</div>
                 <div className="text-[10px] text-[#E7D7C1] truncate">Coffee &amp; Tea</div>
               </div>
             </button>
@@ -729,6 +762,36 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <span className="px-1 py-0 rounded bg-emerald-500/25 border border-emerald-400/35 text-[9px] font-mono font-bold text-emerald-300 shrink-0">
                 +${isGoldenEquipped ? pinnedOrder.customBonusTip * 2 : pinnedOrder.customBonusTip}
               </span>
+              {(() => {
+                const isZenMode = gameState.mode === 'zen';
+                const limitSec = Math.max(1, pinnedOrder.orderTimeLimitSec || 16);
+                const remSec = Math.max(0, pinnedOrder.orderTimeRemainingSec ?? limitSec);
+                const displaySec = Math.ceil(remSec);
+                const ratio = remSec / limitSec;
+                const isUrgent = pinnedOrder.timerStarted && !isZenMode && displaySec <= 4;
+                const isWarning = pinnedOrder.timerStarted && !isZenMode && !isUrgent && ratio < 0.5;
+                return (
+                  <span
+                    data-testid="active-order-countdown"
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] font-mono font-bold tabular-nums shrink-0 ${
+                      isZenMode
+                        ? 'bg-sky-500/20 border-sky-400/40 text-sky-200'
+                        : !pinnedOrder.timerStarted
+                        ? 'bg-white/10 border-white/20 text-[#E7D7C1]'
+                        : isUrgent
+                        ? 'bg-rose-500/35 border-rose-400 text-rose-100 animate-pulse'
+                        : isWarning
+                        ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
+                        : 'bg-emerald-500/20 border-emerald-400/45 text-emerald-200'
+                    }`}
+                  >
+                    <Timer className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                    <span>
+                      {isZenMode ? 'Zen' : !pinnedOrder.timerStarted ? 'Arriving' : `${displaySec}s`}
+                    </span>
+                  </span>
+                );
+              })()}
               <button
                 type="button"
                 onClick={() => setTicketsCollapsed(true)}
@@ -745,41 +808,83 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
           {/* Right Stack: Slim Progress Pill + Minimizable Pinned Recipe Card */}
           <div className="flex flex-col items-end gap-1.5 shrink-0">
-            {displayBannerText && (
-              <div className="pointer-events-none inline-flex items-center gap-2 glass-pill text-[#FAF5EE] glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[55vw] truncate">
-                <span className="truncate">{displayBannerText}</span>
-                {stepDurationMs && stepProgress !== null && (
-                  <span className="text-[9px] font-mono text-amber-300 shrink-0">
-                    {(stepDurationMs / 1000).toFixed(1)}s
-                  </span>
-                )}
-                {stepProgress !== null && (
-                  <div className="w-14 h-1.5 rounded-full bg-black/50 overflow-hidden shrink-0">
-                    <div
-                      className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-75"
-                      style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+            {displayBannerText && (() => {
+              const isExpiredAlert =
+                displayBannerText.includes('ran out of patience') ||
+                displayBannerText.includes('($0)');
+              const isChampyToast = displayBannerText.includes('Champy');
+              const isFastServiceToast = displayBannerText.includes('Fast Service!');
+              return (
+                <div
+                  data-testid="hud-feedback-banner"
+                  className={`pointer-events-none inline-flex items-center gap-2 glass-pill glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[55vw] truncate ${
+                    isExpiredAlert
+                      ? '!bg-rose-950/90 !border-rose-400/80 text-rose-100 shadow-[0_0_16px_rgba(244,63,94,0.45)]'
+                      : isChampyToast
+                      ? '!border-teal-400/70 text-teal-100'
+                      : isFastServiceToast
+                      ? '!border-emerald-400/75 text-emerald-100'
+                      : 'text-[#FAF5EE]'
+                  }`}
+                >
+                  <span className="truncate">{displayBannerText}</span>
+                  {stepDurationMs && stepProgress !== null && (
+                    <span className="text-[9px] font-mono text-amber-300 shrink-0">
+                      {(stepDurationMs / 1000).toFixed(1)}s
+                    </span>
+                  )}
+                  {stepProgress !== null && (
+                    <div className="w-14 h-1.5 rounded-full bg-black/50 overflow-hidden shrink-0">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-75"
+                        style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Floating Minimizable Pinned Recipe Tracker */}
             {hudPinnedRecipeId && (() => {
-              const pinnedCodexRecipe = getRecipeById(hudPinnedRecipeId);
-              const steps = buildStepPipeline(pinnedCodexRecipe);
+              const pinnedBookRecipe = getRecipeById(hudPinnedRecipeId);
+              const linkedOrder =
+                (hudPinnedOrderId
+                  ? orderingCustomers.find((c) => c.id === hudPinnedOrderId)
+                  : null) ||
+                orderingCustomers.find(
+                  (c) => c.id === gameState.pinnedOrderId && c.recipeId === hudPinnedRecipeId
+                ) ||
+                orderingCustomers.find((c) => c.recipeId === hudPinnedRecipeId) ||
+                null;
+              const isZenMode = gameState.mode === 'zen';
+              const limitSec = Math.max(1, linkedOrder?.orderTimeLimitSec || 16);
+              const remSec = Math.max(0, linkedOrder?.orderTimeRemainingSec ?? limitSec);
+              const displaySec = Math.ceil(remSec);
+              const timerPct =
+                linkedOrder && linkedOrder.timerStarted && !isZenMode
+                  ? Math.max(0, Math.min(100, (remSec / limitSec) * 100))
+                  : 100;
+              const isUrgent = Boolean(linkedOrder && linkedOrder.timerStarted && !isZenMode && displaySec <= 4);
+              const isWarning = Boolean(
+                linkedOrder && linkedOrder.timerStarted && !isZenMode && !isUrgent && timerPct < 50
+              );
+
+              const steps = buildStepPipeline(pinnedBookRecipe);
               const completedCount = steps.filter((s) =>
-                isStepChipCompleted(s, gameState.currentCup, pinnedCodexRecipe)
+                isStepChipCompleted(s, gameState.currentCup, pinnedBookRecipe)
               ).length;
               const nextIncompleteIdx = steps.findIndex(
-                (s) => !isStepChipCompleted(s, gameState.currentCup, pinnedCodexRecipe)
+                (s) => !isStepChipCompleted(s, gameState.currentCup, pinnedBookRecipe)
               );
 
               if (isPinnedRecipeMinimized) {
                 return (
                   <div
                     data-testid="pinned-recipe-pill"
-                    className="pointer-events-auto glass-pill rounded-full px-2.5 py-1 flex items-center gap-1.5 border border-amber-400/45 shadow-lg"
+                    className={`pointer-events-auto glass-pill rounded-full px-2.5 py-1 flex items-center gap-1.5 border shadow-lg ${
+                      isUrgent ? 'border-rose-400/80' : 'border-amber-400/45'
+                    }`}
                   >
                     <button
                       type="button"
@@ -789,7 +894,20 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       title="Expand Pinned Recipe Steps"
                     >
                       <Pin className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.4} />
-                      <span className="max-w-[140px] truncate">{pinnedCodexRecipe.name}</span>
+                      <span className="max-w-[140px] truncate">{pinnedBookRecipe.name}</span>
+                      {linkedOrder && linkedOrder.timerStarted && !isZenMode && (
+                        <span
+                          className={`text-[10px] font-mono tabular-nums font-bold ${
+                            isUrgent
+                              ? 'text-rose-300 animate-pulse'
+                              : isWarning
+                              ? 'text-amber-300'
+                              : 'text-emerald-300'
+                          }`}
+                        >
+                          {displaySec}s
+                        </span>
+                      )}
                       <span className="text-[10px] font-mono text-amber-300 font-bold">
                         {completedCount}/{steps.length - 1}
                       </span>
@@ -812,16 +930,39 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               return (
                 <div
                   data-testid="pinned-recipe-card"
-                  className="pointer-events-auto glass-panel rounded-xl px-3 py-2 w-[235px] sm:w-[270px] border border-amber-400/45 space-y-1.5"
+                  className={`pointer-events-auto glass-panel rounded-xl px-3 py-2 w-[245px] sm:w-[278px] border space-y-1.5 ${
+                    isUrgent ? 'border-rose-400/75' : 'border-amber-400/45'
+                  }`}
                 >
                   <div className="flex items-center justify-between gap-2 border-b border-amber-400/20 pb-1">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <Pin className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.3} />
                       <span className="text-xs font-display font-bold text-[#FAF5EE] truncate glass-text-crisp">
-                        {pinnedCodexRecipe.name}
+                        {pinnedBookRecipe.name}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      {linkedOrder && (
+                        <span
+                          data-testid="pinned-recipe-timer"
+                          className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
+                            isZenMode
+                              ? 'bg-sky-500/20 text-sky-200'
+                              : !linkedOrder.timerStarted
+                              ? 'bg-white/10 text-[#E7D7C1]'
+                              : isUrgent
+                              ? 'bg-rose-500/40 text-rose-100 animate-pulse'
+                              : isWarning
+                              ? 'bg-amber-500/30 text-amber-200'
+                              : 'bg-emerald-500/25 text-emerald-200'
+                          }`}
+                        >
+                          <Timer className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
+                          <span>
+                            {isZenMode ? 'Zen' : !linkedOrder.timerStarted ? '…' : `${displaySec}s`}
+                          </span>
+                        </span>
+                      )}
                       <button
                         type="button"
                         data-testid="btn-toggle-pinned-recipe"
@@ -844,9 +985,31 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       </button>
                     </div>
                   </div>
+                  {linkedOrder && (
+                    <div className="flex items-center flex-wrap gap-1 text-[10px] text-[#E7D7C1]">
+                      <span className="font-bold text-amber-300">{linkedOrder.customerName}</span>
+                      <span
+                        className={`px-1 py-0 rounded border text-[9px] font-bold uppercase ${
+                          linkedOrder.orderType === 'takeout'
+                            ? 'bg-emerald-500/20 border-emerald-400/45 text-emerald-200'
+                            : 'bg-amber-500/15 border-amber-400/40 text-amber-200'
+                        }`}
+                      >
+                        {linkedOrder.orderType === 'takeout' ? 'Takeout' : 'Dine-In'}
+                      </span>
+                      {linkedOrder.customAddons?.map((addon) => (
+                        <span
+                          key={`pin-addon-${addon}`}
+                          className="px-1 py-0 rounded bg-amber-500/20 border border-amber-400/35 text-[9px] font-mono text-amber-200"
+                        >
+                          {addon}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-1">
                     {steps.map((chip, idx) => {
-                      const done = isStepChipCompleted(chip, gameState.currentCup, pinnedCodexRecipe);
+                      const done = isStepChipCompleted(chip, gameState.currentCup, pinnedBookRecipe);
                       const isCurrent = idx === nextIncompleteIdx;
                       return (
                         <span
@@ -870,6 +1033,20 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       );
                     })}
                   </div>
+                  {linkedOrder && linkedOrder.timerStarted && !isZenMode && (
+                    <div className="w-full h-1 rounded-full bg-black/50 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-200 ${
+                          isUrgent || timerPct < 25
+                            ? 'bg-rose-500'
+                            : timerPct < 50
+                            ? 'bg-amber-400'
+                            : 'bg-emerald-400'
+                        }`}
+                        style={{ width: `${Math.round(timerPct)}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1018,7 +1195,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               className="glass-btn-inner px-2 py-1 rounded-md !border-amber-400/40 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1"
             >
               <BookOpen className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
-              <span>Recipe Codex</span>
+              <span>Recipe Book</span>
             </button>
           </div>
         )}

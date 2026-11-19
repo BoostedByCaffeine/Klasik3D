@@ -169,6 +169,12 @@ class SoundEngine {
   private lofiInterval: number | null = null;
   private chordIndex = 0;
 
+  // Phase 6: Hybrid Local Audio + Procedural Fallback for Champy the Cafe Cat
+  private champyBuffers: Partial<Record<'purr' | 'meowGreet' | 'chirp', AudioBuffer>> = {};
+  private champyLoaded = false;
+  private lastChampyMeowMs = 0;
+  private lastChampyPurrMs = 0;
+
   private ensureContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
@@ -184,6 +190,9 @@ class SoundEngine {
     }
     if (this.ctx && !this.buffersPrepared) {
       this.prepareOfflineSampleLibrary(this.ctx);
+    }
+    if (this.ctx && !this.champyLoaded) {
+      void this.preloadChampyAudio();
     }
     return this.ctx;
   }
@@ -1044,6 +1053,230 @@ class SoundEngine {
       osc.start(now + i * 0.045);
       osc.stop(now + 2.9);
     });
+  }
+
+  // Phase 2: Crisp tactile paper-pin SFX when clicking a hanging 3D order ticket
+  public playPaperPin() {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // Short crisp paper rustle burst + bright pin tap
+    if (this.steamNoiseBuffer) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.steamNoiseBuffer;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'bandpass';
+      hp.frequency.setValueAtTime(2400, now);
+      hp.Q.value = 1.6;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, now);
+      g.gain.linearRampToValueAtTime(0.11, now + 0.014);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      src.connect(hp).connect(g).connect(ctx.destination);
+      src.start(now, Math.random() * 0.3, 0.1);
+    }
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.exponentialRampToValueAtTime(1320, now + 0.065);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
+
+  // Phase 4: Golden fast-service tip chime
+  public playSpeedTipChime() {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    [880, 1174.66, 1567.98].forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t0 = now + idx * 0.065;
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.09, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.28);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.3);
+    });
+  }
+
+  // Phase 4: Soft disappointed sigh / descending bell-thud when a customer walks out
+  public playOrderExpired() {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = [440, 349.23, 277.18];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const t0 = now + idx * 0.11;
+      osc.frequency.setValueAtTime(freq, t0);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.9, t0 + 0.22);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.095, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.28);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.3);
+    });
+  }
+
+  // Phase 6: Hybrid Local Audio Loader for Champy the Cafe Cat (100% offline-safe)
+  public async preloadChampyAudio(): Promise<void> {
+    if (this.champyLoaded || !this.ctx || typeof fetch === 'undefined') return;
+    this.champyLoaded = true;
+    const base =
+      (typeof import.meta !== 'undefined' &&
+        (import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL) ||
+      '/';
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+    const urls: Record<'purr' | 'meowGreet' | 'chirp', string> = {
+      purr: `${normalizedBase}audio/champy/purr.wav`,
+      meowGreet: `${normalizedBase}audio/champy/meow_greet.wav`,
+      chirp: `${normalizedBase}audio/champy/chirp_trill.wav`,
+    };
+    await Promise.allSettled(
+      (Object.entries(urls) as Array<['purr' | 'meowGreet' | 'chirp', string]>).map(
+        async ([key, url]) => {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) return;
+            const arr = await res.arrayBuffer();
+            if (this.ctx) {
+              this.champyBuffers[key] = await this.ctx.decodeAudioData(arr);
+            }
+          } catch {
+            // Graceful fallback to procedural Web Audio cat purr / meow synth
+          }
+        }
+      )
+    );
+  }
+
+  public playChampyPurr(durationSec = 2.6): void {
+    if (this.isMuted) return;
+    const nowMs = Date.now();
+    if (nowMs - this.lastChampyPurrMs < 1100) return;
+    this.lastChampyPurrMs = nowMs;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const buf = this.champyBuffers.purr;
+    if (buf) {
+      const src = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      src.buffer = buf;
+      src.loop = true;
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.32, now + 0.2);
+      gain.gain.setValueAtTime(0.32, now + Math.max(0.3, durationSec - 0.35));
+      gain.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
+      src.connect(gain).connect(ctx.destination);
+      src.start(now);
+      src.stop(now + durationSec + 0.05);
+      return;
+    }
+
+    this.playProceduralCatPurr(ctx, durationSec);
+  }
+
+  public playChampyMeow(kind: 'greet' | 'chirp' = 'greet'): void {
+    if (this.isMuted) return;
+    const nowMs = Date.now();
+    if (nowMs - this.lastChampyMeowMs < 750) return;
+    this.lastChampyMeowMs = nowMs;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const buf = kind === 'chirp' ? this.champyBuffers.chirp : this.champyBuffers.meowGreet;
+    if (buf) {
+      const src = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      src.buffer = buf;
+      src.playbackRate.value = 0.94 + Math.random() * 0.12;
+      gain.gain.value = 0.26;
+      src.connect(gain).connect(ctx.destination);
+      src.start();
+      return;
+    }
+
+    this.playProceduralCatMeow(ctx, kind);
+  }
+
+  private playProceduralCatPurr(ctx: AudioContext, durationSec: number): void {
+    const now = ctx.currentTime;
+    const carrier = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const lp = ctx.createBiquadFilter();
+    const master = ctx.createGain();
+
+    carrier.type = 'sawtooth';
+    carrier.frequency.setValueAtTime(52, now);
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(26, now);
+    lfoGain.gain.setValueAtTime(0.14, now);
+
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(190, now);
+    lp.Q.value = 1.8;
+
+    master.gain.setValueAtTime(0.001, now);
+    master.gain.linearRampToValueAtTime(0.22, now + 0.22);
+    master.gain.setValueAtTime(0.22, now + Math.max(0.3, durationSec - 0.35));
+    master.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
+
+    lfo.connect(lfoGain).connect(master.gain);
+    carrier.connect(lp).connect(master).connect(ctx.destination);
+
+    carrier.start(now);
+    lfo.start(now);
+    carrier.stop(now + durationSec + 0.05);
+    lfo.stop(now + durationSec + 0.05);
+  }
+
+  private playProceduralCatMeow(ctx: AudioContext, kind: 'greet' | 'chirp'): void {
+    const now = ctx.currentTime;
+    const dur = kind === 'chirp' ? 0.32 : 0.56;
+    const osc = ctx.createOscillator();
+    const formant = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+
+    osc.type = 'sawtooth';
+    if (kind === 'chirp') {
+      osc.frequency.setValueAtTime(410, now);
+      osc.frequency.exponentialRampToValueAtTime(780, now + dur * 0.88);
+    } else {
+      osc.frequency.setValueAtTime(490, now);
+      osc.frequency.exponentialRampToValueAtTime(680, now + dur * 0.38);
+      osc.frequency.exponentialRampToValueAtTime(420, now + dur);
+    }
+
+    formant.type = 'bandpass';
+    formant.frequency.setValueAtTime(1250, now);
+    formant.Q.value = 3.2;
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.16, now + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    osc.connect(formant).connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + dur + 0.04);
   }
 }
 
