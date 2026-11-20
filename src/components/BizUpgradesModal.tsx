@@ -3,41 +3,55 @@ import {
   Cat,
   Check,
   Clock,
-  Coffee,
+  CloudSnow,
   Crown,
+  DoorOpen,
   Flame,
   Gift,
   Infinity as InfinityIcon,
   Lock,
+  Mountain,
   Shirt,
   Sparkles,
+  Sun,
   Trophy,
+  UserCheck,
   X,
   Zap,
 } from 'lucide-react';
 import {
   CAFE_CATS,
   CafeCatId,
+  ClimateState,
   CustomerSkinPackId,
   GOLDEN_MACHINE_GROSS_THRESHOLD,
   GrinderSkinId,
   KlasikGameState,
   LILO_REQUIRED_CAT_IDS,
   MachineSkinId,
+  PATRON_OUTFIT_CATALOG,
+  PatronOutfitId,
   PitcherSkinId,
+  SCENERY_CATALOG,
+  SceneryId,
   canClaimLoginReward,
   getCafeCatSpec,
   getCalendarDayDiff,
   getLocalDateKey,
   getTimeUntilMidnightLabel,
   getVisibleShopCats,
+  isAlwaysWinterScenery,
+  isSnowAllowedForScenery,
 } from '../game/rules';
+import { StudioPreviewThumb } from './StudioPreviewThumb';
 
 export type UpgradesHubTab =
   | 'upgrades'
+  | 'sceneries'
+  | 'patron_outfits'
+  | 'cafe_cats'
   | 'equipment_skins'
   | 'customer_skins'
-  | 'cafe_cats'
   | 'login_rewards';
 
 interface BizUpgradesModalProps {
@@ -49,7 +63,15 @@ interface BizUpgradesModalProps {
   ) => void;
   onUnlockOrEquipCustomerPack: (packId: CustomerSkinPackId) => void;
   onPurchaseOrEquipCafeCat: (catId: CafeCatId) => void;
+  onPurchaseOrEquipScenery: (sceneryId: SceneryId) => void;
+  onPurchasePatronOutfit: (outfitId: PatronOutfitId) => void;
+  onSetPatronOutfitAutoMatch: (autoMatch: boolean) => void;
+  onToggleCustomPatronOutfit: (outfitId: PatronOutfitId) => void;
   onOpenCatStation?: () => void;
+  onOpenGoOutside?: () => void;
+  getSceneryThumbnail?: (sceneryId: SceneryId) => string;
+  getPatronOutfitThumbnail?: (outfitId: PatronOutfitId, climate?: ClimateState) => string;
+  getCatThumbnail?: (catId: CafeCatId) => string;
   onClaimLoginReward: (day: number) => void;
   onClose: () => void;
 }
@@ -61,11 +83,22 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
   onUnlockOrEquipEquipmentSkin,
   onUnlockOrEquipCustomerPack,
   onPurchaseOrEquipCafeCat,
+  onPurchaseOrEquipScenery,
+  onPurchasePatronOutfit,
+  onSetPatronOutfitAutoMatch,
+  onToggleCustomPatronOutfit,
   onOpenCatStation,
+  onOpenGoOutside,
+  getSceneryThumbnail,
+  getPatronOutfitThumbnail,
+  getCatThumbnail,
   onClaimLoginReward,
   onClose,
 }) => {
   const [activeTab, setActiveTab] = useState<UpgradesHubTab>(initialTab);
+  const [outfitPreviewClimate, setOutfitPreviewClimate] = useState<ClimateState>(
+    gameState.climateState || 'summer'
+  );
   const [midnightCountdown, setMidnightCountdown] = useState<string>(() =>
     getTimeUntilMidnightLabel()
   );
@@ -94,6 +127,11 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
     loginRewards,
     unlockedCats = ['champy'],
     equippedCatId = 'champy',
+    activeScenery = 'busy_street',
+    unlockedSceneries = ['busy_street'],
+    unlockedPatronOutfits = [],
+    patronOutfitAutoMatch = true,
+    enabledCustomPatronOutfits = [],
   } = gameState;
 
   const grossPct = Math.min(
@@ -150,11 +188,21 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs (Offline Lucide Icons) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
+        {/* Navigation Tabs (Offline Lucide Icons — wraps cleanly so all 7 tabs stay visible) */}
+        <div className="flex flex-wrap items-center gap-1.5 pb-1 shrink-0">
           {(
             [
               { id: 'upgrades', label: `Upgrades (${upgrades.length})`, Icon: Zap },
+              {
+                id: 'sceneries',
+                label: `Sceneries (${unlockedSceneries.length}/${SCENERY_CATALOG.length})`,
+                Icon: Mountain,
+              },
+              {
+                id: 'patron_outfits',
+                label: `Outfits (${unlockedPatronOutfits.length}/${PATRON_OUTFIT_CATALOG.length})`,
+                Icon: UserCheck,
+              },
               {
                 id: 'cafe_cats',
                 label: `Cafe Cats (${unlockedCats.length}/${visibleCats.length})`,
@@ -163,10 +211,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               { id: 'equipment_skins', label: '50K & Skins', Icon: Crown },
               {
                 id: 'customer_skins',
-                label: `Patrons (${customerSkinPacks.length})`,
+                label: `Palettes (${customerSkinPacks.length})`,
                 Icon: Shirt,
               },
-              { id: 'login_rewards', label: 'Login Rewards (7)', Icon: Gift },
+              { id: 'login_rewards', label: 'Login (7)', Icon: Gift },
             ] as const
           ).map((t) => {
             const Icon = t.Icon;
@@ -176,13 +224,13 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 type="button"
                 data-testid={`tab-upgrades-${t.id}`}
                 onClick={() => setActiveTab(t.id)}
-                className={`px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap cursor-pointer transition-all flex items-center gap-1.5 ${
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-all flex items-center gap-1 ${
                   activeTab === t.id
                     ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
                     : 'glass-btn-inner text-[#E7D7C1]'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                <Icon className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 <span>{t.label}</span>
               </button>
             );
@@ -235,6 +283,323 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Tab 1.5: 9 Outdoor Sceneries with Single-Context 3D Mini-Dioramas */}
+        {activeTab === 'sceneries' && (
+          <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="sceneries-shop-panel">
+            <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] text-[#FAF5EE]">
+                <span className="font-bold text-amber-300">9 Living 3D Outdoor Views</span>
+                <span className="text-[#E7D7C1]/85 ml-1.5">
+                  · Preserves delivery driveway &amp; unlocks scenic weather + regional patron outfits.
+                </span>
+              </div>
+              {onOpenGoOutside && (
+                <button
+                  type="button"
+                  data-testid="btn-sceneries-go-outside"
+                  onClick={() => {
+                    onClose();
+                    onOpenGoOutside();
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-sky-500/25 hover:bg-sky-500/35 border border-sky-400/60 text-sky-100 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <DoorOpen className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.3} />
+                  <span>Step Outside Now</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {SCENERY_CATALOG.map((scenery) => {
+                const isUnlocked = unlockedSceneries.includes(scenery.id);
+                const isEquipped = activeScenery === scenery.id;
+                const isMilestone =
+                  scenery.unlockMethod === 'revenue_milestone' ||
+                  scenery.unlockMethod === 'prestige_milestone';
+                const canBuyCash =
+                  !isUnlocked && scenery.unlockMethod === 'shop' && cash >= scenery.cost;
+                const milestoneReq = scenery.revenueMilestone || 0;
+                const milestonePct =
+                  milestoneReq > 0
+                    ? Math.min(100, Math.round((lifetimeGrossIncome / milestoneReq) * 100))
+                    : 100;
+                const snowEnabled = isSnowAllowedForScenery(scenery.id);
+                const alwaysWinter = isAlwaysWinterScenery(scenery.id);
+
+                return (
+                  <div
+                    key={scenery.id}
+                    data-testid={`scenery-card-${scenery.id}`}
+                    className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
+                      isEquipped
+                        ? 'bg-amber-500/15 border-amber-400/80 shadow-[0_0_16px_rgba(245,158,11,0.2)]'
+                        : isMilestone
+                        ? 'bg-sky-950/30 border-sky-400/35'
+                        : 'bg-white/[0.06] border-amber-400/20'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <StudioPreviewThumb
+                        cacheKey={`scenery:${scenery.id}`}
+                        renderThumbnail={
+                          getSceneryThumbnail
+                            ? () => getSceneryThumbnail(scenery.id)
+                            : undefined
+                        }
+                        alt={scenery.name}
+                        className="w-16 h-16 rounded-xl"
+                        fallbackColorHex={scenery.accentHex}
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                            {scenery.name}
+                          </span>
+                          {alwaysWinter ? (
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/25 border border-sky-300/60 text-[9px] font-mono font-bold text-sky-200 inline-flex items-center gap-0.5 shrink-0">
+                              <CloudSnow className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
+                              <span>Always Winter</span>
+                            </span>
+                          ) : snowEnabled ? (
+                            <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 border border-cyan-300/50 text-[9px] font-mono font-bold text-cyan-200 inline-flex items-center gap-0.5 shrink-0">
+                              <CloudSnow className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
+                              <span>Snow</span>
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-[10px] font-mono text-amber-300/90 truncate">
+                          {scenery.subtitle} · {scenery.badgeText}
+                        </div>
+                        <p className="text-[10px] text-[#E7D7C1]/85 leading-snug line-clamp-2">
+                          {scenery.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!isUnlocked && isMilestone && (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-sky-200">
+                          <span className="inline-flex items-center gap-1">
+                            <Trophy className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+                            <span>Gross Milestone</span>
+                          </span>
+                          <span>
+                            ${Math.round(lifetimeGrossIncome).toLocaleString()} / $
+                            {milestoneReq.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-sky-400/35">
+                          <div
+                            className="h-full bg-gradient-to-r from-sky-400 to-amber-300"
+                            style={{ width: `${milestonePct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      data-testid={`btn-scenery-${scenery.id}`}
+                      disabled={isEquipped || (!isUnlocked && !canBuyCash)}
+                      onClick={() => onPurchaseOrEquipScenery(scenery.id)}
+                      className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
+                        isEquipped
+                          ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
+                          : isUnlocked || canBuyCash
+                          ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                          : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                      }`}
+                    >
+                      {isEquipped ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                          <span>Equipped Outside View</span>
+                        </>
+                      ) : isUnlocked ? (
+                        <span>Equip {scenery.name}</span>
+                      ) : isMilestone ? (
+                        <>
+                          <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                          <span>
+                            Reach ${milestoneReq.toLocaleString()} Gross ({milestonePct}%)
+                          </span>
+                        </>
+                      ) : (
+                        <span>Unlock · ${scenery.cost.toLocaleString()}</span>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 1.6: 6 Weather-Reactive Cultural Patron Outfits with Single-Context 3D Previews */}
+        {activeTab === 'patron_outfits' && (
+          <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="patron-outfits-panel">
+            <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  data-testid="btn-outfit-mode-auto"
+                  onClick={() => onSetPatronOutfitAutoMatch(true)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                    patronOutfitAutoMatch
+                      ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-[#160E09] shadow'
+                      : 'glass-btn-inner text-[#E7D7C1]'
+                  }`}
+                >
+                  Auto-Match Scenery
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-outfit-mode-custom"
+                  onClick={() => onSetPatronOutfitAutoMatch(false)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                    !patronOutfitAutoMatch
+                      ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-[#160E09] shadow'
+                      : 'glass-btn-inner text-[#E7D7C1]'
+                  }`}
+                >
+                  Custom Mix
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1 text-[10px] font-mono">
+                <span className="text-[#E7D7C1]/80">Preview:</span>
+                <button
+                  type="button"
+                  onClick={() => setOutfitPreviewClimate('summer')}
+                  className={`px-2 py-0.5 rounded-md border flex items-center gap-1 cursor-pointer ${
+                    outfitPreviewClimate === 'summer'
+                      ? 'bg-amber-500/25 border-amber-400 text-amber-200 font-bold'
+                      : 'bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                  }`}
+                >
+                  <Sun className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                  <span>Summer</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutfitPreviewClimate('winter')}
+                  className={`px-2 py-0.5 rounded-md border flex items-center gap-1 cursor-pointer ${
+                    outfitPreviewClimate === 'winter'
+                      ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-bold'
+                      : 'bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                  }`}
+                >
+                  <CloudSnow className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                  <span>Winter</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {PATRON_OUTFIT_CATALOG.map((outfit) => {
+                const isUnlocked = unlockedPatronOutfits.includes(outfit.id);
+                const isCustomEnabled = enabledCustomPatronOutfits.includes(outfit.id);
+                const canAfford = !isUnlocked && cash >= outfit.cost;
+                const isWinterOnly = outfit.weatherMode === 'winter-only';
+                const isWeatherReactive = outfit.weatherMode === 'weather-reactive';
+                const previewClimate: ClimateState = isWinterOnly
+                  ? 'winter'
+                  : isWeatherReactive
+                  ? outfitPreviewClimate
+                  : 'summer';
+
+                return (
+                  <div
+                    key={outfit.id}
+                    data-testid={`patron-outfit-card-${outfit.id}`}
+                    className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
+                      isUnlocked && (patronOutfitAutoMatch || isCustomEnabled)
+                        ? 'bg-amber-500/15 border-amber-400/75'
+                        : 'bg-white/[0.06] border-amber-400/20'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <StudioPreviewThumb
+                        cacheKey={`outfit:${outfit.id}:${previewClimate}`}
+                        renderThumbnail={
+                          getPatronOutfitThumbnail
+                            ? () => getPatronOutfitThumbnail(outfit.id, previewClimate)
+                            : undefined
+                        }
+                        alt={outfit.name}
+                        className="w-16 h-16 rounded-xl"
+                        fallbackColorHex={outfit.accentHex}
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                            {outfit.name}
+                          </span>
+                          {isWinterOnly ? (
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/25 border border-sky-300/60 text-[9px] font-mono font-bold text-sky-200 shrink-0">
+                              Winter Only
+                            </span>
+                          ) : isWeatherReactive ? (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-[9px] font-mono font-bold text-amber-200 shrink-0">
+                              2-Season
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-[10px] text-[#E7D7C1]/85 leading-snug">
+                          {outfit.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    {isUnlocked ? (
+                      patronOutfitAutoMatch ? (
+                        <div className="w-full py-1.5 px-3 rounded-lg bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 text-xs font-bold font-mono flex items-center justify-center gap-1.5">
+                          <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                          <span>Unlocked · Auto-Matches Scenery</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          data-testid={`btn-toggle-custom-outfit-${outfit.id}`}
+                          onClick={() => onToggleCustomPatronOutfit(outfit.id)}
+                          className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                            isCustomEnabled
+                              ? 'bg-emerald-950/75 border border-emerald-400/60 text-emerald-200'
+                              : 'glass-btn-inner text-[#E7D7C1]'
+                          }`}
+                        >
+                          {isCustomEnabled ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                              <span>Included in Custom Mix</span>
+                            </>
+                          ) : (
+                            <span>Add to Custom Mix</span>
+                          )}
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid={`btn-buy-outfit-${outfit.id}`}
+                        disabled={!canAfford}
+                        onClick={() => onPurchasePatronOutfit(outfit.id)}
+                        className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
+                          canAfford
+                            ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
+                            : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                        }`}
+                      >
+                        <span>Unlock Pack · ${outfit.cost.toLocaleString()}</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -489,42 +854,48 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 }`}
               >
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span
-                        className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/40 shadow-inner"
-                        style={{ backgroundColor: coatCss }}
-                        title={cat.coatSummary}
-                      />
-                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
-                        {cat.name}
-                      </span>
-                      <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-black/40 border border-white/15 text-[#E7D7C1]/90 shrink-0">
-                        {cat.sizeSummary}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0" title={cat.eyesSummary}>
-                      <span
-                        className="w-2.5 h-2.5 rounded-full border border-white/40"
-                        style={{ backgroundColor: leftEyeCss }}
-                      />
-                      <span
-                        className="w-2.5 h-2.5 rounded-full border border-white/40"
-                        style={{ backgroundColor: rightEyeCss }}
-                      />
-                      {collarCss && (
-                        <span
-                          className="w-2.5 h-2.5 rounded-sm border border-white/35"
-                          style={{ backgroundColor: collarCss }}
-                          title={cat.collarSummary}
-                        />
-                      )}
+                  <div className="flex items-start gap-2.5">
+                    <StudioPreviewThumb
+                      cacheKey={`cat:${cat.id}`}
+                      renderThumbnail={getCatThumbnail ? () => getCatThumbnail(cat.id) : undefined}
+                      alt={cat.name}
+                      className="w-13 h-13 rounded-xl"
+                      fallbackColorHex={coatCss}
+                    />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                            {cat.name}
+                          </span>
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-black/40 border border-white/15 text-[#E7D7C1]/90 shrink-0">
+                            {cat.sizeSummary}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0" title={cat.eyesSummary}>
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-white/40"
+                            style={{ backgroundColor: leftEyeCss }}
+                          />
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-white/40"
+                            style={{ backgroundColor: rightEyeCss }}
+                          />
+                          {collarCss && (
+                            <span
+                              className="w-2.5 h-2.5 rounded-sm border border-white/35"
+                              style={{ backgroundColor: collarCss }}
+                              title={cat.collarSummary}
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-[#E7D7C1]/90 leading-snug">
+                        {cat.coatSummary} · {cat.eyesSummary} · {cat.collarSummary}
+                      </p>
                     </div>
                   </div>
-
-                  <p className="text-[10px] text-[#E7D7C1]/90 leading-snug">
-                    {cat.coatSummary} · {cat.eyesSummary} · {cat.collarSummary}
-                  </p>
 
                   {cat.id === 'mikmik' && (
                     <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/60 text-[10px] font-mono font-bold text-amber-200">

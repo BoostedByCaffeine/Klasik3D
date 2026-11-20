@@ -330,6 +330,13 @@ class SoundEngine {
     this.ensureContext();
   }
 
+  private outdoorAmbienceBoost = false;
+
+  public setOutdoorAmbienceBoost(boosted: boolean) {
+    this.outdoorAmbienceBoost = boosted;
+    this.applyAmbienceGains();
+  }
+
   public setAmbienceVolume(vol: number) {
     this.ambienceVolume = Math.max(0, Math.min(1, vol));
     this.applyAmbienceGains();
@@ -343,20 +350,23 @@ class SoundEngine {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     const scale = this.isMuted ? 0 : this.ambienceVolume;
+    const outRainMult = this.outdoorAmbienceBoost ? 1.55 : 1.0;
+    const outMurmurMult = this.outdoorAmbienceBoost ? 0.35 : 1.0;
+    const outGranularMult = this.outdoorAmbienceBoost ? 1.45 : 1.0;
     if (this.rainGain) {
-      this.rainGain.gain.setTargetAtTime(0.055 * scale, now, 0.08);
+      this.rainGain.gain.setTargetAtTime(0.055 * scale * outRainMult, now, 0.14);
     }
     if (this.ambienceGain) {
-      this.ambienceGain.gain.setTargetAtTime(0.038 * scale, now, 0.08);
+      this.ambienceGain.gain.setTargetAtTime(0.038 * scale * outMurmurMult, now, 0.14);
     }
     if (this.granularMasterGain) {
-      this.granularMasterGain.gain.setTargetAtTime(1.1 * scale, now, 0.08);
+      this.granularMasterGain.gain.setTargetAtTime(1.1 * scale * outGranularMult, now, 0.14);
     }
     if (this.crackleGain) {
       this.crackleGain.gain.setTargetAtTime(
-        this.crackleEnabled && !this.isMuted ? 0.14 : 0,
+        this.crackleEnabled && !this.isMuted ? (this.outdoorAmbienceBoost ? 0.04 : 0.14) : 0,
         now,
-        0.08
+        0.12
       );
     }
   }

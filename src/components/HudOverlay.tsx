@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowRight,
+  Bell,
   Bike,
   BookOpen,
   Cat,
@@ -15,6 +15,7 @@ import {
   Croissant,
   CupSoda,
   Disc3,
+  DoorOpen,
   Download,
   Eye,
   EyeOff,
@@ -27,8 +28,10 @@ import {
   Maximize2,
   Meh,
   Menu,
+  Milk,
   Minus,
   Pin,
+  ReceiptText,
   RotateCcw,
   ShoppingBag,
   SlidersHorizontal,
@@ -110,6 +113,7 @@ interface HudOverlayProps {
   onTogglePause: () => void;
   onToggleVinyl: () => void;
   onOpenCatStation: () => void;
+  onOpenGoOutside: () => void;
   onChangeGraphics: (quality: GraphicsQuality) => void;
   onToggleRealismMode: () => void;
   onRequestFullscreenLandscape: () => void;
@@ -160,6 +164,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onTogglePause,
   onToggleVinyl,
   onOpenCatStation,
+  onOpenGoOutside,
   onChangeGraphics,
   onToggleRealismMode,
   onRequestFullscreenLandscape,
@@ -241,8 +246,6 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
   const currentStationMeta =
     STATION_TABS.find((s) => s.id === gameState.activeStation) || STATION_TABS[2];
-  const recommendedStationMeta =
-    STATION_TABS.find((s) => s.id === nextStep.station) || STATION_TABS[2];
 
   const handlePrevStation = () => {
     const prevSt = (
@@ -768,7 +771,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               )}
             </button>
 
-            {/* 6. Cafe Decor & Granular Weather Lighting */}
+            {/* 6. Cafe Decor, Outdoor Sceneries & Weather */}
             <button
               type="button"
               data-testid="btn-menu-decor"
@@ -780,8 +783,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             >
               <Sprout className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
-                <div className="truncate">Cafe Decor</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">20 Styles &amp; 10 Weathers</div>
+                <div className="truncate">Decor &amp; Weather</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate">3D Previews &amp; Snow</div>
               </div>
             </button>
 
@@ -1316,57 +1319,121 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       <div
         className="pointer-events-auto min-h-9 sm:min-h-10 w-full glass-panel !rounded-none !border-x-0 !border-b-0 hud-bottom-safe flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
       >
-        {/* Left Side: Compact Switchable Station Pill <-Station-> */}
+        {/* Left Side: Phase 7 Direct-Access Icon + Label Station Pill Bar */}
         <div
           data-testid="station-switcher-pill"
-          className="inline-flex items-center gap-1 bg-black/30 border border-amber-400/35 rounded-full p-0.5 shrink-0"
+          className="inline-flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 shrink-0"
           role="group"
-          aria-label="Switch Barista Station"
+          aria-label="Barista Stations & Cafe Views"
         >
-          <button
-            type="button"
-            data-testid="btn-station-prev"
-            onClick={handlePrevStation}
-            className="glass-btn-inner w-6 h-6 rounded-full hover:!bg-amber-500 hover:!text-[#160E09] text-amber-200 flex items-center justify-center cursor-pointer"
-            title={isApkVersion ? 'Previous Station' : 'Previous Station [A / Left]'}
-            aria-label="Previous Station"
-          >
-            <ArrowLeft className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-          </button>
-
-          <div
-            data-testid="station-pill-label"
-            className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold text-[10px] sm:text-xs whitespace-nowrap flex items-center gap-1 shadow-[0_2px_10px_-2px_rgba(245,158,11,0.55)]"
-          >
-            <span>{currentStationMeta.name}</span>
-          </div>
-
-          <button
-            type="button"
-            data-testid="btn-station-next"
-            onClick={handleNextStation}
-            className="glass-btn-inner w-6 h-6 rounded-full hover:!bg-amber-500 hover:!text-[#160E09] text-amber-200 flex items-center justify-center cursor-pointer"
-            title={isApkVersion ? 'Next Station' : 'Next Station [D / Right]'}
-            aria-label="Next Station"
-          >
-            <ArrowRight className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-          </button>
-
-          {/* Subtle Guided Next-Station Indicator (Hidden when Realism Mode is ON) */}
-          {!isRealismMode &&
-            targetRecipe &&
-            nextStep.station !== gameState.activeStation && (
+          {(
+            [
+              { id: 1 as BaristaStationId, label: 'Pastry', Icon: Croissant, testId: 'pill-station-1' },
+              { id: 2 as BaristaStationId, label: 'Orders', Icon: ReceiptText, testId: 'pill-station-2' },
+              { id: 3 as BaristaStationId, label: 'Brew', Icon: Coffee, testId: 'pill-station-3' },
+              { id: 4 as BaristaStationId, label: 'Milk', Icon: Milk, testId: 'pill-station-4' },
+              { id: 5 as BaristaStationId, label: 'Serve', Icon: Bell, testId: 'pill-station-5' },
+            ] as const
+          ).map((st) => {
+            const Icon = st.Icon;
+            const isActive = gameState.activeStation === st.id;
+            const isRecommended =
+              !isRealismMode &&
+              Boolean(targetRecipe) &&
+              nextStep.station === st.id &&
+              !isActive;
+            return (
               <button
+                key={st.id}
                 type="button"
-                data-testid="btn-recommended-station-guide"
-                onClick={() => onSelectStation(nextStep.station)}
-                className="px-2 py-0.5 rounded-full bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/55 text-[10px] font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 mr-0.5 transition-colors"
-                title={`Next step at ${recommendedStationMeta.badge}`}
+                data-testid={st.testId}
+                onClick={() => onSelectStation(st.id)}
+                className={`relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0 ${
+                  isActive
+                    ? 'bg-[#090705]/95 border-[#f5a623] text-[#f5a623] shadow-[0_0_14px_-2px_rgba(245,166,35,0.65)]'
+                    : isRecommended
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-300/75 text-amber-200'
+                    : 'bg-[#090705]/75 hover:bg-[#1a130d]/90 border-white/12 text-[#E7D7C1]/85 hover:text-[#FAF5EE]'
+                }`}
+                title={`${st.label} (Station ${st.id})`}
+                aria-label={`${st.label} Station`}
+                aria-pressed={isActive}
               >
-                <Zap className="w-2.5 h-2.5 text-amber-300 shrink-0" strokeWidth={2.2} />
-                <span>Go: {recommendedStationMeta.name}</span>
+                <Icon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                <span className="text-[8.5px] sm:text-[9px] font-bold uppercase tracking-wider leading-none">
+                  {st.label}
+                </span>
+                {isRecommended && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-amber-300 absolute top-0.5 right-0.5"
+                    aria-hidden="true"
+                  />
+                )}
               </button>
+            );
+          })}
+
+          {/* Direct Cat Station Pill */}
+          <button
+            type="button"
+            data-testid="btn-open-cat-station"
+            onClick={onOpenCatStation}
+            className="relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border bg-[#090705]/75 hover:bg-[#1a130d]/90 border-[#f5a623]/35 text-amber-200 hover:text-[#f5a623] flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0"
+            title={`Visit ${equippedCat.name} · Pet, Comb, Feed Treats & Customize Wardrobe`}
+            aria-label={`Open Cat Station (${equippedCat.name})`}
+          >
+            <Cat className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+            <span className="text-[8.5px] sm:text-[9px] font-bold uppercase tracking-wider leading-none">
+              Cats
+            </span>
+            {hasUnseenCatUnlock && (
+              <span
+                data-testid="cat-unlock-badge-dot"
+                className="w-2 h-2 rounded-full bg-[#f5a623] border border-[#090705] absolute -top-0.5 -right-0.5"
+                aria-label="New cat or cosmetic unlocked"
+              />
             )}
+          </button>
+
+          {/* Direct Go Outside Scenic Overlook Pill */}
+          <button
+            type="button"
+            data-testid="btn-open-go-outside"
+            onClick={onOpenGoOutside}
+            className="relative min-w-[44px] sm:min-w-[50px] px-1.5 py-1 rounded-xl border bg-[#090705]/75 hover:bg-[#1a130d]/90 border-sky-400/35 text-sky-200 hover:text-sky-100 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0"
+            title="Step Outside to Scenic Overlook (Mood Paused)"
+            aria-label="Go Outside Scenic Overlook"
+          >
+            <DoorOpen className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+            <span className="text-[8.5px] sm:text-[9px] font-bold uppercase tracking-wider leading-none">
+              Outside
+            </span>
+          </button>
+
+          {/* Direct Audio Deck (Station 6) Pill */}
+          <button
+            type="button"
+            data-testid="pill-station-6"
+            onClick={() => onSelectStation(6)}
+            className={`relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0 ${
+              gameState.activeStation === 6
+                ? 'bg-[#090705]/95 border-[#f5a623] text-[#f5a623] shadow-[0_0_14px_-2px_rgba(245,166,35,0.65)]'
+                : 'bg-[#090705]/75 hover:bg-[#1a130d]/90 border-white/12 text-[#E7D7C1]/85 hover:text-[#FAF5EE]'
+            }`}
+            title="Audio Deck (Station 6)"
+            aria-label="Audio Station"
+            aria-pressed={gameState.activeStation === 6}
+          >
+            <Disc3
+              className={`w-3.5 h-3.5 shrink-0 ${
+                audioSnapshot.isPlaying ? 'animate-spin' : ''
+              }`}
+              strokeWidth={2.2}
+            />
+            <span className="text-[8.5px] sm:text-[9px] font-bold uppercase tracking-wider leading-none">
+              Audio
+            </span>
+          </button>
         </div>
 
         {/* Center: Guided One-Tap Next Step Shortcut OR Realism Mode Diegetic Indicator */}
@@ -1894,28 +1961,6 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           )}
         </div>
       </div>
-
-      {/* Phase 5: Left-Edge Glassmorphism Cat Station Icon Button (Static Amber Unlock Badge Dot — zero pulse!) */}
-      <button
-        type="button"
-        data-testid="btn-open-cat-station"
-        onClick={onOpenCatStation}
-        className="pointer-events-auto fixed left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20 min-w-[54px] h-11 sm:min-w-[58px] sm:h-12 px-1.5 rounded-2xl bg-[#090705]/85 hover:bg-[#1a130d]/95 border border-[#f5a623]/45 backdrop-blur-md shadow-[0_10px_24px_-6px_rgba(0,0,0,0.75)] flex flex-col items-center justify-center gap-0.5 text-[#f5a623] cursor-pointer transition-transform active:scale-95"
-        title={`Visit ${equippedCat.name} · Pet, Comb, Feed Treats & Customize Wardrobe`}
-        aria-label={`Open Cat Station (${equippedCat.name})`}
-      >
-        <Cat className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" strokeWidth={2.2} />
-        <span className="text-[8.5px] font-bold uppercase tracking-wider text-[#FAF5EE] leading-none truncate max-w-[48px]">
-          {equippedCat.name}
-        </span>
-        {hasUnseenCatUnlock && (
-          <span
-            data-testid="cat-unlock-badge-dot"
-            className="w-2.5 h-2.5 rounded-full bg-[#f5a623] border border-[#090705] absolute -top-0.5 -right-0.5"
-            aria-label="New cat or cosmetic unlocked"
-          />
-        )}
-      </button>
     </div>
   );
 };

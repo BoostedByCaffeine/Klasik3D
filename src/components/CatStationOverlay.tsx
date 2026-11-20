@@ -27,6 +27,7 @@ import {
   getEffectiveVisibleLoadout,
   normalizeCatLoadout,
 } from '../game/rules';
+import { StudioPreviewThumb } from './StudioPreviewThumb';
 
 export type CatStationActionMode = 'pet' | 'comb' | 'treat' | 'customize';
 
@@ -42,6 +43,7 @@ interface CatStationOverlayProps {
   onTossTreat: () => void;
   onPurchaseCosmetic: (cosmeticId: CatCosmeticId) => void;
   onToggleEquipCosmetic: (catId: CafeCatId, cosmeticId: CatCosmeticId) => void;
+  getCatCosmeticThumbnail?: (cosmeticId: CatCosmeticId) => string;
   onClose: () => void;
 }
 
@@ -68,6 +70,7 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
   onTossTreat,
   onPurchaseCosmetic,
   onToggleEquipCosmetic,
+  getCatCosmeticThumbnail,
   onClose,
 }) => {
   const [wardrobeTab, setWardrobeTab] = useState<CatCosmeticSlot>('eyewear');
@@ -303,13 +306,18 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {item.swatchHex && (
-                        <span
-                          className="w-3.5 h-3.5 rounded-full border border-white/40 shrink-0"
-                          style={{ backgroundColor: item.swatchHex }}
-                        />
-                      )}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <StudioPreviewThumb
+                        cacheKey={`cosmetic:${item.id}`}
+                        renderThumbnail={
+                          getCatCosmeticThumbnail
+                            ? () => getCatCosmeticThumbnail(item.id)
+                            : undefined
+                        }
+                        alt={item.name}
+                        className="w-11 h-11 rounded-lg"
+                        fallbackColorHex={item.swatchHex || '#2a1d14'}
+                      />
                       <div className="min-w-0">
                         <div className="text-xs font-bold text-[#FAF5EE] truncate">{item.name}</div>
                         <div className="text-[10px] text-[#E7D7C1]/75 leading-tight">

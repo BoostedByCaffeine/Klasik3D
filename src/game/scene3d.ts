@@ -6,7 +6,9 @@ import {
   BaristaStationId,
   CafeCatId,
   CafeCatSpec,
+  CatCosmeticId,
   CatLoadout,
+  ClimateState,
   CupVesselType,
   CustomerOrder,
   CustomerSkinPackId,
@@ -16,8 +18,13 @@ import {
   LOUNGE_TABLE_LAYOUT,
   MIATA_BAY,
   PastryId,
+  PatronOutfitId,
+  SECRET_NPC_COOLDOWN_SEC,
+  SceneryId,
+  SecretNpcAppearance,
   SyrupFlavor,
   WeatherMode,
+  canSpawnSecretNpc,
   extractTimeOfDayFromWeather,
   getCafeCatSpec,
   getMoodTier,
@@ -30,10 +37,21 @@ import {
   isOrderReadyToServe,
   isRainyWeather,
   isStepLockActive,
+  resolveSecretNpcAppearance,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
 import { CounterAudioProps, HologramMetadata } from './audio/CounterAudioProps';
-import { attachCatCosmeticsRig, CatCosmeticRigController } from './catCosmetics3d';
+import {
+  attachCatCosmeticsRig,
+  buildCatCosmeticPreviewMesh,
+  CatCosmeticRigController,
+} from './catCosmetics3d';
+import { SceneryManager, buildMiniSceneryDiorama } from './sceneries/SceneryManager';
+import { getSharedGlowSpriteTexture } from './sceneries/sceneryTypes';
+import { applyPatronOutfitToRig, buildPatronOutfitPreviewMesh } from './patronOutfits3d';
+import { applySecretNpcLookToRig, createSecretNpcHeartSprite } from './secretNpc3d';
+import { OutdoorOverlookController, OutdoorVantageKey } from './OutdoorOverlookController';
+import { ThumbnailStudio } from './ThumbnailStudio';
 
 // Pre-allocated scratch math objects (Zero GC in render loop)
 const _targetPos = new THREE.Vector3();
@@ -96,6 +114,7 @@ export interface SceneInteractionCallbacks {
   onScooterSound?: (mode: 'arrive' | 'depart') => void;
   onCatCombStroke?: (speed: number) => void;
   onCatTreatCrunch?: () => void;
+  onEnterGoOutside?: () => void;
 }
 
 interface StationCameraPreset {
@@ -418,6 +437,8 @@ interface ArticulatedCustomerActor {
   walkBlend: number;
   seatedBlend: number;
   facingAngle: number;
+  appliedPatronOutfitKey?: string;
+  isSecretNpc?: boolean;
   moveState: 'walking' | 'idle-queue' | 'yielding-door' | 'seated' | 'leaving_table';
   standUpTimer: number;
   seatExitOrigin: THREE.Vector3 | null;
@@ -638,6 +659,30 @@ export class KlasikCafeScene3D {
   private doorAngle = 0;
   private doorWasOpen = false;
   private doorChimeCooldown = 0;
+
+  // Phases 1-7: Outdoor SceneryManager, Snow particles, Secret Passerby + Hearts, Go Outside Controller, Single-Context ThumbnailStudio
+  private sceneryManager!: SceneryManager;
+  private outdoorOverlook!: OutdoorOverlookController;
+  private thumbnailStudio: ThumbnailStudio | null = null;
+  private snowPoints: THREE.Points | null = null;
+  private snowVelocities: Float32Array = new Float32Array(0);
+  private lastPointerX = 0;
+  private lastPointerY = 0;
+  private activeTouchPoints = new Map<number, { x: number; y: number }>();
+  private lastPinchDist = 0;
+  private secretPasserby: {
+    actor: PooledPedestrian['actor'];
+    x: number;
+    laneZ: number;
+    dir: 1 | -1;
+    speed: number;
+    walkPhase: number;
+    pauseTimer: number;
+    hasPaused: boolean;
+  } | null = null;
+  private secretPasserbyCooldown = 0;
+  private lastHandledSecretServeSeq = 0;
+  private floatingSecretHearts: Array<{ sprite: THREE.Sprite; age: number; maxAge: number }> = [];
   private doorwayQueue: string[] = [];
   private activeDoorCrossId: string | null = null;
   private activeDoorCrossTimer = 0;
@@ -720,6 +765,8 @@ export class KlasikCafeScene3D {
   private preparedPlateGroup!: THREE.Group;
   private preparedBagGroup!: THREE.Group;
   private preparedPlatePastryMeshes!: Record<PastryId, THREE.Group>;
+  private pastryReturnRingMesh!: THREE.Mesh;
+  private pastryReturnRingMat!: THREE.MeshBasicMaterial;
   private pastryReturnAnim: {
     active: boolean;
     elapsed: number;
@@ -864,9 +911,10 @@ export class KlasikCafeScene3D {
     this.scene.background = new THREE.Color(0x1a120e);
     this.scene.fog = new THREE.FogExp2(0x1a120e, 0.015);
 
-    this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 95);
+    this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 240);
     this.camera.position.set(2.02, 1.32, 1.18);
     this.camera.lookAt(-0.85, 0.82, -1.35);
+    this.outdoorOverlook = new OutdoorOverlookController(this.camera);
 
     // 4. Studio Environment Map Reflection (RoomEnvironment + PMREMGenerator)
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -876,12 +924,15 @@ export class KlasikCafeScene3D {
     // 5. Build Procedural Textures
     this.initProceduralTextures();
 
-    // 6. Build Lighting, Sky Dome, Volumetric God Rays, Cafe Interior, Exterior Street & Highway, Stations 1..5
+    // 6. Build Lighting, Sky Dome, Volumetric God Rays, Cafe Interior, Exterior Street & Swappable Sceneries, Stations 1..5
     this.initLights();
     this.initMaterials();
     this.buildSkyAndGodRays();
     this.buildCafeArchitecture();
     this.buildOutdoorNeighborhood();
+    this.sceneryManager = new SceneryManager(this.scene);
+    this.sceneryManager.loadScenery(this.gameState.activeScenery || 'busy_street');
+    this.buildSnowParticles();
     this.buildHangingTitleSign();
     this.buildStation1RegisterAndTickets();
     this.buildStation2EspressoBar();
@@ -904,6 +955,7 @@ export class KlasikCafeScene3D {
     this.redrawOrderTicketTextures();
     this.redrawPosScreenTexture();
     this.syncCustomerActors();
+    this.syncTrafficVisibilityForScenery();
 
     // Pre-warm shaders on hardware GPUs
     if (!this.isSoftwareGl) {
@@ -2604,6 +2656,27 @@ export class KlasikCafeScene3D {
       archGroup.add(slat);
     }
 
+    // Solid Rear Interior Wall (z = +3.7, behind barista cameras) so Go Outside "Look Back" sees a warm enclosed cafe interior instead of open sky
+    const backWallUpper = new THREE.Mesh(new THREE.BoxGeometry(11.5, 3.1, 0.28), warmPlasterMat);
+    backWallUpper.position.set(0, 2.7, 3.72);
+    backWallUpper.receiveShadow = true;
+    archGroup.add(backWallUpper);
+
+    const backWallDado = new THREE.Mesh(new THREE.BoxGeometry(11.5, 1.18, 0.32), concreteDadoMat);
+    backWallDado.position.set(0, 0.59, 3.7);
+    backWallDado.receiveShadow = true;
+    archGroup.add(backWallDado);
+
+    const backDadoRail = new THREE.Mesh(new THREE.BoxGeometry(11.4, 0.05, 0.36), this.counterWoodMat);
+    backDadoRail.position.set(0, 1.19, 3.68);
+    archGroup.add(backDadoRail);
+
+    for (let i = -12; i <= 12; i++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.65, 0.04), this.counterWoodMat);
+      slat.position.set(i * 0.42, 2.58, 3.55);
+      archGroup.add(slat);
+    }
+
     // Framed Vintage Coffee & Roadster Posters on Left Showroom Wall
     const posterConfigs = [
       { title: 'ROAST & VINYL', sub: 'GARAGE SESSIONS', color: '#d97706', z: -1.15 },
@@ -2680,15 +2753,46 @@ export class KlasikCafeScene3D {
       transparent: true,
       opacity: 0.22,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
 
-    // Overhead rolled-steel garage header beam & structural pilasters
+    // Overhead rolled-steel garage header beam, exterior architectural roof overhang & warm wood soffit (visible in Go Outside Look Back!)
     const garageHeaderBeam = new THREE.Mesh(
       new THREE.BoxGeometry(11.6, 0.42, 0.34),
       charcoalSteelMat
     );
     garageHeaderBeam.position.set(0, 3.85, garageWallZ);
     archGroup.add(garageHeaderBeam);
+
+    const extCanopyOverhang = new THREE.Mesh(
+      new THREE.BoxGeometry(11.8, 0.18, 1.35),
+      charcoalSteelMat
+    );
+    extCanopyOverhang.position.set(0, 4.02, garageWallZ - 0.56);
+    archGroup.add(extCanopyOverhang);
+
+    const extCanopySoffit = new THREE.Mesh(
+      new THREE.BoxGeometry(11.4, 0.06, 1.2),
+      this.counterWoodMat
+    );
+    extCanopySoffit.position.set(0, 3.91, garageWallZ - 0.54);
+    archGroup.add(extCanopySoffit);
+
+    // Exterior side brick/plaster pilasters framing the cafe facade cleanly from outside
+    [-5.72, 5.72].forEach((px) => {
+      const extPier = new THREE.Mesh(
+        new THREE.BoxGeometry(0.45, 4.2, 0.65),
+        warmPlasterMat
+      );
+      extPier.position.set(px, 2.1, garageWallZ - 0.12);
+      archGroup.add(extPier);
+    });
+    const extRoofParapet = new THREE.Mesh(
+      new THREE.BoxGeometry(11.9, 0.65, 11.4),
+      warmPlasterMat
+    );
+    extRoofParapet.position.set(0, 4.42, -0.75);
+    archGroup.add(extRoofParapet);
 
     // Split Concrete Knee-Wall Base around the Center-Left Entrance Doorway (doorway: x = -1.72 to -0.58)
     const leftCurb = new THREE.Mesh(new THREE.BoxGeometry(3.98, 0.24, 0.22), concreteDadoMat);
@@ -2810,6 +2914,22 @@ export class KlasikCafeScene3D {
     const openTrim = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.13, 0.01), brassMat);
     openTrim.position.set(doorW * 0.5, 1.56, 0.012);
     this.entranceDoorPivot.add(openTrim);
+
+    // Phase 6: Direct 3D Front Door Tap Hitbox -> Enter "Go Outside" Scenic Overlook Mode!
+    const doorTapCollider = new THREE.Mesh(
+      new THREE.BoxGeometry(doorW, doorH, 0.14),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    doorTapCollider.position.set(doorW / 2, doorH / 2, 0);
+    doorTapCollider.userData = {
+      toolKey: 'front-door-outside',
+      label: 'Go Outside · Scenic Overlook',
+      onClick: () => {
+        this.callbacks.onEnterGoOutside?.();
+      },
+    };
+    this.entranceDoorPivot.add(doorTapCollider);
+    this.interactables.push(doorTapCollider);
     archGroup.add(this.entranceDoorPivot);
 
     // Hanging Brass Shopkeeper Bell mounted above Door Header (x = -1.15, y = 2.30)
@@ -4193,7 +4313,8 @@ export class KlasikCafeScene3D {
     farSidewalk.position.set(0, 0.02, -16.9);
     extGroup.add(farSidewalk);
 
-    // Layer 3: Detailed Multi-Story Neighborhood Storefronts & Apartments right across the street (NO elevated highway!)
+    // Layer 3: Swappable Outdoor Sceneries 1..9 are mounted dynamically by SceneryManager starting at z <= -16.2!
+    // Retain lightweight dummy material refs so legacy weather checks never throw.
     this.cityWindowWarmMat = new THREE.MeshStandardMaterial({
       color: 0xfef3c7,
       emissive: 0xf59e0b,
@@ -4206,187 +4327,52 @@ export class KlasikCafeScene3D {
       emissiveIntensity: 0.1,
       roughness: 0.22,
     });
-    const cityWindowDarkMat = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.18,
-      metalness: 0.42,
-    });
     this.citySignEmissiveMat = new THREE.MeshStandardMaterial({
       color: 0xffedd5,
       emissive: 0xf97316,
       emissiveIntensity: 0.65,
       roughness: 0.25,
     });
-    const corniceMat = new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.78 });
-    const frameTrimMat = new THREE.MeshStandardMaterial({ color: 0x262626, roughness: 0.55 });
-    const hvacMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.72, metalness: 0.25 });
-    const doorWoodMat = new THREE.MeshStandardMaterial({ color: 0x5c341d, roughness: 0.62 });
-    const awningMats = [
-      new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.78 }), // Forest green
-      new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.78 }), // Burgundy bistro
-      new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.78 }), // Navy bookshop
-      new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.78 }), // Warm ochre bakery
-    ];
-    const awningStripeMat = new THREE.MeshStandardMaterial({ color: 0xfaf6f0, roughness: 0.8 });
-
-    const storefrontSpecs: Array<{
-      x: number;
-      w: number;
-      h: number;
-      d: number;
-      wallColor: number;
-      floors: number;
-      cols: number;
-      awningIdx: number;
-      hasNeonSign: boolean;
-      hasWaterTower?: boolean;
-    }> = [
-      { x: -13.6, w: 4.8, h: 6.2, d: 3.6, wallColor: 0x8b4d3b, floors: 3, cols: 3, awningIdx: 0, hasNeonSign: false },
-      { x: -8.3, w: 4.6, h: 5.1, d: 3.4, wallColor: 0xd6c7b2, floors: 2, cols: 3, awningIdx: 1, hasNeonSign: true },
-      { x: -3.2, w: 4.4, h: 6.8, d: 3.6, wallColor: 0x4b5563, floors: 3, cols: 3, awningIdx: 2, hasNeonSign: true, hasWaterTower: true },
-      { x: 1.9, w: 4.7, h: 5.5, d: 3.5, wallColor: 0xc9a882, floors: 2, cols: 3, awningIdx: 3, hasNeonSign: false },
-      { x: 7.2, w: 4.8, h: 6.4, d: 3.6, wallColor: 0x566558, floors: 3, cols: 3, awningIdx: 0, hasNeonSign: true },
-      { x: 12.6, w: 4.8, h: 5.2, d: 3.4, wallColor: 0x7c5c4b, floors: 2, cols: 3, awningIdx: 1, hasNeonSign: false },
-    ];
-
-    const winGeo = new THREE.PlaneGeometry(0.76, 1.02);
-    const frameGeo = new THREE.BoxGeometry(0.88, 1.12, 0.08);
-    const sillGeo = new THREE.BoxGeometry(0.94, 0.09, 0.16);
-
-    storefrontSpecs.forEach((b, bIdx) => {
-      const bGroup = new THREE.Group();
-      const frontZ = -18.0; // Flush with opposite sidewalk edge so street feels intimate & architectural
-      const centerZ = frontZ - b.d / 2;
-
-      const wallMat = new THREE.MeshStandardMaterial({
-        color: b.wallColor,
-        roughness: 0.84,
-      });
-
-      // Main masonry volume
-      const body = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), wallMat);
-      body.position.set(0, b.h / 2, 0);
-      bGroup.add(body);
-
-      // Ground-floor dark stone plinth / storefront base trim
-      const plinth = new THREE.Mesh(
-        new THREE.BoxGeometry(b.w + 0.08, 2.25, b.d + 0.06),
-        frameTrimMat
-      );
-      plinth.position.set(0, 1.125, 0);
-      bGroup.add(plinth);
-
-      // Ground-floor warm illuminated shop display window + wooden shop door
-      const shopWinW = b.w * 0.56;
-      const shopWin = new THREE.Mesh(
-        new THREE.PlaneGeometry(shopWinW, 1.38),
-        bIdx % 3 === 2 ? this.cityWindowCoolMat : this.cityWindowWarmMat
-      );
-      shopWin.position.set(-b.w * 0.14, 1.15, b.d / 2 + 0.045);
-      bGroup.add(shopWin);
-
-      const shopDoor = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1.72, 0.08), doorWoodMat);
-      shopDoor.position.set(b.w * 0.3, 0.9, b.d / 2 + 0.03);
-      bGroup.add(shopDoor);
-
-      const doorGlass = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.5, 0.78),
-        this.cityWindowWarmMat
-      );
-      doorGlass.position.set(b.w * 0.3, 1.24, b.d / 2 + 0.078);
-      bGroup.add(doorGlass);
-
-      // Sloped striped storefront fabric awning over ground floor
-      const awningGroup = new THREE.Group();
-      const awningBody = new THREE.Mesh(
-        new THREE.BoxGeometry(b.w - 0.36, 0.14, 0.78),
-        awningMats[b.awningIdx % awningMats.length]
-      );
-      awningBody.rotation.x = 0.28;
-      awningGroup.add(awningBody);
-
-      // 3 crisp white fabric stripes along awning
-      for (let st = -1; st <= 1; st++) {
-        const stripe = new THREE.Mesh(
-          new THREE.BoxGeometry(0.28, 0.148, 0.79),
-          awningStripeMat
-        );
-        stripe.position.x = st * ((b.w - 0.9) * 0.34);
-        stripe.rotation.x = 0.28;
-        awningGroup.add(stripe);
-      }
-      awningGroup.position.set(0, 2.24, b.d / 2 + 0.32);
-      bGroup.add(awningGroup);
-
-      // Upper-story recessed framed window grids (mix of warm lit, cool lit & dark unlit panes!)
-      const spacingX = (b.w - 0.9) / Math.max(1, b.cols);
-      for (let fl = 0; fl < b.floors - 1; fl++) {
-        const wy = 3.25 + fl * 1.48;
-        if (wy > b.h - 0.75) continue;
-        for (let col = 0; col < b.cols; col++) {
-          const wx = -((b.cols - 1) * spacingX) / 2 + col * spacingX;
-          const hash = (bIdx * 7 + fl * 5 + col * 3) % 5;
-          const paneMat =
-            hash === 0 || hash === 2
-              ? this.cityWindowWarmMat
-              : hash === 4
-              ? this.cityWindowCoolMat
-              : cityWindowDarkMat;
-
-          const frame = new THREE.Mesh(frameGeo, frameTrimMat);
-          frame.position.set(wx, wy, b.d / 2 + 0.015);
-          bGroup.add(frame);
-
-          const pane = new THREE.Mesh(winGeo, paneMat);
-          pane.position.set(wx, wy, b.d / 2 + 0.062);
-          bGroup.add(pane);
-
-          const sill = new THREE.Mesh(sillGeo, corniceMat);
-          sill.position.set(wx, wy - 0.58, b.d / 2 + 0.07);
-          bGroup.add(sill);
-        }
-      }
-
-      // Roof Parapet Cornice Molding
-      const cornice = new THREE.Mesh(
-        new THREE.BoxGeometry(b.w + 0.22, 0.26, b.d + 0.22),
-        corniceMat
-      );
-      cornice.position.set(0, b.h + 0.1, 0);
-      bGroup.add(cornice);
-
-      // Rooftop HVAC box or classic wooden water tower silhouette
-      const hvac = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.58, 0.85), hvacMat);
-      hvac.position.set(-b.w * 0.24, b.h + 0.48, -0.35);
-      bGroup.add(hvac);
-
-      if (b.hasWaterTower) {
-        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.56, 0.95, 10), cedarMat);
-        tank.position.set(b.w * 0.22, b.h + 1.05, -0.2);
-        bGroup.add(tank);
-        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.58, 0.36, 10), darkSteelMat);
-        cap.position.set(b.w * 0.22, b.h + 1.7, -0.2);
-        bGroup.add(cap);
-      }
-
-      // Subtle vertical illuminated storefront sign projecting from facade
-      if (b.hasNeonSign) {
-        const signFrame = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.35, 0.52), darkSteelMat);
-        signFrame.position.set(b.w / 2 - 0.18, 3.65, b.d / 2 + 0.34);
-        bGroup.add(signFrame);
-        const signGlow = new THREE.Mesh(
-          new THREE.BoxGeometry(0.16, 1.18, 0.38),
-          this.citySignEmissiveMat
-        );
-        signGlow.position.set(b.w / 2 - 0.18, 3.65, b.d / 2 + 0.34);
-        bGroup.add(signGlow);
-      }
-
-      bGroup.position.set(b.x, 0, centerZ);
-      extGroup.add(bGroup);
-    });
 
     this.scene.add(extGroup);
+  }
+
+  private buildSnowParticles() {
+    const count = 260;
+    const positions = new Float32Array(count * 3);
+    this.snowVelocities = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = -26 + Math.random() * 52;
+      positions[i * 3 + 1] = 0.4 + Math.random() * 14;
+      positions[i * 3 + 2] = -6.8 - Math.random() * 28;
+      this.snowVelocities[i * 3] = (Math.random() - 0.5) * 0.65;
+      this.snowVelocities[i * 3 + 1] = -(1.1 + Math.random() * 1.15);
+      this.snowVelocities[i * 3 + 2] = (Math.random() - 0.5) * 0.45;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      size: 0.24,
+      color: 0xf8fafc,
+      map: getSharedGlowSpriteTexture(),
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false,
+    });
+    this.snowPoints = new THREE.Points(geo, mat);
+    this.snowPoints.visible = false;
+    this.scene.add(this.snowPoints);
+  }
+
+  private syncTrafficVisibilityForScenery() {
+    const sc = this.gameState.activeScenery || 'busy_street';
+    const allowStreetTraffic = sc === 'busy_street' || sc === 'cyberpunk_neon';
+    const isLow = this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
+    const isMed = this.gameState.graphicsQuality === 'medium';
+    const maxStreet = allowStreetTraffic ? (isLow ? 2 : isMed ? 4 : 6) : 0;
+    this.trafficPool.forEach((v, idx) => {
+      v.group.visible = idx < maxStreet;
+    });
   }
 
   // Phase 3.3: Relocated Exterior Wrought-Iron Double-Sided Hanging Blade Sign beside Entrance Door
@@ -5630,26 +5616,29 @@ export class KlasikCafeScene3D {
     tailMid.add(tailTip);
     bodyPivot.add(tailBase);
 
-    // Phase 4: 5 Standardized Cat Rig Attachment Sockets
+    // Phase 4 + Phase 0.1/0.2: 5 Standardized Cat Rig Attachment Sockets (anchor_eyes untouched!)
     const anchorEyes = new THREE.Group();
     anchorEyes.name = 'anchor_eyes';
     anchorEyes.position.set(0, 0.012, 0.072);
     headPivot.add(anchorEyes);
 
+    // Seated directly on skull crown (skull radius 0.072 * 0.96 * 0.84 ≈ 0.058) — zero floating hat gap!
     const anchorHeadTop = new THREE.Group();
     anchorHeadTop.name = 'anchor_head_top';
-    anchorHeadTop.position.set(0, 0.064, 0.002);
+    anchorHeadTop.position.set(0, 0.058, 0.002);
     headPivot.add(anchorHeadTop);
 
+    // Lowered onto actual collar / upper-chest base right beneath chin
     const anchorNeck = new THREE.Group();
     anchorNeck.name = 'anchor_neck';
-    anchorNeck.position.set(0, 0.205, 0.048);
+    anchorNeck.position.set(0, 0.194, 0.05);
     bodyPivot.add(anchorNeck);
 
+    // Aligned vertically along seated cat torso spine (+0.24 tilt matches seated chest-to-haunch axis)
     const anchorTorso = new THREE.Group();
     anchorTorso.name = 'anchor_torso';
-    anchorTorso.position.set(0, 0.118, -0.005);
-    anchorTorso.rotation.x = -0.32;
+    anchorTorso.position.set(0, 0.116, -0.006);
+    anchorTorso.rotation.x = 0.24;
     bodyPivot.add(anchorTorso);
 
     const anchorSpinePoints: THREE.Group[] = [
@@ -7514,34 +7503,34 @@ export class KlasikCafeScene3D {
     );
     st4Group.add(serveTrayGroup);
 
-    // Phase 6: Staged Prepared Pastry beside Serve Coaster (Mini Porcelain Plate for Dine-in OR Kraft Bakery Bag for Takeout!)
+    // Phase 0.4 & 6: Staged Prepared Pastry in unobstructed front-center spot beside Pastry Showcase & Serve Coaster!
     this.preparedPastryStageGroup = new THREE.Group();
-    this.preparedPastryStageGroup.position.set(-1.24, 1.0, 0.08);
+    this.preparedPastryStageGroup.position.set(-1.58, 1.0, 0.34);
     this.preparedPastryStageGroup.visible = false;
 
     this.preparedPlateGroup = new THREE.Group();
     const miniPlateBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.072, 0.056, 0.012, 20),
+      new THREE.CylinderGeometry(0.078, 0.062, 0.012, 20),
       this.ceramicMugMat
     );
     miniPlateBase.position.y = 0.006;
     this.preparedPlateGroup.add(miniPlateBase);
     const miniPlateRim = new THREE.Mesh(
-      new THREE.TorusGeometry(0.07, 0.004, 8, 22),
+      new THREE.TorusGeometry(0.076, 0.0045, 8, 22),
       brassMat
     );
     miniPlateRim.rotation.x = Math.PI / 2;
     miniPlateRim.position.y = 0.012;
     this.preparedPlateGroup.add(miniPlateRim);
 
-    const pDonut = this.buildSculptedPastryMesh('daisy-donut', 0.92);
-    pDonut.position.y = 0.012;
+    const pDonut = this.buildSculptedPastryMesh('daisy-donut', 0.96);
+    pDonut.position.y = 0.013;
     pDonut.visible = false;
-    const pMiata = this.buildSculptedPastryMesh('miata-cake', 0.92);
-    pMiata.position.y = 0.012;
+    const pMiata = this.buildSculptedPastryMesh('miata-cake', 0.96);
+    pMiata.position.y = 0.013;
     pMiata.visible = false;
-    const pCroissant = this.buildSculptedPastryMesh('croissant', 0.96);
-    pCroissant.position.y = 0.012;
+    const pCroissant = this.buildSculptedPastryMesh('croissant', 1.0);
+    pCroissant.position.y = 0.013;
     pCroissant.visible = false;
     this.preparedPlateGroup.add(pDonut, pMiata, pCroissant);
     this.preparedPlatePastryMeshes = {
@@ -7552,16 +7541,33 @@ export class KlasikCafeScene3D {
     this.preparedPastryStageGroup.add(this.preparedPlateGroup);
 
     // Folded Kraft Paper Takeout Bakery Bag with Klasik crest stamp
-    this.preparedBagGroup = this.buildKraftPastryBagMesh(1.0);
+    this.preparedBagGroup = this.buildKraftPastryBagMesh(1.02);
     this.preparedBagGroup.visible = false;
     this.preparedPastryStageGroup.add(this.preparedBagGroup);
 
-    // Phase 1.3: Clickable Serving Pastry Plate hitbox -> returns pastry to showcase in 220ms reverse-arc
+    // Phase 0.4: Subtle pulsing warm amber ring highlight signaling tap-to-return-to-showcase
+    this.pastryReturnRingMat = new THREE.MeshBasicMaterial({
+      color: 0xf5a623,
+      transparent: true,
+      opacity: 0.65,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.pastryReturnRingMesh = new THREE.Mesh(
+      new THREE.RingGeometry(0.086, 0.114, 28),
+      this.pastryReturnRingMat
+    );
+    this.pastryReturnRingMesh.rotation.x = -Math.PI / 2;
+    this.pastryReturnRingMesh.position.y = 0.004;
+    this.preparedPastryStageGroup.add(this.pastryReturnRingMesh);
+
+    // Phase 0.4 & 1.3: Expanded 1.45x top-priority touch hitbox for effortless mobile tapping
     const plateHit = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.11, 0.12, 12),
+      new THREE.CylinderGeometry(0.16, 0.16, 0.16, 14),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    plateHit.position.y = 0.06;
+    plateHit.position.y = 0.08;
     this.preparedPastryStageGroup.add(plateHit);
     this.registerInteractiveTool(
       'prepared-pastry-plate',
@@ -8155,7 +8161,8 @@ export class KlasikCafeScene3D {
       goldCap.position.set(cx, 0.168, 0);
       this.upgradeGeishaVaultGroup.add(goldCap);
     });
-    this.upgradeGeishaVaultGroup.position.set(-1.16, 1.0, 0.14);
+    // Phase 0.4: Relocated neatly to far customer-facing counter edge behind grinder so canisters NEVER block the pastry plate!
+    this.upgradeGeishaVaultGroup.position.set(-0.84, 1.0, -0.18);
     this.upgradeGeishaVaultGroup.visible = false;
     this.scene.add(this.upgradeGeishaVaultGroup);
 
@@ -8680,7 +8687,9 @@ export class KlasikCafeScene3D {
     avatarColor: string,
     shirtColor: string,
     skinPackId: CustomerSkinPackId = 'casual-garden',
-    deliveryRiderVariant?: DeliveryRiderVariant
+    deliveryRiderVariant?: DeliveryRiderVariant,
+    patronOutfit?: { id: PatronOutfitId; climate: ClimateState } | null,
+    secretNpcAppearance?: SecretNpcAppearance | null
   ): Omit<
     ArticulatedCustomerActor,
     'currentPos' | 'lastPos' | 'waypoints' | 'finalGoalKey' | 'walkPhase' | 'walkBlend' | 'seatedBlend' | 'facingAngle'
@@ -9572,6 +9581,47 @@ export class KlasikCafeScene3D {
     activitySprite.visible = false;
     group.add(activitySprite);
 
+    // Phase 4 & 5: Apply Secret Easter Egg NPC look (immune to patron outfits!) OR modular Patron Outfit pack
+    if (secretNpcAppearance) {
+      applySecretNpcLookToRig(
+        {
+          torsoGroup,
+          neckJoint,
+          leftArmJoint: leftArm.elbowJoint,
+          rightArmJoint: rightArm.elbowJoint,
+          leftHipJoint: leftLeg.hipJoint,
+          rightHipJoint: rightLeg.hipJoint,
+          leftKneeJoint: leftLeg.kneeJoint,
+          rightKneeJoint: rightLeg.kneeJoint,
+          skinMat,
+          jacketMat,
+          denimMat,
+          shoeMat,
+          hairMat,
+        },
+        secretNpcAppearance
+      );
+    } else if (patronOutfit && !isRider) {
+      applyPatronOutfitToRig(
+        {
+          pelvisGroup,
+          torsoGroup,
+          neckJoint,
+          leftHipJoint: leftLeg.hipJoint,
+          rightHipJoint: rightLeg.hipJoint,
+          leftKneeJoint: leftLeg.kneeJoint,
+          rightKneeJoint: rightLeg.kneeJoint,
+          jacketMat,
+          denimMat,
+          shoeMat,
+          skinMat,
+        },
+        patronOutfit.id,
+        patronOutfit.climate,
+        seed
+      );
+    }
+
     return {
       group,
       pelvisGroup,
@@ -9603,6 +9653,8 @@ export class KlasikCafeScene3D {
       seed,
       appliedSkinPack: skinPackId,
       appliedShirtColor: shirtColor,
+      appliedPatronOutfitKey: patronOutfit ? `${patronOutfit.id}:${patronOutfit.climate}` : '',
+      isSecretNpc: Boolean(secretNpcAppearance),
       moveState: 'walking' as const,
       standUpTimer: 0,
       seatExitOrigin: null,
@@ -9880,11 +9932,25 @@ export class KlasikCafeScene3D {
     this.gameState.customers.forEach((cust, idx) => {
       let actor = this.customerActors.get(cust.id);
 
-      // Rebuild existing customer actor in-place if the Customer Skin Pack or shirtColor changed (skip for Delivery Rider uniform!)
+      const desiredPatronOutfit =
+        !cust.isSecretNpc && !cust.isDeliveryRider && cust.patronOutfitId
+          ? {
+              id: cust.patronOutfitId,
+              climate: this.gameState.climateState || cust.patronOutfitClimate || 'summer',
+            }
+          : null;
+      const desiredOutfitKey = desiredPatronOutfit
+        ? `${desiredPatronOutfit.id}:${desiredPatronOutfit.climate}`
+        : '';
+
+      // Rebuild existing customer actor in-place if the Customer Skin Pack, shirtColor, or Patron Outfit changed (skip for Delivery Rider / Secret NPC!)
       if (
         actor &&
         !cust.isDeliveryRider &&
-        (actor.appliedSkinPack !== activePackId || actor.appliedShirtColor !== cust.shirtColor)
+        !cust.isSecretNpc &&
+        (actor.appliedSkinPack !== activePackId ||
+          actor.appliedShirtColor !== cust.shirtColor ||
+          (actor.appliedPatronOutfitKey || '') !== desiredOutfitKey)
       ) {
         const preservedPos = actor.currentPos.clone();
         const preservedRotY = actor.group.rotation.y;
@@ -9906,7 +9972,10 @@ export class KlasikCafeScene3D {
           preservedSeed,
           cust.avatarColor,
           cust.shirtColor,
-          activePackId
+          activePackId,
+          undefined,
+          desiredPatronOutfit,
+          null
         );
         rebuilt.group.position.copy(preservedPos);
         rebuilt.group.rotation.y = preservedRotY;
@@ -9940,7 +10009,9 @@ export class KlasikCafeScene3D {
           cust.avatarColor,
           cust.shirtColor,
           activePackId,
-          cust.isDeliveryRider ? cust.riderVariant || 'green' : undefined
+          cust.isDeliveryRider ? cust.riderVariant || 'green' : undefined,
+          desiredPatronOutfit,
+          cust.isSecretNpc ? cust.secretNpcAppearance || { wearsCap: false, hoodUp: false, wearsCharcoalTee: false } : null
         );
         // Delivery Rider arrives riding their assigned scooter!
         const assignedScooter = this.deliveryScooters.find((s) => s.customerId === cust.id);
@@ -10080,12 +10151,28 @@ export class KlasikCafeScene3D {
     const prevWeather = this.gameState.weather;
     const prevQuality = this.gameState.graphicsQuality;
     const prevCatId = this.gameState.equippedCatId;
+    const prevScenery = this.gameState.activeScenery || 'busy_street';
+    const prevSnow = Boolean(this.gameState.isSnowing);
+    const prevClimate = this.gameState.climateState || 'summer';
     this.gameState = newState;
+
+    const nextScenery = newState.activeScenery || 'busy_street';
+    const sceneryChanged = prevScenery !== nextScenery;
+    if (sceneryChanged && this.sceneryManager) {
+      this.sceneryManager.loadScenery(nextScenery);
+      this.syncTrafficVisibilityForScenery();
+    }
 
     if (prevQuality !== newState.graphicsQuality) {
       this.updateGraphicsQuality();
+      this.syncTrafficVisibilityForScenery();
     }
-    if (prevWeather !== newState.weather) {
+    if (
+      prevWeather !== newState.weather ||
+      sceneryChanged ||
+      prevSnow !== Boolean(newState.isSnowing) ||
+      prevClimate !== (newState.climateState || 'summer')
+    ) {
       this.applyWeatherLighting(newState.weather);
     }
     if (
@@ -10101,11 +10188,268 @@ export class KlasikCafeScene3D {
       this.catLastLoadoutKey = loadoutKey;
       this.syncCatCosmetics();
     }
+
+    // Phase 5: Spawn warm floating heart particle above Secret NPC upon serve
+    const nextSecretSeq = newState.lastSecretServeSeq ?? 0;
+    if (nextSecretSeq > this.lastHandledSecretServeSeq) {
+      this.lastHandledSecretServeSeq = nextSecretSeq;
+      const secretCust = newState.customers.find((c) => c.isSecretNpc);
+      if (secretCust) {
+        const actor = this.customerActors.get(secretCust.id);
+        if (actor) {
+          this.spawnSecretHeartAt(actor.currentPos);
+        }
+      }
+    }
+
     this.updateDecorMaterials();
     this.updateActiveCupVisuals();
     this.redrawOrderTicketTextures();
     this.redrawPosScreenTexture();
     this.syncCustomerActors();
+  }
+
+  private spawnSecretHeartAt(pos: THREE.Vector3) {
+    for (let i = 0; i < 3; i++) {
+      const sprite = createSecretNpcHeartSprite();
+      sprite.position.set(
+        pos.x + (i - 1) * 0.22,
+        1.78 + i * 0.14,
+        pos.z + (i % 2 === 0 ? 0.08 : -0.08)
+      );
+      this.scene.add(sprite);
+      this.floatingSecretHearts.push({ sprite, age: -i * 0.18, maxAge: 2.2 });
+    }
+  }
+
+  // Phase 6: Go Outside Scenic Overlook Mode public API
+  public setOutdoorOverlookMode(active: boolean, vantage: OutdoorVantageKey = 'porch') {
+    if (active) {
+      this.outdoorOverlook.enter(vantage);
+    } else {
+      this.outdoorOverlook.exit();
+    }
+    if (this.renderer && this.scene && this.camera) {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  public setOutdoorVantage(vantage: OutdoorVantageKey) {
+    this.outdoorOverlook.setVantage(vantage, false);
+  }
+
+  public isOutdoorOverlookActive(): boolean {
+    return this.outdoorOverlook.active;
+  }
+
+  public isSecretPasserbyActive(): boolean {
+    return this.secretPasserby !== null;
+  }
+
+  // Phase 7: Single-Context Offscreen ThumbnailStudio API (ZERO extra WebGLRenderer!)
+  private ensureThumbnailStudio(): ThumbnailStudio {
+    if (!this.thumbnailStudio) {
+      this.thumbnailStudio = new ThumbnailStudio(this.renderer, 256);
+    }
+    return this.thumbnailStudio;
+  }
+
+  public getSceneryThumbnail(sceneryId: SceneryId): string {
+    return this.ensureThumbnailStudio().getThumbnail(
+      `scenery:${sceneryId}`,
+      () => buildMiniSceneryDiorama(sceneryId),
+      { cameraPos: [2.15, 1.72, 2.35], lookAt: [0, 0.15, 0], scaleFill: 1.5 }
+    );
+  }
+
+  public getPatronOutfitThumbnail(outfitId: PatronOutfitId, climate: ClimateState = 'summer'): string {
+    const effective = outfitId === 'hiker' ? 'winter' : climate;
+    return this.ensureThumbnailStudio().getThumbnail(
+      `outfit:${outfitId}:${effective}`,
+      () => buildPatronOutfitPreviewMesh(outfitId, effective),
+      { cameraPos: [0.45, 0.35, 2.45], lookAt: [0, 0.02, 0], scaleFill: 1.48 }
+    );
+  }
+
+  public getCatCosmeticThumbnail(cosmeticId: CatCosmeticId): string {
+    return this.ensureThumbnailStudio().getThumbnail(
+      `cosmetic:${cosmeticId}`,
+      () => buildCatCosmeticPreviewMesh(cosmeticId),
+      { cameraPos: [1.55, 1.05, 1.95], lookAt: [0, 0, 0], scaleFill: 1.38 }
+    );
+  }
+
+  public getCatThumbnail(catId: CafeCatId): string {
+    return this.ensureThumbnailStudio().getThumbnail(
+      `cat:${catId}`,
+      () => {
+        const spec = getCafeCatSpec(catId);
+        const g = new THREE.Group();
+        const furMat = new THREE.MeshStandardMaterial({ color: spec.furHex, roughness: 0.78 });
+        const accMat = new THREE.MeshStandardMaterial({
+          color: spec.bellyPatchHex ?? spec.stripeHex ?? spec.furHex,
+          roughness: 0.76,
+        });
+        const leftEyeMat = new THREE.MeshStandardMaterial({
+          color: spec.leftEyeHex,
+          emissive: spec.leftEyeHex,
+          emissiveIntensity: 0.18,
+          roughness: 0.2,
+        });
+        const rightEyeMat = new THREE.MeshStandardMaterial({
+          color: spec.rightEyeHex,
+          emissive: spec.rightEyeHex,
+          emissiveIntensity: 0.18,
+          roughness: 0.2,
+        });
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 14), furMat);
+        body.scale.set(0.95, 1.12, 1.05);
+        body.position.set(0, 0.14, 0);
+        g.add(body);
+        const chest = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), accMat);
+        chest.position.set(0, 0.15, 0.075);
+        g.add(chest);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 14), furMat);
+        head.position.set(0, 0.31, 0.03);
+        g.add(head);
+        [-0.065, 0.065].forEach((ex) => {
+          const ear = new THREE.Mesh(new THREE.ConeGeometry(0.038, 0.085, 6), furMat);
+          ear.position.set(ex, 0.41, 0.02);
+          ear.rotation.z = ex < 0 ? 0.22 : -0.22;
+          g.add(ear);
+        });
+        const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 8), leftEyeMat);
+        leftEye.position.set(0.042, 0.32, 0.13);
+        const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.017, 10, 8), rightEyeMat);
+        rightEye.position.set(-0.042, 0.32, 0.13);
+        g.add(leftEye, rightEye);
+        const nose = new THREE.Mesh(
+          new THREE.SphereGeometry(0.013, 8, 6),
+          new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.4 })
+        );
+        nose.position.set(0, 0.295, 0.145);
+        g.add(nose);
+        if (spec.hasCollar) {
+          const collarMat = new THREE.MeshStandardMaterial({
+            color: spec.collarHex,
+            roughness: 0.55,
+          });
+          const collar = new THREE.Mesh(new THREE.TorusGeometry(0.082, 0.013, 8, 18), collarMat);
+          collar.rotation.x = Math.PI / 2 + 0.18;
+          collar.position.set(0, 0.225, 0.03);
+          g.add(collar);
+          const bell = new THREE.Mesh(
+            new THREE.SphereGeometry(0.018, 8, 8),
+            new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.85, roughness: 0.2 })
+          );
+          bell.position.set(0, 0.21, 0.115);
+          g.add(bell);
+        }
+        g.rotation.y = 0.22;
+        return g;
+      },
+      { cameraPos: [0.55, 0.45, 2.25], lookAt: [0, 0.02, 0], scaleFill: 1.44 }
+    );
+  }
+
+  public getDecorThumbnail(
+    category: 'counterWood' | 'mugColor' | 'neonSignColor' | 'plantDensity',
+    value: string
+  ): string {
+    return this.ensureThumbnailStudio().getThumbnail(
+      `decor:${category}:${value}`,
+      () => {
+        const g = new THREE.Group();
+        if (category === 'counterWood') {
+          const hexMap: Record<string, number> = {
+            walnut: 0x4a2c18,
+            'white-oak': 0xa67c52,
+            'charcoal-ash': 0x2c2a29,
+            'cherry-mahogany': 0x6b2114,
+            'bamboo-zen': 0xc4a46b,
+            'obsidian-slate': 0x27272a,
+          };
+          const slab = new THREE.Mesh(
+            new THREE.BoxGeometry(1.1, 0.18, 0.65),
+            new THREE.MeshStandardMaterial({ color: hexMap[value] ?? 0x4a2c18, roughness: 0.55 })
+          );
+          const base = new THREE.Mesh(
+            new THREE.BoxGeometry(0.95, 0.42, 0.52),
+            new THREE.MeshStandardMaterial({ color: 0x181310, roughness: 0.72 })
+          );
+          base.position.y = -0.3;
+          g.add(slab, base);
+        } else if (category === 'mugColor') {
+          const hexMap: Record<string, number> = {
+            cream: 0xf8f5f0,
+            'matte-black': 0x3f3f46,
+            'sage-green': 0xbbf7d0,
+            terracotta: 0xd97757,
+            'royal-gold': 0xfbbf24,
+            'sakura-pink': 0xf9a8d4,
+          };
+          const mat = new THREE.MeshStandardMaterial({
+            color: hexMap[value] ?? 0xf8f5f0,
+            roughness: value === 'royal-gold' ? 0.2 : 0.45,
+            metalness: value === 'royal-gold' ? 0.85 : 0.06,
+          });
+          const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.26, 0.54, 18), mat);
+          const handle = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.04, 8, 16, Math.PI), mat);
+          handle.position.set(0.3, 0, 0);
+          handle.rotation.z = -Math.PI / 2;
+          const coffee = new THREE.Mesh(
+            new THREE.CircleGeometry(0.28, 16),
+            new THREE.MeshStandardMaterial({ color: 0x5c341d, roughness: 0.3 })
+          );
+          coffee.rotation.x = -Math.PI / 2;
+          coffee.position.y = 0.25;
+          g.add(body, handle, coffee);
+        } else if (category === 'neonSignColor') {
+          const hexMap: Record<string, number> = {
+            amber: 0xf59e0b,
+            emerald: 0x10b981,
+            rose: 0xf43f5e,
+            'cyber-cyan': 0x22d3ee,
+            'violet-dream': 0xa855f7,
+          };
+          const col = hexMap[value] ?? 0xf59e0b;
+          const board = new THREE.Mesh(
+            new THREE.BoxGeometry(1.05, 0.56, 0.08),
+            new THREE.MeshStandardMaterial({ color: 0x181310, roughness: 0.65 })
+          );
+          const tubeMat = new THREE.MeshStandardMaterial({
+            color: col,
+            emissive: col,
+            emissiveIntensity: 1.8,
+            roughness: 0.2,
+          });
+          const tube = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.032, 10, 22), tubeMat);
+          tube.position.z = 0.06;
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.04, 0.04), tubeMat);
+          bar.position.set(0, -0.18, 0.06);
+          g.add(board, tube, bar);
+        } else {
+          const pot = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.26, 0.2, 0.34, 14),
+            new THREE.MeshStandardMaterial({ color: 0x9a5b3b, roughness: 0.78 })
+          );
+          pot.position.y = -0.16;
+          g.add(pot);
+          const leafMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, roughness: 0.65 });
+          const leaves = value === 'lush-jungle' ? 7 : 3;
+          for (let i = 0; i < leaves; i++) {
+            const ang = (i / leaves) * Math.PI * 2;
+            const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), leafMat);
+            leaf.scale.set(1.2, 0.35, 0.8);
+            leaf.position.set(Math.cos(ang) * 0.22, 0.14 + (i % 2) * 0.16, Math.sin(ang) * 0.22);
+            leaf.rotation.z = Math.cos(ang) * 0.35;
+            g.add(leaf);
+          }
+        }
+        return g;
+      },
+      { cameraPos: [1.6, 1.15, 2.0], lookAt: [0, 0, 0], scaleFill: 1.38 }
+    );
   }
 
   public updateSpotifyState(newSpotify: SpotifyVinylState) {
@@ -10449,13 +10793,16 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uSunIntensity.value = 0.0;
         this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
-      if (this.gpuRainLines) this.gpuRainLines.visible = true;
+      if (this.gpuRainLines) this.gpuRainLines.visible = !this.gameState.isSnowing;
+      const isCyberNeonRain = (this.gameState.activeScenery || 'busy_street') === 'cyberpunk_neon';
       if (this.gpuRainMat) {
-        this.gpuRainMat.uniforms.uColor.value.setHex(isDark ? 0xfef3c7 : 0xe2e8f0);
-        this.gpuRainMat.uniforms.uOpacity.value = isDark ? 0.56 : 0.48;
+        this.gpuRainMat.uniforms.uColor.value.setHex(
+          isCyberNeonRain ? 0x22d3ee : isDark ? 0xfef3c7 : 0xe2e8f0
+        );
+        this.gpuRainMat.uniforms.uOpacity.value = isCyberNeonRain ? 0.68 : isDark ? 0.56 : 0.48;
       }
-      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = true;
-      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = true;
+      if (this.rainSplashInstanced) this.rainSplashInstanced.visible = !this.gameState.isSnowing;
+      if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = !this.gameState.isSnowing;
       if (this.godRaysGroup) this.godRaysGroup.visible = false;
       if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
       if (this.godRayMat) this.godRayMat.uniforms.uOpacity.value = 0.0;
@@ -10481,6 +10828,35 @@ export class KlasikCafeScene3D {
       if (this.gpuRainLines) this.gpuRainLines.visible = false;
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+    }
+
+    // 3. Phase 1 & 3: Scenery Environment Hints + Snow / Always-Winter Alpine Lighting Override
+    const envHint = this.sceneryManager?.getEnvironmentHint() || {};
+    const isNightNow = timeOfDay === 'night';
+    if (isNightNow && envHint.fogColorNight !== undefined) {
+      fog.color.lerp(_targetColor.setHex(envHint.fogColorNight), 0.55);
+      bgCol.lerp(_targetColor.setHex(envHint.skyTintNight ?? envHint.fogColorNight), 0.5);
+    } else if (!isNightNow && envHint.fogColorDay !== undefined) {
+      fog.color.lerp(_targetColor.setHex(envHint.fogColorDay), 0.45);
+      if (envHint.skyTintDay !== undefined) {
+        bgCol.lerp(_targetColor.setHex(envHint.skyTintDay), 0.45);
+      }
+    }
+    if (envHint.fogDensityScale) {
+      fog.density *= envHint.fogDensityScale;
+    }
+
+    const snowActive = Boolean(this.gameState.isSnowing) || Boolean(envHint.alwaysWinter);
+    if (this.snowPoints) {
+      this.snowPoints.visible = snowActive;
+    }
+    if (snowActive) {
+      // Crisp alpine winter sunlight (#dceeff) & chilled snow fog
+      if (!isNightNow) {
+        this.sunLight.color.setHex(envHint.sunColorOverride ?? 0xdceeff);
+        fog.color.lerp(_targetColor.setHex(0xdceeff), 0.45);
+      }
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.62;
     }
   }
 
@@ -10743,7 +11119,7 @@ export class KlasikCafeScene3D {
           pinnedOrder?.orderType === 'takeout' || Boolean(pinnedOrder?.isDeliveryRider);
         this.preparedPastryStageGroup.visible = true;
         if (!this.pastryReturnAnim.active) {
-          this.preparedPastryStageGroup.position.set(-1.24, 1.0, 0.08);
+          this.preparedPastryStageGroup.position.set(-1.58, 1.0, 0.34);
           this.preparedPastryStageGroup.scale.setScalar(1);
         }
         this.preparedPlateGroup.visible = !isTakeout;
@@ -10783,6 +11159,13 @@ export class KlasikCafeScene3D {
       this.isPointerDragging = true;
       this.pointerDownX = e.clientX;
       this.pointerDownY = e.clientY;
+      this.lastPointerX = e.clientX;
+      this.lastPointerY = e.clientY;
+      this.activeTouchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.activeTouchPoints.size === 2) {
+        const pts = Array.from(this.activeTouchPoints.values());
+        this.lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      }
       const isPortraitRotated = window.innerHeight > window.innerWidth;
       this.dragStartCoord = isPortraitRotated ? e.clientY : e.clientX;
       updateNdc(e.clientX, e.clientY);
@@ -10803,6 +11186,33 @@ export class KlasikCafeScene3D {
     });
 
     dom.addEventListener('pointermove', (e: PointerEvent) => {
+      if (this.activeTouchPoints.has(e.pointerId)) {
+        this.activeTouchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+      // Phase 6: Pinch-to-zoom & smooth 2D touch-drag panoramic look when in Go Outside Mode
+      if (this.outdoorOverlook.active) {
+        if (this.activeTouchPoints.size >= 2) {
+          const pts = Array.from(this.activeTouchPoints.values());
+          const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+          if (this.lastPinchDist > 0) {
+            this.outdoorOverlook.onZoom((this.lastPinchDist - dist) * 0.08);
+          }
+          this.lastPinchDist = dist;
+          return;
+        }
+        if (this.isPointerDragging) {
+          const isPortraitRotated = window.innerHeight > window.innerWidth;
+          const rawDx = e.clientX - this.lastPointerX;
+          const rawDy = e.clientY - this.lastPointerY;
+          this.lastPointerX = e.clientX;
+          this.lastPointerY = e.clientY;
+          const dx = isPortraitRotated ? rawDy : rawDx;
+          const dy = isPortraitRotated ? -rawDx : rawDy;
+          this.outdoorOverlook.onDrag(dx, dy);
+        }
+        return;
+      }
+
       if (this.isPointerDragging && this.gameState.phase === 'playing') {
         const isPortraitRotated = window.innerHeight > window.innerWidth;
         const curCoord = isPortraitRotated ? e.clientY : e.clientX;
@@ -10889,9 +11299,13 @@ export class KlasikCafeScene3D {
     });
 
     window.addEventListener('pointerup', (e: PointerEvent) => {
+      this.activeTouchPoints.delete(e.pointerId);
+      if (this.activeTouchPoints.size < 2) this.lastPinchDist = 0;
       if (!this.isPointerDragging) return;
       this.isPointerDragging = false;
       this.catBrushActive = false;
+
+      if (this.outdoorOverlook.active) return;
 
       if (e.pointerType !== 'mouse') {
         this.hoveredToolKey = null;
@@ -10918,7 +11332,12 @@ export class KlasikCafeScene3D {
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
       const hits = this.raycaster.intersectObjects(this.interactables, true);
       if (hits.length > 0) {
-        const data = hits[0].object.userData;
+        // Phase 0.4: Prioritize plated pastry return hitbox ahead of neighboring counter props when visible
+        const prioritizedHit =
+          this.gameState.preparedPastry && !this.pastryReturnAnim.active
+            ? hits.find((h) => h.object.userData?.toolKey === 'prepared-pastry-plate') || hits[0]
+            : hits[0];
+        const data = prioritizedHit.object.userData;
         if (data && typeof data.onClick === 'function') {
           data.onClick();
           return;
@@ -10935,6 +11354,10 @@ export class KlasikCafeScene3D {
     dom.addEventListener(
       'wheel',
       (e: WheelEvent) => {
+        if (this.outdoorOverlook.active) {
+          this.outdoorOverlook.onZoom(e.deltaY * 0.03);
+          return;
+        }
         this.manualCameraZoomOffset = THREE.MathUtils.clamp(
           this.manualCameraZoomOffset + e.deltaY * 0.0008,
           -0.35,
@@ -11613,21 +12036,27 @@ export class KlasikCafeScene3D {
     this.updateDynamicCupShaderLiquid(dt);
     this.updateBaristaStepChoreography(dt);
 
-    // 1b. Phase 1.3 Clickable Serving Pastry Plate Reverse-Arc Return (220ms parabolic tween back to display case)
+    // 1b. Phase 0.4 & 1.3 Clickable Serving Pastry Plate Reverse-Arc Return + Subtle Pulsing Amber Ring
+    if (this.pastryReturnRingMesh && this.pastryReturnRingMat && this.preparedPastryStageGroup?.visible) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 4.2);
+      this.pastryReturnRingMat.opacity = 0.35 + pulse * 0.42;
+      const ringScale = 0.96 + pulse * 0.08;
+      this.pastryReturnRingMesh.scale.setScalar(ringScale);
+    }
     if (this.pastryReturnAnim.active && this.preparedPastryStageGroup) {
       this.pastryReturnAnim.elapsed += dt;
       const u = Math.min(1, this.pastryReturnAnim.elapsed / this.pastryReturnAnim.duration);
       const e = easeInOutCubic(u);
       this.preparedPastryStageGroup.position.set(
-        THREE.MathUtils.lerp(-1.24, -1.86, e),
+        THREE.MathUtils.lerp(-1.58, -1.86, e),
         THREE.MathUtils.lerp(1.0, 1.12, e) + Math.sin(u * Math.PI) * 0.18,
-        THREE.MathUtils.lerp(0.08, 0.2, e)
+        THREE.MathUtils.lerp(0.34, 0.22, e)
       );
       this.preparedPastryStageGroup.scale.setScalar(1 - e * 0.45);
       if (u >= 1) {
         this.pastryReturnAnim.active = false;
         this.preparedPastryStageGroup.visible = false;
-        this.preparedPastryStageGroup.position.set(-1.24, 1.0, 0.08);
+        this.preparedPastryStageGroup.position.set(-1.58, 1.0, 0.34);
         this.preparedPastryStageGroup.scale.setScalar(1);
         this.callbacks.onReturnPastry?.();
       }
@@ -11651,13 +12080,13 @@ export class KlasikCafeScene3D {
       _targetLook.set(-1.35, 0.78, -1.85);
     } else if (this.catStationOpen && this.catPerchGroup) {
       // Phase 5: Close-up framing of active cafe cat on velvet cushion (-2.90, 1.0, 0.24)
-      // When Wardrobe Drawer (right 40%) is open, shift look-target right so the cat sits crisply in the left 60% viewport!
+      // When Wardrobe Drawer (right 40%) is open, shift look-target right so the cat sits crisply centered in the left 60% viewport!
       if (this.catStationCustomizeOpen) {
-        _targetPos.set(-2.68, 1.38, 0.98);
-        _targetLook.set(-2.66, 1.22, 0.24);
+        _targetPos.set(-2.70, 1.34, 1.06);
+        _targetLook.set(-2.74, 1.18, 0.24);
       } else {
-        _targetPos.set(-2.78, 1.36, 0.92);
-        _targetLook.set(-2.9, 1.22, 0.24);
+        _targetPos.set(-2.82, 1.35, 0.94);
+        _targetLook.set(-2.90, 1.20, 0.24);
       }
     } else if (this.isCodexFocused && this.posDisplayMesh) {
       // Diegetic 3D POS Terminal Focus: smoothly zoom right up to the Station 1 POS screen!
@@ -11707,16 +12136,68 @@ export class KlasikCafeScene3D {
       _targetLook.x += this.manualCameraYawOffset * 2.2;
     }
 
-    const camDamp = this.catStationOpen
-      ? 1 - Math.exp(-10.5 * dt)
-      : this.isCodexFocused
-      ? 1 - Math.exp(-9.0 * dt)
-      : dampFactor;
-    this.camera.position.lerp(_targetPos, camDamp);
-    this.currentLookAt.lerp(_targetLook, camDamp);
-    _lookMat.lookAt(this.camera.position, this.currentLookAt, _upVec);
-    _targetQuat.setFromRotationMatrix(_lookMat);
-    this.camera.quaternion.slerp(_targetQuat, camDamp);
+    if (this.outdoorOverlook.active) {
+      this.outdoorOverlook.update(dt);
+    } else {
+      const camDamp = this.catStationOpen
+        ? 1 - Math.exp(-16.0 * dt)
+        : this.isCodexFocused
+        ? 1 - Math.exp(-9.0 * dt)
+        : dampFactor;
+      this.camera.position.lerp(_targetPos, camDamp);
+      this.currentLookAt.lerp(_targetLook, camDamp);
+      _lookMat.lookAt(this.camera.position, this.currentLookAt, _upVec);
+      _targetQuat.setFromRotationMatrix(_lookMat);
+      this.camera.quaternion.slerp(_targetQuat, camDamp);
+    }
+
+    // Update active 3D Outdoor Scenery animations (funicular, Sakura/fireflies, prayer flags, neon holograms, crater clouds)
+    if (this.sceneryManager) {
+      this.sceneryManager.update(
+        dt,
+        this.elapsed,
+        isNightWeather(this.gameState.weather),
+        this.gameState.climateState || 'summer',
+        this.gameState.weather
+      );
+    }
+
+    // Update falling snow particles when Snow / Always Winter is active
+    if (this.snowPoints && this.snowPoints.visible) {
+      const posAttr = this.snowPoints.geometry.attributes.position as THREE.BufferAttribute;
+      const count = posAttr.count;
+      for (let i = 0; i < count; i++) {
+        let sx = posAttr.getX(i) + (this.snowVelocities[i * 3] + Math.sin(this.elapsed * 0.9 + i) * 0.25) * dt;
+        let sy = posAttr.getY(i) + this.snowVelocities[i * 3 + 1] * dt;
+        let sz = posAttr.getZ(i) + this.snowVelocities[i * 3 + 2] * dt;
+        if (sy < 0.05) {
+          sy = 13.5;
+          sx = -26 + ((i * 11.7) % 52);
+          sz = -6.8 - ((i * 5.3) % 26);
+        }
+        posAttr.setXYZ(i, sx, sy, sz);
+      }
+      posAttr.needsUpdate = true;
+    }
+
+    // Update floating heart sprites above Secret NPC upon serve
+    for (let hi = this.floatingSecretHearts.length - 1; hi >= 0; hi--) {
+      const h = this.floatingSecretHearts[hi];
+      h.age += dt;
+      if (h.age < 0) {
+        h.sprite.visible = false;
+        continue;
+      }
+      h.sprite.visible = true;
+      h.sprite.position.y += dt * 0.55;
+      const progress = h.age / h.maxAge;
+      (h.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - progress);
+      if (h.age >= h.maxAge) {
+        this.scene.remove(h.sprite);
+        h.sprite.material.dispose();
+        this.floatingSecretHearts.splice(hi, 1);
+      }
+    }
 
     // 3. Exterior Hanging Blade Sign gentle wind sway & Sky Dome twinkling time uniform
     if (this.skyDomeMat) {
@@ -12106,6 +12587,111 @@ export class KlasikCafeScene3D {
       const nearCafe = Math.abs(p.x) < 3.4 && p.laneZ > -10;
       const targetGlance = nearCafe ? (p.dir === 1 ? -0.45 : 0.45) : 0;
       p.actor.neckJoint.rotation.y += (targetGlance - p.actor.neckJoint.rotation.y) * Math.min(1, dt * 4);
+    }
+
+    // 8b-ii. Phase 5: Secret Easter Egg NPC Outdoor Passerby Cameo (8% roll, singleton + 270s cooldown, 3s pause & friendly wave!)
+    this.secretPasserbyCooldown = Math.max(0, this.secretPasserbyCooldown - dt);
+    const secretCustomerActive = this.gameState.customers.some((c) => Boolean(c.isSecretNpc));
+    if (
+      !this.secretPasserby &&
+      !secretCustomerActive &&
+      this.secretPasserbyCooldown <= 0 &&
+      this.gameState.phase === 'playing'
+    ) {
+      // Check once every ~12 seconds on average so the 8% chance feels organic & rare
+      if (Math.random() < dt * 0.08 && canSpawnSecretNpc({
+        role: 'passerby',
+        isSecretNpcActive: false,
+        cooldownRemainingSec: this.gameState.secretNpcCooldownRemaining ?? 0,
+      })) {
+        const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+        const appearance = resolveSecretNpcAppearance(
+          this.gameState.climateState || 'summer',
+          isRainActive
+        );
+        const actor = this.createCustomerCharacter(
+          777,
+          '#C6936B',
+          appearance.wearsCharcoalTee ? '#595B60' : '#1C1C20',
+          'casual-garden',
+          undefined,
+          null,
+          appearance
+        );
+        actor.group.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) child.castShadow = false;
+        });
+        actor.activitySprite.visible = false;
+        actor.phoneMesh.visible = false;
+        actor.heldCup.visible = false;
+        const startX = dir === 1 ? -14.5 : 14.5;
+        actor.group.position.set(startX, 0.08, -8.35);
+        this.scene.add(actor.group);
+        this.secretPasserby = {
+          actor,
+          x: startX,
+          laneZ: -8.35,
+          dir,
+          speed: 1.28,
+          walkPhase: 0,
+          pauseTimer: 0,
+          hasPaused: false,
+        };
+        this.secretPasserbyCooldown = SECRET_NPC_COOLDOWN_SEC;
+      }
+    }
+
+    if (this.secretPasserby) {
+      const sp = this.secretPasserby;
+      const inWaveZone = Math.abs(sp.x - -1.15) < 0.6;
+      if (!sp.hasPaused && inWaveZone) {
+        sp.hasPaused = true;
+        sp.pauseTimer = 3.0;
+      }
+
+      if (sp.pauseTimer > 0) {
+        sp.pauseTimer -= dt;
+        // Face directly toward the player if standing outside in Go Outside mode, else face the cafe window!
+        const targetFaceAngle = this.outdoorOverlook.active
+          ? Math.atan2(
+              this.camera.position.x - sp.x,
+              this.camera.position.z - sp.laneZ
+            )
+          : 0;
+        sp.actor.group.rotation.y = targetFaceAngle;
+        sp.actor.leftHipJoint.rotation.x = 0;
+        sp.actor.rightHipJoint.rotation.x = 0;
+        sp.actor.leftKneeJoint.rotation.x = 0;
+        sp.actor.rightKneeJoint.rotation.x = 0;
+        // Friendly overhead wave with right arm!
+        sp.actor.rightShoulderJoint.rotation.x = -2.45;
+        sp.actor.rightElbowJoint.rotation.x = -0.35 + Math.sin(this.elapsed * 9.5) * 0.42;
+        sp.actor.leftShoulderJoint.rotation.x = -0.15;
+        sp.actor.leftElbowJoint.rotation.x = -0.25;
+        sp.actor.neckJoint.rotation.y = Math.sin(this.elapsed * 2.5) * 0.12;
+      } else {
+        sp.x += sp.dir * sp.speed * dt;
+        sp.actor.group.position.set(sp.x, 0.08, sp.laneZ);
+        sp.actor.group.rotation.y = sp.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+        sp.walkPhase += sp.speed * dt * 5.0;
+        const s = Math.sin(sp.walkPhase);
+        const c = Math.cos(sp.walkPhase);
+        sp.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * 0.032;
+        sp.actor.leftHipJoint.rotation.x = s * 0.48;
+        sp.actor.rightHipJoint.rotation.x = -s * 0.48;
+        sp.actor.leftKneeJoint.rotation.x = Math.max(0, -c * 0.5);
+        sp.actor.rightKneeJoint.rotation.x = Math.max(0, c * 0.5);
+        sp.actor.leftShoulderJoint.rotation.x = -s * 0.38;
+        sp.actor.rightShoulderJoint.rotation.x = s * 0.38;
+        sp.actor.leftElbowJoint.rotation.x = -0.22;
+        sp.actor.rightElbowJoint.rotation.x = -0.22;
+
+        if ((sp.dir === 1 && sp.x > 15.2) || (sp.dir === -1 && sp.x < -15.2)) {
+          this.scene.remove(sp.actor.group);
+          sp.actor.activityTexture.dispose();
+          this.secretPasserby = null;
+        }
+      }
     }
 
     // 8c. Advance Pooled Outdoor Street Traffic Vehicles (Zero Allocation)
@@ -13010,6 +13596,22 @@ export class KlasikCafeScene3D {
     this.skyDomeMat?.dispose();
     this.godRayMat?.dispose();
     this.gpuRainMat?.dispose();
+    this.sceneryManager?.dispose();
+    this.thumbnailStudio?.dispose();
+    if (this.snowPoints) {
+      this.snowPoints.geometry.dispose();
+      (this.snowPoints.material as THREE.Material).dispose();
+    }
+    if (this.secretPasserby) {
+      this.scene.remove(this.secretPasserby.actor.group);
+      this.secretPasserby.actor.activityTexture.dispose();
+      this.secretPasserby = null;
+    }
+    this.floatingSecretHearts.forEach((h) => {
+      this.scene.remove(h.sprite);
+      h.sprite.material.dispose();
+    });
+    this.floatingSecretHearts = [];
     this.renderer.dispose();
   }
 }

@@ -78,6 +78,25 @@ import {
   SECRET_CAFE_CAT_IDS,
   purchaseCatCosmetic,
   equipCatCosmetic,
+  SCENERY_CATALOG,
+  PATRON_OUTFIT_CATALOG,
+  SECRET_NPC_NAMES,
+  SECRET_NPC_COOLDOWN_SEC,
+  SECRET_NPC_PATIENCE_DRAIN_MULT,
+  SECRET_NPC_TIP_MULTIPLIER,
+  isSnowAllowedForScenery,
+  isAlwaysWinterScenery,
+  clampRainPreferenceForScenery,
+  resolveClimateState,
+  syncSceneryMilestones,
+  purchaseOrEquipScenery,
+  purchasePatronOutfit,
+  setPatronOutfitAutoMatch,
+  toggleCustomPatronOutfit,
+  resolvePatronOutfitForSpawn,
+  resolveSecretNpcAppearance,
+  canSpawnSecretNpc,
+  advanceSecretNpcNameIdx,
 } from './rules';
 import {
   CAT_COSMETICS_CATALOG,
@@ -1427,3 +1446,245 @@ test('Expansion Phase 5: Cat Station pauses customer patience/mood decay cleanly
   assert.equal(pausedTick.customers[0].mood, beforeMood);
   assert.equal(pausedTick.missedOrders, 0);
 });
+
+test('Outdoor Sceneries Phase 1: All 9 sceneries have exact economy, $35K/$65K gross milestones, Snow exclusivity, and Mt. Everest Always Winter lock', () => {
+  assert.equal(SCENERY_CATALOG.length, 9);
+  const byId = Object.fromEntries(SCENERY_CATALOG.map((s) => [s.id, s]));
+  assert.equal(byId.busy_street.cost, 0);
+  assert.equal(byId.mayon_volcano.cost, 2000);
+  assert.equal(byId.hilltop_city_lights.cost, 4000);
+  assert.equal(byId.japanese_tranquility.cost, 6500);
+  assert.equal(byId.brazilian_favela.cost, 9500);
+  assert.equal(byId.cyberpunk_neon.cost, 14000);
+  assert.equal(byId.eiffel_tower.cost, 22000);
+  assert.equal(byId.switzerland_hilltop.revenueMilestone, 35000);
+  assert.equal(byId.mt_everest.revenueMilestone, 65000);
+
+  // Snow exclusivity: ONLY eiffel_tower, switzerland_hilltop, mt_everest allow snow
+  assert.equal(isSnowAllowedForScenery('busy_street'), false);
+  assert.equal(isSnowAllowedForScenery('mayon_volcano'), false);
+  assert.equal(isSnowAllowedForScenery('japanese_tranquility'), false);
+  assert.equal(isSnowAllowedForScenery('brazilian_favela'), false);
+  assert.equal(isSnowAllowedForScenery('cyberpunk_neon'), false);
+  assert.equal(isSnowAllowedForScenery('eiffel_tower'), true);
+  assert.equal(isSnowAllowedForScenery('switzerland_hilltop'), true);
+  assert.equal(isSnowAllowedForScenery('mt_everest'), true);
+
+  // Always Winter lock ONLY on mt_everest
+  assert.equal(isAlwaysWinterScenery('eiffel_tower'), false);
+  assert.equal(isAlwaysWinterScenery('switzerland_hilltop'), false);
+  assert.equal(isAlwaysWinterScenery('mt_everest'), true);
+
+  // Clamping rainPreference on non-snow vs always-winter sceneries
+  assert.equal(clampRainPreferenceForScenery('busy_street', 'snow'), 'clear');
+  assert.equal(clampRainPreferenceForScenery('eiffel_tower', 'snow'), 'snow');
+  assert.equal(clampRainPreferenceForScenery('mt_everest', 'clear'), 'snow');
+  assert.equal(clampRainPreferenceForScenery('mt_everest', 'rain'), 'snow');
+
+  // Revenue milestones auto-unlock Switzerland ($35K) and Mt. Everest ($65K)
+  const at35k = syncSceneryMilestones(['busy_street'], 35000);
+  assert.ok(at35k.unlockedSceneries.includes('switzerland_hilltop'));
+  assert.ok(!at35k.unlockedSceneries.includes('mt_everest'));
+
+  const at65k = syncSceneryMilestones(at35k.unlockedSceneries, 65000);
+  assert.ok(at65k.unlockedSceneries.includes('mt_everest'));
+
+  // Buying a cash scenery deducts cash, equips it, and clamps snow when switching away
+  let state = createInitialGameState();
+  state = {
+    ...state,
+    cash: 30000,
+    lifetimeGrossIncome: 66000,
+    unlockedSceneries: ['busy_street', 'eiffel_tower', 'mt_everest'],
+  };
+  state = purchaseOrEquipScenery(state, 'mt_everest');
+  assert.equal(state.activeScenery, 'mt_everest');
+  assert.equal(state.isSnowing, true);
+  assert.equal(state.climateState, 'winter');
+
+  // Switching from Mt. Everest (snow) to Mayon Volcano ($2000) clamps snow back off & restores summer
+  state = purchaseOrEquipScenery(state, 'mayon_volcano');
+  assert.equal(state.activeScenery, 'mayon_volcano');
+  assert.equal(state.cash, 28000);
+  assert.equal(state.isSnowing, false);
+  assert.equal(state.climateState, 'summer');
+  assert.equal(resolveClimateState('eiffel_tower', 'snow', true), 'winter');
+  assert.equal(resolveClimateState('eiffel_tower', 'clear', false), 'summer');
+});
+
+test('Outdoor Sceneries Phase 4: All 6 Patron Outfits support Auto-Match Scenery vs Custom Mix, Weather-Reactive Summer/Winter, and Winter-Only Hiker', () => {
+  assert.equal(PATRON_OUTFIT_CATALOG.length, 6);
+
+  let state = createInitialGameState();
+  state = { ...state, cash: 10000 };
+  for (const outfit of PATRON_OUTFIT_CATALOG) {
+    state = purchasePatronOutfit(state, outfit.id);
+    assert.ok(state.unlockedPatronOutfits.includes(outfit.id));
+  }
+
+  // Auto-Match Scenery mode picks regional outfit matching the active scenery
+  const jpMatch = resolvePatronOutfitForSpawn({
+    activeScenery: 'japanese_tranquility',
+    climateState: 'summer',
+    unlockedPatronOutfits: state.unlockedPatronOutfits,
+    patronOutfitAutoMatch: true,
+    enabledCustomPatronOutfits: [],
+    rng: () => 0.1,
+  });
+  assert.equal(jpMatch.outfitId, 'ancient_japanese');
+
+  const parisWinter = resolvePatronOutfitForSpawn({
+    activeScenery: 'eiffel_tower',
+    climateState: 'winter',
+    unlockedPatronOutfits: state.unlockedPatronOutfits,
+    patronOutfitAutoMatch: true,
+    enabledCustomPatronOutfits: [],
+    rng: () => 0.1,
+  });
+  assert.equal(parisWinter.outfitId, 'french');
+  assert.equal(parisWinter.climateVariant, 'winter');
+
+  // Mt. Everest auto-matches Winter-Only Hiker pack
+  const everestMatch = resolvePatronOutfitForSpawn({
+    activeScenery: 'mt_everest',
+    climateState: 'winter',
+    unlockedPatronOutfits: state.unlockedPatronOutfits,
+    patronOutfitAutoMatch: true,
+    enabledCustomPatronOutfits: [],
+    rng: () => 0.1,
+  });
+  assert.equal(everestMatch.outfitId, 'hiker');
+  assert.equal(everestMatch.climateVariant, 'winter');
+
+  // Custom Mix mode excludes Hiker during summer weather, includes it in winter
+  state = setPatronOutfitAutoMatch(state, false);
+  assert.equal(state.patronOutfitAutoMatch, false);
+  // Newly bought outfits are enabled by default; toggling removes then re-adds
+  assert.ok(state.enabledCustomPatronOutfits.includes('hiker'));
+  state = toggleCustomPatronOutfit(state, 'hiker');
+  assert.equal(state.enabledCustomPatronOutfits.includes('hiker'), false);
+  state = toggleCustomPatronOutfit(state, 'hiker');
+  assert.equal(state.enabledCustomPatronOutfits.includes('hiker'), true);
+
+  const hikerInSummer = resolvePatronOutfitForSpawn({
+    activeScenery: 'busy_street',
+    climateState: 'summer',
+    unlockedPatronOutfits: state.unlockedPatronOutfits,
+    patronOutfitAutoMatch: false,
+    enabledCustomPatronOutfits: ['hiker'],
+    rng: () => 0.1,
+  });
+  assert.equal(hikerInSummer.outfitId, null, 'Hiker pack must NOT spawn in non-winter climate');
+
+  const hikerInWinter = resolvePatronOutfitForSpawn({
+    activeScenery: 'eiffel_tower',
+    climateState: 'winter',
+    unlockedPatronOutfits: state.unlockedPatronOutfits,
+    patronOutfitAutoMatch: false,
+    enabledCustomPatronOutfits: ['hiker'],
+    rng: () => 0.1,
+  });
+  assert.equal(hikerInWinter.outfitId, 'hiker');
+});
+
+test('Outdoor Sceneries Phase 5: Secret Easter Egg NPC rotates Beb -> Anton -> Duminiki, enforces singleton + 270s cooldown, cap/hood weather logic, 0.25x patience drain, and 2x tip bonus', () => {
+  assert.deepEqual([...SECRET_NPC_NAMES], ['Beb', 'Anton', 'Duminiki']);
+  assert.equal(SECRET_NPC_COOLDOWN_SEC, 270);
+  assert.equal(SECRET_NPC_PATIENCE_DRAIN_MULT, 0.25);
+  assert.equal(SECRET_NPC_TIP_MULTIPLIER, 2);
+
+  // Strict sequential name rotation
+  assert.equal(advanceSecretNpcNameIdx(0), 1);
+  assert.equal(advanceSecretNpcNameIdx(1), 2);
+  assert.equal(advanceSecretNpcNameIdx(2), 0);
+
+  // Cap (40%) + Auto hood-up ONLY when capless in Rain/Snow/Winter
+  const withCapInRain = resolveSecretNpcAppearance('summer', true, () => 0.1);
+  assert.equal(withCapInRain.wearsCap, true);
+  assert.equal(withCapInRain.hoodUp, false);
+
+  const caplessInRain = resolveSecretNpcAppearance('summer', true, () => 0.65);
+  assert.equal(caplessInRain.wearsCap, false);
+  assert.equal(caplessInRain.hoodUp, true);
+
+  // Singleton & Cooldown enforcement
+  assert.equal(
+    canSpawnSecretNpc({ role: 'customer', isSecretNpcActive: true, cooldownRemainingSec: 0, rng: () => 0.01 }),
+    false
+  );
+  assert.equal(
+    canSpawnSecretNpc({ role: 'passerby', isSecretNpcActive: false, cooldownRemainingSec: 12, rng: () => 0.01 }),
+    false
+  );
+  assert.equal(
+    canSpawnSecretNpc({ role: 'customer', isSecretNpcActive: false, cooldownRemainingSec: 0, rng: () => 0.01 }),
+    true
+  );
+
+  // 0.25x patience drain & 2x tip bonus
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.mode = 'career';
+  state = acceptCustomerOrder(state, 'cust-initial-1');
+  state.customers = state.customers.map((c, i) =>
+    i === 0
+      ? {
+          ...c,
+          customerName: 'Beb',
+          isSecretNpc: true,
+          mood: 100,
+          patience: 100,
+          moodDurationSec: 100,
+          orderTimeLimitSec: 100,
+          orderTimeRemainingSec: 100,
+        }
+      : c
+  );
+  let after1Sec = state;
+  for (let i = 0; i < 4; i++) {
+    after1Sec = advanceSimulationTick(after1Sec, 0.25);
+  }
+  assert.ok(
+    Math.abs(after1Sec.customers[0].mood - (100 - 1.0 * 0.25)) < 1e-6,
+    `Expected Secret NPC mood to drain at 0.25x rate, got ${after1Sec.customers[0].mood}`
+  );
+
+  const recipe = getRecipeById('velvet-latte');
+  const regularPay = calculateDrinkPayout(state, recipe, 100, 100, 2, null, false, false);
+  const secretPay = calculateDrinkPayout(state, recipe, 100, 100, 2, null, false, true);
+  assert.equal(secretPay.tip, regularPay.tip * 2);
+});
+
+test('Outdoor Sceneries Phase 6 & 7: Go Outside Overlook pauses customer mood decay and Save/Load preserves scenery, patron outfits, and Secret NPC rotation', () => {
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.mode = 'career';
+  state = acceptCustomerOrder(state, 'cust-initial-1');
+  const moodBefore = state.customers[0].mood;
+
+  const pausedOutside = advanceSimulationTick(state, 1.5, { outdoorOverlookOpen: true });
+  assert.equal(pausedOutside.customers[0].mood, moodBefore);
+  assert.equal(pausedOutside.missedOrders, 0);
+
+  // Full Save/Load migration round-trip
+  let rich: typeof state = {
+    ...state,
+    cash: 25000,
+    lifetimeGrossIncome: 40000,
+    secretNpcNameIdx: 2,
+  };
+  rich = purchaseOrEquipScenery(rich, 'mayon_volcano');
+  rich = purchasePatronOutfit(rich, 'filipino');
+  rich = setPatronOutfitAutoMatch(rich, false);
+
+  const restored = importSaveJson(exportSaveJson(rich));
+  assert.ok(restored);
+  assert.equal(restored.activeScenery, 'mayon_volcano');
+  assert.ok(restored.unlockedSceneries.includes('mayon_volcano'));
+  assert.ok(restored.unlockedSceneries.includes('switzerland_hilltop'));
+  assert.ok(restored.unlockedPatronOutfits.includes('filipino'));
+  assert.equal(restored.patronOutfitAutoMatch, false);
+  assert.ok(restored.enabledCustomPatronOutfits.includes('filipino'));
+  assert.equal(restored.secretNpcNameIdx, 2);
+});
+

@@ -2,10 +2,12 @@ import React from 'react';
 import {
   Clock,
   CloudRain,
+  CloudSnow,
   CloudSun,
   Disc3,
   Download,
   Globe,
+  Lock,
   Moon,
   PackageCheck,
   Play,
@@ -22,9 +24,12 @@ import {
   GameMode,
   GraphicsQuality,
   RainPreference,
+  SceneryId,
   TimeOfDayMode,
   WeatherMode,
   cycleGraphicsQuality,
+  isAlwaysWinterScenery,
+  isSnowAllowedForScenery,
 } from '../game/rules';
 import { PwaEnvironmentStatus } from '../pwa/pwaManager';
 
@@ -37,6 +42,7 @@ interface TitleScreenProps {
   weather: WeatherMode;
   timeOfDayMode: TimeOfDayMode;
   rainPreference: RainPreference;
+  activeScenery?: SceneryId;
   graphicsQuality: GraphicsQuality;
   pwaStatus: PwaEnvironmentStatus;
   spotifyTrackTitle: string;
@@ -58,6 +64,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   weather,
   timeOfDayMode,
   rainPreference,
+  activeScenery = 'busy_street',
   graphicsQuality,
   pwaStatus,
   spotifyTrackTitle,
@@ -69,6 +76,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onOpenPwaModal,
   onOpenCodeExportModal,
 }) => {
+  const snowAllowed = isSnowAllowedForScenery(activeScenery);
+  const alwaysWinter = isAlwaysWinterScenery(activeScenery);
   const gfxLabel =
     graphicsQuality === 'max' ? 'MAX' : graphicsQuality === 'medium' ? 'MED' : 'LOW';
   const isApkVersion = pwaStatus.appVersion === 'apk';
@@ -291,39 +300,59 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             })}
           </div>
 
-          <div
-            className="grid grid-cols-3 gap-1 p-1 bg-black/30 rounded-xl border border-amber-400/20"
-            role="group"
-            aria-label="Rain Weather Selector"
-          >
-            {(
-              [
-                { id: 'auto', label: 'Rain: Auto' },
-                { id: 'clear', label: 'Clear Sky' },
-                { id: 'rain', label: 'Rainy' },
-              ] as const
-            ).map((item) => {
-              const isActive = rainPreference === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-testid={`title-rain-${item.id}`}
-                  onClick={() => onChangeRainPreference(item.id)}
-                  className={`py-1 px-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
-                    isActive
-                      ? item.id === 'rain'
-                        ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-[#0c1220] font-bold shadow'
-                        : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow'
-                      : 'glass-btn-inner border-transparent bg-transparent hover:bg-amber-400/15 text-[#E7D7C1]'
-                  }`}
-                >
-                  {item.id === 'rain' && <CloudRain className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          {alwaysWinter ? (
+            <div className="px-2.5 py-1.5 rounded-xl bg-sky-950/60 border border-sky-400/45 flex items-center justify-between text-[10px] sm:text-[11px] font-semibold text-sky-200">
+              <span className="inline-flex items-center gap-1.5">
+                <CloudSnow className="w-3.5 h-3.5 text-sky-300 shrink-0" strokeWidth={2.2} />
+                <span>Mt. Everest · Always Winter Snow</span>
+              </span>
+              <Lock className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.2} />
+            </div>
+          ) : (
+            <div
+              className={`grid gap-1 p-1 bg-black/30 rounded-xl border border-amber-400/20 ${
+                snowAllowed ? 'grid-cols-4' : 'grid-cols-3'
+              }`}
+              role="group"
+              aria-label="Precipitation Weather Selector"
+            >
+              {(
+                [
+                  { id: 'auto' as const, label: 'Auto' },
+                  { id: 'clear' as const, label: 'Clear' },
+                  { id: 'rain' as const, label: 'Rain' },
+                  ...(snowAllowed ? [{ id: 'snow' as const, label: 'Snow' }] : []),
+                ]
+              ).map((item) => {
+                const isActive = rainPreference === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    data-testid={`title-rain-${item.id}`}
+                    onClick={() => onChangeRainPreference(item.id)}
+                    className={`py-1 px-1.5 rounded-lg text-[10px] sm:text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 ${
+                      isActive
+                        ? item.id === 'snow'
+                          ? 'bg-gradient-to-r from-cyan-300 to-sky-400 text-[#09131d] font-bold shadow'
+                          : item.id === 'rain'
+                          ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-[#0c1220] font-bold shadow'
+                          : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow'
+                        : 'glass-btn-inner border-transparent bg-transparent hover:bg-amber-400/15 text-[#E7D7C1]'
+                    }`}
+                  >
+                    {item.id === 'rain' && (
+                      <CloudRain className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                    )}
+                    {item.id === 'snow' && (
+                      <CloudSnow className="w-3 h-3 shrink-0" strokeWidth={2.2} />
+                    )}
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -334,8 +363,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       >
         <span className="truncate">
           {isApkVersion
-            ? 'Use <- Station -> Pill to Switch Stations · Touch 3D Pastries & Equipment to Brew & Serve'
-            : '1–6 or A/D Switch Stations · Space Next Step · R Rinse/Discard · M Vinyl · H Hide HUD'}
+            ? 'Tap Icon Station Pills Below · Step Outside for Scenic Views · Touch 3D Equipment to Brew'
+            : '1–6 or A/D Switch Stations · Space Next Step · R Rinse/Discard · M Audio · H Hide HUD'}
         </span>
         <span className="font-mono text-amber-300 hidden sm:inline shrink-0">
           {isApkVersion ? '100% Offline APK Ready' : '24h Real-Time Barista Sim'}

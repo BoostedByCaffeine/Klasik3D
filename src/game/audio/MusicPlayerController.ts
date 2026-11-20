@@ -26,6 +26,7 @@ export interface RadioStationItem {
   subtitle: string;
   category: 'ph_fm' | 'lofi_jazz' | 'directory';
   streamUrl: string;
+  backupUrls?: string[];
   codec: string;
   countryCode: string;
   bitrate?: number;
@@ -260,13 +261,17 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     countryCode: 'PH',
     bitrate: 128,
   },
-  // Curated Cafe Lo-Fi & Jazz Streams (SomaFM reliable HTTPS)
+  // Curated Cafe Lo-Fi & Jazz Streams (SomaFM verified HTTPS + mirror backups)
   {
     id: 'cafe-somafm-groovesalad',
     name: 'SomaFM Groove Salad',
     subtitle: 'Cafe Ambient • Downtempo Beats',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice2.somafm.com/groovesalad-128-mp3',
+    streamUrl: 'https://ice1.somafm.com/groovesalad-128-mp3',
+    backupUrls: [
+      'https://ice2.somafm.com/groovesalad-128-mp3',
+      'https://ice4.somafm.com/groovesalad-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'US',
     bitrate: 128,
@@ -276,7 +281,11 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     name: 'SomaFM Lush',
     subtitle: 'Cafe Chill • Sensuous Lo-Fi Vocals',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice2.somafm.com/lush-128-mp3',
+    streamUrl: 'https://ice1.somafm.com/lush-128-mp3',
+    backupUrls: [
+      'https://ice2.somafm.com/lush-128-mp3',
+      'https://ice4.somafm.com/lush-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'US',
     bitrate: 128,
@@ -286,7 +295,25 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     name: 'SomaFM Sonic Universe',
     subtitle: 'Cafe Jazz • Nu-Jazz & Avant Groove',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice2.somafm.com/sonicuniverse-128-mp3',
+    streamUrl: 'https://ice1.somafm.com/sonicuniverse-128-mp3',
+    backupUrls: [
+      'https://ice2.somafm.com/sonicuniverse-128-mp3',
+      'https://ice4.somafm.com/sonicuniverse-128-mp3',
+    ],
+    codec: 'MP3',
+    countryCode: 'US',
+    bitrate: 128,
+  },
+  {
+    id: 'cafe-somafm-dronezone',
+    name: 'SomaFM Drone Zone',
+    subtitle: 'Atmospheric • Late Night Cafe Focus',
+    category: 'lofi_jazz',
+    streamUrl: 'https://ice1.somafm.com/dronezone-128-mp3',
+    backupUrls: [
+      'https://ice2.somafm.com/dronezone-128-mp3',
+      'https://ice4.somafm.com/dronezone-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'US',
     bitrate: 128,
@@ -475,13 +502,13 @@ export class MusicPlayerController {
     lastPlayedNonExternalMode: 'vinyl',
   };
 
+  // Dedicated Vinyl Audio element (local/offline WAV/BYO files)
   private ensureAudioElement(): HTMLAudioElement | null {
     if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
     if (!this.audioEl) {
       this.audioEl = new Audio();
       this.audioEl.preload = 'auto';
-      this.audioEl.crossOrigin = 'anonymous';
-      this.audioEl.volume = this.state.musicVolume;
+      this.audioEl.volume = this.getEffectiveMusicVolume();
 
       this.audioEl.addEventListener('ended', () => {
         if (this.state.mode !== 'vinyl') return;
@@ -493,26 +520,70 @@ export class MusicPlayerController {
       });
 
       this.audioEl.addEventListener('playing', () => {
-        this.clearRadioTimeout();
-        if (this.state.isLoadingStream || this.state.streamError) {
-          this.setState({ isLoadingStream: false, streamError: null, isPlaying: true });
-        } else if (!this.state.isPlaying) {
-          this.setState({ isPlaying: true });
-        }
-      });
-
-      this.audioEl.addEventListener('error', () => {
-        if (this.state.mode === 'radio') {
-          this.clearRadioTimeout();
-          this.setState({
-            isLoadingStream: false,
-            isPlaying: false,
-            streamError: 'No Signal — Try another station or switch to Vinyl',
-          });
+        if (this.state.mode !== 'vinyl') return;
+        if (!this.state.isPlaying) {
+          this.setState({ isPlaying: true, streamError: null });
         }
       });
     }
     return this.audioEl;
+  }
+
+  // Phase 0.3: Dedicated Direct HTML5 Audio for Live Radio — NEVER sets crossOrigin = 'anonymous'!
+  private radioAudioEl: HTMLAudioElement | null = null;
+  private radioMirrorQueue: string[] = [];
+  private radioPlaySeq = 0;
+  private outdoorMuffled = false;
+
+  private getEffectiveMusicVolume(): number {
+    return this.outdoorMuffled ? this.state.musicVolume * 0.34 : this.state.musicVolume;
+  }
+
+  private ensureRadioAudioElement(): HTMLAudioElement | null {
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+    if (!this.radioAudioEl) {
+      const radioEl = new Audio();
+      // CRITICAL: Never set crossOrigin on live Icecast/Shoutcast internet radio streams!
+      radioEl.preload = 'none';
+      radioEl.volume = this.getEffectiveMusicVolume();
+
+      radioEl.addEventListener('playing', () => {
+        if (this.state.mode !== 'radio') return;
+        this.clearRadioTimeout();
+        this.setState({ isLoadingStream: false, streamError: null, isPlaying: true });
+      });
+
+      radioEl.addEventListener('error', () => {
+        if (this.state.mode !== 'radio') return;
+        // Automatically fall through backup mirror URLs before surfacing No Signal
+        const nextBackup = this.radioMirrorQueue.shift();
+        if (nextBackup) {
+          radioEl.src = nextBackup;
+          radioEl.load();
+          radioEl.play().catch(() => {
+            // handled by subsequent error or timeout
+          });
+          return;
+        }
+        this.clearRadioTimeout();
+        this.setState({
+          isLoadingStream: false,
+          isPlaying: false,
+          streamError: 'No Signal — Try another station or switch to Vinyl',
+        });
+      });
+
+      this.radioAudioEl = radioEl;
+    }
+    return this.radioAudioEl;
+  }
+
+  public setOutdoorMuffle(muffled: boolean) {
+    if (this.outdoorMuffled === muffled) return;
+    this.outdoorMuffled = muffled;
+    const effVol = this.getEffectiveMusicVolume();
+    if (this.audioEl) this.audioEl.volume = effVol;
+    if (this.radioAudioEl) this.radioAudioEl.volume = effVol;
   }
 
   public getState(): UnifiedAudioState {
@@ -536,7 +607,7 @@ export class MusicPlayerController {
 
     const statusMessage =
       s.streamError ||
-      (s.isLoadingStream ? 'Tuning cafe radio stream...' : null);
+      (s.isLoadingStream ? 'Tuning...' : null);
 
     return {
       mode: s.mode,
@@ -772,10 +843,14 @@ export class MusicPlayerController {
 
   private switchToExternalSilently() {
     this.clearRadioTimeout();
+    this.radioPlaySeq++;
     soundEngine.setVinylCrackleEnabled(false);
     soundEngine.setLofiSynthActive(false);
     if (this.audioEl) {
       this.audioEl.pause();
+    }
+    if (this.radioAudioEl) {
+      this.radioAudioEl.pause();
     }
     this.setState({
       mode: 'external',
@@ -787,8 +862,12 @@ export class MusicPlayerController {
 
   private fadeOutMusicAndEnterExternal() {
     this.clearRadioTimeout();
+    this.radioPlaySeq++;
     soundEngine.setVinylCrackleEnabled(false);
     soundEngine.setLofiSynthActive(false);
+    if (this.radioAudioEl) {
+      this.radioAudioEl.pause();
+    }
     const el = this.audioEl;
     if (!el || el.paused) {
       this.switchToExternalSilently();
@@ -915,6 +994,10 @@ export class MusicPlayerController {
     if (!el) return;
 
     this.clearRadioTimeout();
+    if (this.radioAudioEl) {
+      this.radioAudioEl.pause();
+      this.radioAudioEl.removeAttribute('src');
+    }
     let srcUrl = track.objectUrl;
     if (!srcUrl && !track.isCustomByo) {
       srcUrl = this.synthesizedUrlCache.get(track.id);
@@ -926,7 +1009,7 @@ export class MusicPlayerController {
     if (!srcUrl) return;
 
     el.loop = !track.isCustomByo || this.state.repeatTrack;
-    el.volume = this.state.musicVolume;
+    el.volume = this.getEffectiveMusicVolume();
     if (el.src !== srcUrl) {
       el.src = srcUrl;
       el.load();
@@ -1010,20 +1093,28 @@ export class MusicPlayerController {
     }
   }
 
-  // Phase 3.1: Tune live radio with 350ms static burst + 5000ms connection timeout fallback
+  // Phase 0.3 & 3.1: Direct non-CORS HTML5 Audio + synchronous user-gesture play + 8500ms timeout + mirror fallback
   public playRadioStation(stationId: string) {
     const all = [...this.state.radioStations, ...this.state.directoryStations];
     const station = all.find((s) => s.id === stationId) || this.state.radioStations[0];
     if (!station) return;
 
-    const el = this.ensureAudioElement();
-    if (!el) return;
+    const radioEl = this.ensureRadioAudioElement();
+    if (!radioEl) return;
+
+    // Pause vinyl element cleanly so only live radio plays
+    if (this.audioEl) {
+      this.audioEl.pause();
+    }
 
     this.clearRadioTimeout();
+    const playSeq = ++this.radioPlaySeq;
+    this.radioMirrorQueue = Array.isArray(station.backupUrls) ? [...station.backupUrls] : [];
+
     soundEngine.init();
     soundEngine.setVinylCrackleEnabled(false);
     soundEngine.setLofiSynthActive(false);
-    soundEngine.playRadioStatic(0.35);
+    soundEngine.playRadioStatic(0.32);
 
     this.setState({
       mode: 'radio',
@@ -1034,64 +1125,81 @@ export class MusicPlayerController {
       streamError: null,
     });
 
-    el.pause();
-    el.loop = false;
-    el.volume = this.state.musicVolume;
-    el.src = station.streamUrl;
-    el.load();
+    // Synchronous user-gesture playback BEFORE any awaits so mobile WebViews / Chrome never reject autoplay!
+    radioEl.pause();
+    radioEl.loop = false;
+    radioEl.volume = this.getEffectiveMusicVolume();
+    radioEl.src = station.streamUrl;
+    const playPromise = radioEl.play();
 
-    // 5000ms connection timeout fallback
+    // 8500ms connection timeout for mobile data buffering
     this.radioTimeoutId = window.setTimeout(() => {
+      if (this.radioPlaySeq !== playSeq) return;
       if (this.state.mode === 'radio' && this.state.isLoadingStream) {
-        el.pause();
+        radioEl.pause();
         this.setState({
           isLoadingStream: false,
           isPlaying: false,
           streamError: 'No Signal — Try another station or switch to Vinyl',
         });
       }
-    }, 5000);
+    }, 8500);
 
-    el.play()
-      .then(() => {
-        this.clearRadioTimeout();
-        this.setState({
-          isLoadingStream: false,
-          isPlaying: true,
-          streamError: null,
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise
+        .then(() => {
+          if (this.radioPlaySeq !== playSeq) return;
+          this.clearRadioTimeout();
+          this.setState({
+            isLoadingStream: false,
+            isPlaying: true,
+            streamError: null,
+          });
+        })
+        .catch(() => {
+          // Error event handler tries backupUrls or timeout surfaces fallback cleanly
         });
-      })
-      .catch(() => {
-        // Error handler or timeout will surface the fallback cleanly
-      });
+    }
   }
 
-  // Phase 3.1 Layer 2: Fetch verified HTTPS MP3/AAC stations from Radio Browser API
+  // Phase 0.3 & 3.1 Layer 2: Multi-mirror Radio Browser API PH HTTPS MP3/AAC resolution
   public async fetchPhilippineStations(query = ''): Promise<RadioStationItem[]> {
     if (typeof fetch === 'undefined') return [];
     this.setState({ directoryLoading: true });
-    try {
-      const qParam = query.trim()
-        ? `&name=${encodeURIComponent(query.trim())}`
-        : '&countrycode=PH';
-      const url = `https://de1.api.radio-browser.info/json/stations/search?limit=30&order=clickcount&reverse=true&hidebroken=true${qParam}`;
-      const controller = new AbortController();
-      const abortTimer = window.setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(url, { signal: controller.signal });
-      window.clearTimeout(abortTimer);
-      if (!res.ok) throw new Error('Radio directory unavailable');
-      const raw = (await res.json()) as RadioBrowserRawStation[];
-      const verified = filterVerifiedRadioStations(raw);
-      this.setState({
-        directoryStations: verified,
-        directoryLoading: false,
-        directoryLoaded: true,
-      });
-      return verified;
-    } catch {
-      this.setState({ directoryLoading: false, directoryLoaded: true });
-      return [];
+    const mirrors = [
+      'https://de1.api.radio-browser.info',
+      'https://nl1.api.radio-browser.info',
+      'https://at1.api.radio-browser.info',
+    ];
+    const qParam = query.trim()
+      ? `&name=${encodeURIComponent(query.trim())}`
+      : '&countrycode=PH';
+
+    for (const host of mirrors) {
+      try {
+        const url = `${host}/json/stations/search?limit=30&order=clickcount&reverse=true&hidebroken=true${qParam}`;
+        const controller = new AbortController();
+        const abortTimer = window.setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(url, { signal: controller.signal });
+        window.clearTimeout(abortTimer);
+        if (!res.ok) continue;
+        const raw = (await res.json()) as RadioBrowserRawStation[];
+        const verified = filterVerifiedRadioStations(raw);
+        if (verified.length > 0 || host === mirrors[mirrors.length - 1]) {
+          this.setState({
+            directoryStations: verified,
+            directoryLoading: false,
+            directoryLoaded: true,
+          });
+          return verified;
+        }
+      } catch {
+        // Try next mirror
+      }
     }
+
+    this.setState({ directoryLoading: false, directoryLoaded: true });
+    return [];
   }
 
   public togglePlayPause() {
@@ -1112,8 +1220,12 @@ export class MusicPlayerController {
 
   public pause() {
     this.clearRadioTimeout();
+    this.radioPlaySeq++;
     if (this.audioEl) {
       this.audioEl.pause();
+    }
+    if (this.radioAudioEl) {
+      this.radioAudioEl.pause();
     }
     soundEngine.setVinylCrackleEnabled(false);
     soundEngine.setLofiSynthActive(false);
@@ -1157,10 +1269,15 @@ export class MusicPlayerController {
 
   public setMusicVolume(vol: number) {
     const clamped = Math.max(0, Math.min(1, vol));
+    this.state = { ...this.state, musicVolume: clamped };
+    const effVol = this.getEffectiveMusicVolume();
     if (this.audioEl) {
-      this.audioEl.volume = clamped;
+      this.audioEl.volume = effVol;
     }
-    this.setState({ musicVolume: clamped });
+    if (this.radioAudioEl) {
+      this.radioAudioEl.volume = effVol;
+    }
+    this.emit();
   }
 
   public setAmbienceVolume(vol: number) {

@@ -149,14 +149,14 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
   },
   {
     id: 'dino_costume',
-    name: 'Dinosaur Costume',
+    name: 'Skeleton T-Rex Costume',
     slot: 'full_suit',
     unlockType: 'meta_all_9',
     cost: 9,
-    swatchHex: '#22c55e',
-    meshColorHex: 0x22c55e,
+    swatchHex: '#f2efe9',
+    meshColorHex: 0xf2efe9,
     description:
-      'Plush green T-Rex head hood + connected dorsal spine ridges. Auto-unlocks once all 9 base cosmetics are owned!',
+      'Plush bone-white Skeleton T-Rex open-jaw skull hood + curved back ribcage, dorsal bone spikes & tail. Auto-unlocks once all 9 base cosmetics are owned!',
   },
 ] as const;
 

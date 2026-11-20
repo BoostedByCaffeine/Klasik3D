@@ -45,6 +45,92 @@ export {
 };
 export type { CatCosmeticId, CatCosmeticSlot, CatCosmeticSpec, CatFitProfile, CatLoadout };
 
+import {
+  ALL_PATRON_OUTFIT_IDS,
+  ALL_SCENERY_IDS,
+  ClimateState,
+  EVEREST_REVENUE_MILESTONE,
+  PATRON_OUTFIT_CATALOG,
+  PatronOutfitId,
+  PatronOutfitSpec,
+  PatronOutfitWeatherMode,
+  SCENERY_CATALOG,
+  SCENERY_WEATHER_RULES,
+  SECRET_NPC_COOLDOWN_SEC,
+  SECRET_NPC_DIALOGUES,
+  SECRET_NPC_NAMES,
+  SECRET_NPC_PATIENCE_DRAIN_MULT,
+  SECRET_NPC_SPAWN_CHANCES,
+  SECRET_NPC_STORAGE_KEY,
+  SECRET_NPC_TIP_MULTIPLIER,
+  SWITZERLAND_REVENUE_MILESTONE,
+  SceneryId,
+  ScenerySpec,
+  SceneryWeatherRule,
+  SecretNpcAppearance,
+  SecretNpcName,
+  advanceSecretNpcNameIdx,
+  canSpawnSecretNpc,
+  clampRainPreferenceForScenery,
+  getPatronOutfitSpec,
+  getScenerySpec,
+  getSecretNpcName,
+  isAlwaysWinterScenery,
+  isPatronOutfitAllowedInClimate,
+  isSnowAllowedForScenery,
+  isValidPatronOutfitId,
+  isValidSceneryId,
+  normalizeSecretNpcNameIdx,
+  resolveClimateState,
+  resolvePatronOutfitForSpawn,
+  resolveSecretNpcAppearance,
+  syncSceneryMilestones,
+} from './sceneryData';
+
+export {
+  ALL_PATRON_OUTFIT_IDS,
+  ALL_SCENERY_IDS,
+  EVEREST_REVENUE_MILESTONE,
+  PATRON_OUTFIT_CATALOG,
+  SCENERY_CATALOG,
+  SCENERY_WEATHER_RULES,
+  SECRET_NPC_COOLDOWN_SEC,
+  SECRET_NPC_DIALOGUES,
+  SECRET_NPC_NAMES,
+  SECRET_NPC_PATIENCE_DRAIN_MULT,
+  SECRET_NPC_SPAWN_CHANCES,
+  SECRET_NPC_STORAGE_KEY,
+  SECRET_NPC_TIP_MULTIPLIER,
+  SWITZERLAND_REVENUE_MILESTONE,
+  advanceSecretNpcNameIdx,
+  canSpawnSecretNpc,
+  clampRainPreferenceForScenery,
+  getPatronOutfitSpec,
+  getScenerySpec,
+  getSecretNpcName,
+  isAlwaysWinterScenery,
+  isPatronOutfitAllowedInClimate,
+  isSnowAllowedForScenery,
+  isValidPatronOutfitId,
+  isValidSceneryId,
+  normalizeSecretNpcNameIdx,
+  resolveClimateState,
+  resolvePatronOutfitForSpawn,
+  resolveSecretNpcAppearance,
+  syncSceneryMilestones,
+};
+export type {
+  ClimateState,
+  PatronOutfitId,
+  PatronOutfitSpec,
+  PatronOutfitWeatherMode,
+  SceneryId,
+  ScenerySpec,
+  SceneryWeatherRule,
+  SecretNpcAppearance,
+  SecretNpcName,
+};
+
 export type AudioModeId = 'vinyl' | 'radio' | 'external';
 
 export interface AudioPreferences {
@@ -74,7 +160,7 @@ export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
 export type TimeOfDayMode = 'auto' | 'dawn' | 'morning' | 'noon' | 'golden' | 'night';
 export type ResolvedTimeOfDay = 'dawn' | 'morning' | 'noon' | 'golden' | 'night';
-export type RainPreference = 'auto' | 'clear' | 'rain';
+export type RainPreference = 'auto' | 'clear' | 'rain' | 'snow';
 export type WeatherMode =
   | 'dawn'
   | 'rainy-dawn'
@@ -275,7 +361,7 @@ export function normalizeTimeOfDayMode(val: unknown): TimeOfDayMode {
 }
 
 export function normalizeRainPreference(val: unknown): RainPreference {
-  if (val === 'auto' || val === 'clear' || val === 'rain') {
+  if (val === 'auto' || val === 'clear' || val === 'rain' || val === 'snow') {
     return val;
   }
   return 'auto';
@@ -1196,6 +1282,10 @@ export interface CustomerOrder {
   requestedPastry?: PastryId | null; // Optional single pastry paired with coffee (always set for Delivery Riders)
   isDeliveryRider?: boolean;
   riderVariant?: DeliveryRiderVariant;
+  isSecretNpc?: boolean;
+  secretNpcAppearance?: SecretNpcAppearance;
+  patronOutfitId?: PatronOutfitId | null;
+  patronOutfitClimate?: ClimateState;
   socialBehavior: CustomerSocialBehavior;
 }
 
@@ -1303,6 +1393,8 @@ export interface KlasikGameState {
   timeOfDayMode: TimeOfDayMode;
   rainPreference: RainPreference;
   isRaining: boolean;
+  isSnowing: boolean;
+  climateState: ClimateState;
   activeStation: BaristaStationId;
   graphicsQuality: GraphicsQuality;
   realismMode: boolean;
@@ -1345,6 +1437,14 @@ export interface KlasikGameState {
   catLoadouts: Partial<Record<CafeCatId, CatLoadout>>;
   goldenEspressoUnlocked: boolean;
   audioPreferences: AudioPreferences;
+  activeScenery: SceneryId;
+  unlockedSceneries: SceneryId[];
+  unlockedPatronOutfits: PatronOutfitId[];
+  patronOutfitAutoMatch: boolean;
+  enabledCustomPatronOutfits: PatronOutfitId[];
+  secretNpcNameIdx: number;
+  secretNpcCooldownRemaining: number;
+  lastSecretServeSeq?: number;
   hasUnseenCatUnlock?: boolean;
   tisayJustArrivedSeq?: number;
   cookieJarCheatUnlocked?: boolean;
@@ -1880,6 +1980,8 @@ export function createInitialGameState(): KlasikGameState {
     timeOfDayMode: 'auto',
     rainPreference: 'auto',
     isRaining: initialRain,
+    isSnowing: false,
+    climateState: 'summer',
     activeStation: 2,
     graphicsQuality: 'low',
     realismMode: false,
@@ -1937,6 +2039,14 @@ export function createInitialGameState(): KlasikGameState {
     catLoadouts: {},
     goldenEspressoUnlocked: false,
     audioPreferences: { ...DEFAULT_AUDIO_PREFERENCES },
+    activeScenery: 'busy_street',
+    unlockedSceneries: ['busy_street'],
+    unlockedPatronOutfits: [],
+    patronOutfitAutoMatch: true,
+    enabledCustomPatronOutfits: [],
+    secretNpcNameIdx: 0,
+    secretNpcCooldownRemaining: 0,
+    lastSecretServeSeq: 0,
     hasUnseenCatUnlock: false,
     tisayJustArrivedSeq: 0,
     cookieJarCheatUnlocked: false,
@@ -2357,7 +2467,8 @@ export function calculateDrinkPayout(
   customerMood: number,
   customBonusTip = 0,
   pastryId: PastryId | null = null,
-  isDeliveryRider = false
+  isDeliveryRider = false,
+  isSecretNpc = false
 ): {
   totalPayout: number;
   basePrice: number;
@@ -2390,7 +2501,8 @@ export function calculateDrinkPayout(
   }
 
   const earnedCustomTip = accuracy === 100 ? customBonusTip : 0;
-  const tip = accuracy >= 75 ? moodTip + upgradeBonus + earnedCustomTip + deliveryBonus : 0;
+  const rawTip = accuracy >= 75 ? moodTip + upgradeBonus + earnedCustomTip + deliveryBonus : 0;
+  const tip = isSecretNpc ? rawTip * SECRET_NPC_TIP_MULTIPLIER : rawTip;
 
   // Golden Espresso Machine Skin doubles (2x) all drink sale income once equipped!
   const machineMultiplier = state.equippedMachineSkin === 'golden-espresso-machine' ? 2 : 1;
@@ -2973,7 +3085,8 @@ export function serveCurrentCupToCustomer(
     customerMood,
     targetCustomer.customBonusTip,
     reqPastry ? reqPastry.id : null,
-    Boolean(targetCustomer.isDeliveryRider)
+    Boolean(targetCustomer.isDeliveryRider),
+    Boolean(targetCustomer.isSecretNpc)
   );
 
   // Takeout & Delivery Rider patrons leave straight through the front entrance without occupying any indoor seat!
@@ -3072,6 +3185,13 @@ export function serveCurrentCupToCustomer(
     ? ` · DAILY QUOTA (${quotaTarget}/${quotaTarget} CUPS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
     : '';
 
+  const scenerySync = syncSceneryMilestones(state.unlockedSceneries || ['busy_street'], newLifetimeGross);
+  const sceneryUnlockSuffix =
+    scenerySync.newlyUnlocked.length > 0
+      ? ` · NEW SCENERY UNLOCKED: ${scenerySync.newlyUnlocked.map((s) => s.name).join(', ')}!`
+      : '';
+  const secretTipBadge = targetCustomer.isSecretNpc ? ' [2x Friendly Tip]' : '';
+
   const takeoutLabel = targetCustomer.isDeliveryRider
     ? ' (Delivery)'
     : isTakeoutOrder
@@ -3080,8 +3200,8 @@ export function serveCurrentCupToCustomer(
   const speedBadge =
     payout.speedTipLabel && payout.speedTip > 0 ? ` · ${payout.speedTipLabel}` : '';
   const feedbackMsg = evaluation.isPerfect
-    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${pastryBadge}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
-    : `Served ${recipe.name}${pastryBadge}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}.${quotaSuffix}${unlockSuffix}`;
+    ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${pastryBadge}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}${secretTipBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}${sceneryUnlockSuffix}`
+    : `Served ${recipe.name}${pastryBadge}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}${secretTipBadge}.${quotaSuffix}${unlockSuffix}${sceneryUnlockSuffix}`;
 
   const anyCatOrCosmeticUnlock =
     catSync.newlyUnlocked.length > 0 || cosmeticSync.newlyUnlocked.length > 0;
@@ -3112,6 +3232,7 @@ export function serveCurrentCupToCustomer(
     preparedPastry: reqPastry ? null : state.preparedPastry,
     customers: updatedCustomers,
     equipmentSkins: updatedSkins,
+    unlockedSceneries: scenerySync.unlockedSceneries,
     unlockedCats: catSync.unlockedCats,
     secretCatsUnlocked: catSync.secretCatsUnlocked,
     unlockedCosmetics: cosmeticSync.unlockedCosmetics,
@@ -3119,6 +3240,9 @@ export function serveCurrentCupToCustomer(
     tisayJustArrivedSeq: catSync.justUnlockedTisay
       ? (state.tisayJustArrivedSeq ?? 0) + 1
       : state.tisayJustArrivedSeq ?? 0,
+    lastSecretServeSeq: targetCustomer.isSecretNpc
+      ? (state.lastSecretServeSeq ?? 0) + 1
+      : state.lastSecretServeSeq ?? 0,
     lastCatUnlockToast: combinedUnlockToast,
     lastCatUnlockSeq: anyCatOrCosmeticUnlock
       ? (state.lastCatUnlockSeq ?? 0) + 1
@@ -3464,22 +3588,144 @@ export function applyWeatherPreferences(
   now: Date = new Date(),
   rolledRain?: boolean
 ): KlasikGameState {
+  const activeScenery: SceneryId = state.activeScenery || 'busy_street';
+  const clampedPref = clampRainPreferenceForScenery(activeScenery, rainPreference);
   const resolvedTime = resolveTimeOfDay(timeOfDayMode, now);
+  const alwaysWinter = isAlwaysWinterScenery(activeScenery);
+  const isSnowing = alwaysWinter || (clampedPref === 'snow' && isSnowAllowedForScenery(activeScenery));
   const isRaining =
-    rainPreference === 'rain'
+    isSnowing
+      ? false
+      : clampedPref === 'rain'
       ? true
-      : rainPreference === 'clear'
+      : clampedPref === 'clear'
       ? false
       : rolledRain !== undefined
       ? rolledRain
       : state.isRaining;
   const weather = resolveCompositeWeather(resolvedTime, isRaining);
+  const climateState = resolveClimateState(activeScenery, clampedPref, isSnowing);
   return {
     ...state,
     timeOfDayMode,
-    rainPreference,
+    rainPreference: clampedPref,
     isRaining,
+    isSnowing,
+    climateState,
     weather,
+  };
+}
+
+export function purchaseOrEquipScenery(
+  state: KlasikGameState,
+  sceneryId: SceneryId,
+  now: Date = new Date()
+): KlasikGameState {
+  const spec = getScenerySpec(sceneryId);
+  const unlockedList = state.unlockedSceneries || ['busy_street'];
+  const alreadyUnlocked = unlockedList.includes(sceneryId);
+  let nextCash = state.cash;
+  let nextUnlocked = unlockedList;
+
+  if (!alreadyUnlocked) {
+    if (spec.revenueMilestone > 0) {
+      if ((state.lifetimeGrossIncome || 0) < spec.revenueMilestone) {
+        return {
+          ...state,
+          lastActionFeedback: `Reach $${spec.revenueMilestone.toLocaleString()} total revenue to unlock ${spec.name}!`,
+        };
+      }
+      nextUnlocked = [...unlockedList, sceneryId];
+    } else {
+      if (state.cash < spec.cost) {
+        return {
+          ...state,
+          lastActionFeedback: `Need $${spec.cost.toLocaleString()} to unlock ${spec.name}.`,
+        };
+      }
+      nextCash -= spec.cost;
+      nextUnlocked = [...unlockedList, sceneryId];
+    }
+  }
+
+  // Enforce Weather Exclusivity & Auto-Clamp rules on scenery switch
+  const nextRainPref = clampRainPreferenceForScenery(sceneryId, state.rainPreference);
+  const withScenery: KlasikGameState = {
+    ...state,
+    cash: nextCash,
+    activeScenery: sceneryId,
+    unlockedSceneries: nextUnlocked,
+  };
+  const weatherAdjusted = applyWeatherPreferences(
+    withScenery,
+    withScenery.timeOfDayMode,
+    nextRainPref,
+    now,
+    withScenery.isRaining
+  );
+
+  return {
+    ...weatherAdjusted,
+    lastActionFeedback: !alreadyUnlocked
+      ? `Unlocked & moved cafe to ${spec.name}!`
+      : `Relocated cafe view to ${spec.name}.`,
+  };
+}
+
+export function purchasePatronOutfit(
+  state: KlasikGameState,
+  outfitId: PatronOutfitId
+): KlasikGameState {
+  const spec = getPatronOutfitSpec(outfitId);
+  if (!spec) return state;
+  const unlocked = state.unlockedPatronOutfits || [];
+  if (unlocked.includes(outfitId)) {
+    return state;
+  }
+  if (state.cash < spec.cost) {
+    return {
+      ...state,
+      lastActionFeedback: `Need $${spec.cost.toLocaleString()} to unlock ${spec.name}.`,
+    };
+  }
+  const nextUnlocked = [...unlocked, outfitId];
+  const nextEnabled = state.enabledCustomPatronOutfits?.includes(outfitId)
+    ? state.enabledCustomPatronOutfits
+    : [...(state.enabledCustomPatronOutfits || []), outfitId];
+  return {
+    ...state,
+    cash: state.cash - spec.cost,
+    unlockedPatronOutfits: nextUnlocked,
+    enabledCustomPatronOutfits: nextEnabled,
+    lastActionFeedback: `Unlocked ${spec.name} for cafe patrons!`,
+  };
+}
+
+export function setPatronOutfitAutoMatch(
+  state: KlasikGameState,
+  autoMatch: boolean
+): KlasikGameState {
+  return {
+    ...state,
+    patronOutfitAutoMatch: autoMatch,
+    lastActionFeedback: autoMatch
+      ? 'Patron outfits set to Auto-Match Scenery.'
+      : 'Patron outfits set to Custom Mix.',
+  };
+}
+
+export function toggleCustomPatronOutfit(
+  state: KlasikGameState,
+  outfitId: PatronOutfitId
+): KlasikGameState {
+  const unlocked = state.unlockedPatronOutfits || [];
+  if (!unlocked.includes(outfitId)) return state;
+  const current = state.enabledCustomPatronOutfits || [];
+  const exists = current.includes(outfitId);
+  const next = exists ? current.filter((id) => id !== outfitId) : [...current, outfitId];
+  return {
+    ...state,
+    enabledCustomPatronOutfits: next,
   };
 }
 
@@ -3658,6 +3904,8 @@ export interface SimulationTickOptions {
   modalOpen?: boolean;
   isRecipeBookOpen?: boolean;
   catStationOpen?: boolean;
+  outdoorOverlookOpen?: boolean;
+  isSecretPasserbyActive?: boolean;
   activeArrivingCount?: number;
   rng?: () => number;
 }
@@ -3669,7 +3917,12 @@ export function advanceSimulationTick(
 ): KlasikGameState {
   if (state.phase !== 'playing') return state;
   // Pause countdowns completely while informational modals (Settings/Upgrades/Customize/Audio/etc.) are open
-  if (options.modalOpen && !options.isRecipeBookOpen && !options.catStationOpen) {
+  if (
+    options.modalOpen &&
+    !options.isRecipeBookOpen &&
+    !options.catStationOpen &&
+    !options.outdoorOverlookOpen
+  ) {
     return state;
   }
 
@@ -3678,13 +3931,16 @@ export function advanceSimulationTick(
   const hasPidBoiler = state.upgrades.some((u) => u.id === 'dual-pid-boiler' && u.purchased);
   const hasBonsai = state.upgrades.some((u) => u.id === 'japanese-bonsai-terrarium' && u.purchased);
   const upgradeGrace = hasPidBoiler && hasBonsai ? 0.85 : hasPidBoiler ? 0.92 : 1.0;
-  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode, Cat Station, or with Lilo equipped
+  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode, Cat Station, Go Outside Mode, or with Lilo equipped
   const modalTimeScale = options.isRecipeBookOpen ? 0.35 : 1.0;
   const equippedCat = getCafeCatSpec(state.equippedCatId);
   const isLiloActive = Boolean(equippedCat.disablesMoodMeter);
   const catMoodDrainMult = equippedCat.moodDrainMultiplier ?? 1.0;
   const moodTickScale =
-    state.mode === 'zen' || isLiloActive || options.catStationOpen
+    state.mode === 'zen' ||
+    isLiloActive ||
+    options.catStationOpen ||
+    options.outdoorOverlookOpen
       ? 0
       : upgradeGrace * modalTimeScale * catMoodDrainMult;
 
@@ -3720,8 +3976,12 @@ export function advanceSimulationTick(
         continue;
       }
 
+      const secretPatienceMult = cust.isSecretNpc ? SECRET_NPC_PATIENCE_DRAIN_MULT : 1.0;
       const baseDrainPerSec = 100 / durationSec;
-      const nextMood = Math.max(0, curMood - dt * baseDrainPerSec * moodTickScale);
+      const nextMood = Math.max(
+        0,
+        curMood - dt * baseDrainPerSec * moodTickScale * secretPatienceMult
+      );
       const nextRemaining = (nextMood / 100) * durationSec;
 
       if (nextMood <= 0) {
@@ -3801,6 +4061,59 @@ export function advanceSimulationTick(
   let regularSinceRider = state.regularCustomersSinceLastRider ?? 0;
   let waveRemaining = state.waveCustomersRemaining ?? 2;
   let spawnTimer = (state.nextCustomerSpawnTimer ?? 5) - dt;
+  let nextSecretNameIdx = normalizeSecretNpcNameIdx(state.secretNpcNameIdx ?? 0);
+  let nextSecretCooldown = Math.max(0, (state.secretNpcCooldownRemaining ?? 0) - dt);
+  let isSecretActiveNow =
+    Boolean(options.isSecretPasserbyActive) ||
+    nextCustomers.some((c) => Boolean(c.isSecretNpc));
+  const climateState: ClimateState =
+    state.climateState ||
+    resolveClimateState(state.activeScenery || 'busy_street', state.rainPreference, state.isSnowing);
+
+  const attachPatronOutfit = (order: CustomerOrder): CustomerOrder => {
+    if (order.isSecretNpc || order.isDeliveryRider) return order;
+    const resolved = resolvePatronOutfitForSpawn({
+      activeScenery: state.activeScenery || 'busy_street',
+      climateState,
+      unlockedPatronOutfits: state.unlockedPatronOutfits || [],
+      patronOutfitAutoMatch: state.patronOutfitAutoMatch ?? true,
+      enabledCustomPatronOutfits: state.enabledCustomPatronOutfits || [],
+      isSecretNpc: false,
+      rng,
+    });
+    return {
+      ...order,
+      patronOutfitId: resolved.outfitId,
+      patronOutfitClimate: resolved.climateVariant,
+    };
+  };
+
+  const makeSecretVariant = (baseOrder: CustomerOrder): CustomerOrder => {
+    const secretName = getSecretNpcName(nextSecretNameIdx);
+    nextSecretNameIdx = advanceSecretNpcNameIdx(nextSecretNameIdx);
+    nextSecretCooldown = SECRET_NPC_COOLDOWN_SEC;
+    isSecretActiveNow = true;
+    const appearance = resolveSecretNpcAppearance(climateState, Boolean(state.isRaining), rng);
+    const warmDialogue =
+      SECRET_NPC_DIALOGUES[Math.floor(rng() * SECRET_NPC_DIALOGUES.length) % SECRET_NPC_DIALOGUES.length];
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(SECRET_NPC_STORAGE_KEY, String(nextSecretNameIdx));
+      } catch {
+        // ignore storage errors
+      }
+    }
+    return {
+      ...baseOrder,
+      customerName: secretName,
+      avatarColor: '#C6936B',
+      shirtColor: appearance.wearsCharcoalTee ? '#595B60' : '#1C1C20',
+      isSecretNpc: true,
+      secretNpcAppearance: appearance,
+      patronOutfitId: null,
+      dialogueLine: warmDialogue,
+    };
+  };
 
   const spawnNextPatron = (seedOffset: number): CustomerOrder => {
     const riderProb = computeDeliveryRiderProbability(state.weather, regularSinceRider);
@@ -3809,10 +4122,32 @@ export function advanceSimulationTick(
     if (canSpawnRider) {
       regularSinceRider = 0;
       activeDeliveryRiderCount += 1;
-      return spawnDeliveryRiderOrder(state.day, seedOffset, undefined, rng);
+      const riderOrder = spawnDeliveryRiderOrder(state.day, seedOffset, undefined, rng);
+      if (
+        canSpawnSecretNpc({
+          role: 'rider',
+          isSecretNpcActive: isSecretActiveNow,
+          cooldownRemainingSec: nextSecretCooldown,
+          rng,
+        })
+      ) {
+        return makeSecretVariant(riderOrder);
+      }
+      return riderOrder;
     }
     regularSinceRider += 1;
-    return spawnCustomerOrder(state.day, seedOffset, activePack.paletteColors, rng);
+    const custOrder = spawnCustomerOrder(state.day, seedOffset, activePack.paletteColors, rng);
+    if (
+      canSpawnSecretNpc({
+        role: 'customer',
+        isSecretNpcActive: isSecretActiveNow,
+        cooldownRemainingSec: nextSecretCooldown,
+        rng,
+      })
+    ) {
+      return makeSecretVariant(custOrder);
+    }
+    return attachPatronOutfit(custOrder);
   };
 
   if (
@@ -3870,6 +4205,11 @@ export function advanceSimulationTick(
       ? syncCatUnlocks(state.unlockedCats, newLifetimeGross)
       : { unlockedCats: state.unlockedCats || ['champy'], newlyUnlocked: [], unlockToast: null };
 
+  const scenerySync =
+    bonusTableTip > 0
+      ? syncSceneryMilestones(state.unlockedSceneries || ['busy_street'], newLifetimeGross)
+      : { unlockedSceneries: state.unlockedSceneries || ['busy_street'], newlyUnlocked: [] };
+
   return {
     ...state,
     phase: nextPhase,
@@ -3881,6 +4221,7 @@ export function advanceSimulationTick(
     lastExpiredCustomerName: nextExpiredName,
     lastExpiredEventSeq: nextExpiredSeq,
     equipmentSkins: updatedSkins,
+    unlockedSceneries: scenerySync.unlockedSceneries,
     unlockedCats: catSync.unlockedCats,
     lastCatUnlockToast: catSync.unlockToast || state.lastCatUnlockToast,
     lastCatUnlockSeq:
@@ -3892,6 +4233,8 @@ export function advanceSimulationTick(
     waveCustomersRemaining: waveRemaining,
     nextCustomerSpawnTimer: Math.max(0, spawnTimer),
     regularCustomersSinceLastRider: regularSinceRider,
+    secretNpcNameIdx: nextSecretNameIdx,
+    secretNpcCooldownRemaining: nextSecretCooldown,
     customers: nextCustomers,
     pinnedOrderId: pinnedExists ? state.pinnedOrderId : fallbackOrder ? fallbackOrder.id : null,
     lastActionFeedback: tipMessage || state.lastActionFeedback,
@@ -3982,6 +4325,14 @@ export function exportSaveJson(state: KlasikGameState): string {
         timeOfDayMode: state.timeOfDayMode,
         rainPreference: state.rainPreference,
         isRaining: state.isRaining,
+        isSnowing: Boolean(state.isSnowing),
+        climateState: state.climateState || 'summer',
+        activeScenery: state.activeScenery || 'busy_street',
+        unlockedSceneries: state.unlockedSceneries || ['busy_street'],
+        unlockedPatronOutfits: state.unlockedPatronOutfits || [],
+        patronOutfitAutoMatch: state.patronOutfitAutoMatch ?? true,
+        enabledCustomPatronOutfits: state.enabledCustomPatronOutfits || [],
+        klasik_secret_name_idx: normalizeSecretNpcNameIdx(state.secretNpcNameIdx ?? 0),
         graphicsQuality: state.graphicsQuality,
         realismMode: Boolean(state.realismMode),
         regularCustomersSinceLastRider: state.regularCustomersSinceLastRider ?? 3,
@@ -4191,7 +4542,17 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
         : d.weather
         ? extractTimeOfDayFromWeather(normalizeWeatherMode(d.weather))
         : 'auto';
-    const restoredRainPref: RainPreference =
+
+    const savedSceneriesRaw: SceneryId[] = Array.isArray(d.unlockedSceneries)
+      ? d.unlockedSceneries.filter(isValidSceneryId)
+      : ['busy_street'];
+    const scenerySync = syncSceneryMilestones(savedSceneriesRaw, restoredGross);
+    const restoredActiveScenery: SceneryId =
+      isValidSceneryId(d.activeScenery) && scenerySync.unlockedSceneries.includes(d.activeScenery)
+        ? d.activeScenery
+        : 'busy_street';
+
+    const rawRainPref: RainPreference =
       d.rainPreference !== undefined
         ? normalizeRainPreference(d.rainPreference)
         : d.weather
@@ -4199,16 +4560,53 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
           ? 'rain'
           : 'clear'
         : 'auto';
+    const restoredRainPref = clampRainPreferenceForScenery(restoredActiveScenery, rawRainPref);
     const resolvedTime = resolveTimeOfDay(restoredTimeMode, now);
-    const restoredIsRaining =
-      restoredRainPref === 'rain'
-        ? true
-        : restoredRainPref === 'clear'
-        ? false
-        : typeof d.isRaining === 'boolean'
-        ? d.isRaining
-        : isRainyWeather(normalizeWeatherMode(d.weather));
+    const restoredIsSnowing =
+      isAlwaysWinterScenery(restoredActiveScenery) ||
+      (restoredRainPref === 'snow' && isSnowAllowedForScenery(restoredActiveScenery));
+    const restoredIsRaining = restoredIsSnowing
+      ? false
+      : restoredRainPref === 'rain'
+      ? true
+      : restoredRainPref === 'clear'
+      ? false
+      : typeof d.isRaining === 'boolean'
+      ? d.isRaining
+      : isRainyWeather(normalizeWeatherMode(d.weather));
     const restoredWeather = resolveCompositeWeather(resolvedTime, restoredIsRaining);
+    const restoredClimate = resolveClimateState(
+      restoredActiveScenery,
+      restoredRainPref,
+      restoredIsSnowing
+    );
+
+    const restoredPatronOutfits: PatronOutfitId[] = Array.isArray(d.unlockedPatronOutfits)
+      ? Array.from(new Set(d.unlockedPatronOutfits.filter(isValidPatronOutfitId)))
+      : [];
+    const restoredEnabledCustomOutfits: PatronOutfitId[] = Array.isArray(
+      d.enabledCustomPatronOutfits
+    )
+      ? d.enabledCustomPatronOutfits.filter(
+          (id: unknown): id is PatronOutfitId =>
+            isValidPatronOutfitId(id) && restoredPatronOutfits.includes(id)
+        )
+      : [...restoredPatronOutfits];
+
+    let storedSecretIdx =
+      typeof d.klasik_secret_name_idx === 'number'
+        ? d.klasik_secret_name_idx
+        : typeof d.secretNpcNameIdx === 'number'
+        ? d.secretNpcNameIdx
+        : 0;
+    if (typeof window !== 'undefined' && d.klasik_secret_name_idx === undefined) {
+      try {
+        const lsVal = window.localStorage.getItem(SECRET_NPC_STORAGE_KEY);
+        if (lsVal !== null) storedSecretIdx = Number(lsVal);
+      } catch {
+        // ignore
+      }
+    }
 
     return {
       ...base,
@@ -4239,6 +4637,16 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       timeOfDayMode: restoredTimeMode,
       rainPreference: restoredRainPref,
       isRaining: restoredIsRaining,
+      isSnowing: restoredIsSnowing,
+      climateState: restoredClimate,
+      activeScenery: restoredActiveScenery,
+      unlockedSceneries: scenerySync.unlockedSceneries,
+      unlockedPatronOutfits: restoredPatronOutfits,
+      patronOutfitAutoMatch:
+        typeof d.patronOutfitAutoMatch === 'boolean' ? d.patronOutfitAutoMatch : true,
+      enabledCustomPatronOutfits: restoredEnabledCustomOutfits,
+      secretNpcNameIdx: normalizeSecretNpcNameIdx(storedSecretIdx),
+      secretNpcCooldownRemaining: 0,
       graphicsQuality: normalizeGraphicsQuality(d.graphicsQuality),
       realismMode: Boolean(d.realismMode),
       regularCustomersSinceLastRider:

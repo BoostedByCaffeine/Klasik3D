@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Disc3 } from 'lucide-react';
 import { BizUpgradesModal, UpgradesHubTab } from './components/BizUpgradesModal';
 import { CatStationActionMode, CatStationOverlay } from './components/CatStationOverlay';
 import { CodeExportModal } from './components/CodeExportModal';
@@ -7,11 +6,13 @@ import { CustomizeModal } from './components/CustomizeModal';
 import { HudOverlay } from './components/HudOverlay';
 import { LandscapeIntroGate } from './components/LandscapeIntroGate';
 import { LoadingScreen } from './components/LoadingScreen';
+import { OutdoorOverlookOverlay } from './components/OutdoorOverlookOverlay';
 import { PwaApkModal } from './components/PwaApkModal';
 import { RecipeMenuModal } from './components/RecipeMenuModal';
 import { StatusModal } from './components/StatusModal';
 import { TitleScreen } from './components/TitleScreen';
 import { UnifiedAudioModal } from './components/UnifiedAudioModal';
+import { OutdoorVantageKey } from './game/OutdoorOverlookController';
 import {
   ActiveStepAction,
   BaristaStationId,
@@ -23,8 +24,10 @@ import {
   GraphicsQuality,
   KlasikGameState,
   PastryId,
+  PatronOutfitId,
   RECIPES,
   RainPreference,
+  SceneryId,
   SyrupFlavor,
   TimeOfDayMode,
   acceptCustomerOrder,
@@ -51,14 +54,18 @@ import {
   preparePastry,
   purchaseCatCosmetic,
   purchaseOrEquipCafeCat,
+  purchaseOrEquipScenery,
+  purchasePatronOutfit,
   purchaseUpgrade,
   returnPreparedPastry,
   rollAutoRain,
   saveGameToStorage,
   saveGraphicsQuality,
   serveCurrentCupToCustomer,
+  setPatronOutfitAutoMatch,
   startNextDayShift,
   syncDailyQuotaForDate,
+  toggleCustomPatronOutfit,
   unlockAllEverythingCheat,
   unlockOrEquipCustomerSkinPack,
   unlockOrEquipEquipmentSkin,
@@ -138,6 +145,9 @@ export default function App() {
   const [catStationOpen, setCatStationOpen] = useState<boolean>(false);
   const [catStationMode, setCatStationMode] = useState<CatStationActionMode>('pet');
   const [catStationCustomizeOpen, setCatStationCustomizeOpen] = useState<boolean>(false);
+  const [outdoorOverlookOpen, setOutdoorOverlookOpen] = useState<boolean>(false);
+  const [outdoorVantage, setOutdoorVantage] = useState<OutdoorVantageKey>('porch');
+  const [sceneryFadeVisible, setSceneryFadeVisible] = useState<boolean>(false);
   const [hasUnseenCatUnlock, setHasUnseenCatUnlock] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [hoveredToolLabel, setHoveredToolLabel] = useState<string | null>(null);
@@ -154,11 +164,14 @@ export default function App() {
   const animTimerRef = useRef<number | null>(null);
   const stepCommitTimerRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
+  const fadeTimerRef = useRef<number | null>(null);
   const stepLockUntilRef = useRef<number>(0);
   const activeModalRef = useRef<ActiveModal>(activeModal);
   activeModalRef.current = activeModal;
   const catStationOpenRef = useRef<boolean>(catStationOpen);
   catStationOpenRef.current = catStationOpen;
+  const outdoorOverlookOpenRef = useRef<boolean>(outdoorOverlookOpen);
+  outdoorOverlookOpenRef.current = outdoorOverlookOpen;
   const lastExpiredSeqRef = useRef<number>(gameState.lastExpiredEventSeq ?? 0);
   const lastCatUnlockSeqRef = useRef<number>(gameState.lastCatUnlockSeq ?? 0);
   const prevCatCountRef = useRef<number>(gameState.unlockedCats?.length ?? 1);
@@ -223,12 +236,15 @@ export default function App() {
     }
   }, [gameState.customers, hudPinnedOrderId]);
 
-  // Clean up any pending timed step timers on unmount
+  // Clean up any pending timed step & transition timers on unmount
   useEffect(() => {
     return () => {
       if (animTimerRef.current) window.clearTimeout(animTimerRef.current);
       if (stepCommitTimerRef.current) window.clearTimeout(stepCommitTimerRef.current);
       if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
+      if (fadeTimerRef.current) window.clearTimeout(fadeTimerRef.current);
+      musicPlayerController.setOutdoorMuffle(false);
+      soundEngine.setOutdoorAmbienceBoost(false);
     };
   }, []);
 
@@ -314,6 +330,8 @@ export default function App() {
       });
     });
 
+    // Phase 0.3: Clear any legacy floating Spotify iframe visibility flag in localStorage on boot
+    spotifyManager.setShowMiniEmbed(false);
     const unsubSpotify = spotifyManager.subscribe((nextSpotify) => {
       setSpotifyState(nextSpotify);
       sceneRef.current?.updateSpotifyState(nextSpotify);
@@ -491,11 +509,125 @@ export default function App() {
     [flashAnimBanner]
   );
 
+  const runEspressoFade = useCallback((midAction: () => void) => {
+    if (fadeTimerRef.current) window.clearTimeout(fadeTimerRef.current);
+    setSceneryFadeVisible(true);
+    fadeTimerRef.current = window.setTimeout(() => {
+      try {
+        midAction();
+      } finally {
+        fadeTimerRef.current = window.setTimeout(() => {
+          setSceneryFadeVisible(false);
+          fadeTimerRef.current = null;
+        }, 160);
+      }
+    }, 160);
+  }, []);
+
+  const handleEnterGoOutside = useCallback(() => {
+    if (outdoorOverlookOpenRef.current) return;
+    soundEngine.init();
+    soundEngine.playDoorChime();
+    setActiveModal(null);
+    setCatStationCustomizeOpen(false);
+    setCatStationOpen(false);
+    runEspressoFade(() => {
+      setOutdoorVantage('porch');
+      setOutdoorOverlookOpen(true);
+      sceneRef.current?.setOutdoorOverlookMode(true, 'porch');
+      musicPlayerController.setOutdoorMuffle(true);
+      soundEngine.setOutdoorAmbienceBoost(true);
+    });
+  }, [runEspressoFade]);
+
+  const handleExitGoOutside = useCallback(() => {
+    if (!outdoorOverlookOpenRef.current) return;
+    soundEngine.init();
+    soundEngine.playDoorChime();
+    runEspressoFade(() => {
+      setOutdoorOverlookOpen(false);
+      sceneRef.current?.setOutdoorOverlookMode(false);
+      musicPlayerController.setOutdoorMuffle(false);
+      soundEngine.setOutdoorAmbienceBoost(false);
+    });
+  }, [runEspressoFade]);
+
+  const handleSelectOutdoorVantage = useCallback((vantage: OutdoorVantageKey) => {
+    soundEngine.playCeramicClink(1.06);
+    setOutdoorVantage(vantage);
+    sceneRef.current?.setOutdoorVantage(vantage);
+  }, []);
+
+  const handlePurchaseOrEquipScenery = useCallback(
+    (sceneryId: SceneryId) => {
+      soundEngine.init();
+      const prev = gameStateRef.current;
+      const next = purchaseOrEquipScenery(prev, sceneryId);
+      if (next === prev) {
+        soundEngine.playErrorThud();
+        return;
+      }
+      if (next.cash < prev.cash) {
+        soundEngine.playCashRegister();
+      } else {
+        soundEngine.playCeramicClink(1.14);
+      }
+      runEspressoFade(() => {
+        setGameState(next);
+        sceneRef.current?.updateGameState(next);
+        soundEngine.setRainAmbience(next.phase === 'playing', next.weather);
+      });
+      flashAnimBanner(next.lastActionFeedback, 2300, false);
+    },
+    [flashAnimBanner, runEspressoFade]
+  );
+
+  const handlePurchasePatronOutfit = useCallback(
+    (outfitId: PatronOutfitId) => {
+      soundEngine.init();
+      const prev = gameStateRef.current;
+      const next = purchasePatronOutfit(prev, outfitId);
+      if (next === prev) {
+        soundEngine.playErrorThud();
+        return;
+      }
+      soundEngine.playCashRegister();
+      setGameState(next);
+      sceneRef.current?.updateGameState(next);
+      flashAnimBanner(next.lastActionFeedback, 2100, false);
+    },
+    [flashAnimBanner]
+  );
+
+  const handleSetPatronOutfitAutoMatch = useCallback((autoMatch: boolean) => {
+    soundEngine.playCeramicClink(1.04);
+    setGameState((prev) => {
+      const next = setPatronOutfitAutoMatch(prev, autoMatch);
+      sceneRef.current?.updateGameState(next);
+      return next;
+    });
+  }, []);
+
+  const handleToggleCustomPatronOutfit = useCallback((outfitId: PatronOutfitId) => {
+    soundEngine.playCeramicClink(1.08);
+    setGameState((prev) => {
+      const next = toggleCustomPatronOutfit(prev, outfitId);
+      sceneRef.current?.updateGameState(next);
+      return next;
+    });
+  }, []);
+
   const handleOpenCatStation = useCallback(() => {
     soundEngine.init();
     soundEngine.preloadChampyAudio();
     soundEngine.playCeramicClink(1.12);
     setActiveModal(null);
+    if (outdoorOverlookOpenRef.current) {
+      setOutdoorOverlookOpen(false);
+      sceneRef.current?.setOutdoorOverlookMode(false);
+      musicPlayerController.setOutdoorMuffle(false);
+      soundEngine.setOutdoorAmbienceBoost(false);
+    }
     setHasUnseenCatUnlock(false);
     setCatStationMode('pet');
     setCatStationCustomizeOpen(false);
@@ -1068,6 +1200,10 @@ export default function App() {
             if (gameStateRef.current.phase !== 'playing') return;
             soundEngine.playScooterPurr(mode);
           },
+          onEnterGoOutside: () => {
+            if (gameStateRef.current.phase !== 'playing') return;
+            handleEnterGoOutside();
+          },
         }
       );
       sceneRef.current = scene;
@@ -1098,6 +1234,7 @@ export default function App() {
     handleAcceptOrder,
     handleCookieJarTap,
     handleCupAction,
+    handleEnterGoOutside,
     handleGrabPastry,
     handleReturnPreparedPastry,
     handleSelectStation,
@@ -1156,17 +1293,20 @@ export default function App() {
     flashAnimBanner,
   ]);
 
-  // 4 Hz Gameplay Simulation Timer (respects modal pause, Cat Station patience pause, 0.35x Recipe Book grace, and staggered door arrivals)
+  // 4 Hz Gameplay Simulation Timer (respects modal pause, Cat Station & Go Outside patience pause, 0.35x Recipe Book grace, and staggered door arrivals)
   useEffect(() => {
     if (gameState.phase !== 'playing') return;
     const interval = window.setInterval(() => {
       const modal = activeModalRef.current;
       const activeArrivingCount = sceneRef.current?.getActiveArrivingCount() ?? 0;
+      const isSecretPasserbyActive = sceneRef.current?.isSecretPasserbyActive() ?? false;
       setGameState((prev) =>
         advanceSimulationTick(prev, 0.25, {
           modalOpen: modal !== null,
           isRecipeBookOpen: modal === 'recipes',
           catStationOpen: catStationOpenRef.current,
+          outdoorOverlookOpen: outdoorOverlookOpenRef.current,
+          isSecretPasserbyActive,
           activeArrivingCount,
         })
       );
@@ -1195,6 +1335,10 @@ export default function App() {
 
       if (e.code === 'Escape' || e.code === 'KeyP') {
         e.preventDefault();
+        if (outdoorOverlookOpenRef.current) {
+          handleExitGoOutside();
+          return;
+        }
         if (catStationOpenRef.current) {
           setCatStationCustomizeOpen(false);
           setCatStationOpen(false);
@@ -1211,7 +1355,9 @@ export default function App() {
         return;
       }
 
-      if (phase !== 'playing' || catStationOpenRef.current) return;
+      if (phase !== 'playing' || catStationOpenRef.current || outdoorOverlookOpenRef.current) {
+        return;
+      }
 
       if (e.code === 'Digit1') handleSelectStation(1);
       else if (e.code === 'Digit2') handleSelectStation(2);
@@ -1274,7 +1420,14 @@ export default function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeModal, handleCupAction, handleSelectStation, handleStartShift, pwaStatus.appVersion]);
+  }, [
+    activeModal,
+    handleCupAction,
+    handleExitGoOutside,
+    handleSelectStation,
+    handleStartShift,
+    pwaStatus.appVersion,
+  ]);
 
   const handleChangeTimeOfDay = (timeOfDayMode: TimeOfDayMode) => {
     soundEngine.init();
@@ -1347,9 +1500,6 @@ export default function App() {
     window.location.reload();
   };
 
-  const shouldRenderWebSpotifyEmbed =
-    pwaStatus.appVersion !== 'apk' && !pwaStatus.isOffline;
-
   return (
     <main
       data-landscape-enforced={isPortraitRotated ? 'rotated-90' : 'native-landscape'}
@@ -1415,6 +1565,7 @@ export default function App() {
           weather={gameState.weather}
           timeOfDayMode={gameState.timeOfDayMode}
           rainPreference={gameState.rainPreference}
+          activeScenery={gameState.activeScenery}
           graphicsQuality={gameState.graphicsQuality}
           pwaStatus={pwaStatus}
           spotifyTrackTitle={
@@ -1435,8 +1586,8 @@ export default function App() {
         />
       )}
 
-      {/* Active Barista POV HUD Overlay (Hidden cleanly while inside Phase 5 Cat Station close-up) */}
-      {!isLoading && gameState.phase !== 'title' && !catStationOpen && (
+      {/* Active Barista POV HUD Overlay (Hidden cleanly while inside Cat Station or Go Outside Mode) */}
+      {!isLoading && gameState.phase !== 'title' && !catStationOpen && !outdoorOverlookOpen && (
         <HudOverlay
           gameState={gameState}
           spotifyState={spotifyState}
@@ -1478,6 +1629,7 @@ export default function App() {
           }
           onToggleVinyl={() => musicPlayerController.togglePlayPause()}
           onOpenCatStation={handleOpenCatStation}
+          onOpenGoOutside={handleEnterGoOutside}
           onChangeGraphics={handleChangeGraphics}
           onToggleRealismMode={handleToggleRealismMode}
           onRequestFullscreenLandscape={handleRequestFullscreenLandscape}
@@ -1485,6 +1637,21 @@ export default function App() {
             if (modal === 'upgrades') setUpgradesInitialTab('upgrades');
             setActiveModal(modal);
           }}
+        />
+      )}
+
+      {/* Phase 6: Go Outside Scenic Overlook Mode Overlay */}
+      {!isLoading && gameState.phase === 'playing' && outdoorOverlookOpen && (
+        <OutdoorOverlookOverlay
+          activeScenery={gameState.activeScenery}
+          activeVantage={outdoorVantage}
+          isSnowing={gameState.isSnowing}
+          climateState={gameState.climateState}
+          waitingOrdersCount={
+            gameState.customers.filter((c) => c.state === 'ordering').length
+          }
+          onSelectVantage={handleSelectOutdoorVantage}
+          onBackInside={handleExitGoOutside}
         />
       )}
 
@@ -1513,6 +1680,9 @@ export default function App() {
           }}
           onPurchaseCosmetic={handlePurchaseCosmetic}
           onToggleEquipCosmetic={handleToggleEquipCosmetic}
+          getCatCosmeticThumbnail={(id) =>
+            sceneRef.current?.getCatCosmeticThumbnail(id) ?? ''
+          }
           onClose={handleCloseCatStation}
         />
       )}
@@ -1579,7 +1749,17 @@ export default function App() {
             setGameState((prev) => unlockOrEquipCustomerSkinPack(prev, packId));
           }}
           onPurchaseOrEquipCafeCat={handlePurchaseOrEquipCafeCat}
+          onPurchaseOrEquipScenery={handlePurchaseOrEquipScenery}
+          onPurchasePatronOutfit={handlePurchasePatronOutfit}
+          onSetPatronOutfitAutoMatch={handleSetPatronOutfitAutoMatch}
+          onToggleCustomPatronOutfit={handleToggleCustomPatronOutfit}
           onOpenCatStation={handleOpenCatStation}
+          onOpenGoOutside={handleEnterGoOutside}
+          getSceneryThumbnail={(id) => sceneRef.current?.getSceneryThumbnail(id) ?? ''}
+          getPatronOutfitThumbnail={(id, climate) =>
+            sceneRef.current?.getPatronOutfitThumbnail(id, climate) ?? ''
+          }
+          getCatThumbnail={(id) => sceneRef.current?.getCatThumbnail(id) ?? ''}
           onClaimLoginReward={(rewardDay) => {
             soundEngine.playCashRegister();
             setGameState((prev) => claimLoginReward(prev, rewardDay));
@@ -1594,13 +1774,22 @@ export default function App() {
           weather={gameState.weather}
           timeOfDayMode={gameState.timeOfDayMode}
           rainPreference={gameState.rainPreference}
+          activeScenery={gameState.activeScenery}
+          isSnowing={gameState.isSnowing}
           equippedCatName={getCafeCatSpec(gameState.equippedCatId).name}
           unlockedCatsCount={gameState.unlockedCats.length}
+          getDecorThumbnail={(cat, val) =>
+            sceneRef.current?.getDecorThumbnail(cat, val) ?? ''
+          }
           onUpdateDecor={handleUpdateDecor}
           onUpdateTimeOfDay={handleChangeTimeOfDay}
           onUpdateRainPreference={handleChangeRainPreference}
           onOpenCafeCats={() => {
             setUpgradesInitialTab('cafe_cats');
+            setActiveModal('upgrades');
+          }}
+          onOpenSceneries={() => {
+            setUpgradesInitialTab('sceneries');
             setActiveModal('upgrades');
           }}
           onClose={() => setActiveModal(null)}
@@ -1632,41 +1821,14 @@ export default function App() {
         />
       )}
 
-      {/* PERSISTENT SPOTIFY WEB EMBED PLAYER (Hidden while UnifiedAudioModal is open so Counter Audio Deck stays uncluttered) */}
-      {shouldRenderWebSpotifyEmbed && (
-        <div
-          data-testid="persistent-spotify-embed-dock"
-          className={
-            activeModal !== 'spotify' && spotifyState.showMiniEmbed && gameState.phase !== 'title'
-              ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden glass-panel border-emerald-400/40'
-              : 'fixed -bottom-96 left-0 w-72 h-20 opacity-0 pointer-events-none overflow-hidden'
-          }
-        >
-          {spotifyState.showMiniEmbed && activeModal !== 'spotify' && (
-            <div className="flex items-center justify-between px-2.5 py-1 bg-black/45 border-b border-amber-500/20 text-[10px] text-emerald-300 font-semibold glass-text-crisp">
-              <span className="truncate flex items-center gap-1">
-                <Disc3 className="w-3 h-3 shrink-0" />
-                <span>{spotifyState.currentTrack.title}</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => spotifyManager.setShowMiniEmbed(false)}
-                className="text-stone-400 hover:text-white cursor-pointer ml-2"
-                title="Hide Mini Window (Audio Keeps Playing!)"
-              >
-                Minimize
-              </button>
-            </div>
-          )}
-          <iframe
-            title="Spotify Vinyl Player"
-            src={spotifyState.currentTrack.embedUrl}
-            width="100%"
-            height="80"
-            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-          />
-        </div>
-      )}
+      {/* Smooth 0.35s Matte Espresso Fade Curtain for Scenery Swaps & Go Outside Transitions */}
+      <div
+        aria-hidden="true"
+        data-fade-visible={sceneryFadeVisible ? '1' : '0'}
+        className={`pointer-events-none fixed inset-0 z-50 bg-[#090705] transition-opacity duration-200 ${
+          sceneryFadeVisible ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
     </main>
   );
 }
