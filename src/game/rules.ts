@@ -3,6 +3,73 @@
 // Customer Skin Packs, Login Rewards, Decor), "Golden Espresso Machine" (100k Gross Income -> 2x Sale Income),
 // Daily 30-50 Order Quotas, Table Seating & Miata Showroom State Machine, and Save/Export/Import System.
 
+import {
+  ALL_CAT_COSMETIC_IDS,
+  BASE_CAT_COSMETIC_IDS,
+  BERET_REVENUE_MILESTONE,
+  CAT_COSMETICS_CATALOG,
+  CAT_FIT_PROFILES,
+  CatCosmeticId,
+  CatCosmeticSlot,
+  CatCosmeticSpec,
+  CatFitProfile,
+  CatLoadout,
+  GOLDEN_ESPRESSO_COST,
+  applyCosmeticToLoadout,
+  checkDinoCostumeUnlock,
+  createEmptyCatLoadout,
+  getCatCosmeticSpec,
+  getCatFitProfile,
+  getEffectiveVisibleLoadout,
+  isValidCatCosmeticId,
+  normalizeCatLoadout,
+  syncCatCosmeticMilestones,
+} from './catCosmeticsData';
+
+export {
+  ALL_CAT_COSMETIC_IDS,
+  BASE_CAT_COSMETIC_IDS,
+  BERET_REVENUE_MILESTONE,
+  CAT_COSMETICS_CATALOG,
+  CAT_FIT_PROFILES,
+  GOLDEN_ESPRESSO_COST,
+  applyCosmeticToLoadout,
+  checkDinoCostumeUnlock,
+  createEmptyCatLoadout,
+  getCatCosmeticSpec,
+  getCatFitProfile,
+  getEffectiveVisibleLoadout,
+  isValidCatCosmeticId,
+  normalizeCatLoadout,
+  syncCatCosmeticMilestones,
+};
+export type { CatCosmeticId, CatCosmeticSlot, CatCosmeticSpec, CatFitProfile, CatLoadout };
+
+export type AudioModeId = 'vinyl' | 'radio' | 'external';
+
+export interface AudioPreferences {
+  mode: AudioModeId;
+  lastVinylTrackId: string | null;
+  lastRadioStationId: string | null;
+  musicVolume: number;
+  ambienceVolume: number;
+  vinylCrackle: boolean;
+  // Backward-compatible optional aliases for older saves
+  lastMode?: AudioModeId;
+  sfxVolume?: number;
+  crackleEnabled?: boolean;
+  lastStationId?: string | null;
+}
+
+export const DEFAULT_AUDIO_PREFERENCES: AudioPreferences = {
+  mode: 'vinyl',
+  lastVinylTrackId: null,
+  lastRadioStationId: null,
+  musicVolume: 0.7,
+  ambienceVolume: 0.85,
+  vinylCrackle: true,
+};
+
 export type GamePhase = 'title' | 'playing' | 'paused' | 'gameover';
 export type GameMode = 'career' | 'zen';
 export type TimeOfDayMode = 'auto' | 'dawn' | 'morning' | 'noon' | 'golden' | 'night';
@@ -368,7 +435,10 @@ export type CafeCatId =
   | 'lilo'
   | 'katkat'
   | 'luna'
-  | 'mikmik';
+  | 'mikmik'
+  | 'amby'
+  | 'gigi'
+  | 'tisay';
 
 export interface CafeCatSpec {
   id: CafeCatId;
@@ -381,7 +451,13 @@ export interface CafeCatSpec {
   stripeHex?: number;
   bellyPatchHex?: number;
   tailHex?: number;
-  coatPattern: 'solid' | 'tabby' | 'tuxedo-tabby' | 'calico-mikmik';
+  coatPattern:
+    | 'solid'
+    | 'tabby'
+    | 'tuxedo-tabby'
+    | 'calico-mikmik'
+    | 'bicolor-patches'
+    | 'tuxedo-ginger';
   leftEyeHex: number; // Cat's anatomical left eye (+X in head local space)
   rightEyeHex: number; // Cat's anatomical right eye (-X in head local space)
   hasCollar: boolean;
@@ -389,8 +465,9 @@ export interface CafeCatSpec {
   collarThin?: boolean;
   hasBell: boolean;
   scale: readonly [number, number, number]; // [width X, height Y, length Z]
-  unlockType: 'starter' | 'revenue' | 'shop' | 'master';
+  unlockType: 'starter' | 'revenue' | 'shop' | 'master' | 'golden_espresso';
   unlockAmount: number; // Revenue milestone ($) or Shop cost ($)
+  isSecret?: boolean; // Completely hidden from Shop & UI counters until unlocked
   passiveTitle: string | null;
   passiveDescription: string;
   moodDrainMultiplier: number; // 1.0 default, 1.3 for Mikmik, 0 for Lilo
@@ -616,9 +693,84 @@ export const CAFE_CATS: readonly CafeCatSpec[] = [
     revenueMultiplier: 1.0,
     disablesMoodMeter: true,
   },
+  {
+    id: 'gigi',
+    name: 'Gigi',
+    coatSummary: 'White Base + Black Patches on Head & Body',
+    eyesSummary: 'Emerald Green Eyes',
+    collarSummary: 'Sleek Black Collar',
+    sizeSummary: 'Playful Kitten',
+    furHex: 0xf8fafc,
+    stripeHex: 0x18181b,
+    bellyPatchHex: 0x18181b,
+    tailHex: 0x18181b,
+    coatPattern: 'bicolor-patches',
+    leftEyeHex: 0x22c55e,
+    rightEyeHex: 0x22c55e,
+    hasCollar: true,
+    collarHex: 0x111827,
+    hasBell: false,
+    scale: [0.68, 0.7, 0.68],
+    unlockType: 'shop',
+    unlockAmount: 500,
+    passiveTitle: null,
+    passiveDescription: 'Curious little tuxedo-spotted kitten available in the Cat Adoption Shop.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'amby',
+    name: 'Amby',
+    coatSummary: 'Pure Warm Caramel Fur',
+    eyesSummary: 'Warm Amber Eyes',
+    collarSummary: 'Pastel Pink Collar + Bell',
+    sizeSummary: 'Standard',
+    furHex: 0xc68642,
+    coatPattern: 'solid',
+    leftEyeHex: 0xf59e0b,
+    rightEyeHex: 0xf59e0b,
+    hasCollar: true,
+    collarHex: 0xec4899,
+    hasBell: true,
+    scale: [1.0, 1.0, 1.0],
+    unlockType: 'shop',
+    unlockAmount: 1500,
+    passiveTitle: null,
+    passiveDescription: 'Sweet warm-caramel cafe regular available in the Cat Adoption Shop.',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
+  {
+    id: 'tisay',
+    name: 'Tisay',
+    coatSummary: 'Tuxedo-Patterned Ginger + Crisp White Bib, Muzzle & Paws',
+    eyesSummary: 'Warm Amber Eyes',
+    collarSummary: 'No Collar (Natural)',
+    sizeSummary: 'Slender & Sleek',
+    furHex: 0xea580c,
+    bellyPatchHex: 0xf8fafc,
+    tailHex: 0xea580c,
+    coatPattern: 'tuxedo-ginger',
+    leftEyeHex: 0xf59e0b,
+    rightEyeHex: 0xf59e0b,
+    hasCollar: false,
+    collarHex: 0x000000,
+    hasBell: false,
+    scale: [0.82, 0.95, 1.0],
+    unlockType: 'golden_espresso',
+    unlockAmount: GOLDEN_ESPRESSO_COST,
+    isSecret: true,
+    passiveTitle: null,
+    passiveDescription: 'A sleek tuxedo ginger cat who wandered in with the Golden Espresso Machine!',
+    moodDrainMultiplier: 1.0,
+    revenueMultiplier: 1.0,
+  },
 ] as const;
 
 export const ALL_CAFE_CAT_IDS: readonly CafeCatId[] = CAFE_CATS.map((c) => c.id);
+export const SECRET_CAFE_CAT_IDS: readonly CafeCatId[] = CAFE_CATS.filter((c) =>
+  Boolean(c.isSecret)
+).map((c) => c.id);
 
 export function getCafeCatSpec(catId: CafeCatId | undefined | null): CafeCatSpec {
   return CAFE_CATS.find((c) => c.id === catId) || CAFE_CATS[0];
@@ -628,15 +780,40 @@ export function isValidCafeCatId(val: unknown): val is CafeCatId {
   return typeof val === 'string' && ALL_CAFE_CAT_IDS.includes(val as CafeCatId);
 }
 
+// Secret cats (like Tisay) are completely excluded from Shop catalogs & "X / Y" counters until unlocked!
+export function getVisibleShopCats(unlockedCats: readonly CafeCatId[]): CafeCatSpec[] {
+  const unlockedSet = new Set(unlockedCats);
+  return CAFE_CATS.filter((spec) => !spec.isSecret || unlockedSet.has(spec.id));
+}
+
 export const SHIFT_SECONDS = 300;
 export const MAX_QUEUE = 3;
 export const MAX_GARDEN_SEATS = 6;
 export const DAILY_REALTIME_CUP_QUOTA = 35;
 export const DAILY_QUOTA_COMPLETION_BONUS = 120;
 export const DELIVERY_PARTNER_BONUS = 3;
-export const DELIVERY_RIDER_MIN_REGULAR_COOLDOWN = 3;
-export const GOLDEN_MACHINE_GROSS_THRESHOLD = 150000;
+export const DELIVERY_RIDER_MIN_REGULAR_COOLDOWN = 0; // Phase 1.2: 50%–80% delivery rider encounter rate + pity cap
+export const MAX_ACTIVE_DELIVERY_RIDERS = 2; // Hard cap of max 2 simultaneously parked delivery scooters
+export const GOLDEN_MACHINE_GROSS_THRESHOLD = GOLDEN_ESPRESSO_COST; // Rebalanced from $150,000 -> $50,000
 export const MIN_ARRIVAL_GAP_SEC = 3.2;
+
+// Phase 1.2: 50%–80% Delivery Rider encounter probability (0.50 quiet, 0.80 peak rush, 0.65 balanced, 1.0 pity after 2 regulars)
+export function computeDeliveryRiderProbability(
+  weather: WeatherMode,
+  regularCustomersSinceLastRider: number
+): number {
+  if (regularCustomersSinceLastRider >= 2) {
+    return 1.0; // Pity cap: never go more than 2 orders without a Delivery Rider!
+  }
+  const timeSlot = extractTimeOfDayFromWeather(weather);
+  if (timeSlot === 'morning' || timeSlot === 'noon') {
+    return 0.8; // Peak rush hours
+  }
+  if (timeSlot === 'dawn' || timeSlot === 'night') {
+    return 0.5; // Quiet hours
+  }
+  return 0.65; // Golden hour baseline
+}
 
 export function rollMoodDurationSec(rng: () => number = Math.random): number {
   return Math.floor(rng() * 61) + 60; // Inclusive 60s (1 min) to 120s (2 min)
@@ -1009,6 +1186,7 @@ export interface CustomerOrder {
   expired?: boolean; // Mirror of moodExpired
   state: 'ordering' | 'seated' | 'departing';
   seatIndex: number | null; // 0..5 for the 6 cafe & garden tables (always null for takeout)
+  leavingTable?: boolean; // Phase 1.1: true when dine-in customer stands up & walks out doorway
   seatedTimer: number;
   dialogueLine: string;
   customAddons: string[];
@@ -1161,7 +1339,14 @@ export interface KlasikGameState {
   loginStreakDays: number;
   decor: DecorCustomization;
   unlockedCats: CafeCatId[];
+  secretCatsUnlocked: CafeCatId[];
   equippedCatId: CafeCatId;
+  unlockedCosmetics: CatCosmeticId[];
+  catLoadouts: Partial<Record<CafeCatId, CatLoadout>>;
+  goldenEspressoUnlocked: boolean;
+  audioPreferences: AudioPreferences;
+  hasUnseenCatUnlock?: boolean;
+  tisayJustArrivedSeq?: number;
   cookieJarCheatUnlocked?: boolean;
   lastCatUnlockToast?: string | null;
   lastCatUnlockSeq?: number;
@@ -1349,7 +1534,7 @@ export const INITIAL_EQUIPMENT_SKINS: EquipmentSkinItem[] = [
     slot: 'machine',
     name: 'Golden Espresso Machine (2x Sale Income)',
     description:
-      'Legendary 24K solid gold dual-boiler masterpiece! Earned exclusively by grinding to $150,000 Gross Income. DOUBLES (2x) all drink sale income once equipped!',
+      'Legendary 24K solid gold dual-boiler masterpiece! Earned at $50,000 Gross Income. DOUBLES (2x) all drink sale income and unlocks exclusive feline rewards!',
     cost: 0,
     grossIncomeRequirement: GOLDEN_MACHINE_GROSS_THRESHOLD,
     saleMultiplier: 2,
@@ -1746,7 +1931,14 @@ export function createInitialGameState(): KlasikGameState {
       plantDensity: 'lush-jungle',
     },
     unlockedCats: ['champy'],
+    secretCatsUnlocked: [],
     equippedCatId: 'champy',
+    unlockedCosmetics: [],
+    catLoadouts: {},
+    goldenEspressoUnlocked: false,
+    audioPreferences: { ...DEFAULT_AUDIO_PREFERENCES },
+    hasUnseenCatUnlock: false,
+    tisayJustArrivedSeq: 0,
     cookieJarCheatUnlocked: false,
     lastCatUnlockToast: null,
     lastCatUnlockSeq: 0,
@@ -1942,6 +2134,18 @@ export function clearPreparedPastry(state: KlasikGameState): KlasikGameState {
   return {
     ...state,
     preparedPastry: null,
+  };
+}
+
+export function returnPreparedPastry(state: KlasikGameState): KlasikGameState {
+  if (!state.preparedPastry) return state;
+  const spec = getPastryById(state.preparedPastry);
+  return {
+    ...state,
+    preparedPastry: null,
+    lastActionFeedback: spec
+      ? `Returned ${spec.name} back to the pastry display case.`
+      : 'Returned pastry back to the display case.',
   };
 }
 
@@ -2403,10 +2607,13 @@ function syncGrossIncomeUnlocks(
 
 export function syncCatUnlocks(
   currentUnlocked: CafeCatId[] | undefined,
-  lifetimeRevenue: number
+  lifetimeRevenue: number,
+  goldenEspressoUnlocked = false
 ): {
   unlockedCats: CafeCatId[];
+  secretCatsUnlocked: CafeCatId[];
   newlyUnlocked: CafeCatId[];
+  justUnlockedTisay: boolean;
   unlockToast: string | null;
 } {
   const unlockedSet = new Set<CafeCatId>(
@@ -2424,17 +2631,30 @@ export function syncCatUnlocks(
         newlyUnlocked.push(spec.id);
       }
     }
+    if (
+      spec.unlockType === 'golden_espresso' &&
+      (goldenEspressoUnlocked || lifetimeRevenue >= GOLDEN_MACHINE_GROSS_THRESHOLD)
+    ) {
+      if (!unlockedSet.has(spec.id)) {
+        unlockedSet.add(spec.id);
+        newlyUnlocked.push(spec.id);
+      }
+    }
   }
 
-  // Master Unlock: Lilo automatically unlocks once all 7 other unlockable cats are owned!
+  // Master Unlock: Lilo automatically unlocks once all 7 original unlockable cats are owned!
   const ownsAllSeven = LILO_REQUIRED_CAT_IDS.every((id) => unlockedSet.has(id));
   if (ownsAllSeven && !unlockedSet.has('lilo')) {
     unlockedSet.add('lilo');
     newlyUnlocked.push('lilo');
   }
 
+  const justUnlockedTisay = newlyUnlocked.includes('tisay');
+
   let unlockToast: string | null = null;
-  if (newlyUnlocked.includes('lilo')) {
+  if (justUnlockedTisay) {
+    unlockToast = 'A sleek ginger cat wandered in — Tisay has joined the cafe!';
+  } else if (newlyUnlocked.includes('lilo')) {
     unlockToast =
       '👑 Secret Master Cat Unlocked: Lilo! Equip Lilo to disable Customer Mood Meters!';
   } else if (newlyUnlocked.length > 0) {
@@ -2446,7 +2666,8 @@ export function syncCatUnlocks(
   }
 
   const ordered = ALL_CAFE_CAT_IDS.filter((id) => unlockedSet.has(id));
-  return { unlockedCats: ordered, newlyUnlocked, unlockToast };
+  const secretCatsUnlocked = SECRET_CAFE_CAT_IDS.filter((id) => unlockedSet.has(id));
+  return { unlockedCats: ordered, secretCatsUnlocked, newlyUnlocked, justUnlockedTisay, unlockToast };
 }
 
 export function acceptCustomerOrder(
@@ -2531,6 +2752,13 @@ export function purchaseOrEquipCafeCat(
     };
   }
 
+  if (spec.unlockType === 'golden_espresso') {
+    return {
+      ...state,
+      lastActionFeedback: `Unlock the Golden Espresso Machine ($${GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()}) to meet ${spec.name}!`,
+    };
+  }
+
   // Shop purchase
   if (state.cash < spec.unlockAmount) {
     return {
@@ -2540,7 +2768,11 @@ export function purchaseOrEquipCafeCat(
   }
 
   const withPurchased = [...currentUnlocked, catId];
-  const synced = syncCatUnlocks(withPurchased, state.lifetimeGrossIncome || 0);
+  const synced = syncCatUnlocks(
+    withPurchased,
+    state.lifetimeGrossIncome || 0,
+    Boolean(state.goldenEspressoUnlocked)
+  );
   const nextSeq =
     synced.newlyUnlocked.includes('lilo')
       ? (state.lastCatUnlockSeq ?? 0) + 1
@@ -2550,7 +2782,9 @@ export function purchaseOrEquipCafeCat(
     ...state,
     cash: state.cash - spec.unlockAmount,
     unlockedCats: synced.unlockedCats,
+    secretCatsUnlocked: synced.secretCatsUnlocked,
     equippedCatId: catId,
+    hasUnseenCatUnlock: true,
     lastCatUnlockToast: synced.newlyUnlocked.includes('lilo')
       ? synced.unlockToast
       : state.lastCatUnlockToast,
@@ -2558,6 +2792,88 @@ export function purchaseOrEquipCafeCat(
     lastActionFeedback: synced.newlyUnlocked.includes('lilo')
       ? `Adopted & equipped ${spec.name}! ${synced.unlockToast}`
       : `Adopted & equipped ${spec.name} for $${spec.unlockAmount.toLocaleString()}!`,
+  };
+}
+
+export function purchaseCatCosmetic(
+  state: KlasikGameState,
+  cosmeticId: CatCosmeticId
+): KlasikGameState {
+  const spec = getCatCosmeticSpec(cosmeticId);
+  const owned = state.unlockedCosmetics || [];
+  if (owned.includes(cosmeticId)) {
+    return state;
+  }
+
+  if (spec.unlockType !== 'shop') {
+    return {
+      ...state,
+      lastActionFeedback:
+        spec.unlockType === 'revenue'
+          ? `Reach $${spec.cost.toLocaleString()} total revenue to unlock ${spec.name}!`
+          : spec.unlockType === 'golden_espresso'
+          ? `Unlock the Golden Espresso Machine ($${GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()}) to earn ${spec.name}!`
+          : `Unlock all 9 base cat cosmetics to earn the Dinosaur Costume!`,
+    };
+  }
+
+  if (state.cash < spec.cost) {
+    return {
+      ...state,
+      lastActionFeedback: `Need $${spec.cost.toLocaleString()} cash to buy ${spec.name}!`,
+    };
+  }
+
+  const nextOwnedRaw: CatCosmeticId[] = [...owned, cosmeticId];
+  const dinoResult = checkDinoCostumeUnlock(nextOwnedRaw);
+  const nextSeq = dinoResult.justUnlockedDino
+    ? (state.lastCatUnlockSeq ?? 0) + 1
+    : state.lastCatUnlockSeq ?? 0;
+
+  return {
+    ...state,
+    cash: state.cash - spec.cost,
+    unlockedCosmetics: dinoResult.unlockedCosmetics,
+    hasUnseenCatUnlock: dinoResult.justUnlockedDino ? true : state.hasUnseenCatUnlock,
+    lastCatUnlockToast: dinoResult.justUnlockedDino
+      ? '🦖 Master Wardrobe Complete! Dinosaur Costume unlocked for all Cafe Cats!'
+      : state.lastCatUnlockToast,
+    lastCatUnlockSeq: nextSeq,
+    lastActionFeedback: dinoResult.justUnlockedDino
+      ? `Purchased ${spec.name}! 🦖 All 9 base cosmetics owned — Dinosaur Costume unlocked!`
+      : `Purchased ${spec.name} for $${spec.cost}!`,
+  };
+}
+
+export function equipCatCosmetic(
+  state: KlasikGameState,
+  catId: CafeCatId,
+  cosmeticId: CatCosmeticId | null,
+  slot: CatCosmeticSlot
+): KlasikGameState {
+  const owned = state.unlockedCosmetics || [];
+  if (cosmeticId !== null && !owned.includes(cosmeticId)) {
+    return state;
+  }
+
+  const currentLoadouts = state.catLoadouts || {};
+  const nextLoadout = applyCosmeticToLoadout(currentLoadouts[catId], cosmeticId, slot);
+  const catSpec = getCafeCatSpec(catId);
+  const itemLabel = cosmeticId ? getCatCosmeticSpec(cosmeticId).name : slot;
+  const isNowEquipped = cosmeticId !== null && nextLoadout[getCatCosmeticSpec(cosmeticId).slot] === cosmeticId;
+
+  return {
+    ...state,
+    catLoadouts: {
+      ...currentLoadouts,
+      [catId]: nextLoadout,
+    },
+    lastActionFeedback:
+      cosmeticId === null
+        ? `Removed ${slot} from ${catSpec.name}.`
+        : isNowEquipped
+        ? `Equipped ${itemLabel} on ${catSpec.name}!`
+        : `Unequipped ${itemLabel} from ${catSpec.name}.`,
   };
 }
 
@@ -2569,6 +2885,10 @@ export function unlockAllEverythingCheat(state: KlasikGameState): KlasikGameStat
     customerSkinPacks: state.customerSkinPacks.map((p) => ({ ...p, unlocked: true })),
     loginRewards: state.loginRewards.map((r) => ({ ...r, claimed: true })),
     unlockedCats: [...ALL_CAFE_CAT_IDS],
+    secretCatsUnlocked: [...SECRET_CAFE_CAT_IDS],
+    unlockedCosmetics: [...ALL_CAT_COSMETIC_IDS],
+    goldenEspressoUnlocked: true,
+    hasUnseenCatUnlock: true,
     cookieJarCheatUnlocked: true,
     lastActionFeedback: 'you got what you wanted, now enjoy',
   };
@@ -2720,9 +3040,17 @@ export function serveCurrentCupToCustomer(
   const newCash = state.cash + grossEarned;
   const newDailyRevenue = (isSameDay ? state.dailyRevenue : 0) + grossEarned;
   const newLifetimeGross = (state.lifetimeGrossIncome || 0) + grossEarned;
+  const isGoldenUnlocked =
+    Boolean(state.goldenEspressoUnlocked) || newLifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD;
   const updatedSkins = syncGrossIncomeUnlocks(state.equipmentSkins, newLifetimeGross);
-  const catSync = syncCatUnlocks(state.unlockedCats, newLifetimeGross);
+  const catSync = syncCatUnlocks(state.unlockedCats, newLifetimeGross, isGoldenUnlocked);
+  const cosmeticSync = syncCatCosmeticMilestones(
+    state.unlockedCosmetics,
+    newLifetimeGross,
+    isGoldenUnlocked
+  );
   const justUnlockedGolden =
+    !state.goldenEspressoUnlocked &&
     (state.lifetimeGrossIncome || 0) < GOLDEN_MACHINE_GROSS_THRESHOLD &&
     newLifetimeGross >= GOLDEN_MACHINE_GROSS_THRESHOLD;
 
@@ -2738,7 +3066,7 @@ export function serveCurrentCupToCustomer(
     ? ` [🛵 Delivery +$${DELIVERY_PARTNER_BONUS}]`
     : '';
   const unlockSuffix = justUnlockedGolden
-    ? ' · $150K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
+    ? ' · $50K GROSS REACHED! GOLDEN ESPRESSO MACHINE UNLOCKED!'
     : '';
   const quotaSuffix = justCompletedQuota
     ? ` · DAILY QUOTA (${quotaTarget}/${quotaTarget} CUPS) COMPLETE! +$${DAILY_QUOTA_COMPLETION_BONUS} BONUS!`
@@ -2755,11 +3083,17 @@ export function serveCurrentCupToCustomer(
     ? `Ding! ${targetCustomer.customerName} picked up Perfect ${recipe.name}${pastryBadge}${takeoutLabel}! +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}${speedBadge} (incl. $${payout.tip} tip)${quotaSuffix}${unlockSuffix}`
     : `Served ${recipe.name}${pastryBadge}${takeoutLabel} (${evaluation.accuracy}% match) to ${targetCustomer.customerName} for +$${payout.totalPayout}${goldenBadge}${mikmikBadge}${deliveryBadge}.${quotaSuffix}${unlockSuffix}`;
 
+  const anyCatOrCosmeticUnlock =
+    catSync.newlyUnlocked.length > 0 || cosmeticSync.newlyUnlocked.length > 0;
+  const combinedUnlockToast =
+    catSync.unlockToast || cosmeticSync.toastMessage || state.lastCatUnlockToast;
+
   return {
     ...state,
     activeStation: 5,
     cash: newCash,
     lifetimeGrossIncome: newLifetimeGross,
+    goldenEspressoUnlocked: isGoldenUnlocked,
     dailyRevenue: newDailyRevenue,
     quotaBonusAwarded: alreadyClaimedQuota || justCompletedQuota,
     dailyQuota: {
@@ -2779,11 +3113,16 @@ export function serveCurrentCupToCustomer(
     customers: updatedCustomers,
     equipmentSkins: updatedSkins,
     unlockedCats: catSync.unlockedCats,
-    lastCatUnlockToast: catSync.unlockToast || state.lastCatUnlockToast,
-    lastCatUnlockSeq:
-      catSync.newlyUnlocked.length > 0
-        ? (state.lastCatUnlockSeq ?? 0) + 1
-        : state.lastCatUnlockSeq ?? 0,
+    secretCatsUnlocked: catSync.secretCatsUnlocked,
+    unlockedCosmetics: cosmeticSync.unlockedCosmetics,
+    hasUnseenCatUnlock: anyCatOrCosmeticUnlock ? true : state.hasUnseenCatUnlock,
+    tisayJustArrivedSeq: catSync.justUnlockedTisay
+      ? (state.tisayJustArrivedSeq ?? 0) + 1
+      : state.tisayJustArrivedSeq ?? 0,
+    lastCatUnlockToast: combinedUnlockToast,
+    lastCatUnlockSeq: anyCatOrCosmeticUnlock
+      ? (state.lastCatUnlockSeq ?? 0) + 1
+      : state.lastCatUnlockSeq ?? 0,
     pinnedOrderId: nextOrdering ? nextOrdering.id : null,
     lastActionFeedback: feedbackMsg,
   };
@@ -3243,12 +3582,21 @@ export function claimLoginReward(
     }
   }
 
-  const catSync = syncCatUnlocks(state.unlockedCats, newGross);
+  const isGoldenUnlocked =
+    Boolean(state.goldenEspressoUnlocked) || newGross >= GOLDEN_MACHINE_GROSS_THRESHOLD;
+  const catSync = syncCatUnlocks(state.unlockedCats, newGross, isGoldenUnlocked);
+  const cosmeticSync = syncCatCosmeticMilestones(
+    state.unlockedCosmetics,
+    newGross,
+    isGoldenUnlocked
+  );
+  const anyUnlock = catSync.newlyUnlocked.length > 0 || cosmeticSync.newlyUnlocked.length > 0;
 
   return {
     ...state,
     cash: newCash,
     lifetimeGrossIncome: newGross,
+    goldenEspressoUnlocked: isGoldenUnlocked,
     loginRewards: updatedRewards,
     loginStreakDays: nextStreakDay,
     dailyLogin: {
@@ -3265,11 +3613,14 @@ export function claimLoginReward(
     activeCustomerSkinPack: activePackId,
     customers: updatedCustomers,
     unlockedCats: catSync.unlockedCats,
-    lastCatUnlockToast: catSync.unlockToast || state.lastCatUnlockToast,
-    lastCatUnlockSeq:
-      catSync.newlyUnlocked.length > 0
-        ? (state.lastCatUnlockSeq ?? 0) + 1
-        : state.lastCatUnlockSeq ?? 0,
+    secretCatsUnlocked: catSync.secretCatsUnlocked,
+    unlockedCosmetics: cosmeticSync.unlockedCosmetics,
+    hasUnseenCatUnlock: anyUnlock ? true : state.hasUnseenCatUnlock,
+    tisayJustArrivedSeq: catSync.justUnlockedTisay
+      ? (state.tisayJustArrivedSeq ?? 0) + 1
+      : state.tisayJustArrivedSeq ?? 0,
+    lastCatUnlockToast: catSync.unlockToast || cosmeticSync.toastMessage || state.lastCatUnlockToast,
+    lastCatUnlockSeq: anyUnlock ? (state.lastCatUnlockSeq ?? 0) + 1 : state.lastCatUnlockSeq ?? 0,
     lastActionFeedback: `Claimed Day ${nextStreakDay} Daily Reward: ${reward.title}! (${reward.rewardLabel})`,
   };
 }
@@ -3279,19 +3630,34 @@ export function reachGoldenMachineMilestone(state: KlasikGameState): KlasikGameS
   const updatedSkins = state.equipmentSkins.map((s) =>
     s.id === 'golden-espresso-machine' ? { ...s, unlocked: true } : s
   );
+  const catSync = syncCatUnlocks(state.unlockedCats, newGross, true);
+  const cosmeticSync = syncCatCosmeticMilestones(state.unlockedCosmetics, newGross, true);
+  const anyUnlock = catSync.newlyUnlocked.length > 0 || cosmeticSync.newlyUnlocked.length > 0;
+
   return {
     ...state,
     lifetimeGrossIncome: newGross,
+    goldenEspressoUnlocked: true,
     equipmentSkins: updatedSkins,
     equippedMachineSkin: 'golden-espresso-machine',
+    unlockedCats: catSync.unlockedCats,
+    secretCatsUnlocked: catSync.secretCatsUnlocked,
+    unlockedCosmetics: cosmeticSync.unlockedCosmetics,
+    hasUnseenCatUnlock: anyUnlock ? true : state.hasUnseenCatUnlock,
+    tisayJustArrivedSeq: catSync.justUnlockedTisay
+      ? (state.tisayJustArrivedSeq ?? 0) + 1
+      : state.tisayJustArrivedSeq ?? 0,
+    lastCatUnlockToast: catSync.unlockToast || cosmeticSync.toastMessage || state.lastCatUnlockToast,
+    lastCatUnlockSeq: anyUnlock ? (state.lastCatUnlockSeq ?? 0) + 1 : state.lastCatUnlockSeq ?? 0,
     lastActionFeedback:
-      '$150,000 Gross Income Milestone Reached! 24K Golden Espresso Machine Equipped (2x Sale Income)!',
+      '$50,000 Gross Income Milestone Reached! 24K Golden Espresso Machine Equipped (2x Sale Income)!',
   };
 }
 
 export interface SimulationTickOptions {
   modalOpen?: boolean;
   isRecipeBookOpen?: boolean;
+  catStationOpen?: boolean;
   activeArrivingCount?: number;
   rng?: () => number;
 }
@@ -3302,8 +3668,8 @@ export function advanceSimulationTick(
   options: SimulationTickOptions = {}
 ): KlasikGameState {
   if (state.phase !== 'playing') return state;
-  // Pause countdowns completely while informational modals (Settings/Upgrades/Customize/Spotify/etc.) are open
-  if (options.modalOpen && !options.isRecipeBookOpen) {
+  // Pause countdowns completely while informational modals (Settings/Upgrades/Customize/Audio/etc.) are open
+  if (options.modalOpen && !options.isRecipeBookOpen && !options.catStationOpen) {
     return state;
   }
 
@@ -3312,13 +3678,13 @@ export function advanceSimulationTick(
   const hasPidBoiler = state.upgrades.some((u) => u.id === 'dual-pid-boiler' && u.purchased);
   const hasBonsai = state.upgrades.some((u) => u.id === 'japanese-bonsai-terrarium' && u.purchased);
   const upgradeGrace = hasPidBoiler && hasBonsai ? 0.85 : hasPidBoiler ? 0.92 : 1.0;
-  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode or with Lilo equipped
+  // Gentle 0.35x slow-mo grace while checking Recipe Book; paused completely in Zen Mode, Cat Station, or with Lilo equipped
   const modalTimeScale = options.isRecipeBookOpen ? 0.35 : 1.0;
   const equippedCat = getCafeCatSpec(state.equippedCatId);
   const isLiloActive = Boolean(equippedCat.disablesMoodMeter);
   const catMoodDrainMult = equippedCat.moodDrainMultiplier ?? 1.0;
   const moodTickScale =
-    state.mode === 'zen' || isLiloActive
+    state.mode === 'zen' || isLiloActive || options.catStationOpen
       ? 0
       : upgradeGrace * modalTimeScale * catMoodDrainMult;
 
@@ -3396,6 +3762,13 @@ export function advanceSimulationTick(
           cust.socialBehavior === 'car_selfie'
             ? `${cust.customerName} snapped a selfie with the 1990 Miata MX-5 and left a +$${tipAmt} tip!`
             : `${cust.customerName} loved the Garage Garden vibe and left a +$${tipAmt} table tip!`;
+        // Phase 1.1: Dine-in customer stands up cleanly (LEAVING_TABLE) & walks out the doorway before despawning!
+        nextCustomers.push({
+          ...cust,
+          state: 'departing',
+          leavingTable: true,
+          seatedTimer: 16,
+        });
       } else {
         nextCustomers.push({
           ...cust,
@@ -3417,25 +3790,25 @@ export function advanceSimulationTick(
     state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
     INITIAL_CUSTOMER_SKIN_PACKS[0];
 
-  // Phase 1 Staggered Spawner Guard + Phase 7 Rare Delivery Rider Spawner (max 1 active, 15% chance after >= 3 regulars)
+  // Phase 1.2: 50%–80% Delivery Rider Encounter Rate + Pity Cap + Max-2 Active Parked Scooters Cap
   const orderingCount = nextCustomers.filter((c) => c.state === 'ordering').length;
   const arrivingUnstartedCount = nextCustomers.filter(
     (c) => c.state === 'ordering' && !c.timerStarted
   ).length;
   const activeArrivingCount =
     options.activeArrivingCount !== undefined ? options.activeArrivingCount : arrivingUnstartedCount;
-  const hasActiveDeliveryRider = nextCustomers.some((c) => Boolean(c.isDeliveryRider));
-  let regularSinceRider = state.regularCustomersSinceLastRider ?? 3;
+  let activeDeliveryRiderCount = nextCustomers.filter((c) => Boolean(c.isDeliveryRider)).length;
+  let regularSinceRider = state.regularCustomersSinceLastRider ?? 0;
   let waveRemaining = state.waveCustomersRemaining ?? 2;
   let spawnTimer = (state.nextCustomerSpawnTimer ?? 5) - dt;
 
   const spawnNextPatron = (seedOffset: number): CustomerOrder => {
+    const riderProb = computeDeliveryRiderProbability(state.weather, regularSinceRider);
     const canSpawnRider =
-      !hasActiveDeliveryRider &&
-      regularSinceRider >= DELIVERY_RIDER_MIN_REGULAR_COOLDOWN &&
-      rng() < 0.15;
+      activeDeliveryRiderCount < MAX_ACTIVE_DELIVERY_RIDERS && rng() < riderProb;
     if (canSpawnRider) {
       regularSinceRider = 0;
+      activeDeliveryRiderCount += 1;
       return spawnDeliveryRiderOrder(state.day, seedOffset, undefined, rng);
     }
     regularSinceRider += 1;
@@ -3623,7 +3996,17 @@ export function exportSaveJson(state: KlasikGameState): string {
         loginStreakDays: state.loginStreakDays,
         decor: state.decor,
         unlockedCats: state.unlockedCats || ['champy'],
+        secretCatsUnlocked: state.secretCatsUnlocked || [],
         equippedCatId: state.equippedCatId || 'champy',
+        unlockedCosmetics: state.unlockedCosmetics || [],
+        catLoadouts: state.catLoadouts || {},
+        goldenEspressoUnlocked: Boolean(state.goldenEspressoUnlocked),
+        audioPreferences: {
+          ...(state.audioPreferences || DEFAULT_AUDIO_PREFERENCES),
+          // Never persist 'external' as cold fallback
+          lastMode:
+            state.audioPreferences?.lastMode === 'radio' ? 'radio' : 'vinyl',
+        },
         cookieJarCheatUnlocked: Boolean(state.cookieJarCheatUnlocked),
       },
     },
@@ -3687,18 +4070,82 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       shirtColor: activePackObj.paletteColors[idx % activePackObj.paletteColors.length],
     }));
 
+    // Phase 1.4 Save Migration: automatically unlock Golden Espresso (+ Tisay + Gold Chain) if revenue/balance >= $50,000
+    const restoredCashVal = Math.max(0, Math.floor(d.cash));
     const goldenSkinUnlocked = Boolean(
-      mergedSkins.find((s) => s.id === 'golden-espresso-machine')?.unlocked
+      d.goldenEspressoUnlocked ||
+        restoredGross >= GOLDEN_MACHINE_GROSS_THRESHOLD ||
+        restoredCashVal >= GOLDEN_MACHINE_GROSS_THRESHOLD ||
+        mergedSkins.find((s) => s.id === 'golden-espresso-machine')?.unlocked
     );
+    const migratedSkins = goldenSkinUnlocked
+      ? mergedSkins.map((s) =>
+          s.id === 'golden-espresso-machine' ? { ...s, unlocked: true } : s
+        )
+      : mergedSkins;
 
-    const savedCatsRaw: CafeCatId[] = Array.isArray(d.unlockedCats)
-      ? d.unlockedCats.filter(isValidCafeCatId)
-      : ['champy'];
-    const syncedCats = syncCatUnlocks(savedCatsRaw, restoredGross).unlockedCats;
+    const savedCatsRaw: CafeCatId[] = [
+      ...(Array.isArray(d.unlockedCats) ? d.unlockedCats.filter(isValidCafeCatId) : ['champy']),
+      ...(Array.isArray(d.secretCatsUnlocked) ? d.secretCatsUnlocked.filter(isValidCafeCatId) : []),
+    ];
+    const catSync = syncCatUnlocks(savedCatsRaw, restoredGross, goldenSkinUnlocked);
+    const syncedCats = catSync.unlockedCats;
     const restoredEquippedCat: CafeCatId =
       isValidCafeCatId(d.equippedCatId) && syncedCats.includes(d.equippedCatId)
         ? d.equippedCatId
         : 'champy';
+
+    const savedCosmeticsRaw: CatCosmeticId[] = Array.isArray(d.unlockedCosmetics)
+      ? d.unlockedCosmetics.filter(isValidCatCosmeticId)
+      : [];
+    const cosmeticSync = syncCatCosmeticMilestones(
+      savedCosmeticsRaw,
+      restoredGross,
+      goldenSkinUnlocked
+    );
+
+    const restoredLoadouts: Partial<Record<CafeCatId, CatLoadout>> = {};
+    if (d.catLoadouts && typeof d.catLoadouts === 'object') {
+      for (const [k, v] of Object.entries(d.catLoadouts)) {
+        if (isValidCafeCatId(k)) {
+          restoredLoadouts[k] = normalizeCatLoadout(v as Partial<CatLoadout>);
+        }
+      }
+    }
+
+    const rawAudioPref = d.audioPreferences && typeof d.audioPreferences === 'object' ? d.audioPreferences : null;
+    const rawMode = rawAudioPref?.mode ?? rawAudioPref?.lastMode;
+    const rawAmbience =
+      typeof rawAudioPref?.ambienceVolume === 'number'
+        ? rawAudioPref.ambienceVolume
+        : typeof rawAudioPref?.sfxVolume === 'number'
+        ? rawAudioPref.sfxVolume
+        : DEFAULT_AUDIO_PREFERENCES.ambienceVolume;
+    const rawCrackle =
+      typeof rawAudioPref?.vinylCrackle === 'boolean'
+        ? rawAudioPref.vinylCrackle
+        : typeof rawAudioPref?.crackleEnabled === 'boolean'
+        ? rawAudioPref.crackleEnabled
+        : DEFAULT_AUDIO_PREFERENCES.vinylCrackle;
+    const rawRadioId =
+      typeof rawAudioPref?.lastRadioStationId === 'string'
+        ? rawAudioPref.lastRadioStationId
+        : typeof rawAudioPref?.lastStationId === 'string'
+        ? rawAudioPref.lastStationId
+        : null;
+    const restoredAudioPref: AudioPreferences = {
+      // Never restore 'external' as cold fallback
+      mode: rawMode === 'radio' ? 'radio' : 'vinyl',
+      lastVinylTrackId:
+        typeof rawAudioPref?.lastVinylTrackId === 'string' ? rawAudioPref.lastVinylTrackId : null,
+      lastRadioStationId: rawRadioId,
+      musicVolume:
+        typeof rawAudioPref?.musicVolume === 'number'
+          ? Math.max(0, Math.min(1, rawAudioPref.musicVolume))
+          : DEFAULT_AUDIO_PREFERENCES.musicVolume,
+      ambienceVolume: Math.max(0, Math.min(1, rawAmbience)),
+      vinylCrackle: rawCrackle,
+    };
 
     // Real-time 24h daily quota & login sync against local calendar date
     const now = new Date();
@@ -3799,7 +4246,8 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
           ? Math.max(0, Math.floor(d.regularCustomersSinceLastRider))
           : 3,
       upgrades: mergedUpgrades,
-      equipmentSkins: mergedSkins,
+      equipmentSkins: migratedSkins,
+      goldenEspressoUnlocked: goldenSkinUnlocked,
       equippedMachineSkin:
         d.equippedMachineSkin === 'golden-espresso-machine' && !goldenSkinUnlocked
           ? 'classic-steel'
@@ -3813,7 +4261,11 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       loginStreakDays: restoredLoginState.streakDay,
       decor: d.decor ? { ...base.decor, ...d.decor } : base.decor,
       unlockedCats: syncedCats,
+      secretCatsUnlocked: catSync.secretCatsUnlocked,
       equippedCatId: restoredEquippedCat,
+      unlockedCosmetics: cosmeticSync.unlockedCosmetics,
+      catLoadouts: restoredLoadouts,
+      audioPreferences: restoredAudioPref,
       cookieJarCheatUnlocked: Boolean(d.cookieJarCheatUnlocked),
       lastActionFeedback: 'Restored cafe save backup successfully!',
     };

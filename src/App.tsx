@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Disc3 } from 'lucide-react';
 import { BizUpgradesModal, UpgradesHubTab } from './components/BizUpgradesModal';
+import { CatStationActionMode, CatStationOverlay } from './components/CatStationOverlay';
 import { CodeExportModal } from './components/CodeExportModal';
 import { CustomizeModal } from './components/CustomizeModal';
 import { HudOverlay } from './components/HudOverlay';
@@ -8,14 +9,15 @@ import { LandscapeIntroGate } from './components/LandscapeIntroGate';
 import { LoadingScreen } from './components/LoadingScreen';
 import { PwaApkModal } from './components/PwaApkModal';
 import { RecipeMenuModal } from './components/RecipeMenuModal';
-import { SpotifyVinylModal } from './components/SpotifyVinylModal';
 import { StatusModal } from './components/StatusModal';
 import { TitleScreen } from './components/TitleScreen';
+import { UnifiedAudioModal } from './components/UnifiedAudioModal';
 import {
   ActiveStepAction,
   BaristaStationId,
   BaristaStepActionType,
   CafeCatId,
+  CatCosmeticId,
   DecorCustomization,
   GameMode,
   GraphicsQuality,
@@ -31,8 +33,10 @@ import {
   claimLoginReward,
   createActiveStepLock,
   createInitialGameState,
+  equipCatCosmetic,
   formatLocalClock,
   getCafeCatSpec,
+  getCatCosmeticSpec,
   getEffectiveRecipeForOrder,
   getNextRecommendedStep,
   getOrderVesselType,
@@ -45,8 +49,10 @@ import {
   markCustomerAtCounter,
   performCupAction,
   preparePastry,
+  purchaseCatCosmetic,
   purchaseOrEquipCafeCat,
   purchaseUpgrade,
+  returnPreparedPastry,
   rollAutoRain,
   saveGameToStorage,
   saveGraphicsQuality,
@@ -57,6 +63,10 @@ import {
   unlockOrEquipCustomerSkinPack,
   unlockOrEquipEquipmentSkin,
 } from './game/rules';
+import {
+  musicPlayerController,
+  MusicPlayerSnapshot,
+} from './game/audio/MusicPlayerController';
 import { KlasikCafeScene3D, StepAnimType } from './game/scene3d';
 import { triggerBaristaHaptic, triggerChampyPurrHaptic } from './game/haptics';
 import { soundEngine } from './game/sound';
@@ -117,11 +127,18 @@ export default function App() {
   const [spotifyState, setSpotifyState] = useState<SpotifyVinylState>(() =>
     spotifyManager.getState()
   );
+  const [audioSnapshot, setAudioSnapshot] = useState<MusicPlayerSnapshot>(() =>
+    musicPlayerController.getSnapshot()
+  );
   const [pwaStatus, setPwaStatus] = useState<PwaEnvironmentStatus>(() =>
     pwaManager.getStatus()
   );
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [upgradesInitialTab, setUpgradesInitialTab] = useState<UpgradesHubTab>('upgrades');
+  const [catStationOpen, setCatStationOpen] = useState<boolean>(false);
+  const [catStationMode, setCatStationMode] = useState<CatStationActionMode>('pet');
+  const [catStationCustomizeOpen, setCatStationCustomizeOpen] = useState<boolean>(false);
+  const [hasUnseenCatUnlock, setHasUnseenCatUnlock] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [hoveredToolLabel, setHoveredToolLabel] = useState<string | null>(null);
   const [activeAnimLabel, setActiveAnimLabel] = useState<string | null>(null);
@@ -140,8 +157,13 @@ export default function App() {
   const stepLockUntilRef = useRef<number>(0);
   const activeModalRef = useRef<ActiveModal>(activeModal);
   activeModalRef.current = activeModal;
+  const catStationOpenRef = useRef<boolean>(catStationOpen);
+  catStationOpenRef.current = catStationOpen;
   const lastExpiredSeqRef = useRef<number>(gameState.lastExpiredEventSeq ?? 0);
   const lastCatUnlockSeqRef = useRef<number>(gameState.lastCatUnlockSeq ?? 0);
+  const prevCatCountRef = useRef<number>(gameState.unlockedCats?.length ?? 1);
+  const prevCosmeticCountRef = useRef<number>(gameState.unlockedCosmetics?.length ?? 0);
+  const prevHadTisayRef = useRef<boolean>(Boolean(gameState.unlockedCats?.includes('tisay')));
   const champyPetCountRef = useRef<number>(0);
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
@@ -247,8 +269,51 @@ export default function App() {
     };
   }, []);
 
-  // Subscribe to Spotify & PWA managers
+  // Subscribe to Unified MusicPlayerController, Spotify & PWA managers
   useEffect(() => {
+    musicPlayerController.initOnBoot(gameStateRef.current.audioPreferences);
+
+    const syncSceneAudio = (snap: MusicPlayerSnapshot) => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      scene.setAudioMode(snap.mode);
+      scene.setAudioPlaying(snap.isPlaying);
+      const curTrack = snap.vinylTracks[snap.activeVinylIndex];
+      scene.setByoVinylActive(Boolean(curTrack?.isCustom), curTrack?.labelColor);
+      const stationIdx = snap.radioStations.findIndex((s) => s.id === snap.activeStationId);
+      scene.setRadioFrequencyIndex(Math.max(0, stationIdx), snap.radioStations.length);
+      scene.updateHologramMetadata({
+        title: snap.externalMedia.title,
+        artist: snap.externalMedia.artist,
+        sourceApp: snap.externalMedia.sourceApp,
+        isPlaying:
+          snap.mode === 'external'
+            ? snap.externalMedia.isPlaying || snap.isPlaying
+            : snap.isPlaying,
+      });
+    };
+
+    const unsubAudio = musicPlayerController.subscribe((snap) => {
+      setAudioSnapshot(snap);
+      syncSceneAudio(snap);
+      const persisted = musicPlayerController.getPersistedPreferences();
+      setGameState((prev) => {
+        const cur = prev.audioPreferences;
+        if (
+          cur &&
+          cur.mode === persisted.mode &&
+          cur.lastVinylTrackId === persisted.lastVinylTrackId &&
+          cur.lastRadioStationId === persisted.lastRadioStationId &&
+          cur.musicVolume === persisted.musicVolume &&
+          cur.ambienceVolume === persisted.ambienceVolume &&
+          cur.vinylCrackle === persisted.vinylCrackle
+        ) {
+          return prev;
+        }
+        return { ...prev, audioPreferences: persisted };
+      });
+    });
+
     const unsubSpotify = spotifyManager.subscribe((nextSpotify) => {
       setSpotifyState(nextSpotify);
       sceneRef.current?.updateSpotifyState(nextSpotify);
@@ -256,11 +321,43 @@ export default function App() {
     const unsubPwa = pwaManager.subscribe((nextPwa) => {
       setPwaStatus(nextPwa);
     });
+
     return () => {
+      unsubAudio();
       unsubSpotify();
       unsubPwa();
     };
   }, []);
+
+  // Re-sync 3D Counter Audio Prop whenever the scene becomes ready
+  useEffect(() => {
+    if (!isSceneReady || !sceneRef.current) return;
+    const snap = musicPlayerController.getSnapshot();
+    sceneRef.current.setAudioMode(snap.mode);
+    sceneRef.current.setAudioPlaying(snap.isPlaying);
+    const curTrack = snap.vinylTracks[snap.activeVinylIndex];
+    sceneRef.current.setByoVinylActive(Boolean(curTrack?.isCustom), curTrack?.labelColor);
+    const stationIdx = snap.radioStations.findIndex((s) => s.id === snap.activeStationId);
+    sceneRef.current.setRadioFrequencyIndex(Math.max(0, stationIdx), snap.radioStations.length);
+    sceneRef.current.updateHologramMetadata({
+      title: snap.externalMedia.title,
+      artist: snap.externalMedia.artist,
+      sourceApp: snap.externalMedia.sourceApp,
+      isPlaying:
+        snap.mode === 'external'
+          ? snap.externalMedia.isPlaying || snap.isPlaying
+          : snap.isPlaying,
+    });
+  }, [isSceneReady]);
+
+  // Sync Phase 5 Cat Station camera & interactive tool mode to 3D scene
+  useEffect(() => {
+    sceneRef.current?.setCatStationState(
+      catStationOpen,
+      catStationMode,
+      catStationCustomizeOpen
+    );
+  }, [catStationOpen, catStationMode, catStationCustomizeOpen, isSceneReady]);
 
   const clearStepTimers = useCallback(() => {
     if (animTimerRef.current) {
@@ -393,6 +490,66 @@ export default function App() {
     },
     [flashAnimBanner]
   );
+
+  const handleOpenCatStation = useCallback(() => {
+    soundEngine.init();
+    soundEngine.preloadChampyAudio();
+    soundEngine.playCeramicClink(1.12);
+    setActiveModal(null);
+    setHasUnseenCatUnlock(false);
+    setCatStationMode('pet');
+    setCatStationCustomizeOpen(false);
+    setCatStationOpen(true);
+  }, []);
+
+  const handleCloseCatStation = useCallback(() => {
+    soundEngine.playCeramicClink(0.96);
+    setCatStationCustomizeOpen(false);
+    setCatStationOpen(false);
+  }, []);
+
+  const handlePurchaseCosmetic = useCallback(
+    (cosmeticId: CatCosmeticId) => {
+      soundEngine.init();
+      const prev = gameStateRef.current;
+      const next = purchaseCatCosmetic(prev, cosmeticId);
+      if (next === prev) {
+        soundEngine.playErrorThud();
+        return;
+      }
+      soundEngine.playCashRegister();
+      setGameState(next);
+      sceneRef.current?.updateGameState(next);
+      flashAnimBanner(next.lastActionFeedback, 2100, false);
+    },
+    [flashAnimBanner]
+  );
+
+  const handleToggleEquipCosmetic = useCallback(
+    (catId: CafeCatId, cosmeticId: CatCosmeticId) => {
+      soundEngine.init();
+      soundEngine.playCeramicClink(1.16);
+      setGameState((prev) => {
+        const slot = getCatCosmeticSpec(cosmeticId).slot;
+        const next = equipCatCosmetic(prev, catId, cosmeticId, slot);
+        sceneRef.current?.updateGameState(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleReturnPreparedPastry = useCallback(() => {
+    soundEngine.init();
+    soundEngine.playPastryReturn();
+    triggerBaristaHaptic('pin_ticket', pwaManager.getStatus().appVersion);
+    setGameState((prev) => {
+      const next = returnPreparedPastry(prev);
+      sceneRef.current?.updateGameState(next);
+      return next;
+    });
+    flashAnimBanner('Returned pastry back to display case.', 1200, false);
+  }, [flashAnimBanner]);
 
   // Decoupled Pastry Grab (Station 1 Showcase) — NEVER resets or touches currentCup!
   const handleGrabPastry = useCallback(
@@ -831,9 +988,9 @@ export default function App() {
             if (action === 'serve_drink') {
               handleServeCustomer();
             } else if (action === 'toggle_vinyl') {
-              spotifyManager.togglePlayPause();
+              musicPlayerController.togglePlayPause();
             } else if (action === 'next_vinyl') {
-              spotifyManager.nextTrack();
+              musicPlayerController.next();
             } else if (action === 'open_spotify_modal') {
               setActiveModal('spotify');
             } else if (action === 'open_upgrades_modal') {
@@ -890,8 +1047,22 @@ export default function App() {
             if (gameStateRef.current.phase !== 'playing') return;
             soundEngine.playChampyMeow('greet');
           },
+          onCatCombStroke: (speed) => {
+            soundEngine.init();
+            soundEngine.playCatBrushStroke(speed);
+          },
+          onCatTreatCrunch: () => {
+            soundEngine.init();
+            soundEngine.playCatTreatCrunch();
+            soundEngine.playChampyPurr(1.6);
+            const activeCat = getCafeCatSpec(gameStateRef.current.equippedCatId);
+            flashAnimBanner(`${activeCat.name} loved the fish biscuit!`, 1800, false);
+          },
           onGrabPastry: (pastryId) => {
             handleGrabPastry(pastryId);
+          },
+          onReturnPastry: () => {
+            handleReturnPreparedPastry();
           },
           onScooterSound: (mode) => {
             if (gameStateRef.current.phase !== 'playing') return;
@@ -928,6 +1099,7 @@ export default function App() {
     handleCookieJarTap,
     handleCupAction,
     handleGrabPastry,
+    handleReturnPreparedPastry,
     handleSelectStation,
     handleServeCustomer,
   ]);
@@ -950,19 +1122,41 @@ export default function App() {
     }
   }, [gameState.lastExpiredEventSeq, gameState.lastExpiredCustomerName, flashAnimBanner]);
 
-  // Celebratory toast whenever a new Cafe Cat unlocks automatically via Revenue or 7/7 Lilo Mastery
+  // Celebratory toast + Secret Tisay Walk-In + Static Amber Cat Badge Dot whenever cats or cosmetics unlock!
   useEffect(() => {
     const seq = gameState.lastCatUnlockSeq ?? 0;
+    const catCount = gameState.unlockedCats?.length ?? 1;
+    const cosCount = gameState.unlockedCosmetics?.length ?? 0;
+    const hasTisay = Boolean(gameState.unlockedCats?.includes('tisay'));
+
+    if (hasTisay && !prevHadTisayRef.current) {
+      prevHadTisayRef.current = true;
+      setHasUnseenCatUnlock(true);
+      soundEngine.playSecretCatChime();
+      sceneRef.current?.triggerTisayArrivalWalkIn();
+      flashAnimBanner('A sleek ginger cat wandered in — Tisay has joined the cafe!', 4600, false);
+    } else if (catCount > prevCatCountRef.current || cosCount > prevCosmeticCountRef.current) {
+      setHasUnseenCatUnlock(true);
+    }
+    prevCatCountRef.current = catCount;
+    prevCosmeticCountRef.current = cosCount;
+
     if (seq > lastCatUnlockSeqRef.current) {
       lastCatUnlockSeqRef.current = seq;
-      if (gameState.lastCatUnlockToast) {
+      if (gameState.lastCatUnlockToast && !gameState.lastCatUnlockToast.includes('Tisay')) {
         soundEngine.playSpeedTipChime();
         flashAnimBanner(gameState.lastCatUnlockToast, 3400, false);
       }
     }
-  }, [gameState.lastCatUnlockSeq, gameState.lastCatUnlockToast, flashAnimBanner]);
+  }, [
+    gameState.lastCatUnlockSeq,
+    gameState.lastCatUnlockToast,
+    gameState.unlockedCats,
+    gameState.unlockedCosmetics,
+    flashAnimBanner,
+  ]);
 
-  // 4 Hz Gameplay Simulation Timer (respects modal pause, 0.35x Recipe Book grace, and staggered door arrivals)
+  // 4 Hz Gameplay Simulation Timer (respects modal pause, Cat Station patience pause, 0.35x Recipe Book grace, and staggered door arrivals)
   useEffect(() => {
     if (gameState.phase !== 'playing') return;
     const interval = window.setInterval(() => {
@@ -972,6 +1166,7 @@ export default function App() {
         advanceSimulationTick(prev, 0.25, {
           modalOpen: modal !== null,
           isRecipeBookOpen: modal === 'recipes',
+          catStationOpen: catStationOpenRef.current,
           activeArrivingCount,
         })
       );
@@ -1000,6 +1195,11 @@ export default function App() {
 
       if (e.code === 'Escape' || e.code === 'KeyP') {
         e.preventDefault();
+        if (catStationOpenRef.current) {
+          setCatStationCustomizeOpen(false);
+          setCatStationOpen(false);
+          return;
+        }
         if (activeModal) {
           setActiveModal(null);
           return;
@@ -1011,7 +1211,7 @@ export default function App() {
         return;
       }
 
-      if (phase !== 'playing') return;
+      if (phase !== 'playing' || catStationOpenRef.current) return;
 
       if (e.code === 'Digit1') handleSelectStation(1);
       else if (e.code === 'Digit2') handleSelectStation(2);
@@ -1068,7 +1268,7 @@ export default function App() {
         handleCupAction('rinse_cup');
       } else if (e.code === 'KeyM') {
         e.preventDefault();
-        spotifyManager.togglePlayPause();
+        musicPlayerController.togglePlayPause();
       }
     };
 
@@ -1217,7 +1417,14 @@ export default function App() {
           rainPreference={gameState.rainPreference}
           graphicsQuality={gameState.graphicsQuality}
           pwaStatus={pwaStatus}
-          spotifyTrackTitle={spotifyState.currentTrack.title}
+          spotifyTrackTitle={
+            audioSnapshot.mode === 'vinyl'
+              ? audioSnapshot.vinylTracks[audioSnapshot.activeVinylIndex]?.title || 'Cafe Vinyl'
+              : audioSnapshot.mode === 'radio'
+              ? audioSnapshot.radioStations.find((s) => s.id === audioSnapshot.activeStationId)
+                  ?.name || 'Live Radio'
+              : audioSnapshot.externalMedia.title
+          }
           onStartShift={handleStartShift}
           onChangeTimeOfDay={handleChangeTimeOfDay}
           onChangeRainPreference={handleChangeRainPreference}
@@ -1228,11 +1435,13 @@ export default function App() {
         />
       )}
 
-      {/* Active Barista POV HUD Overlay */}
-      {!isLoading && gameState.phase !== 'title' && (
+      {/* Active Barista POV HUD Overlay (Hidden cleanly while inside Phase 5 Cat Station close-up) */}
+      {!isLoading && gameState.phase !== 'title' && !catStationOpen && (
         <HudOverlay
           gameState={gameState}
           spotifyState={spotifyState}
+          audioSnapshot={audioSnapshot}
+          hasUnseenCatUnlock={hasUnseenCatUnlock}
           appVersion={pwaStatus.appVersion}
           liveClockLabel={liveClockLabel}
           isMuted={isMuted}
@@ -1267,7 +1476,8 @@ export default function App() {
               phase: prev.phase === 'playing' ? 'paused' : 'playing',
             }))
           }
-          onToggleVinyl={() => spotifyManager.togglePlayPause()}
+          onToggleVinyl={() => musicPlayerController.togglePlayPause()}
+          onOpenCatStation={handleOpenCatStation}
           onChangeGraphics={handleChangeGraphics}
           onToggleRealismMode={handleToggleRealismMode}
           onRequestFullscreenLandscape={handleRequestFullscreenLandscape}
@@ -1275,6 +1485,35 @@ export default function App() {
             if (modal === 'upgrades') setUpgradesInitialTab('upgrades');
             setActiveModal(modal);
           }}
+        />
+      )}
+
+      {/* Phase 5: Interactive Cat Station & Wardrobe Close-Up Overlay */}
+      {!isLoading && gameState.phase === 'playing' && catStationOpen && (
+        <CatStationOverlay
+          gameState={gameState}
+          mode={catStationMode}
+          customizeOpen={catStationCustomizeOpen}
+          waitingOrdersCount={
+            gameState.customers.filter((c) => c.state === 'ordering').length
+          }
+          onChangeMode={setCatStationMode}
+          onToggleCustomize={setCatStationCustomizeOpen}
+          onSelectCat={handlePurchaseOrEquipCafeCat}
+          onPetAction={() => {
+            sceneRef.current?.petChampy();
+            soundEngine.init();
+            soundEngine.preloadChampyAudio();
+            soundEngine.playChampyPurr(2.4);
+            soundEngine.playChampyMeow('chirp');
+            triggerChampyPurrHaptic(pwaManager.getStatus().appVersion);
+          }}
+          onTossTreat={() => {
+            sceneRef.current?.triggerCatTreatToss();
+          }}
+          onPurchaseCosmetic={handlePurchaseCosmetic}
+          onToggleEquipCosmetic={handleToggleEquipCosmetic}
+          onClose={handleCloseCatStation}
         />
       )}
 
@@ -1340,6 +1579,7 @@ export default function App() {
             setGameState((prev) => unlockOrEquipCustomerSkinPack(prev, packId));
           }}
           onPurchaseOrEquipCafeCat={handlePurchaseOrEquipCafeCat}
+          onOpenCatStation={handleOpenCatStation}
           onClaimLoginReward={(rewardDay) => {
             soundEngine.playCashRegister();
             setGameState((prev) => claimLoginReward(prev, rewardDay));
@@ -1368,9 +1608,9 @@ export default function App() {
       )}
 
       {activeModal === 'spotify' && (
-        <SpotifyVinylModal
-          spotifyState={spotifyState}
-          appVersion={pwaStatus.appVersion}
+        <UnifiedAudioModal
+          snapshot={audioSnapshot}
+          isApkVersion={pwaStatus.appVersion === 'apk'}
           onClose={() => setActiveModal(null)}
         />
       )}

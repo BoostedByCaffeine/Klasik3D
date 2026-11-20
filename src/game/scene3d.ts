@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { STUDIO_ICON_SVG_RAW, STUDIO_LOGO_SVG_RAW } from '../components/StudioLogo';
 import {
+  AudioModeId,
   BaristaStationId,
   CafeCatId,
   CafeCatSpec,
+  CatLoadout,
   CupVesselType,
   CustomerOrder,
   CustomerSkinPackId,
@@ -30,6 +32,8 @@ import {
   isStepLockActive,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
+import { CounterAudioProps, HologramMetadata } from './audio/CounterAudioProps';
+import { attachCatCosmeticsRig, CatCosmeticRigController } from './catCosmetics3d';
 
 // Pre-allocated scratch math objects (Zero GC in render loop)
 const _targetPos = new THREE.Vector3();
@@ -88,7 +92,10 @@ export interface SceneInteractionCallbacks {
   onChampyGreet?: () => void;
   onCookieJarTap?: (tapCount: number) => void;
   onGrabPastry?: (pastryId: PastryId) => void;
+  onReturnPastry?: () => void;
   onScooterSound?: (mode: 'arrive' | 'depart') => void;
+  onCatCombStroke?: (speed: number) => void;
+  onCatTreatCrunch?: () => void;
 }
 
 interface StationCameraPreset {
@@ -411,7 +418,9 @@ interface ArticulatedCustomerActor {
   walkBlend: number;
   seatedBlend: number;
   facingAngle: number;
-  moveState: 'walking' | 'idle-queue' | 'yielding-door' | 'seated';
+  moveState: 'walking' | 'idle-queue' | 'yielding-door' | 'seated' | 'leaving_table';
+  standUpTimer: number;
+  seatExitOrigin: THREE.Vector3 | null;
   stuckTimer: number;
   stuckAnchorPos: THREE.Vector3;
   ghostPassTimer: number;
@@ -427,6 +436,8 @@ interface ArticulatedCustomerActor {
 interface DeliveryScooterController {
   customerId: string;
   variant: DeliveryRiderVariant;
+  slotIndex: 0 | 1;
+  parkX: number;
   root: THREE.Group;
   wheels: THREE.Object3D[];
   topBoxLidPivot: THREE.Group;
@@ -438,7 +449,15 @@ interface DeliveryScooterController {
   departSoundPlayed: boolean;
 }
 
-type ChampyState = 'sitting' | 'sleeping' | 'grooming' | 'greeting' | 'petted';
+type ChampyState =
+  | 'sitting'
+  | 'sleeping'
+  | 'grooming'
+  | 'greeting'
+  | 'petted'
+  | 'combed'
+  | 'eating_treat'
+  | 'walking_in';
 
 interface ChampyParticle {
   sprite: THREE.Sprite;
@@ -465,23 +484,34 @@ interface ChampyRig {
   coatTextures: THREE.CanvasTexture[];
   frontLeftLeg: THREE.Group;
   frontRightLeg: THREE.Group;
+  backLeftLeg: THREE.Group;
+  backRightLeg: THREE.Group;
   hindGroup: THREE.Group;
   tailBase: THREE.Group;
   tailMid: THREE.Group;
   tailTip: THREE.Group;
+  collarMesh: THREE.Mesh;
   collarBell: THREE.Group;
+  cosmeticsController: CatCosmeticRigController;
   heartParticles: ChampyParticle[];
   sleepParticles: ChampyParticle[];
+  sparkleParticles: ChampyParticle[];
   heartTexture: THREE.CanvasTexture;
   zzzTexture: THREE.CanvasTexture;
+  sparkleTexture: THREE.CanvasTexture;
   nameplateTexture: THREE.CanvasTexture;
   state: ChampyState;
   stateTimer: number;
   stateDuration: number;
   blinkTimer: number;
   blinkDuration: number;
+  earTwitchTimer: number;
+  earTwitchSide: -1 | 1;
   greetCooldown: number;
   petTimer: number;
+  combStretchTimer: number;
+  treatEatTimer: number;
+  walkInProgress: number;
   sleepParticleTimer: number;
   swapPopTimer: number;
 }
@@ -531,6 +561,8 @@ export class KlasikCafeScene3D {
   private neonSignLight!: THREE.PointLight;
   private turntableLampLight!: THREE.PointLight;
   private cafeWarmLight!: THREE.PointLight;
+  private pastryPoolLight!: THREE.PointLight;
+  private seatingPoolLight!: THREE.PointLight;
   private titleHeroCupLight!: THREE.PointLight;
 
   // Shared procedural textures
@@ -688,10 +720,33 @@ export class KlasikCafeScene3D {
   private preparedPlateGroup!: THREE.Group;
   private preparedBagGroup!: THREE.Group;
   private preparedPlatePastryMeshes!: Record<PastryId, THREE.Group>;
+  private pastryReturnAnim: {
+    active: boolean;
+    elapsed: number;
+    duration: number;
+  } = { active: false, elapsed: 0, duration: 0.22 };
 
-  // Phase 7: Active Rare 3D Delivery Scooter Rig
-  private deliveryScooter: DeliveryScooterController | null = null;
+  // Phase 1.2 & 7: Active 3D Delivery Scooters Pool (hard-capped at max 2 simultaneous scooters!)
+  private deliveryScooters: DeliveryScooterController[] = [];
   private activeGreetTargetPos: THREE.Vector3 | null = null;
+
+  // Phase 2 & 6: Unified Counter Audio Props (Vinyl Turntable / Vintage Radio / External Hologram)
+  private counterAudioProps: CounterAudioProps | null = null;
+  private audioMode: AudioModeId = 'vinyl';
+  private audioPlaying = false;
+
+  // Phase 5: Interactive Cat Station State & Preloaded 3D Brush / Treat Props
+  private catStationOpen = false;
+  private catStationMode: 'pet' | 'comb' | 'treat' | 'customize' = 'pet';
+  private catStationCustomizeOpen = false;
+  private catStationCamBlend = 0;
+  private catPreviewYawOffset = 0;
+  private catBrushGroup: THREE.Group | null = null;
+  private catBrushTargetPos = new THREE.Vector3(0, 0.24, 0.14);
+  private catBrushActive = false;
+  private catTreatGroup: THREE.Group | null = null;
+  private catTreatAnim = { active: false, elapsed: 0, duration: 0.52 };
+  private catLastLoadoutKey = '';
 
   // Animated Barista Equipment Rig Parts
   private grinderGroup!: THREE.Group;
@@ -895,6 +950,93 @@ export class KlasikCafeScene3D {
     rig.stateDuration = 3.2;
     rig.petTimer = 3.2;
     this.spawnChampyHearts(3);
+  }
+
+  // Phase 2 & 6: Public Counter Audio Prop Sync API (Vinyl / Vintage Radio / Floating Hologram)
+  public setAudioMode(mode: AudioModeId) {
+    this.audioMode = mode;
+    this.counterAudioProps?.setMode(mode);
+  }
+
+  public setAudioPlaying(playing: boolean) {
+    this.audioPlaying = playing;
+    this.counterAudioProps?.setPlaying(playing);
+  }
+
+  public setByoVinylActive(isCustomByo: boolean, accentHex?: string) {
+    this.counterAudioProps?.setByoVinylActive(isCustomByo, accentHex);
+  }
+
+  public setRadioFrequencyIndex(stationIdx: number, totalStations: number) {
+    this.counterAudioProps?.setRadioFrequencyIndex(stationIdx, totalStations);
+  }
+
+  public updateHologramMetadata(meta: HologramMetadata) {
+    this.counterAudioProps?.updateHologramMetadata(meta);
+  }
+
+  // Phase 5: Interactive Cat Station State & Interactions
+  public setCatStationState(
+    open: boolean,
+    mode: 'pet' | 'comb' | 'treat' | 'customize',
+    customizeOpen: boolean
+  ) {
+    const wasOpen = this.catStationOpen;
+    this.catStationOpen = open;
+    this.catStationMode = mode;
+    this.catStationCustomizeOpen = open && customizeOpen;
+    if (!open) {
+      this.catBrushActive = false;
+      this.catPreviewYawOffset = 0;
+      if (this.catBrushGroup) this.catBrushGroup.visible = false;
+    } else {
+      this.manualCameraYawOffset = 0;
+      this.manualCameraZoomOffset = 0;
+      if (!wasOpen) {
+        this.catPreviewYawOffset = 0;
+      }
+      if (this.catBrushGroup) {
+        this.catBrushGroup.visible = mode === 'comb' && !customizeOpen;
+      }
+    }
+  }
+
+  public triggerCatTreatToss() {
+    if (!this.champyRig || !this.catTreatGroup) return;
+    this.catTreatAnim.active = true;
+    this.catTreatAnim.elapsed = 0;
+    this.catTreatGroup.visible = true;
+    const rig = this.champyRig;
+    rig.state = 'eating_treat';
+    rig.stateTimer = 0;
+    rig.stateDuration = 2.4;
+    rig.treatEatTimer = 2.4;
+    this.spawnChampyHearts(4);
+    this.callbacks.onCatTreatCrunch?.();
+  }
+
+  public triggerTisayArrivalWalkIn() {
+    if (!this.champyRig) return;
+    const rig = this.champyRig;
+    rig.state = 'walking_in';
+    rig.stateTimer = 0;
+    rig.stateDuration = 2.6;
+    rig.walkInProgress = 0;
+    this.spawnChampyHearts(4);
+  }
+
+  public syncCatCosmetics(loadout?: CatLoadout) {
+    if (!this.champyRig) return;
+    const target = loadout ?? this.gameState.catLoadouts?.[this.champyRig.catId];
+    this.champyRig.cosmeticsController.applyLoadout(target);
+  }
+
+  public triggerPastryReturnAnimation() {
+    if (!this.preparedPastryStageGroup || !this.preparedPastryStageGroup.visible) return;
+    if (this.pastryReturnAnim.active) return;
+    this.pastryReturnAnim.active = true;
+    this.pastryReturnAnim.elapsed = 0;
+    this.pastryReturnAnim.duration = 0.22;
   }
 
   private shouldUsePhysicalTransmission(): boolean {
@@ -2013,15 +2155,29 @@ export class KlasikCafeScene3D {
     this.hemiLight.position.set(0, 8, 0);
     this.scene.add(this.hemiLight);
 
-    this.cafeWarmLight = new THREE.PointLight(0xffb74d, 1.9, 14, 1.5);
-    this.cafeWarmLight.position.set(-0.2, 2.75, 0.3);
+    // Phase 1.5: 3 Non-Shadow-Casting Warm Amber Interior PointLight Pools (Espresso Bar, Pastry Counter, Seating Nook)
+    this.cafeWarmLight = new THREE.PointLight(0xffb35c, 1.9, 12, 1.45);
+    this.cafeWarmLight.castShadow = false;
+    this.cafeWarmLight.position.set(-0.1, 2.65, 0.25);
     this.scene.add(this.cafeWarmLight);
 
+    this.pastryPoolLight = new THREE.PointLight(0xffb35c, 0.7, 8.5, 1.5);
+    this.pastryPoolLight.castShadow = false;
+    this.pastryPoolLight.position.set(-1.75, 2.35, 0.15);
+    this.scene.add(this.pastryPoolLight);
+
+    this.seatingPoolLight = new THREE.PointLight(0xffb35c, 0.65, 10.5, 1.45);
+    this.seatingPoolLight.castShadow = false;
+    this.seatingPoolLight.position.set(1.25, 2.55, -3.25);
+    this.scene.add(this.seatingPoolLight);
+
     this.neonSignLight = new THREE.PointLight(0xf59e0b, 1.5, 6.5, 1.7);
+    this.neonSignLight.castShadow = false;
     this.neonSignLight.position.set(-2.05, 2.55, -6.75);
     this.scene.add(this.neonSignLight);
 
     this.turntableLampLight = new THREE.PointLight(0xfbbf24, 1.2, 4.5, 2);
+    this.turntableLampLight.castShadow = false;
     this.turntableLampLight.position.set(2.15, 1.45, 0.25);
     this.scene.add(this.turntableLampLight);
   }
@@ -4913,7 +5069,7 @@ export class KlasikCafeScene3D {
     this.catNameplateTexture.needsUpdate = true;
   }
 
-  // Phase 8: High-craft organic feathered UV-mapped procedural fur textures (256px Low / 512px Med-Max, zero clay bumps!)
+  // Phase 3.2: Organic Curved Bézier Tabby Fur & Dedicated Amby/Gigi/Tisay Procedural Coats (zero straight blocky bands!)
   private createProceduralCatFurTexture(
     spec: CafeCatSpec,
     part: 'body' | 'head' = 'body'
@@ -4928,32 +5084,45 @@ export class KlasikCafeScene3D {
     ctx.fillStyle = baseHexStr;
     ctx.fillRect(0, 0, texSize, texSize);
 
-    // Subtle organic brushed fur-strand micro-noise for velvety plush coat look
+    // Subtle brushed directional fur-strand grain for velvety plush look
     ctx.save();
-    for (let i = 0; i < 650; i++) {
+    for (let i = 0; i < 720; i++) {
       const fx = ((i * 73) % 256) * scale;
       const fy = ((i * 41 + Math.floor(i / 7) * 19) % 256) * scale;
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
-      ctx.fillRect(fx, fy, 1.5 * scale, 6.5 * scale);
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.038)' : 'rgba(0,0,0,0.048)';
+      ctx.fillRect(fx, fy, 1.4 * scale, 6.8 * scale);
     }
     ctx.restore();
 
     if (spec.coatPattern === 'tabby' || spec.coatPattern === 'tuxedo-tabby') {
       const stripeHexStr = '#' + (spec.stripeHex ?? 0x44403c).toString(16).padStart(6, '0');
       ctx.save();
-      ctx.globalAlpha = 0.72;
-      // Softly feathered mackerel tabby stripes wrapping naturally around body/head UVs
-      for (let y = 18; y < 246; y += 26) {
-        const grad = ctx.createLinearGradient(0, (y - 9) * scale, 0, (y + 9) * scale);
-        grad.addColorStop(0, 'rgba(0,0,0,0)');
-        grad.addColorStop(0.5, stripeHexStr);
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.ellipse(128 * scale, y * scale, 128 * scale, 9.5 * scale, 0, 0, Math.PI * 2);
-        ctx.fill();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Organic curved Bézier mackerel tabby stripes (quadraticCurveTo with soft multi-pass feathering)
+      for (let idx = 0; idx < 8; idx++) {
+        const baseY = (24 + idx * 29) * scale;
+        const curveDip = (idx % 2 === 0 ? 18 : -14) * scale;
+        const passes: Array<{ width: number; alpha: number }> = [
+          { width: 15 * scale, alpha: 0.16 },
+          { width: 9 * scale, alpha: 0.34 },
+          { width: 4.5 * scale, alpha: 0.56 },
+        ];
+        for (const pass of passes) {
+          ctx.strokeStyle = stripeHexStr;
+          ctx.globalAlpha = pass.alpha;
+          ctx.lineWidth = pass.width;
+          ctx.beginPath();
+          ctx.moveTo(4 * scale, baseY + (idx % 3 - 1) * 4 * scale);
+          ctx.quadraticCurveTo(64 * scale, baseY + curveDip, 128 * scale, baseY - curveDip * 0.45);
+          ctx.quadraticCurveTo(192 * scale, baseY + curveDip, 252 * scale, baseY + (idx % 3 - 1) * 4 * scale);
+          ctx.stroke();
+        }
       }
-      // Classic dorsal tabby spine stripe
+
+      // Soft feathered dorsal tabby spine stripe
+      ctx.globalAlpha = 0.65;
       const spineGrad = ctx.createLinearGradient(104 * scale, 0, 152 * scale, 0);
       spineGrad.addColorStop(0, 'rgba(0,0,0,0)');
       spineGrad.addColorStop(0.5, stripeHexStr);
@@ -4961,26 +5130,23 @@ export class KlasikCafeScene3D {
       ctx.fillStyle = spineGrad;
       ctx.fillRect(104 * scale, 0, 48 * scale, texSize);
 
-      // Tabby forehead "M" marking on head UV
+      // Authentic curved forehead "M" marking on head UV
       if (part === 'head') {
+        ctx.globalAlpha = 0.78;
         ctx.strokeStyle = stripeHexStr;
-        ctx.lineWidth = 4.5 * scale;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4.2 * scale;
         ctx.beginPath();
-        ctx.moveTo(48 * scale, 96 * scale);
-        ctx.lineTo(56 * scale, 72 * scale);
-        ctx.lineTo(64 * scale, 90 * scale);
-        ctx.lineTo(72 * scale, 72 * scale);
-        ctx.lineTo(80 * scale, 96 * scale);
+        ctx.moveTo(44 * scale, 98 * scale);
+        ctx.quadraticCurveTo(50 * scale, 70 * scale, 56 * scale, 72 * scale);
+        ctx.quadraticCurveTo(60 * scale, 88 * scale, 64 * scale, 91 * scale);
+        ctx.quadraticCurveTo(68 * scale, 88 * scale, 72 * scale, 72 * scale);
+        ctx.quadraticCurveTo(78 * scale, 70 * scale, 84 * scale, 98 * scale);
         ctx.stroke();
       }
       ctx.restore();
     } else if (spec.coatPattern === 'calico-mikmik') {
-      // Smooth pure snow-white base coat with feathered organic ginger patches painted directly into UV fur texture!
       ctx.fillStyle = '#f8fafc';
       ctx.fillRect(0, 0, texSize, texSize);
-      // Soft white fur strands
       for (let i = 0; i < 420; i++) {
         const fx = ((i * 59) % 256) * scale;
         const fy = ((i * 37) % 256) * scale;
@@ -5005,15 +5171,70 @@ export class KlasikCafeScene3D {
       };
 
       if (part === 'head') {
-        // Organic feathered ginger crown & left-ear cap patch (zero protruding clay mesh!)
         paintFeatheredPatch(154, 72, 54, 46);
         paintFeatheredPatch(178, 92, 34, 28);
       } else {
-        // Two smooth feathered ginger flank/stomach patches blended seamlessly into Mikmik's white torso
         paintFeatheredPatch(86, 138, 44, 38);
         paintFeatheredPatch(176, 158, 48, 40);
         paintFeatheredPatch(168, 128, 30, 26);
       }
+    } else if (spec.coatPattern === 'bicolor-patches') {
+      // Phase 3.4: Gigi — Snow-white base coat with crisp feathered charcoal-black patches on head & body
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, texSize, texSize);
+      const paintBlackPatch = (cx: number, cy: number, rx: number, ry: number) => {
+        ctx.save();
+        ctx.translate(cx * scale, cy * scale);
+        ctx.scale(1, ry / rx);
+        const g = ctx.createRadialGradient(0, 0, rx * 0.25 * scale, 0, 0, rx * scale);
+        g.addColorStop(0, '#18181b');
+        g.addColorStop(0.75, '#27272a');
+        g.addColorStop(0.92, 'rgba(24,24,27,0.45)');
+        g.addColorStop(1, 'rgba(248,250,252,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(0, 0, rx * scale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      };
+      if (part === 'head') {
+        paintBlackPatch(94, 62, 52, 44);
+        paintBlackPatch(168, 72, 44, 36);
+      } else {
+        paintBlackPatch(128, 108, 66, 52);
+        paintBlackPatch(176, 168, 46, 38);
+        paintBlackPatch(74, 174, 36, 30);
+      }
+    } else if (spec.coatPattern === 'tuxedo-ginger') {
+      // Phase 3.4: Secret Cat Tisay — Sleek warm ginger coat with soft curved ginger sheen & cream undertone
+      const grad = ctx.createLinearGradient(0, 0, 0, texSize);
+      grad.addColorStop(0, '#dc6f28');
+      grad.addColorStop(0.55, '#ea8635');
+      grad.addColorStop(1, '#f3a458');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, texSize, texSize);
+
+      ctx.save();
+      ctx.strokeStyle = '#b44f14';
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 6; i++) {
+        const by = (34 + i * 36) * scale;
+        ctx.globalAlpha = 0.26;
+        ctx.lineWidth = 7 * scale;
+        ctx.beginPath();
+        ctx.moveTo(10 * scale, by);
+        ctx.quadraticCurveTo(128 * scale, by + (i % 2 === 0 ? 14 : -14) * scale, 246 * scale, by);
+        ctx.stroke();
+      }
+      ctx.restore();
+    } else if (spec.id === 'amby') {
+      // Phase 3.4: Amby — Warm caramel coat with delicate honey highlights
+      const grad = ctx.createLinearGradient(0, 0, 0, texSize);
+      grad.addColorStop(0, '#c67e3b');
+      grad.addColorStop(0.5, '#d58c44');
+      grad.addColorStop(1, '#e5a864');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, texSize, texSize);
     }
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -5101,7 +5322,38 @@ export class KlasikCafeScene3D {
     plateFace.rotation.set(-0.35, 0.14, 0);
     perchGroup.add(plateFace);
 
-    // 4. Build initial equipped Cafe Cat rig (defaults to Champy or saved equippedCatId)
+    // 4. Phase 5: Preloaded 3D Wooden Grooming Brush & Fish Biscuit Treat Props (toggled via .visible only!)
+    const brushGroup = new THREE.Group();
+    const brushWoodMat = new THREE.MeshStandardMaterial({ color: 0x7c4a26, roughness: 0.55 });
+    const bristleMat = new THREE.MeshStandardMaterial({ color: 0xf5e6c8, roughness: 0.85 });
+    const brushHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.014, 0.11, 10), brushWoodMat);
+    brushHandle.rotation.z = Math.PI / 2;
+    brushHandle.position.set(0.06, 0, 0);
+    const brushHead = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.02, 0.048), brushWoodMat);
+    brushHead.position.set(-0.018, 0, 0);
+    const bristles = new THREE.Mesh(new THREE.BoxGeometry(0.068, 0.018, 0.042), bristleMat);
+    bristles.position.set(-0.018, -0.018, 0);
+    brushGroup.add(brushHandle, brushHead, bristles);
+    brushGroup.position.set(0, 0.28, 0.14);
+    brushGroup.rotation.set(0.25, -0.4, -0.2);
+    brushGroup.visible = false;
+    this.catBrushGroup = brushGroup;
+    perchGroup.add(brushGroup);
+
+    const treatGroup = new THREE.Group();
+    const biscuitMat = new THREE.MeshStandardMaterial({ color: 0xd98a3c, roughness: 0.72 });
+    const fishBody = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), biscuitMat);
+    fishBody.scale.set(1.35, 0.45, 0.85);
+    const fishTail = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.024, 4), biscuitMat);
+    fishTail.rotation.z = Math.PI / 2;
+    fishTail.position.set(-0.028, 0, 0);
+    treatGroup.add(fishBody, fishTail);
+    treatGroup.position.set(0, 0.11, 0.16);
+    treatGroup.visible = false;
+    this.catTreatGroup = treatGroup;
+    perchGroup.add(treatGroup);
+
+    // 5. Build initial equipped Cafe Cat rig (defaults to Champy or saved equippedCatId)
     const initialCatId: CafeCatId = this.gameState.equippedCatId || 'champy';
     this.buildCafeCatRig(initialCatId, perchGroup, nameplateTexture);
 
@@ -5146,7 +5398,7 @@ export class KlasikCafeScene3D {
       roughness: 0.45,
     });
 
-    // Pure white fur material for Katkat's tuxedo chest bib & paws
+    // Pure white fur material for Katkat & Tisay tuxedo chest bibs, muzzles & paws
     const whiteFurMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
       roughness: 0.72,
@@ -5157,6 +5409,12 @@ export class KlasikCafeScene3D {
       color: 0xea580c,
       roughness: 0.72,
       metalness: 0.03,
+    });
+    // Charcoal black accent fur material for Gigi's bicolor ears/tail
+    const blackPatchMat = new THREE.MeshStandardMaterial({
+      color: 0x18181b,
+      roughness: 0.75,
+      metalness: 0.04,
     });
 
     // Exact Anatomical Left (+X) and Right (-X) Eye Materials for Heterochromia (Chunky & Cheeto)!
@@ -5200,8 +5458,9 @@ export class KlasikCafeScene3D {
     torsoMesh.position.set(0, 0.115, -0.01);
     bodyPivot.add(torsoMesh);
 
-    // Katkat: Crisp Pure White Chest Tuxedo Bib! (Mikmik's ginger flank patches are now seamlessly UV-mapped onto torsoMesh!)
-    const chestMat = spec.coatPattern === 'tuxedo-tabby' ? whiteFurMat : furMat;
+    const isTuxedo =
+      spec.coatPattern === 'tuxedo-tabby' || spec.coatPattern === 'tuxedo-ginger';
+    const chestMat = isTuxedo ? whiteFurMat : furMat;
     const chestMesh = new THREE.Mesh(new THREE.SphereGeometry(0.068, 16, 14), chestMat);
     chestMesh.scale.set(0.95, 1.05, 0.9);
     chestMesh.position.set(0, 0.14, 0.054);
@@ -5218,11 +5477,11 @@ export class KlasikCafeScene3D {
     hindGroup.add(haunchR);
     bodyPivot.add(hindGroup);
 
-    // Front legs & velvety paws (Katkat gets white tuxedo mittens!)
-    const pawMat = spec.coatPattern === 'tuxedo-tabby' ? whiteFurMat : furMat;
-    const makeFrontLeg = (xSign: number): THREE.Group => {
+    // 4 Articulated Legs & Velvety Paws (enables true 4-leg phase-shifted gait: 0, 0.5π, π, 1.5π)
+    const pawMat = isTuxedo ? whiteFurMat : furMat;
+    const makeLimb = (xSign: number, zPos: number): THREE.Group => {
       const leg = new THREE.Group();
-      leg.position.set(xSign * 0.044, 0.12, 0.068);
+      leg.position.set(xSign * 0.044, 0.12, zPos);
       const limb = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.017, 0.115, 10), furMat);
       limb.position.y = -0.055;
       leg.add(limb);
@@ -5232,11 +5491,15 @@ export class KlasikCafeScene3D {
       leg.add(paw);
       return leg;
     };
-    const frontLeftLeg = makeFrontLeg(-1);
-    const frontRightLeg = makeFrontLeg(1);
-    bodyPivot.add(frontLeftLeg, frontRightLeg);
+    const frontLeftLeg = makeLimb(-1, 0.068);
+    const frontRightLeg = makeLimb(1, 0.068);
+    const backLeftLeg = makeLimb(-1, -0.052);
+    const backRightLeg = makeLimb(1, -0.052);
+    backLeftLeg.visible = false;
+    backRightLeg.visible = false;
+    bodyPivot.add(frontLeftLeg, frontRightLeg, backLeftLeg, backRightLeg);
 
-    // Collar (Cheeto = No Collar; Kicks = Thin Black Collar; others = standard colored collar + bell)
+    // Collar (Cheeto & Tisay = No Collar; Kicks = Thin Black Collar; Amby = Pink Collar; Gigi = Black Collar)
     const collarTubeRadius = spec.collarThin ? 0.0062 : 0.011;
     const collarMesh = new THREE.Mesh(
       new THREE.TorusGeometry(0.056, collarTubeRadius, 10, 20),
@@ -5265,7 +5528,7 @@ export class KlasikCafeScene3D {
     headPivot.add(skull);
 
     // Soft muzzle & nose
-    const muzzleMat = spec.coatPattern === 'tuxedo-tabby' ? whiteFurMat : furMat;
+    const muzzleMat = isTuxedo ? whiteFurMat : furMat;
     const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.03, 12, 10), muzzleMat);
     muzzle.scale.set(1.25, 0.78, 0.85);
     muzzle.position.set(0, -0.015, 0.062);
@@ -5281,9 +5544,12 @@ export class KlasikCafeScene3D {
       const ear = new THREE.Group();
       ear.position.set(xSign * 0.045, 0.056, 0.004);
       ear.rotation.z = -xSign * 0.26;
-      // On Mikmik, color the cat's left ear (+X) ginger to match the head patch!
       const earOuterMat =
-        spec.coatPattern === 'calico-mikmik' && xSign > 0 ? gingerPatchMat : furMat;
+        spec.coatPattern === 'calico-mikmik' && xSign > 0
+          ? gingerPatchMat
+          : spec.coatPattern === 'bicolor-patches'
+          ? blackPatchMat
+          : furMat;
       const outer = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.058, 4), earOuterMat);
       outer.position.y = 0.024;
       outer.rotation.y = Math.PI / 4;
@@ -5327,12 +5593,16 @@ export class KlasikCafeScene3D {
       headPivot.add(eyeGroup);
       return eyelid;
     };
-    // Facing +Z: xSign = -1 is Cat's Anatomical RIGHT eye (viewer's left); xSign = +1 is Cat's Anatomical LEFT eye (viewer's right)
     const rightAnatomicalEyelid = makeEye(-1, rightEyeIrisMat);
     const leftAnatomicalEyelid = makeEye(1, leftEyeIrisMat);
 
-    // 3-Segment Articulated Tail (Mikmik gets a Pure Solid Ginger Tail!)
-    const tailMat = spec.tailHex !== undefined ? gingerPatchMat : furMat;
+    // 3-Segment Articulated Tail (tailBase -> tailMid -> tailTip)
+    const tailMat =
+      spec.tailHex === 0x18181b
+        ? blackPatchMat
+        : spec.tailHex !== undefined
+        ? gingerPatchMat
+        : furMat;
     const tailBase = new THREE.Group();
     tailBase.position.set(0, 0.065, -0.095);
     const tSeg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.016, 0.11, 8), tailMat);
@@ -5360,12 +5630,57 @@ export class KlasikCafeScene3D {
     tailMid.add(tailTip);
     bodyPivot.add(tailBase);
 
-    // Pre-allocated Floating Heart & Sleep zZz Sprite Pools
+    // Phase 4: 5 Standardized Cat Rig Attachment Sockets
+    const anchorEyes = new THREE.Group();
+    anchorEyes.name = 'anchor_eyes';
+    anchorEyes.position.set(0, 0.012, 0.072);
+    headPivot.add(anchorEyes);
+
+    const anchorHeadTop = new THREE.Group();
+    anchorHeadTop.name = 'anchor_head_top';
+    anchorHeadTop.position.set(0, 0.064, 0.002);
+    headPivot.add(anchorHeadTop);
+
+    const anchorNeck = new THREE.Group();
+    anchorNeck.name = 'anchor_neck';
+    anchorNeck.position.set(0, 0.205, 0.048);
+    bodyPivot.add(anchorNeck);
+
+    const anchorTorso = new THREE.Group();
+    anchorTorso.name = 'anchor_torso';
+    anchorTorso.position.set(0, 0.118, -0.005);
+    anchorTorso.rotation.x = -0.32;
+    bodyPivot.add(anchorTorso);
+
+    const anchorSpinePoints: THREE.Group[] = [
+      new THREE.Vector3(0, 0.22, -0.015),
+      new THREE.Vector3(0, 0.185, -0.058),
+      new THREE.Vector3(0, 0.14, -0.086),
+      new THREE.Vector3(0, 0.092, -0.102),
+    ].map((pt, idx) => {
+      const node = new THREE.Group();
+      node.name = `anchor_spine_point_${idx}`;
+      node.position.copy(pt);
+      bodyPivot.add(node);
+      return node;
+    });
+
+    const cosmeticsController = attachCatCosmeticsRig(
+      catId,
+      { anchorEyes, anchorHeadTop, anchorNeck, anchorTorso, anchorSpinePoints },
+      (showBaseCollar) => {
+        collarMesh.visible = spec.hasCollar && showBaseCollar;
+        collarBell.visible = spec.hasCollar && spec.hasBell && showBaseCollar;
+      }
+    );
+    cosmeticsController.applyLoadout(this.gameState.catLoadouts?.[catId]);
+
+    // Pre-allocated Floating Heart, Sleep zZz, and Golden Comb Sheen Sparkle Sprite Pools
     const heartCanvas = document.createElement('canvas');
     heartCanvas.width = 64;
     heartCanvas.height = 64;
     const hCtx = heartCanvas.getContext('2d')!;
-    hCtx.fillStyle = '#fb7185';
+    hCtx.fillStyle = '#f5a623';
     hCtx.beginPath();
     hCtx.moveTo(32, 54);
     hCtx.bezierCurveTo(8, 36, 6, 16, 20, 12);
@@ -5373,7 +5688,7 @@ export class KlasikCafeScene3D {
     hCtx.bezierCurveTo(32, 18, 36, 10, 44, 12);
     hCtx.bezierCurveTo(58, 16, 56, 36, 32, 54);
     hCtx.fill();
-    hCtx.fillStyle = '#fde68a';
+    hCtx.fillStyle = '#fef3c7';
     hCtx.beginPath();
     hCtx.arc(23, 21, 3.8, 0, Math.PI * 2);
     hCtx.fill();
@@ -5391,8 +5706,23 @@ export class KlasikCafeScene3D {
     const zzzTexture = new THREE.CanvasTexture(zzzCanvas);
     zzzTexture.colorSpace = THREE.SRGBColorSpace;
 
+    const sparkCanvas = document.createElement('canvas');
+    sparkCanvas.width = 64;
+    sparkCanvas.height = 64;
+    const sCtx = sparkCanvas.getContext('2d')!;
+    sCtx.fillStyle = '#fde68a';
+    sCtx.beginPath();
+    sCtx.moveTo(32, 6);
+    sCtx.quadraticCurveTo(35, 29, 58, 32);
+    sCtx.quadraticCurveTo(35, 35, 32, 58);
+    sCtx.quadraticCurveTo(29, 35, 6, 32);
+    sCtx.quadraticCurveTo(29, 29, 32, 6);
+    sCtx.fill();
+    const sparkleTexture = new THREE.CanvasTexture(sparkCanvas);
+    sparkleTexture.colorSpace = THREE.SRGBColorSpace;
+
     const heartParticles: ChampyParticle[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const sp = new THREE.Sprite(
         new THREE.SpriteMaterial({ map: heartTexture, transparent: true, opacity: 0, depthWrite: false })
       );
@@ -5413,6 +5743,17 @@ export class KlasikCafeScene3D {
       sleepParticles.push({ sprite: sp, age: 0, duration: 1.9, active: false, startX: 0, startZ: 0, driftX: 0 });
     }
 
+    const sparkleParticles: ChampyParticle[] = [];
+    for (let i = 0; i < 6; i++) {
+      const sp = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: sparkleTexture, transparent: true, opacity: 0, depthWrite: false })
+      );
+      sp.scale.set(0.068, 0.068, 1);
+      sp.visible = false;
+      catRoot.add(sp);
+      sparkleParticles.push({ sprite: sp, age: 0, duration: 0.9, active: false, startX: 0, startZ: 0, driftX: 0 });
+    }
+
     // Generous invisible hit-sphere for reliable mobile tapping & desktop clicking
     const hitSphere = new THREE.Mesh(
       new THREE.SphereGeometry(0.28, 12, 10),
@@ -5422,14 +5763,17 @@ export class KlasikCafeScene3D {
     catRoot.add(hitSphere);
 
     const petLabel = this.isMobileDevice ? `${spec.name} · Tap to Pet` : `${spec.name} · Click to Pet`;
-    // Remove previous 'pet-champy' group from interactables before registering new cat
     const prevCatGroup = this.toolGroups.get('pet-champy');
     if (prevCatGroup) {
       this.interactables = this.interactables.filter((o) => o !== prevCatGroup);
     }
     this.registerInteractiveTool('pet-champy', catRoot, petLabel, 2, () => {
-      this.petChampy();
-      this.callbacks.onPetChampy?.();
+      if (this.catStationOpen && this.catStationMode === 'treat') {
+        this.triggerCatTreatToss();
+      } else {
+        this.petChampy();
+        this.callbacks.onPetChampy?.();
+      }
     });
 
     perchGroup.add(catRoot);
@@ -5449,23 +5793,34 @@ export class KlasikCafeScene3D {
       coatTextures,
       frontLeftLeg,
       frontRightLeg,
+      backLeftLeg,
+      backRightLeg,
       hindGroup,
       tailBase,
       tailMid,
       tailTip,
+      collarMesh,
       collarBell,
+      cosmeticsController,
       heartParticles,
       sleepParticles,
+      sparkleParticles,
       heartTexture,
       zzzTexture,
+      sparkleTexture,
       nameplateTexture,
       state: 'sitting',
       stateTimer: 0,
       stateDuration: 10.5,
-      blinkTimer: 2.2,
+      blinkTimer: 3.0 + Math.random() * 2.5,
       blinkDuration: 0,
+      earTwitchTimer: 2.4 + Math.random() * 3.0,
+      earTwitchSide: 1,
       greetCooldown: 0,
       petTimer: 0,
+      combStretchTimer: 0,
+      treatEatTimer: 0,
+      walkInProgress: 1,
       sleepParticleTimer: 0,
       swapPopTimer: 0.4,
     };
@@ -5476,9 +5831,11 @@ export class KlasikCafeScene3D {
     if (this.champyRig && this.champyRig.catId === nextCatId) return;
 
     if (this.champyRig) {
+      this.champyRig.cosmeticsController.dispose();
       this.catPerchGroup.remove(this.champyRig.root);
       this.champyRig.heartTexture.dispose();
       this.champyRig.zzzTexture.dispose();
+      this.champyRig.sparkleTexture.dispose();
       this.champyRig.coatTextures.forEach((t) => t.dispose());
       this.champyRig.root.traverse((obj) => {
         if ((obj as THREE.Mesh).isMesh) {
@@ -5510,10 +5867,27 @@ export class KlasikCafeScene3D {
     }
   }
 
+  private spawnCatSparkles(count = 2) {
+    if (!this.champyRig) return;
+    let spawned = 0;
+    for (let i = 0; i < this.champyRig.sparkleParticles.length && spawned < count; i++) {
+      const p = this.champyRig.sparkleParticles[i];
+      if (p.active) continue;
+      p.active = true;
+      p.age = 0;
+      p.duration = 0.72 + Math.random() * 0.25;
+      p.startX = (Math.random() - 0.5) * 0.18;
+      p.startZ = (Math.random() - 0.5) * 0.14;
+      p.driftX = (Math.random() - 0.5) * 0.09;
+      p.sprite.visible = true;
+      spawned++;
+    }
+  }
+
   private triggerChampyGreeting(targetPos?: THREE.Vector3) {
     if (!this.champyRig) return;
     const rig = this.champyRig;
-    if (rig.greetCooldown > 0 || rig.state === 'petted') return;
+    if (rig.greetCooldown > 0 || rig.state === 'petted' || this.catStationOpen) return;
     rig.greetCooldown = 14.0;
     rig.state = 'greeting';
     rig.stateTimer = 0;
@@ -5545,6 +5919,50 @@ export class KlasikCafeScene3D {
       rig.swapPopTimer = Math.max(0, rig.swapPopTimer - dt);
     }
 
+    // Phase 5: Smooth Cat Station brush tracking & tossed fish-biscuit arc
+    if (this.catBrushGroup) {
+      const showBrush =
+        this.catStationOpen && this.catStationMode === 'comb' && !this.catStationCustomizeOpen;
+      this.catBrushGroup.visible = showBrush;
+      if (showBrush) {
+        this.catBrushGroup.position.x = THREE.MathUtils.damp(
+          this.catBrushGroup.position.x,
+          this.catBrushTargetPos.x,
+          14,
+          dt
+        );
+        this.catBrushGroup.position.y = THREE.MathUtils.damp(
+          this.catBrushGroup.position.y,
+          this.catBrushTargetPos.y,
+          14,
+          dt
+        );
+        this.catBrushGroup.position.z = THREE.MathUtils.damp(
+          this.catBrushGroup.position.z,
+          this.catBrushTargetPos.z,
+          14,
+          dt
+        );
+      }
+    }
+
+    if (this.catTreatGroup && this.catTreatAnim.active) {
+      this.catTreatAnim.elapsed += dt;
+      const u = Math.min(1, this.catTreatAnim.elapsed / this.catTreatAnim.duration);
+      // Parabolic toss from camera side into front of cat's paws
+      this.catTreatGroup.position.set(
+        THREE.MathUtils.lerp(0.24, 0.02, u),
+        0.09 + Math.sin(u * Math.PI) * 0.24,
+        THREE.MathUtils.lerp(0.42, 0.15, u)
+      );
+      this.catTreatGroup.rotation.y += dt * 7.5;
+      if (u >= 1) {
+        this.catTreatAnim.active = false;
+      }
+    } else if (this.catTreatGroup && rig.state !== 'eating_treat') {
+      this.catTreatGroup.visible = false;
+    }
+
     const isNight = isNightWeather(this.gameState.weather);
     const isCozyWeather = isNight || isRainyWeather(this.gameState.weather);
     const eyeEmissive = isNight ? 0.55 : 0.26;
@@ -5554,14 +5972,25 @@ export class KlasikCafeScene3D {
     rig.greetCooldown = Math.max(0, rig.greetCooldown - dt);
     rig.stateTimer += dt;
 
-    // Autonomous behavior transitions every 8-16s
+    if (rig.combStretchTimer > 0) {
+      rig.combStretchTimer = Math.max(0, rig.combStretchTimer - dt);
+    }
+
+    // Autonomous behavior transitions every 8-16s (paused to cozy alert pose in Cat Station)
     if (rig.stateTimer >= rig.stateDuration) {
       rig.stateTimer = 0;
-      if (rig.state === 'petted' || rig.state === 'greeting') {
-        rig.state = Math.random() < 0.35 ? 'grooming' : 'sitting';
+      if (
+        rig.state === 'petted' ||
+        rig.state === 'greeting' ||
+        rig.state === 'combed' ||
+        rig.state === 'eating_treat' ||
+        rig.state === 'walking_in'
+      ) {
+        rig.state = this.catStationOpen ? 'sitting' : Math.random() < 0.35 ? 'grooming' : 'sitting';
         rig.stateDuration = 8.5 + Math.random() * 6.5;
         this.activeGreetTargetPos = null;
-      } else if (rig.state === 'sitting') {
+        if (this.catTreatGroup) this.catTreatGroup.visible = false;
+      } else if (rig.state === 'sitting' && !this.catStationOpen) {
         const roll = Math.random();
         const sleepThreshold = isCozyWeather ? 0.58 : 0.32;
         if (roll < sleepThreshold) {
@@ -5571,40 +6000,80 @@ export class KlasikCafeScene3D {
           rig.state = 'grooming';
           rig.stateDuration = 6.5 + Math.random() * 3.5;
         }
-      } else if (rig.state === 'sleeping') {
-        rig.state = 'sitting';
-        rig.stateDuration = 9 + Math.random() * 6;
       } else {
         rig.state = 'sitting';
-        rig.stateDuration = 8.5 + Math.random() * 6;
+        rig.stateDuration = 9 + Math.random() * 6;
       }
     }
 
-    // Periodic natural blink timer
+    // Natural randomized eye blinks every 3–6 seconds
     rig.blinkTimer -= dt;
     if (rig.blinkTimer <= 0) {
       rig.blinkDuration = 0.14;
-      rig.blinkTimer = 3.2 + Math.random() * 2.4;
+      rig.blinkTimer = 3.0 + Math.random() * 3.0;
     }
     if (rig.blinkDuration > 0) {
       rig.blinkDuration = Math.max(0, rig.blinkDuration - dt);
     }
 
+    // Randomized subtle ear twitch every 2.5–6s
+    rig.earTwitchTimer -= dt;
+    let earTwitchAmt = 0;
+    if (rig.earTwitchTimer <= 0) {
+      rig.earTwitchTimer = 2.5 + Math.random() * 3.5;
+      rig.earTwitchSide = Math.random() < 0.5 ? -1 : 1;
+    } else if (rig.earTwitchTimer < 0.18) {
+      earTwitchAmt = Math.sin((rig.earTwitchTimer / 0.18) * Math.PI) * 0.22;
+    }
+
     const t = this.elapsed;
-    // Phase 8: Smooth spring-damped joint interpolation (no choppy snaps!)
-    const damp = 1 - Math.exp(-8.0 * dt);
+    // Phase 3.3: 0.35Hz subtle ribcage breathing wave
+    const breathWave = Math.sin(t * Math.PI * 2 * 0.35);
+
     let targetBodyY = 0;
     let targetBodyPitch = 0;
     let targetBodyYaw = 0;
+    let targetBodyRoll = 0;
     let targetHeadX = 0;
     let targetHeadY = 0;
     let targetHeadZ = 0;
     let targetLid = rig.blinkDuration > 0 ? 0.05 : -0.95;
-    let targetRightLegX = 0;
-    let targetLeftLegX = 0;
+    let targetFrontLeftLegX = 0;
+    let targetFrontRightLegX = 0;
+    let targetBackLeftLegX = 0;
+    let targetBackRightLegX = 0;
     let tailLift = 0.0;
-    let tailWaveAmp = 0.24;
-    let tailFreq = 1.65;
+    let tailWaveAmp = 0.22;
+    let tailFreq = 1.55;
+    let targetScaleX = 1.0 + breathWave * 0.015;
+    let targetScaleY = 1.0 + breathWave * 0.018;
+    let targetScaleZ = 1.0;
+
+    // Show 4 legs during walk-in gait, tuck hind legs into haunches when seated
+    const isWalkingGait = rig.state === 'walking_in';
+    rig.backLeftLeg.visible = isWalkingGait;
+    rig.backRightLeg.visible = isWalkingGait;
+    rig.hindGroup.visible = !isWalkingGait;
+
+    if (isWalkingGait) {
+      // Phase 3.3: Fluid 4-leg phase-shifted gait (0, 0.5π, π, 1.5π) + hip/shoulder bob & spine sway
+      rig.walkInProgress = Math.min(1, rig.stateTimer / Math.max(0.5, rig.stateDuration));
+      const stride = t * 6.5;
+      targetFrontLeftLegX = Math.sin(stride) * 0.48;
+      targetBackRightLegX = Math.sin(stride + Math.PI * 0.5) * 0.46;
+      targetFrontRightLegX = Math.sin(stride + Math.PI) * 0.48;
+      targetBackLeftLegX = Math.sin(stride + Math.PI * 1.5) * 0.46;
+      targetBodyY = 0.015 + Math.abs(Math.sin(stride)) * 0.016;
+      targetBodyRoll = Math.sin(stride) * 0.05;
+      targetHeadY = Math.sin(stride * 0.5) * 0.14;
+      tailLift = 0.48;
+      tailWaveAmp = 0.28;
+      tailFreq = 2.4;
+      const walkX = THREE.MathUtils.lerp(-0.34, 0, easeInOutCubic(rig.walkInProgress));
+      rig.root.position.x = walkX;
+    } else {
+      rig.root.position.x = THREE.MathUtils.damp(rig.root.position.x, 0, 8, dt);
+    }
 
     if (rig.state === 'sleeping') {
       targetBodyY = -0.052;
@@ -5612,17 +6081,15 @@ export class KlasikCafeScene3D {
       targetHeadX = 0.42;
       targetHeadY = 0.48;
       targetHeadZ = 0.22;
-      targetLid = 0.12; // Eyes peacefully closed
-      targetLeftLegX = -0.65;
-      targetRightLegX = -0.65;
+      targetLid = 0.12;
+      targetFrontLeftLegX = -0.65;
+      targetFrontRightLegX = -0.65;
       tailLift = -0.55;
       tailWaveAmp = 0.05;
       tailFreq = 0.55;
-      rig.bodyPivot.scale.set(
-        1.0 + Math.sin(t * 2.8) * 0.025,
-        0.92 + Math.sin(t * 2.8) * 0.028,
-        1.02
-      );
+      targetScaleX = 1.0 + breathWave * 0.026;
+      targetScaleY = 0.92 + breathWave * 0.028;
+      targetScaleZ = 1.02;
       rig.sleepParticleTimer -= dt;
       if (rig.sleepParticleTimer <= 0 && this.gameState.activeStation !== 6) {
         rig.sleepParticleTimer = 1.65;
@@ -5638,17 +6105,15 @@ export class KlasikCafeScene3D {
         }
       }
     } else if (rig.state === 'grooming') {
-      rig.bodyPivot.scale.set(1, 1 + Math.sin(t * 3.0) * 0.012, 1);
       const lickPhase = Math.sin(t * 9.5);
       targetHeadX = 0.34 + lickPhase * 0.09;
       targetHeadY = -0.22;
       targetHeadZ = -0.14 + lickPhase * 0.06;
       targetLid = -0.35;
-      targetRightLegX = -1.25 + lickPhase * 0.16;
+      targetFrontRightLegX = -1.25 + lickPhase * 0.16;
       tailWaveAmp = 0.14;
       tailFreq = 1.2;
     } else if (rig.state === 'greeting') {
-      // Phase 8 Active Customer Greeting: compute live yaw from Cat Perch (-2.90, 0.24) toward incoming/counter patron!
       let greetYaw = -0.58;
       if (this.activeGreetTargetPos) {
         const dx = this.activeGreetTargetPos.x - -2.9;
@@ -5658,67 +6123,124 @@ export class KlasikCafeScene3D {
         if (rel < -Math.PI) rel += Math.PI * 2;
         greetYaw = THREE.MathUtils.clamp(rel, -1.15, 0.95);
       }
-      rig.bodyPivot.scale.set(1, 1.025 + Math.sin(t * 5.0) * 0.015, 1);
       targetBodyPitch = -0.09;
       targetBodyYaw = THREE.MathUtils.clamp(greetYaw * 0.45, -0.52, 0.42);
       targetHeadX = -0.14;
       targetHeadY = THREE.MathUtils.clamp(greetYaw * 0.55, -0.72, 0.65);
       targetHeadZ = Math.sin(t * 3.0) * 0.07;
       targetLid = rig.blinkDuration > 0 ? 0.05 : -1.05;
-      tailLift = 0.42; // Tall curved greeting tail hook
+      tailLift = 0.42;
       tailWaveAmp = 0.34;
       tailFreq = 2.8;
     } else if (rig.state === 'petted') {
       const knead = Math.sin(t * 8.2);
-      rig.bodyPivot.scale.set(1.02, 1.04 + Math.sin(t * 6.5) * 0.022, 1.0);
+      targetScaleX = 1.03;
+      targetScaleY = 1.04 + Math.sin(t * 5.2) * 0.022;
       targetBodyY = 0.012;
-      targetBodyPitch = -0.11;
-      targetHeadX = -0.16 + Math.sin(t * 4.5) * 0.06;
-      targetHeadY = Math.sin(t * 2.5) * 0.18;
-      targetHeadZ = Math.sin(t * 3.2) * 0.12;
-      targetLid = 0.02; // Happy curved squint
-      targetLeftLegX = -0.22 + Math.max(0, knead) * 0.22;
-      targetRightLegX = -0.22 + Math.max(0, -knead) * 0.22;
-      tailLift = 0.42;
+      targetBodyPitch = -0.13; // Leans warmly into barista's hand
+      targetHeadX = -0.18 + Math.sin(t * 4.5) * 0.06;
+      targetHeadY = Math.sin(t * 2.5) * 0.16;
+      targetHeadZ = Math.sin(t * 3.2) * 0.13;
+      targetLid = 0.04; // Happy curved squint
+      targetFrontLeftLegX = -0.22 + Math.max(0, knead) * 0.22;
+      targetFrontRightLegX = -0.22 + Math.max(0, -knead) * 0.22;
+      tailLift = 0.46; // Curled happy tail
       tailWaveAmp = 0.38;
       tailFreq = 3.4;
       rig.collarBell.rotation.z = Math.sin(t * 14.0) * 0.28;
-    } else {
-      // Regal sitting pose with subtle breathing, ear twitches & curious look toward nearest ordering patron
-      rig.bodyPivot.scale.set(1, 1 + Math.sin(t * 2.2) * 0.014, 1);
-      targetHeadY = Math.sin(t * 0.52) * 0.28;
-      targetHeadX = Math.sin(t * 0.37) * 0.06;
+    } else if (rig.state === 'combed') {
+      // Phase 5.3: Content arched back stretch while being brushed
+      targetScaleX = 0.98;
+      targetScaleY = 1.06;
+      targetScaleZ = 1.08;
+      targetBodyY = 0.014;
+      targetBodyPitch = -0.16;
+      targetHeadX = -0.14;
+      targetHeadZ = 0.14 * Math.sin(t * 2.4);
+      targetLid = 0.06;
+      tailLift = 0.52;
+      tailWaveAmp = 0.26;
+      tailFreq = 2.2;
+    } else if (rig.state === 'eating_treat') {
+      // Phase 5.3: Rhythmic nibbling -> joyful happy hop!
+      const u = rig.stateTimer / Math.max(0.5, rig.stateDuration);
+      if (u < 0.72) {
+        const nibble = Math.sin(t * 18.0);
+        targetBodyPitch = 0.26;
+        targetHeadX = 0.42 + nibble * 0.09;
+        targetHeadY = nibble * 0.05;
+        targetLid = -0.25;
+        tailLift = 0.34;
+        tailWaveAmp = 0.4;
+        tailFreq = 4.2;
+      } else {
+        // Happy hop at the end of treat!
+        const hopPhase = Math.sin(((u - 0.72) / 0.28) * Math.PI);
+        targetBodyY = hopPhase * 0.095;
+        targetBodyPitch = -0.14 * hopPhase;
+        targetHeadX = -0.2;
+        targetLid = 0.04;
+        tailLift = 0.56;
+        tailWaveAmp = 0.46;
+        tailFreq = 5.0;
+        if (this.catTreatGroup) this.catTreatGroup.visible = false;
+      }
+    } else if (!isWalkingGait) {
+      // Regal sitting pose with soft head look-at tracking toward pointer/camera in Cat Station
+      if (this.catStationOpen) {
+        targetHeadY = THREE.MathUtils.clamp(this.pointerNdc.x * 0.42, -0.45, 0.45);
+        targetHeadX = THREE.MathUtils.clamp(-this.pointerNdc.y * 0.22, -0.25, 0.22);
+      } else {
+        targetHeadY = Math.sin(t * 0.52) * 0.28;
+        targetHeadX = Math.sin(t * 0.37) * 0.06;
+      }
     }
 
-    rig.bodyPivot.position.y += (targetBodyY - rig.bodyPivot.position.y) * damp;
-    rig.bodyPivot.rotation.x += (targetBodyPitch - rig.bodyPivot.rotation.x) * damp;
-    rig.bodyPivot.rotation.y += (targetBodyYaw - rig.bodyPivot.rotation.y) * damp;
-    rig.headPivot.rotation.x += (targetHeadX - rig.headPivot.rotation.x) * damp;
-    rig.headPivot.rotation.y += (targetHeadY - rig.headPivot.rotation.y) * damp;
-    rig.headPivot.rotation.z += (targetHeadZ - rig.headPivot.rotation.z) * damp;
-    rig.leftEyelid.rotation.x += (targetLid - rig.leftEyelid.rotation.x) * damp;
-    rig.rightEyelid.rotation.x += (targetLid - rig.rightEyelid.rotation.x) * damp;
-    rig.frontLeftLeg.rotation.x += (targetLeftLegX - rig.frontLeftLeg.rotation.x) * damp;
-    rig.frontRightLeg.rotation.x += (targetRightLegX - rig.frontRightLeg.rotation.x) * damp;
+    // Smooth Cat Station drag-to-rotate preview yaw
+    const targetRootYaw = this.catStationOpen ? 0.14 + this.catPreviewYawOffset : 0.24;
+    rig.root.rotation.y = THREE.MathUtils.damp(rig.root.rotation.y, targetRootYaw, 9, dt);
 
-    // Subtle ear twitches & perk when greeting
-    const twitch = Math.sin(t * 7.5) > 0.96 ? 0.18 : 0;
-    const perk = rig.state === 'greeting' ? 0.2 : 0;
-    rig.leftEar.rotation.x += (perk + twitch - rig.leftEar.rotation.x) * damp;
-    rig.rightEar.rotation.x += (perk - rig.rightEar.rotation.x) * damp;
+    // Phase 3.3: Frame-rate independent THREE.MathUtils.damp for every joint!
+    rig.bodyPivot.position.y = THREE.MathUtils.damp(rig.bodyPivot.position.y, targetBodyY, 9, dt);
+    rig.bodyPivot.rotation.x = THREE.MathUtils.damp(rig.bodyPivot.rotation.x, targetBodyPitch, 8, dt);
+    rig.bodyPivot.rotation.y = THREE.MathUtils.damp(rig.bodyPivot.rotation.y, targetBodyYaw, 8, dt);
+    rig.bodyPivot.rotation.z = THREE.MathUtils.damp(rig.bodyPivot.rotation.z, targetBodyRoll, 8, dt);
+    rig.bodyPivot.scale.x = THREE.MathUtils.damp(rig.bodyPivot.scale.x, targetScaleX, 7, dt);
+    rig.bodyPivot.scale.y = THREE.MathUtils.damp(rig.bodyPivot.scale.y, targetScaleY, 7, dt);
+    rig.bodyPivot.scale.z = THREE.MathUtils.damp(rig.bodyPivot.scale.z, targetScaleZ, 7, dt);
 
-    // Lazy S-curve across tail segments
-    rig.tailBase.rotation.x += (tailLift - rig.tailBase.rotation.x) * damp;
-    rig.tailBase.rotation.z = Math.sin(t * tailFreq) * tailWaveAmp;
-    rig.tailMid.rotation.z = Math.sin(t * tailFreq - 0.85) * (tailWaveAmp * 1.15);
-    rig.tailTip.rotation.z = Math.sin(t * tailFreq - 1.7) * (tailWaveAmp * 1.25);
+    rig.headPivot.rotation.x = THREE.MathUtils.damp(rig.headPivot.rotation.x, targetHeadX, 9, dt);
+    rig.headPivot.rotation.y = THREE.MathUtils.damp(rig.headPivot.rotation.y, targetHeadY, 9, dt);
+    rig.headPivot.rotation.z = THREE.MathUtils.damp(rig.headPivot.rotation.z, targetHeadZ, 9, dt);
+    rig.leftEyelid.rotation.x = THREE.MathUtils.damp(rig.leftEyelid.rotation.x, targetLid, 16, dt);
+    rig.rightEyelid.rotation.x = THREE.MathUtils.damp(rig.rightEyelid.rotation.x, targetLid, 16, dt);
+    rig.frontLeftLeg.rotation.x = THREE.MathUtils.damp(rig.frontLeftLeg.rotation.x, targetFrontLeftLegX, 11, dt);
+    rig.frontRightLeg.rotation.x = THREE.MathUtils.damp(rig.frontRightLeg.rotation.x, targetFrontRightLegX, 11, dt);
+    rig.backLeftLeg.rotation.x = THREE.MathUtils.damp(rig.backLeftLeg.rotation.x, targetBackLeftLegX, 11, dt);
+    rig.backRightLeg.rotation.x = THREE.MathUtils.damp(rig.backRightLeg.rotation.x, targetBackRightLegX, 11, dt);
+
+    // Subtle ear twitches & greeting perk
+    const perk = rig.state === 'greeting' || this.catStationOpen ? 0.12 : 0;
+    const leftTwitch = rig.earTwitchSide < 0 ? earTwitchAmt : 0;
+    const rightTwitch = rig.earTwitchSide > 0 ? earTwitchAmt : 0;
+    rig.leftEar.rotation.x = THREE.MathUtils.damp(rig.leftEar.rotation.x, perk + leftTwitch, 14, dt);
+    rig.rightEar.rotation.x = THREE.MathUtils.damp(rig.rightEar.rotation.x, perk + rightTwitch, 14, dt);
+
+    // Phase 3.3: Chained 3-segment sine-wave tail lag (tailBase -> tailMid -> tailTip)
+    rig.tailBase.rotation.x = THREE.MathUtils.damp(rig.tailBase.rotation.x, tailLift, 7, dt);
+    const targetTailBaseZ = Math.sin(t * tailFreq) * tailWaveAmp;
+    const targetTailMidZ = Math.sin(t * tailFreq - 0.9) * (tailWaveAmp * 1.18);
+    const targetTailTipZ = Math.sin(t * tailFreq - 1.8) * (tailWaveAmp * 1.32);
+    rig.tailBase.rotation.z = THREE.MathUtils.damp(rig.tailBase.rotation.z, targetTailBaseZ, 8, dt);
+    rig.tailMid.rotation.z = THREE.MathUtils.damp(rig.tailMid.rotation.z, targetTailMidZ, 8, dt);
+    rig.tailTip.rotation.z = THREE.MathUtils.damp(rig.tailTip.rotation.z, targetTailTipZ, 8, dt);
 
     if (rig.state !== 'petted') {
-      rig.collarBell.rotation.z *= Math.max(0, 1 - dt * 6);
+      rig.collarBell.rotation.z = THREE.MathUtils.damp(rig.collarBell.rotation.z, 0, 7, dt);
     }
 
     // Skip sprite updates when zoomed into Station 6 Vinyl (off-screen optimization)
-    if (this.gameState.activeStation === 6) return;
+    if (this.gameState.activeStation === 6 && !this.catStationOpen) return;
 
     for (let i = 0; i < rig.heartParticles.length; i++) {
       const p = rig.heartParticles[i];
@@ -5757,6 +6279,23 @@ export class KlasikCafeScene3D {
       );
       const mat = p.sprite.material as THREE.SpriteMaterial;
       mat.opacity = Math.sin(u * Math.PI) * 0.85;
+    }
+
+    for (let i = 0; i < rig.sparkleParticles.length; i++) {
+      const p = rig.sparkleParticles[i];
+      if (!p.active) continue;
+      p.age += dt;
+      if (p.age >= p.duration) {
+        p.active = false;
+        p.sprite.visible = false;
+        continue;
+      }
+      const u = p.age / p.duration;
+      p.sprite.visible = true;
+      p.sprite.position.set(p.startX + p.driftX * u, 0.22 + u * 0.2, p.startZ + 0.05);
+      p.sprite.scale.setScalar(0.05 + Math.sin(u * Math.PI) * 0.04);
+      const mat = p.sprite.material as THREE.SpriteMaterial;
+      mat.opacity = Math.sin(u * Math.PI) * 0.95;
     }
   }
 
@@ -7016,6 +7555,24 @@ export class KlasikCafeScene3D {
     this.preparedBagGroup = this.buildKraftPastryBagMesh(1.0);
     this.preparedBagGroup.visible = false;
     this.preparedPastryStageGroup.add(this.preparedBagGroup);
+
+    // Phase 1.3: Clickable Serving Pastry Plate hitbox -> returns pastry to showcase in 220ms reverse-arc
+    const plateHit = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.11, 0.11, 0.12, 12),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    plateHit.position.y = 0.06;
+    this.preparedPastryStageGroup.add(plateHit);
+    this.registerInteractiveTool(
+      'prepared-pastry-plate',
+      this.preparedPastryStageGroup,
+      'Plated Pastry — Tap to Return to Showcase',
+      5,
+      () => {
+        if (!this.gameState.preparedPastry || this.pastryReturnAnim.active) return;
+        this.triggerPastryReturnAnimation();
+      }
+    );
     st4Group.add(this.preparedPastryStageGroup);
 
     // 2. 4 Modern Architectural Bistro Tables Strictly Relocated to Center-Right Lounge Zone (Zero Miata Collision!)
@@ -7345,14 +7902,12 @@ export class KlasikCafeScene3D {
     vinylDisc.position.y = 0.012;
     this.vinylPlatterGroup.add(vinylDisc);
 
-    const centerLabel = new THREE.Mesh(
-      new THREE.CircleGeometry(0.052, 24),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        map: this.vinylLabelTexture,
-        roughness: 0.35,
-      })
-    );
+    const centerLabelMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: this.vinylLabelTexture,
+      roughness: 0.35,
+    });
+    const centerLabel = new THREE.Mesh(new THREE.CircleGeometry(0.052, 24), centerLabelMat);
     centerLabel.rotation.x = -Math.PI / 2;
     centerLabel.position.y = 0.016;
     this.vinylPlatterGroup.add(centerLabel);
@@ -7393,15 +7948,18 @@ export class KlasikCafeScene3D {
 
     turntableGroup.add(this.vinylTonearmPivot);
 
-    turntableGroup.position.set(2.54, 1.0, 0.24);
+    // Phase 2.3: Mount all 3 counter audio props (Vinyl / Vintage Radio / Floating Hologram) inside AudioDeviceRoot!
+    this.counterAudioProps = new CounterAudioProps(turntableGroup, centerLabelMat);
+    this.counterAudioProps.root.position.set(2.54, 1.0, 0.24);
+    this.counterAudioProps.setMode(this.audioMode);
     this.registerInteractiveTool(
-      'vinyl-turntable',
-      turntableGroup,
-      '3D Vinyl Turntable [Key M] — Click to Drop/Lift Needle (Play/Pause)',
+      'audio-device',
+      this.counterAudioProps.hitbox,
+      'Audio Deck — Click to Open Vinyl, Radio & External Hologram',
       6,
-      () => this.callbacks.onToolAction('toggle_vinyl')
+      () => this.callbacks.onToolAction('open_spotify_modal')
     );
-    st5Group.add(turntableGroup);
+    st5Group.add(this.counterAudioProps.root);
 
     const sleeveStandGroup = new THREE.Group();
     this.vinylSleeveMesh = new THREE.Mesh(
@@ -7421,7 +7979,7 @@ export class KlasikCafeScene3D {
     this.registerInteractiveTool(
       'vinyl-sleeve',
       sleeveStandGroup,
-      'Now-Playing Vinyl Sleeve — Click to Configure Spotify & Tracks',
+      'Audio Crate & Now-Playing Sleeve — Click to Open Audio Modal',
       6,
       () => this.callbacks.onToolAction('open_spotify_modal')
     );
@@ -9046,6 +9604,8 @@ export class KlasikCafeScene3D {
       appliedSkinPack: skinPackId,
       appliedShirtColor: shirtColor,
       moveState: 'walking' as const,
+      standUpTimer: 0,
+      seatExitOrigin: null,
       stuckTimer: 0,
       stuckAnchorPos: new THREE.Vector3(),
       ghostPassTimer: 0,
@@ -9100,15 +9660,18 @@ export class KlasikCafeScene3D {
     return uGroup;
   }
 
-  // Phase 7: Procedural 3D Delivery Scooter Rig (Color-matched Blue/Green/Red fairing, headlight, spinning wheels & hinged insulated top-box!)
+  // Phase 1.2 & 7: Procedural 3D Delivery Scooter Rig (Max 2 non-overlapping curbside bays: x = 2.45 and x = 4.25!)
   private createDeliveryScooterRig(
     customerId: string,
-    variant: DeliveryRiderVariant
+    variant: DeliveryRiderVariant,
+    slotIndex: 0 | 1
   ): DeliveryScooterController {
+    const parkX = slotIndex === 0 ? 2.45 : 4.25;
+    const spawnX = 16.0 + slotIndex * 2.4;
     const bodyHex = variant === 'blue' ? 0x2563eb : variant === 'green' ? 0x16a34a : 0xdc2626;
     const root = new THREE.Group();
-    // Scooter faces -X (arriving from x=+16 -> parked at x=+2.45 -> departing to x=-18)
-    root.position.set(16.0, 0.08, -7.65);
+    // Scooter faces -X (arriving from spawnX -> parked at parkX -> departing to x=-18)
+    root.position.set(spawnX, 0.08, -7.65);
 
     const paintMat = new THREE.MeshStandardMaterial({
       color: bodyHex,
@@ -9232,22 +9795,26 @@ export class KlasikCafeScene3D {
     return {
       customerId,
       variant,
+      slotIndex,
+      parkX,
       root,
       wheels,
       topBoxLidPivot,
       headlightMat,
       phase: 'arriving',
-      x: 16.0,
+      x: spawnX,
       stowTimer: 0,
       arrivedSoundPlayed: false,
       departSoundPlayed: false,
     };
   }
 
-  private disposeDeliveryScooter() {
-    if (!this.deliveryScooter) return;
-    this.scene.remove(this.deliveryScooter.root);
-    this.deliveryScooter.root.traverse((obj) => {
+  private disposeDeliveryScooter(customerId: string) {
+    const idx = this.deliveryScooters.findIndex((s) => s.customerId === customerId);
+    if (idx === -1) return;
+    const sc = this.deliveryScooters[idx];
+    this.scene.remove(sc.root);
+    sc.root.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {
         (obj as THREE.Mesh).geometry?.dispose();
         const m = (obj as THREE.Mesh).material;
@@ -9255,7 +9822,13 @@ export class KlasikCafeScene3D {
         else m?.dispose();
       }
     });
-    this.deliveryScooter = null;
+    this.deliveryScooters.splice(idx, 1);
+  }
+
+  private disposeAllDeliveryScooters() {
+    while (this.deliveryScooters.length > 0) {
+      this.disposeDeliveryScooter(this.deliveryScooters[0].customerId);
+    }
   }
 
   private syncCustomerActors() {
@@ -9276,20 +9849,31 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // Spawn 3D Delivery Scooter automatically when a Delivery Rider order becomes active
-    const activeRiderOrder = this.gameState.customers.find((c) => c.isDeliveryRider);
-    if (
-      activeRiderOrder &&
-      (!this.deliveryScooter || this.deliveryScooter.customerId !== activeRiderOrder.id)
-    ) {
-      this.disposeDeliveryScooter();
-      this.deliveryScooter = this.createDeliveryScooterRig(
-        activeRiderOrder.id,
-        activeRiderOrder.riderVariant || 'green'
-      );
-      this.callbacks.onScooterSound?.('arrive');
-    } else if (!activeRiderOrder && this.deliveryScooter && this.deliveryScooter.phase !== 'departing') {
-      this.deliveryScooter.phase = 'departing';
+    // Phase 1.2: Manage up to 2 simultaneous 3D Delivery Scooters at non-overlapping curbside bays!
+    const activeRiderOrders = this.gameState.customers.filter((c) => c.isDeliveryRider);
+    const activeRiderIds = new Set(activeRiderOrders.map((c) => c.id));
+
+    for (const sc of this.deliveryScooters) {
+      if (!activeRiderIds.has(sc.customerId) && sc.phase !== 'departing') {
+        sc.phase = 'departing';
+      }
+    }
+
+    for (const rider of activeRiderOrders) {
+      const alreadyHasScooter = this.deliveryScooters.some((s) => s.customerId === rider.id);
+      if (!alreadyHasScooter && this.deliveryScooters.length < 2) {
+        const slot0Busy = this.deliveryScooters.some(
+          (s) => s.slotIndex === 0 && s.phase !== 'departing'
+        );
+        const chosenSlot: 0 | 1 = slot0Busy ? 1 : 0;
+        const sc = this.createDeliveryScooterRig(
+          rider.id,
+          rider.riderVariant || 'green',
+          chosenSlot
+        );
+        this.deliveryScooters.push(sc);
+        this.callbacks.onScooterSound?.('arrive');
+      }
     }
 
     let initialQueuePlacementIdx = 0;
@@ -9312,6 +9896,8 @@ export class KlasikCafeScene3D {
         const preservedSeatedBlend = actor.seatedBlend;
         const preservedFacing = actor.facingAngle;
         const preservedMoveState = actor.moveState;
+        const preservedStandUpTimer = actor.standUpTimer;
+        const preservedSeatExitOrigin = actor.seatExitOrigin ? actor.seatExitOrigin.clone() : null;
         const preservedArrived = actor.counterArrivedSignaled;
         this.customersRoot.remove(actor.group);
         actor.activityTexture.dispose();
@@ -9336,6 +9922,8 @@ export class KlasikCafeScene3D {
           seatedBlend: preservedSeatedBlend,
           facingAngle: preservedFacing,
           moveState: preservedMoveState,
+          standUpTimer: preservedStandUpTimer,
+          seatExitOrigin: preservedSeatExitOrigin,
           stuckTimer: 0,
           stuckAnchorPos: preservedPos.clone(),
           ghostPassTimer: 0,
@@ -9354,9 +9942,10 @@ export class KlasikCafeScene3D {
           activePackId,
           cust.isDeliveryRider ? cust.riderVariant || 'green' : undefined
         );
-        // Delivery Rider arrives riding their scooter at curbside bay (2.45, -7.65)!
+        // Delivery Rider arrives riding their assigned scooter!
+        const assignedScooter = this.deliveryScooters.find((s) => s.customerId === cust.id);
         const startPos = cust.isDeliveryRider
-          ? new THREE.Vector3(16.0, 0, -7.65)
+          ? new THREE.Vector3(assignedScooter ? assignedScooter.x : 16.0, 0, -7.65)
           : cust.state === 'ordering' && cust.timerStarted
           ? new THREE.Vector3(-0.95, 0, -1.45 - initialQueuePlacementIdx++ * 1.0)
           : new THREE.Vector3(-3.1 - (idx % 3) * 0.75, 0, -7.85);
@@ -9373,6 +9962,8 @@ export class KlasikCafeScene3D {
           seatedBlend: 0,
           facingAngle: cust.isDeliveryRider ? -Math.PI / 2 : 0,
           moveState: cust.state === 'ordering' && cust.timerStarted ? 'idle-queue' : 'walking',
+          standUpTimer: 0,
+          seatExitOrigin: null,
           stuckTimer: 0,
           stuckAnchorPos: startPos.clone(),
           ghostPassTimer: 0,
@@ -9502,6 +10093,13 @@ export class KlasikCafeScene3D {
       (prevCatId !== newState.equippedCatId || this.champyRig?.catId !== newState.equippedCatId)
     ) {
       this.swapCafeCat(newState.equippedCatId);
+      this.catLastLoadoutKey = '';
+    }
+    const curCatId = newState.equippedCatId || 'champy';
+    const loadoutKey = `${curCatId}:${JSON.stringify(newState.catLoadouts?.[curCatId] || {})}`;
+    if (loadoutKey !== this.catLastLoadoutKey) {
+      this.catLastLoadoutKey = loadoutKey;
+      this.syncCatCosmetics();
     }
     this.updateDecorMaterials();
     this.updateActiveCupVisuals();
@@ -9561,7 +10159,10 @@ export class KlasikCafeScene3D {
       this.hemiLight.groundColor.setHex(0x3a2e4c);
       this.hemiLight.intensity = 0.86;
       if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.9;
+      if (this.pastryPoolLight) this.pastryPoolLight.intensity = 1.25;
+      if (this.seatingPoolLight) this.seatingPoolLight.intensity = 1.15;
       if (this.neonSignLight) this.neonSignLight.intensity = 1.45;
+      if (this.underCounterNeonMat) this.underCounterNeonMat.emissiveIntensity = 1.65;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x473669);
@@ -9613,7 +10214,10 @@ export class KlasikCafeScene3D {
       this.hemiLight.groundColor.setHex(0x5c4033);
       this.hemiLight.intensity = 1.08;
       if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.45;
+      if (this.pastryPoolLight) this.pastryPoolLight.intensity = 0.65;
+      if (this.seatingPoolLight) this.seatingPoolLight.intensity = 0.55;
       if (this.neonSignLight) this.neonSignLight.intensity = 1.1;
+      if (this.underCounterNeonMat) this.underCounterNeonMat.emissiveIntensity = 1.1;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x38bdf8);
@@ -9666,7 +10270,10 @@ export class KlasikCafeScene3D {
       this.hemiLight.groundColor.setHex(0x785a46);
       this.hemiLight.intensity = 1.24;
       if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.15;
+      if (this.pastryPoolLight) this.pastryPoolLight.intensity = 0.45;
+      if (this.seatingPoolLight) this.seatingPoolLight.intensity = 0.4;
       if (this.neonSignLight) this.neonSignLight.intensity = 0.85;
+      if (this.underCounterNeonMat) this.underCounterNeonMat.emissiveIntensity = 0.9;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x2563eb);
@@ -9718,7 +10325,10 @@ export class KlasikCafeScene3D {
       this.hemiLight.groundColor.setHex(0x3b3556);
       this.hemiLight.intensity = 0.96;
       if (this.cafeWarmLight) this.cafeWarmLight.intensity = 1.8;
+      if (this.pastryPoolLight) this.pastryPoolLight.intensity = 1.35;
+      if (this.seatingPoolLight) this.seatingPoolLight.intensity = 1.25;
       if (this.neonSignLight) this.neonSignLight.intensity = 1.35;
+      if (this.underCounterNeonMat) this.underCounterNeonMat.emissiveIntensity = 1.75;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x24325c);
@@ -9759,19 +10369,22 @@ export class KlasikCafeScene3D {
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = 2.15;
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = 2.05;
     } else {
-      // Night Shift: Clear Starry Night Sanctuary
+      // Phase 1.5 Nighttime Indoor Lighting Overhaul: Cozy Warm Amber Sanctuary (3 non-shadow PointLight pools, zero pitch-black faces!)
       bgCol.setHex(0x070d1d);
       fog.color.setHex(0x0b132b);
       fog.density = 0.017;
-      this.scene.environmentIntensity = 0.24;
+      this.scene.environmentIntensity = 0.36;
       this.sunLight.position.set(4.0, 9.5, -10.5);
       this.sunLight.color.setHex(0x8ab4f8);
-      this.sunLight.intensity = 0.46;
-      this.hemiLight.color.setHex(0x334155);
-      this.hemiLight.groundColor.setHex(0x1f140d);
-      this.hemiLight.intensity = 0.42;
-      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.75;
-      if (this.neonSignLight) this.neonSignLight.intensity = 1.95;
+      this.sunLight.intensity = 0.5;
+      this.hemiLight.color.setHex(0xffd2a1);
+      this.hemiLight.groundColor.setHex(0x261a14);
+      this.hemiLight.intensity = 0.48;
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = 2.9;
+      if (this.pastryPoolLight) this.pastryPoolLight.intensity = 2.2;
+      if (this.seatingPoolLight) this.seatingPoolLight.intensity = 2.1;
+      if (this.neonSignLight) this.neonSignLight.intensity = 2.05;
+      if (this.underCounterNeonMat) this.underCounterNeonMat.emissiveIntensity = 2.4;
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.setHex(0x030712);
@@ -9796,7 +10409,7 @@ export class KlasikCafeScene3D {
       }
       this.pendantBulbMats.forEach((m) => {
         m.emissive.setHex(0xfbbf24);
-        m.emissiveIntensity = 3.25;
+        m.emissiveIntensity = 3.5;
       });
       this.streetLampBulbMats.forEach((m) => {
         m.emissiveIntensity = 3.5;
@@ -9815,11 +10428,19 @@ export class KlasikCafeScene3D {
       bgCol.lerp(_targetColor.setHex(rainTint), isDark ? 0.55 : 0.62);
       fog.color.lerp(_targetColor.setHex(isDark ? 0x0f172a : 0x475569), 0.65);
       fog.density = Math.max(fog.density, isDark ? 0.022 : 0.019);
-      this.scene.environmentIntensity *= 0.65;
-      this.sunLight.intensity *= isDark ? 0.82 : 0.45;
-      this.hemiLight.intensity *= 0.78;
-      if (this.cafeWarmLight) this.cafeWarmLight.intensity = Math.max(this.cafeWarmLight.intensity, 2.25);
-      if (this.neonSignLight) this.neonSignLight.intensity = Math.max(this.neonSignLight.intensity, 1.65);
+      this.scene.environmentIntensity = Math.max(0.32, this.scene.environmentIntensity * 0.72);
+      this.sunLight.intensity *= isDark ? 0.85 : 0.45;
+      this.hemiLight.intensity = Math.max(0.38, this.hemiLight.intensity * 0.84);
+      if (this.cafeWarmLight) this.cafeWarmLight.intensity = Math.max(this.cafeWarmLight.intensity, 2.75);
+      if (this.pastryPoolLight) this.pastryPoolLight.intensity = Math.max(this.pastryPoolLight.intensity, 2.0);
+      if (this.seatingPoolLight) this.seatingPoolLight.intensity = Math.max(this.seatingPoolLight.intensity, 1.95);
+      if (this.neonSignLight) this.neonSignLight.intensity = Math.max(this.neonSignLight.intensity, 1.75);
+      if (this.underCounterNeonMat) {
+        this.underCounterNeonMat.emissiveIntensity = Math.max(
+          this.underCounterNeonMat.emissiveIntensity,
+          2.25
+        );
+      }
 
       if (this.skyDomeMat) {
         this.skyDomeMat.uniforms.uTopColor.value.lerp(_targetColor.setHex(isDark ? 0x040711 : 0x1e293b), 0.72);
@@ -10114,16 +10735,20 @@ export class KlasikCafeScene3D {
       this.serveReadyHaloMesh.visible = readyToServe;
     }
 
-    // Phase 6: Stage prepared Pastry beside Serve Coaster on Mini Porcelain Plate (dine-in) or Kraft Paper Bag (takeout/delivery)!
+    // Phase 1.3 & 6: Stage prepared Pastry beside Serve Coaster on Mini Porcelain Plate (dine-in) or Kraft Paper Bag (takeout/delivery)!
     if (this.preparedPastryStageGroup && this.preparedPlateGroup && this.preparedBagGroup) {
       const prepared = this.gameState.preparedPastry;
-      if (prepared && this.gameState.phase === 'playing') {
+      if ((prepared || this.pastryReturnAnim.active) && this.gameState.phase === 'playing') {
         const isTakeout =
           pinnedOrder?.orderType === 'takeout' || Boolean(pinnedOrder?.isDeliveryRider);
         this.preparedPastryStageGroup.visible = true;
+        if (!this.pastryReturnAnim.active) {
+          this.preparedPastryStageGroup.position.set(-1.24, 1.0, 0.08);
+          this.preparedPastryStageGroup.scale.setScalar(1);
+        }
         this.preparedPlateGroup.visible = !isTakeout;
         this.preparedBagGroup.visible = isTakeout;
-        if (this.preparedPlatePastryMeshes) {
+        if (this.preparedPlatePastryMeshes && prepared) {
           (['daisy-donut', 'miata-cake', 'croissant'] as PastryId[]).forEach((pid) => {
             this.preparedPlatePastryMeshes[pid].visible = pid === prepared;
           });
@@ -10151,6 +10776,9 @@ export class KlasikCafeScene3D {
       }
     };
 
+    let lastCombSfxTime = 0;
+    let lastPetRubTime = 0;
+
     dom.addEventListener('pointerdown', (e: PointerEvent) => {
       this.isPointerDragging = true;
       this.pointerDownX = e.clientX;
@@ -10158,6 +10786,16 @@ export class KlasikCafeScene3D {
       const isPortraitRotated = window.innerHeight > window.innerWidth;
       this.dragStartCoord = isPortraitRotated ? e.clientY : e.clientX;
       updateNdc(e.clientX, e.clientY);
+
+      if (this.catStationOpen && this.catStationMode === 'comb' && !this.catStationCustomizeOpen) {
+        this.catBrushActive = true;
+        this.catBrushTargetPos.set(
+          THREE.MathUtils.clamp(this.pointerNdc.x * 0.22, -0.18, 0.18),
+          THREE.MathUtils.clamp(0.24 + this.pointerNdc.y * 0.14, 0.14, 0.36),
+          0.14
+        );
+      }
+
       if (e.pointerType !== 'mouse') {
         this.hoveredToolKey = null;
         this.callbacks.onHoverToolChange(null);
@@ -10170,6 +10808,43 @@ export class KlasikCafeScene3D {
         const curCoord = isPortraitRotated ? e.clientY : e.clientX;
         const dx = curCoord - this.dragStartCoord;
         this.dragStartCoord = curCoord;
+
+        if (this.catStationOpen) {
+          updateNdc(e.clientX, e.clientY);
+          if (this.catStationCustomizeOpen) {
+            // Drag-to-rotate 3D cat preview smoothly while Wardrobe Drawer is open
+            this.catPreviewYawOffset += dx * 0.012;
+          } else if (this.catStationMode === 'comb') {
+            this.catBrushActive = true;
+            this.catBrushTargetPos.set(
+              THREE.MathUtils.clamp(this.pointerNdc.x * 0.24, -0.2, 0.2),
+              THREE.MathUtils.clamp(0.24 + this.pointerNdc.y * 0.16, 0.14, 0.38),
+              0.14
+            );
+            const speed = Math.min(2.0, Math.abs(dx) * 0.06);
+            if (speed > 0.12 && this.champyRig) {
+              this.champyRig.state = 'combed';
+              this.champyRig.stateTimer = 0;
+              this.champyRig.stateDuration = 1.6;
+              this.champyRig.petTimer = Math.max(this.champyRig.petTimer, 0.8);
+              const nowMs = performance.now();
+              if (nowMs - lastCombSfxTime > 210) {
+                lastCombSfxTime = nowMs;
+                this.spawnCatSparkles(2);
+                this.callbacks.onCatCombStroke?.(speed);
+              }
+            }
+          } else if (this.catStationMode === 'pet') {
+            const nowMs = performance.now();
+            if (Math.abs(dx) > 4 && nowMs - lastPetRubTime > 420) {
+              lastPetRubTime = nowMs;
+              this.petChampy();
+              this.callbacks.onPetChampy?.();
+            }
+          }
+          return;
+        }
+
         this.manualCameraYawOffset = THREE.MathUtils.clamp(
           this.manualCameraYawOffset - dx * 0.0025,
           -0.35,
@@ -10177,8 +10852,8 @@ export class KlasikCafeScene3D {
         );
       }
 
-      // Never trigger persistent hover tooltips on touchscreens
-      if (e.pointerType !== 'mouse') {
+      // Never trigger persistent hover tooltips on touchscreens or during Cat Station close-up
+      if (e.pointerType !== 'mouse' || this.catStationOpen) {
         return;
       }
 
@@ -10216,6 +10891,7 @@ export class KlasikCafeScene3D {
     window.addEventListener('pointerup', (e: PointerEvent) => {
       if (!this.isPointerDragging) return;
       this.isPointerDragging = false;
+      this.catBrushActive = false;
 
       if (e.pointerType !== 'mouse') {
         this.hoveredToolKey = null;
@@ -10226,6 +10902,17 @@ export class KlasikCafeScene3D {
       // Confirm pointer travel < 12px so camera drags never trigger accidental clicks/pets
       const travelDist = Math.hypot(e.clientX - this.pointerDownX, e.clientY - this.pointerDownY);
       if (travelDist >= 12) return;
+
+      // Phase 5: Direct tap actions in Cat Station close-up
+      if (this.catStationOpen && !this.catStationCustomizeOpen) {
+        if (this.catStationMode === 'treat') {
+          this.triggerCatTreatToss();
+        } else if (this.catStationMode === 'pet') {
+          this.petChampy();
+          this.callbacks.onPetChampy?.();
+        }
+        return;
+      }
 
       updateNdc(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
@@ -10926,17 +11613,52 @@ export class KlasikCafeScene3D {
     this.updateDynamicCupShaderLiquid(dt);
     this.updateBaristaStepChoreography(dt);
 
-    // 2. Camera Mode: "TITLE_ORBIT" (framing Hero Cup at 1.68, 1.01, 0.44 & 1990 Mazda Miata MX-5 at -3.4, 0, -3.6)
-    // vs Smart Cup-Follow Camera during gameplay & step animations!
+    // 1b. Phase 1.3 Clickable Serving Pastry Plate Reverse-Arc Return (220ms parabolic tween back to display case)
+    if (this.pastryReturnAnim.active && this.preparedPastryStageGroup) {
+      this.pastryReturnAnim.elapsed += dt;
+      const u = Math.min(1, this.pastryReturnAnim.elapsed / this.pastryReturnAnim.duration);
+      const e = easeInOutCubic(u);
+      this.preparedPastryStageGroup.position.set(
+        THREE.MathUtils.lerp(-1.24, -1.86, e),
+        THREE.MathUtils.lerp(1.0, 1.12, e) + Math.sin(u * Math.PI) * 0.18,
+        THREE.MathUtils.lerp(0.08, 0.2, e)
+      );
+      this.preparedPastryStageGroup.scale.setScalar(1 - e * 0.45);
+      if (u >= 1) {
+        this.pastryReturnAnim.active = false;
+        this.preparedPastryStageGroup.visible = false;
+        this.preparedPastryStageGroup.position.set(-1.24, 1.0, 0.08);
+        this.preparedPastryStageGroup.scale.setScalar(1);
+        this.callbacks.onReturnPastry?.();
+      }
+    }
+
+    // 2. Camera Mode: "TITLE_ORBIT" vs Cat Station Close-Up (0.55s cubic ease-in-out) vs POS Focus vs Station Barista Camera
     const isTitle = this.gameState.phase === 'title';
     this.titleHeroCupGroup.visible = isTitle;
     this.titlePlaqueGroup.visible = isTitle;
+
+    // Advance smooth 0.55s transition blend for Cat Station close-up
+    const catCamStep = dt / 0.55;
+    this.catStationCamBlend = this.catStationOpen
+      ? Math.min(1, this.catStationCamBlend + catCamStep)
+      : Math.max(0, this.catStationCamBlend - catCamStep);
 
     if (isTitle) {
       const swayX = Math.sin(this.elapsed * 0.52) * 0.08;
       const swayY = Math.cos(this.elapsed * 0.38) * 0.015;
       _targetPos.set(1.86 + swayX, 1.28 + swayY, 0.96);
       _targetLook.set(-1.35, 0.78, -1.85);
+    } else if (this.catStationOpen && this.catPerchGroup) {
+      // Phase 5: Close-up framing of active cafe cat on velvet cushion (-2.90, 1.0, 0.24)
+      // When Wardrobe Drawer (right 40%) is open, shift look-target right so the cat sits crisply in the left 60% viewport!
+      if (this.catStationCustomizeOpen) {
+        _targetPos.set(-2.68, 1.38, 0.98);
+        _targetLook.set(-2.66, 1.22, 0.24);
+      } else {
+        _targetPos.set(-2.78, 1.36, 0.92);
+        _targetLook.set(-2.9, 1.22, 0.24);
+      }
     } else if (this.isCodexFocused && this.posDisplayMesh) {
       // Diegetic 3D POS Terminal Focus: smoothly zoom right up to the Station 1 POS screen!
       this.posDisplayMesh.getWorldPosition(_codexCenter);
@@ -10985,7 +11707,11 @@ export class KlasikCafeScene3D {
       _targetLook.x += this.manualCameraYawOffset * 2.2;
     }
 
-    const camDamp = this.isCodexFocused ? 1 - Math.exp(-9.0 * dt) : dampFactor;
+    const camDamp = this.catStationOpen
+      ? 1 - Math.exp(-8.5 * dt)
+      : this.isCodexFocused
+      ? 1 - Math.exp(-9.0 * dt)
+      : dampFactor;
     this.camera.position.lerp(_targetPos, camDamp);
     this.currentLookAt.lerp(_targetLook, camDamp);
     _lookMat.lookAt(this.camera.position, this.currentLookAt, _upVec);
@@ -11081,9 +11807,11 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 4. 3D Vinyl Turntable Platter Spin & Tonearm Kinematics
+    // 4. Phase 2 & 6: 3D Counter Audio Props (Vinyl Turntable Platter / Vintage Radio / External Hologram)
+    const isVinylSpinning =
+      (this.audioMode === 'vinyl' && this.audioPlaying) || this.spotifyState.isPlaying;
     if (this.vinylPlatterGroup && this.vinylTonearmPivot) {
-      if (this.spotifyState.isPlaying) {
+      if (isVinylSpinning) {
         const angularSpeed = this.spotifyState.rpm === 45 ? 4.71 : 3.49;
         this.vinylPlatterGroup.rotation.y -= angularSpeed * dt;
         this.vinylTonearmPivot.rotation.y = THREE.MathUtils.lerp(
@@ -11109,6 +11837,7 @@ export class KlasikCafeScene3D {
         );
       }
     }
+    this.counterAudioProps?.update(dt, this.elapsed);
 
     // 5. Subtle & Aesthetic Diegetic Step Halo Ring + Serve-Ready Glow + Pastry Display Halos
     const pinnedOrder =
@@ -11273,9 +12002,10 @@ export class KlasikCafeScene3D {
     }
     this.steamParticlesInstanced.instanceMatrix.needsUpdate = true;
 
-    // 7. Animate Floating Musical Note Particles above shifted Station 6 Vinyl Turntable (x = 2.54)
-    this.musicNotesInstanced.visible = this.spotifyState.isPlaying;
-    if (this.spotifyState.isPlaying) {
+    // 7. Animate Floating Musical Note Particles above Station 6 Counter Audio Device (x = 2.54)
+    const isAnyAudioPlaying = this.audioPlaying || this.spotifyState.isPlaying;
+    this.musicNotesInstanced.visible = isAnyAudioPlaying;
+    if (isAnyAudioPlaying) {
       for (let i = 0; i < 12; i++) {
         const t = (this.elapsed * 0.45 + i * 0.25) % 1;
         _dummyObj.position.set(
@@ -11393,26 +12123,27 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 8d. Phase 7 Rare 3D Delivery Scooter Arrival, Curbside Park (2.45, -7.65), Top-Box Stow & Departure
-    if (this.deliveryScooter) {
-      const sc = this.deliveryScooter;
-      const isNightOrRainScooter =
-        isRainyWeather(this.gameState.weather) || isNightWeather(this.gameState.weather);
+    // 8d. Phase 1.2 & 7: Up to 2 Simultaneous 3D Delivery Scooters Arrival, Curbside Park (parkX, -7.65), Top-Box Stow & Departure
+    const isNightOrRainScooter =
+      isRainyWeather(this.gameState.weather) || isNightWeather(this.gameState.weather);
+    const scootersToDispose: string[] = [];
+    for (let si = 0; si < this.deliveryScooters.length; si++) {
+      const sc = this.deliveryScooters[si];
       sc.headlightMat.emissiveIntensity = isNightOrRainScooter ? 3.2 : 1.6;
 
       if (sc.phase === 'arriving') {
         const speed = 5.4;
-        sc.x = Math.max(2.45, sc.x - speed * dt);
+        sc.x = Math.max(sc.parkX, sc.x - speed * dt);
         sc.root.position.set(sc.x, 0.04, -7.65);
         for (let wi = 0; wi < sc.wheels.length; wi++) {
           sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
         }
-        if (sc.x <= 2.46) {
-          sc.x = 2.45;
+        if (sc.x <= sc.parkX + 0.01) {
+          sc.x = sc.parkX;
           sc.phase = 'parked';
           const riderActor = this.customerActors.get(sc.customerId);
           if (riderActor) {
-            riderActor.currentPos.set(2.45, 0, -7.25);
+            riderActor.currentPos.set(sc.parkX, 0, -7.25);
             riderActor.lastPos.copy(riderActor.currentPos);
             riderActor.group.position.copy(riderActor.currentPos);
             riderActor.finalGoalKey = '';
@@ -11438,9 +12169,12 @@ export class KlasikCafeScene3D {
           sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
         }
         if (sc.x < -18.0) {
-          this.disposeDeliveryScooter();
+          scootersToDispose.push(sc.customerId);
         }
       }
+    }
+    for (const cid of scootersToDispose) {
+      this.disposeDeliveryScooter(cid);
     }
 
     // 9. Animate Articulated 3D Customers (Doorway Airlock, Delivery Scooter Rider, Two-Handed Pastry Carry & Umbrellas)
@@ -11577,11 +12311,9 @@ export class KlasikCafeScene3D {
       const actor = this.customerActors.get(cust.id);
       if (!actor) return;
 
-      // Phase 7: Delivery Rider seated on moving 3D Delivery Scooter during Arrival / Departure!
+      // Phase 1.2 & 7: Delivery Rider seated on assigned 3D Delivery Scooter during Arrival / Departure!
       const scooter =
-        this.deliveryScooter && this.deliveryScooter.customerId === cust.id
-          ? this.deliveryScooter
-          : null;
+        this.deliveryScooters.find((s) => s.customerId === cust.id) || null;
       if (scooter && (scooter.phase === 'arriving' || scooter.phase === 'departing')) {
         actor.currentPos.set(scooter.x + 0.12, 0.24, -7.65);
         actor.group.position.copy(actor.currentPos);
@@ -11602,7 +12334,7 @@ export class KlasikCafeScene3D {
         return;
       }
       if (scooter && scooter.phase === 'stowing') {
-        actor.currentPos.set(2.45, 0, -7.25);
+        actor.currentPos.set(scooter.parkX, 0, -7.25);
         actor.group.position.copy(actor.currentPos);
         actor.group.rotation.y = Math.PI;
         actor.pelvisGroup.position.y = 0.58;
@@ -11616,6 +12348,50 @@ export class KlasikCafeScene3D {
         actor.heldPastryGroup.visible = scooter.stowTimer < 0.28 && Boolean(cust.requestedPastry);
         actor.umbrellaGroup.visible = false;
         actor.activitySprite.visible = false;
+        return;
+      }
+
+      // Phase 1.1 Smooth Dine-In Customer Stand-Up & Walk-Out (LEAVING_TABLE -> 0.35s ease-out stand-up -> chair clearance -> doorway!)
+      if (
+        cust.state === 'departing' &&
+        actor.seatedBlend > 0.15 &&
+        actor.moveState !== 'leaving_table'
+      ) {
+        actor.moveState = 'leaving_table';
+        actor.standUpTimer = 0;
+        actor.seatExitOrigin = actor.currentPos.clone();
+        actor.waypoints = [];
+        actor.finalGoalKey = '';
+      }
+
+      if (actor.moveState === 'leaving_table') {
+        actor.standUpTimer += dt;
+        const u = Math.min(1, actor.standUpTimer / 0.35);
+        const easedOut = 1 - Math.pow(1 - u, 3);
+        const sb = Math.max(0, 1 - easedOut);
+        actor.seatedBlend = sb;
+        actor.walkBlend = 0;
+        actor.phoneMesh.visible = false;
+        actor.activitySprite.visible = false;
+        actor.pelvisGroup.position.y = THREE.MathUtils.lerp(0.58, 0.44, sb);
+        actor.pelvisGroup.rotation.z = 0;
+        actor.torsoGroup.rotation.x = Math.sin(u * Math.PI) * 0.16;
+        actor.torsoGroup.rotation.y = 0;
+        actor.torsoGroup.rotation.z = 0;
+        actor.leftHipJoint.rotation.x = -1.32 * sb;
+        actor.rightHipJoint.rotation.x = -1.32 * sb;
+        actor.leftKneeJoint.rotation.x = 1.32 * sb;
+        actor.rightKneeJoint.rotation.x = 1.32 * sb;
+        actor.leftShoulderJoint.rotation.x = -0.35 * sb;
+        actor.rightShoulderJoint.rotation.x = actor.heldCup.visible ? -0.56 : -0.35 * sb;
+        actor.rightElbowJoint.rotation.x = actor.heldCup.visible ? -0.88 : -0.45 * sb;
+        actor.group.position.copy(actor.currentPos);
+        if (u >= 1) {
+          actor.seatedBlend = 0;
+          actor.torsoGroup.rotation.x = 0;
+          actor.moveState = 'walking';
+          actor.finalGoalKey = '';
+        }
         return;
       }
 
@@ -11659,11 +12435,11 @@ export class KlasikCafeScene3D {
         actor.heldCup.visible = true;
         actor.heldPastryGroup.visible = Boolean(cust.requestedPastry);
       } else {
-        // Departing (Delivery Rider returns to parked scooter at (2.45, -7.25); others exit along sidewalk)
+        // Departing (Delivery Rider returns to assigned parked scooter at (parkX, -7.25); others exit along sidewalk)
         goalKind = 'exit';
         if (actor.isDeliveryRider && scooter && scooter.phase === 'parked') {
-          goalKey = 'exit-scooter';
-          _targetPos.set(2.45, 0, -7.25);
+          goalKey = `exit-scooter-${scooter.slotIndex}`;
+          _targetPos.set(scooter.parkX, 0, -7.25);
           targetFacing = Math.PI;
           actor.heldCup.visible = !cust.expired;
           actor.heldPastryGroup.visible = !cust.expired && Boolean(cust.requestedPastry);
@@ -11697,7 +12473,30 @@ export class KlasikCafeScene3D {
       // Recompute smooth aisle waypoints whenever destination key changes
       if (actor.finalGoalKey !== goalKey) {
         actor.finalGoalKey = goalKey;
-        actor.waypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
+        const baseWaypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
+        // Phase 1.1: If exiting from a dining seat, prepend a local chair-clearance waypoint away from the table center!
+        if (goalKind === 'exit' && actor.seatExitOrigin) {
+          let nearestTable = LOUNGE_TABLE_LAYOUT[0];
+          let minD = Infinity;
+          for (const tbl of LOUNGE_TABLE_LAYOUT) {
+            const d = Math.hypot(actor.seatExitOrigin.x - tbl.x, actor.seatExitOrigin.z - tbl.z);
+            if (d < minD) {
+              minD = d;
+              nearestTable = tbl;
+            }
+          }
+          const outX = actor.seatExitOrigin.x - nearestTable.x;
+          const outZ = actor.seatExitOrigin.z - nearestTable.z;
+          const len = Math.max(0.01, Math.hypot(outX, outZ));
+          const clearanceWp = new THREE.Vector3(
+            actor.seatExitOrigin.x + (outX / len) * 0.42,
+            0,
+            actor.seatExitOrigin.z + (outZ / len) * 0.42
+          );
+          baseWaypoints.unshift(clearanceWp);
+          actor.seatExitOrigin = null;
+        }
+        actor.waypoints = baseWaypoints;
         if (actor.moveState === 'idle-queue' && _targetPos.distanceTo(actor.currentPos) > 0.22) {
           actor.moveState = 'walking';
         }
@@ -11706,7 +12505,7 @@ export class KlasikCafeScene3D {
       actor.lastPos.copy(actor.currentPos);
       let remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
 
-      // Delivery Rider arrives back at parked scooter -> trigger 0.6s Top-Box Lid Stow!
+      // Delivery Rider arrives back at assigned parked scooter -> trigger 0.6s Top-Box Lid Stow!
       if (
         actor.isDeliveryRider &&
         cust.state === 'departing' &&
@@ -12190,10 +12989,13 @@ export class KlasikCafeScene3D {
     this.ticketGlowMats.forEach((m) => m.dispose());
     this.serveReadyHaloMat?.dispose();
     this.pastryCaseHaloMats.forEach((m) => m.dispose());
-    this.disposeDeliveryScooter();
+    this.disposeAllDeliveryScooters();
+    this.counterAudioProps?.dispose();
     if (this.champyRig) {
+      this.champyRig.cosmeticsController.dispose();
       this.champyRig.heartTexture.dispose();
       this.champyRig.zzzTexture.dispose();
+      this.champyRig.sparkleTexture.dispose();
       this.champyRig.nameplateTexture.dispose();
       this.champyRig.coatTextures.forEach((t) => t.dispose());
     }

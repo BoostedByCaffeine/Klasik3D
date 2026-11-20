@@ -65,6 +65,7 @@ import {
   validateDrinkForServe,
 } from '../game/rules';
 import { SpotifyVinylState } from '../game/spotifyManager';
+import { MusicPlayerSnapshot } from '../game/audio/MusicPlayerController';
 import { AppRuntimeVersion } from '../pwa/pwaManager';
 import { DailyGoalProgressBar } from './DailyGoalProgressBar';
 import { buildStepPipeline, isStepChipCompleted } from './RecipeMenuModal';
@@ -72,6 +73,8 @@ import { buildStepPipeline, isStepChipCompleted } from './RecipeMenuModal';
 interface HudOverlayProps {
   gameState: KlasikGameState;
   spotifyState: SpotifyVinylState;
+  audioSnapshot: MusicPlayerSnapshot;
+  hasUnseenCatUnlock?: boolean;
   appVersion: AppRuntimeVersion;
   liveClockLabel: string;
   isMuted: boolean;
@@ -106,6 +109,7 @@ interface HudOverlayProps {
   onToggleMute: () => void;
   onTogglePause: () => void;
   onToggleVinyl: () => void;
+  onOpenCatStation: () => void;
   onChangeGraphics: (quality: GraphicsQuality) => void;
   onToggleRealismMode: () => void;
   onRequestFullscreenLandscape: () => void;
@@ -131,6 +135,8 @@ const STATION_TABS: Array<{
 export const HudOverlay: React.FC<HudOverlayProps> = ({
   gameState,
   spotifyState,
+  audioSnapshot,
+  hasUnseenCatUnlock = false,
   appVersion,
   liveClockLabel,
   isMuted,
@@ -153,6 +159,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onToggleMute,
   onTogglePause,
   onToggleVinyl,
+  onOpenCatStation,
   onChangeGraphics,
   onToggleRealismMode,
   onRequestFullscreenLandscape,
@@ -698,7 +705,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 3. Music / Spotify Vinyl Deck */}
+            {/* 3. Unified Counter Audio Deck (Vinyl / Live Radio / External Hologram) */}
             <button
               type="button"
               data-testid="btn-menu-spotify"
@@ -706,16 +713,18 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('spotify');
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg text-emerald-300 !border-emerald-400/35 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-amber-200 !border-amber-400/45 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
               <Disc3
-                className={`w-4 h-4 shrink-0 ${spotifyState.isPlaying ? 'animate-spin' : ''}`}
+                className={`w-4 h-4 text-amber-300 shrink-0 ${
+                  audioSnapshot.isPlaying || spotifyState.isPlaying ? 'animate-spin' : ''
+                }`}
                 strokeWidth={2.2}
               />
               <div className="min-w-0">
-                <div className="truncate">Music Deck</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">
-                  {isApkVersion ? 'Phone Spotify' : 'Spotify Web'}
+                <div className="truncate">Audio Deck</div>
+                <div className="text-[10px] text-[#E7D7C1] truncate capitalize">
+                  {audioSnapshot.mode} · {audioSnapshot.isPlaying ? 'Playing' : 'Ready'}
                 </div>
               </div>
             </button>
@@ -737,7 +746,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 5. Upgrades & 150K Golden Machine */}
+            {/* 5. Upgrades & 50K Golden Machine */}
             <button
               type="button"
               data-testid="btn-menu-upgrades"
@@ -751,11 +760,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <div className="min-w-0">
                 <div className="truncate">Upgrades &amp; Cats</div>
                 <div className="text-[10px] text-amber-300 truncate">
-                  {equippedCat.name} · 150K &amp; Skins
+                  {equippedCat.name} · 50K &amp; Skins
                 </div>
               </div>
               {unclaimedLoginCount > 0 && (
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute top-1.5 right-1.5" />
+                <span className="w-2 h-2 rounded-full bg-amber-400 absolute top-1.5 right-1.5" />
               )}
             </button>
 
@@ -1772,7 +1781,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </button>
           )}
 
-          {/* Station 6: Vinyl Turntable & Upgrades */}
+          {/* Station 6: Unified Counter Audio & Upgrades */}
           {gameState.activeStation === 6 && (
             <>
               <button
@@ -1780,22 +1789,22 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={onToggleVinyl}
                 className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-amber-400/40 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap"
               >
-                {spotifyState.isPlaying ? 'Pause Vinyl' : 'Spin Vinyl'}
+                {audioSnapshot.isPlaying ? 'Pause Audio' : 'Play Audio'}
               </button>
               <button
                 type="button"
                 onClick={() => onOpenModal('spotify')}
-                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-emerald-400/45 text-[10px] sm:text-xs font-semibold text-emerald-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-amber-400/45 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
               >
-                <Disc3 className="w-3 h-3 text-emerald-300 shrink-0" strokeWidth={2.2} />
-                <span>{isApkVersion ? 'Phone Spotify' : 'Spotify Web'}</span>
+                <Disc3 className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+                <span className="capitalize">Deck · {audioSnapshot.mode}</span>
               </button>
               <button
                 type="button"
                 onClick={() => onOpenModal('upgrades')}
                 className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap"
               >
-                Shop &amp; 150K
+                Shop &amp; 50K
               </button>
             </>
           )}
@@ -1885,6 +1894,28 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           )}
         </div>
       </div>
+
+      {/* Phase 5: Left-Edge Glassmorphism Cat Station Icon Button (Static Amber Unlock Badge Dot — zero pulse!) */}
+      <button
+        type="button"
+        data-testid="btn-open-cat-station"
+        onClick={onOpenCatStation}
+        className="pointer-events-auto fixed left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-[#090705]/85 hover:bg-[#1a130d]/95 border border-[#f5a623]/45 backdrop-blur-md shadow-[0_10px_24px_-6px_rgba(0,0,0,0.75)] flex flex-col items-center justify-center gap-0.5 text-[#f5a623] cursor-pointer transition-transform active:scale-95"
+        title={`Visit ${equippedCat.name} · Pet, Comb, Feed Treats & Customize Wardrobe`}
+        aria-label={`Open Cat Station (${equippedCat.name})`}
+      >
+        <Cat className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" strokeWidth={2.2} />
+        <span className="text-[8px] font-bold uppercase tracking-wider text-[#FAF5EE] leading-none truncate max-w-[36px]">
+          {equippedCat.name}
+        </span>
+        {hasUnseenCatUnlock && (
+          <span
+            data-testid="cat-unlock-badge-dot"
+            className="w-2.5 h-2.5 rounded-full bg-[#f5a623] border border-[#090705] absolute -top-0.5 -right-0.5"
+            aria-label="New cat or cosmetic unlocked"
+          />
+        )}
+      </button>
     </div>
   );
 };

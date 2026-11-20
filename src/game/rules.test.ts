@@ -58,6 +58,8 @@ import {
   DAILY_QUOTA_COMPLETION_BONUS,
   DELIVERY_PARTNER_BONUS,
   DELIVERY_RIDER_MIN_REGULAR_COOLDOWN,
+  MAX_ACTIVE_DELIVERY_RIDERS,
+  computeDeliveryRiderProbability,
   PASTRY_CATALOG,
   cycleGraphicsQuality,
   resolveDeviceTimeOfDay,
@@ -69,9 +71,27 @@ import {
   getTimeUntilMidnightLabel,
   formatLocalClock,
   preparePastry,
+  returnPreparedPastry,
   isOrderReadyToServe,
   spawnDeliveryRiderOrder,
+  getVisibleShopCats,
+  SECRET_CAFE_CAT_IDS,
+  purchaseCatCosmetic,
+  equipCatCosmetic,
 } from './rules';
+import {
+  CAT_COSMETICS_CATALOG,
+  BASE_CAT_COSMETIC_IDS,
+  CAT_FIT_PROFILES,
+  getCatFitProfile,
+  checkDinoCostumeUnlock,
+  getEffectiveVisibleLoadout,
+  BERET_REVENUE_MILESTONE,
+} from './catCosmeticsData';
+import {
+  filterVerifiedRadioStations,
+  cleanAudioFileName,
+} from './audio/MusicPlayerController';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
   const recipe = getRecipeById('vanilla-oat-latte');
@@ -223,23 +243,27 @@ test('performCupAction steep_tea brews Artisanal Tea & Cold Refreshers step-by-s
   assert.ok(state.cash > cashBefore);
 });
 
-test('Golden Espresso Machine requires 150k gross income and doubles (2x) all drink sale income once equipped', () => {
-  assert.equal(GOLDEN_MACHINE_GROSS_THRESHOLD, 150000);
+test('Golden Espresso Machine requires 50k gross income (rebalanced from 150k) and doubles (2x) all drink sale income once equipped', () => {
+  assert.equal(GOLDEN_MACHINE_GROSS_THRESHOLD, 50000);
   let state = createInitialGameState();
   const recipe = getRecipeById('velvet-latte');
 
   const normalPayout = calculateDrinkPayout(state, recipe, 100, 100, 2);
   assert.equal(normalPayout.multiplier, 1);
 
-  // Cannot equip before reaching $150,000 gross income (even at $100,000!)
-  state.lifetimeGrossIncome = 100000;
+  // Cannot equip before reaching $50,000 gross income
+  state.lifetimeGrossIncome = 42000;
   state = unlockOrEquipEquipmentSkin(state, 'golden-espresso-machine');
   assert.notEqual(state.equippedMachineSkin, 'golden-espresso-machine');
 
-  // Reach $150,000 gross income milestone
+  // Reach $50,000 gross income milestone -> unlocks Golden Espresso, Gold Chain, and secret cat Tisay!
   state = reachGoldenMachineMilestone(state);
-  assert.ok(state.lifetimeGrossIncome >= 150000);
+  assert.ok(state.lifetimeGrossIncome >= 50000);
   assert.equal(state.equippedMachineSkin, 'golden-espresso-machine');
+  assert.equal(state.goldenEspressoUnlocked, true);
+  assert.ok(state.unlockedCats.includes('tisay'));
+  assert.ok(state.secretCatsUnlocked.includes('tisay'));
+  assert.ok(state.unlockedCosmetics.includes('gold_chain'));
 
   const goldenPayout = calculateDrinkPayout(state, recipe, 100, 100, 2);
   assert.equal(goldenPayout.multiplier, 2);
@@ -326,12 +350,13 @@ test('purchaseUpgrade deducts cash and marks upgrade as purchased', () => {
   assert.equal(nextState.cash, 65);
 });
 
-test('exportSaveJson and importSaveJson round-trip game state, realismMode, 150k Golden Machine qualification, and equipped skins accurately', () => {
+test('exportSaveJson and importSaveJson round-trip game state, realismMode, 50k Golden Machine qualification, and equipped skins accurately', () => {
   let state = createInitialGameState();
   state.day = 4;
   state.cash = 148;
   state.realismMode = true;
-  state.lifetimeGrossIncome = 155000;
+  state.lifetimeGrossIncome = 55000;
+  state.goldenEspressoUnlocked = true;
   state.activeShiftSeconds = 1850;
   state.equippedMachineSkin = 'golden-espresso-machine';
   state.dailyOrderQuota = 45;
@@ -342,14 +367,16 @@ test('exportSaveJson and importSaveJson round-trip game state, realismMode, 150k
   assert.equal(restored.day, 4);
   assert.equal(restored.cash, 148);
   assert.equal(restored.realismMode, true);
-  assert.equal(restored.lifetimeGrossIncome, 155000);
+  assert.equal(restored.lifetimeGrossIncome, 55000);
+  assert.equal(restored.goldenEspressoUnlocked, true);
   assert.equal(restored.activeShiftSeconds, 1850);
   assert.equal(restored.equippedMachineSkin, 'golden-espresso-machine');
   assert.equal(restored.dailyOrderQuota, 45);
   assert.equal(restored.decor.counterWood, 'white-oak');
 
-  // Verify Golden Machine cannot be equipped via save import if gross income < $150,000
-  state.lifetimeGrossIncome = 105000;
+  // Verify Golden Machine cannot be equipped via save import if gross income < $50,000 and not unlocked
+  state.lifetimeGrossIncome = 35000;
+  state.goldenEspressoUnlocked = false;
   const underQualifiedRestored = importSaveJson(exportSaveJson(state));
   assert.ok(underQualifiedRestored);
   assert.equal(underQualifiedRestored.equippedMachineSkin, 'classic-steel');
@@ -929,9 +956,10 @@ test('Phase 6: Champy petting & hanging ticket pin haptics work with valid vibra
   }
 });
 
-test('Phase 3: All 9 Cafe Cats have exact coat/heterochromia/collar/size specs and unlock via revenue, shop adoption, and 7/7 Lilo mastery', () => {
-  assert.equal(CAFE_CATS.length, 9);
+test('Phase 3: All 12 Cafe Cats (9 original + Amby, Gigi, secret Tisay) have exact specs and unlock via revenue, shop adoption, and 7/7 Lilo mastery', () => {
+  assert.equal(CAFE_CATS.length, 12);
   assert.equal(LILO_REQUIRED_CAT_IDS.length, 7);
+  assert.deepEqual(SECRET_CAFE_CAT_IDS, ['tisay']);
 
   // Exact heterochromia checks (Chunky = Left Yellow / Right Blue; Cheeto = Left Blue / Right Yellow)
   const chunky = getCafeCatSpec('chunky');
@@ -1072,7 +1100,8 @@ test('Phase 4 & 5: 7-Cookie Jar cheat unlocks ALL upgrades, skins (incl. Golden 
   assert.equal(restored.cookieJarCheatUnlocked, true);
   assert.equal(restored.equippedMachineSkin, 'golden-espresso-machine');
   assert.equal(restored.equippedCatId, 'lilo');
-  assert.equal(restored.unlockedCats.length, 9);
+  assert.equal(restored.unlockedCats.length, ALL_CAFE_CAT_IDS.length);
+  assert.equal(restored.unlockedCosmetics.length, CAT_COSMETICS_CATALOG.length);
 });
 
 test('V2 Phase 1: 24h Owner Loop never triggers forced 5-min gameover and resets daily 35-cup quota at local midnight', () => {
@@ -1170,7 +1199,8 @@ test('V2 Phase 6: Pastries catalog has 3 pastries and preparePastry is 100% deco
 
 test('V2 Phase 7: Delivery Rider spawns as takeout + pastry + variant uniform and pays +$3 Delivery Partner Bonus', () => {
   assert.equal(DELIVERY_PARTNER_BONUS, 3);
-  assert.equal(DELIVERY_RIDER_MIN_REGULAR_COOLDOWN, 3);
+  assert.equal(DELIVERY_RIDER_MIN_REGULAR_COOLDOWN, 0);
+  assert.equal(MAX_ACTIVE_DELIVERY_RIDERS, 2);
 
   const rider = spawnDeliveryRiderOrder(1, 0, undefined, () => 0.4);
   assert.equal(rider.isDeliveryRider, true);
@@ -1201,10 +1231,199 @@ test('V2 Phase 7: Delivery Rider spawns as takeout + pastry + variant uniform an
   assert.ok(served.cash >= cashBefore + rec.price + 4 + DELIVERY_PARTNER_BONUS);
 });
 
+test('Expansion Phase 1: Dine-in seated customer transitions smoothly to departing with leavingTable=true and preserves chair index for stand-up clearance', () => {
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.customers = [
+    {
+      ...state.customers[0],
+      state: 'seated',
+      seatIndex: 2,
+      seatedTimer: 0.1,
+    },
+  ];
+  const ticked = advanceSimulationTick(state, 0.25);
+  assert.equal(ticked.customers.length, 1);
+  assert.equal(ticked.customers[0].state, 'departing');
+  assert.equal(ticked.customers[0].leavingTable, true);
+  assert.equal(ticked.customers[0].seatIndex, 2);
+  assert.equal(ticked.customers[0].seatedTimer, 16);
+});
 
+test('Expansion Phase 1: Delivery Rider spawn probability is 50%–80% with pity cap and strict max-2 active riders cap', () => {
+  assert.equal(computeDeliveryRiderProbability('dawn', 0), 0.5);
+  assert.equal(computeDeliveryRiderProbability('night', 0), 0.5);
+  assert.equal(computeDeliveryRiderProbability('golden', 0), 0.65);
+  assert.equal(computeDeliveryRiderProbability('morning', 0), 0.8);
+  assert.equal(computeDeliveryRiderProbability('noon', 0), 0.8);
+  // Pity cap guarantees rider after 2 regular orders
+  assert.equal(computeDeliveryRiderProbability('night', 2), 1.0);
 
+  // When 2 delivery riders are already active, advanceSimulationTick MUST NOT spawn a 3rd delivery rider!
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  const r1 = spawnDeliveryRiderOrder(1, 0, undefined, () => 0.2);
+  const r2 = spawnDeliveryRiderOrder(1, 1, undefined, () => 0.7);
+  state.customers = [r1, r2];
+  state.regularCustomersSinceLastRider = 5; // Would normally trigger 100% pity
+  state.nextCustomerSpawnTimer = 0.05;
+  const next = advanceSimulationTick(state, 0.25, { activeArrivingCount: 0 });
+  const activeRiders = next.customers.filter((c) => c.isDeliveryRider);
+  assert.equal(activeRiders.length, 2, 'Active delivery riders MUST never exceed MAX_ACTIVE_DELIVERY_RIDERS (2)');
+});
 
+test('Expansion Phase 1: returnPreparedPastry clears plated pastry back to display case with zero cash penalty and untouched coffee cup', () => {
+  let state = createInitialGameState();
+  state = performCupAction(state, 'grind');
+  state = preparePastry(state, 'miata-cake');
+  const cashBefore = state.cash;
+  assert.equal(state.preparedPastry, 'miata-cake');
 
+  const returned = returnPreparedPastry(state);
+  assert.equal(returned.preparedPastry, null);
+  assert.equal(returned.cash, cashBefore);
+  assert.equal(returned.currentCup.hasGrounds, true);
+  assert.ok(returned.lastActionFeedback.includes('back to the pastry display case'));
+});
 
+test('Expansion Phase 1: Legacy save migration auto-unlocks $50k Golden Espresso + Tisay + Gold Chain and never cold-boots into external audio mode', () => {
+  const legacyPayload = JSON.stringify({
+    version: 'klasik3d-save-v1',
+    data: {
+      day: 8,
+      cash: 900,
+      lifetimeGrossIncome: 62000,
+      audioPreferences: {
+        mode: 'external',
+        musicVolume: 0.42,
+        ambienceVolume: 0.75,
+        vinylCrackle: false,
+      },
+    },
+  });
+  const migrated = importSaveJson(legacyPayload);
+  assert.ok(migrated);
+  assert.equal(migrated.goldenEspressoUnlocked, true);
+  assert.ok(migrated.unlockedCats.includes('tisay'));
+  assert.ok(migrated.unlockedCosmetics.includes('gold_chain'));
+  assert.ok(migrated.unlockedCosmetics.includes('beret'));
+  // External mode is transient — saved audioPreferences.mode falls back cleanly to 'vinyl'
+  assert.equal(migrated.audioPreferences.mode, 'vinyl');
+  assert.equal(migrated.audioPreferences.musicVolume, 0.42);
+  assert.equal(migrated.audioPreferences.ambienceVolume, 0.75);
+  assert.equal(migrated.audioPreferences.vinylCrackle, false);
+});
 
+test('Expansion Phase 2 & 3: Radio Browser station filter enforces strict HTTPS + MP3/AAC and cleans BYO filenames', () => {
+  const verified = filterVerifiedRadioStations([
+    { stationuuid: '1', name: 'Easy Rock 96.3', url_resolved: 'https://stream.example.ph/easy.mp3', codec: 'MP3', countrycode: 'PH', bitrate: 128 },
+    { stationuuid: '2', name: 'Insecure HTTP', url_resolved: 'http://insecure.example.ph/radio.mp3', codec: 'MP3', countrycode: 'PH' },
+    { stationuuid: '3', name: 'Flaky HLS', url_resolved: 'https://hls.example.ph/live.m3u8', codec: 'HLS', countrycode: 'PH' },
+    { stationuuid: '4', name: 'Wish 107.5', url_resolved: 'https://stream.example.ph/wish.aac', codec: 'AAC+', countrycode: 'PH', bitrate: 96 },
+    { stationuuid: '5', name: 'Duplicate URL', url_resolved: 'https://stream.example.ph/easy.mp3', codec: 'MP3', countrycode: 'PH' },
+  ]);
+  assert.equal(verified.length, 2);
+  assert.equal(verified[0].name, 'Easy Rock 96.3');
+  assert.equal(verified[1].name, 'Wish 107.5');
+  assert.equal(cleanAudioFileName('01_rainy-cafe_lofi_v2.ogg'), '01 rainy cafe lofi v2');
+});
 
+test('Expansion Phase 3: New cats Amby ($1,500), Gigi ($500 kitten), and Secret Tisay (hidden until $50k Golden Espresso) work cleanly', () => {
+  let state = createInitialGameState();
+  // Before $50k Golden Espresso, Tisay MUST be completely hidden from getVisibleShopCats!
+  const beforeVisible = getVisibleShopCats(state.unlockedCats);
+  assert.equal(beforeVisible.some((c) => c.id === 'tisay'), false);
+  assert.equal(beforeVisible.some((c) => c.id === 'amby'), true);
+  assert.equal(beforeVisible.some((c) => c.id === 'gigi'), true);
+  assert.equal(beforeVisible.length, 11);
+
+  const gigiSpec = getCafeCatSpec('gigi');
+  assert.equal(gigiSpec.unlockAmount, 500);
+  assert.equal(gigiSpec.scale[0], 0.68);
+  const ambySpec = getCafeCatSpec('amby');
+  assert.equal(ambySpec.unlockAmount, 1500);
+  const tisaySpec = getCafeCatSpec('tisay');
+  assert.equal(tisaySpec.isSecret, true);
+  assert.equal(tisaySpec.hasCollar, false);
+
+  // Adopt Gigi ($500) and Amby ($1,500)
+  state.cash = 2500;
+  state = purchaseOrEquipCafeCat(state, 'gigi');
+  assert.equal(state.cash, 2000);
+  assert.ok(state.unlockedCats.includes('gigi'));
+  state = purchaseOrEquipCafeCat(state, 'amby');
+  assert.equal(state.cash, 500);
+  assert.ok(state.unlockedCats.includes('amby'));
+
+  // Reaching $50k Golden Espresso reveals and auto-unlocks secret cat Tisay
+  state = reachGoldenMachineMilestone(state);
+  const afterVisible = getVisibleShopCats(state.unlockedCats);
+  assert.equal(afterVisible.some((c) => c.id === 'tisay'), true);
+  assert.equal(afterVisible.length, 12);
+});
+
+test('Expansion Phase 4: Adaptive Cat Cosmetics, CAT_FIT_PROFILES, Dinosaur Costume 9/9 Meta-Unlock, and full_suit override work cleanly', () => {
+  assert.equal(BASE_CAT_COSMETIC_IDS.length, 9);
+  assert.equal(CAT_COSMETICS_CATALOG.length, 10);
+  assert.equal(BERET_REVENUE_MILESTONE, 10000);
+
+  // Fit profiles exist for key builds: tiny Gigi, thin Tisay, wide Chunky, standard Amby
+  assert.equal(CAT_FIT_PROFILES.gigi.bodyScale, 0.68);
+  assert.equal(CAT_FIT_PROFILES.tisay.torsoScale[0], 0.82);
+  assert.equal(CAT_FIT_PROFILES.chunky.torsoScale[0], 1.28);
+  assert.equal(getCatFitProfile('amby').bodyScale, 1.0);
+
+  // Purchase all 7 shop cosmetics + reach $50k (unlocks Beret $10k + Gold Chain $50k) -> auto-unlocks Dinosaur Costume!
+  let state = createInitialGameState();
+  state.cash = 2000;
+  const shopCosmetics = [
+    'glasses',
+    'thuglife_glasses',
+    'cloth_pink',
+    'cloth_yellow',
+    'cloth_blue',
+    'cloth_white',
+    'cloth_orange',
+  ] as const;
+  for (const id of shopCosmetics) {
+    state = purchaseCatCosmetic(state, id);
+    assert.ok(state.unlockedCosmetics.includes(id));
+  }
+  assert.equal(state.unlockedCosmetics.includes('dino_costume'), false);
+
+  // Reach $50k -> unlocks Beret + Gold Chain -> triggers 9/9 Dinosaur Costume meta-unlock!
+  state = reachGoldenMachineMilestone(state);
+  assert.ok(state.unlockedCosmetics.includes('beret'));
+  assert.ok(state.unlockedCosmetics.includes('gold_chain'));
+  assert.ok(state.unlockedCosmetics.includes('dino_costume'));
+  assert.equal(checkDinoCostumeUnlock(BASE_CAT_COSMETIC_IDS).justUnlockedDino, true);
+
+  // Equip headwear + body + eyewear, then equip dino_costume -> full_suit visually overrides headwear + body while preserving eyewear!
+  state = equipCatCosmetic(state, 'champy', 'glasses', 'eyewear');
+  state = equipCatCosmetic(state, 'champy', 'beret', 'headwear');
+  state = equipCatCosmetic(state, 'champy', 'cloth_pink', 'body');
+  state = equipCatCosmetic(state, 'champy', 'dino_costume', 'full_suit');
+  const effective = getEffectiveVisibleLoadout(state.catLoadouts.champy);
+  assert.equal(effective.full_suit, 'dino_costume');
+  assert.equal(effective.eyewear, 'glasses');
+  assert.equal(effective.headwear, null);
+  assert.equal(effective.body, null);
+
+  // Persist catLoadouts through save JSON
+  const restored = importSaveJson(exportSaveJson(state));
+  assert.ok(restored);
+  assert.equal(restored.catLoadouts.champy?.full_suit, 'dino_costume');
+  assert.equal(restored.catLoadouts.champy?.eyewear, 'glasses');
+});
+
+test('Expansion Phase 5: Cat Station pauses customer patience/mood decay cleanly without penalizing the barista', () => {
+  let state = createInitialGameState();
+  state.phase = 'playing';
+  state.mode = 'career';
+  state = acceptCustomerOrder(state, 'cust-initial-1');
+  const beforeMood = state.customers[0].mood;
+
+  const pausedTick = advanceSimulationTick(state, 1.0, { catStationOpen: true });
+  assert.equal(pausedTick.customers[0].mood, beforeMood);
+  assert.equal(pausedTick.missedOrders, 0);
+});

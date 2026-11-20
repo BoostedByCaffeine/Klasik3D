@@ -140,6 +140,7 @@ class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted = false;
   private isSpotifyDucking = false;
+  private ambienceVolume = 0.7;
   private currentWeather: WeatherMode = 'morning';
   private activePresetId = 'garage-lofi-morning';
   private activeRpm: 33 | 45 = 33;
@@ -151,6 +152,7 @@ class SoundEngine {
   private steamNoiseBuffer: AudioBuffer | null = null;
   private rainLoopBuffer: AudioBuffer | null = null;
   private cafeMurmurBuffer: AudioBuffer | null = null;
+  private vinylCrackleBuffer: AudioBuffer | null = null;
 
   // Pre-baked Hann-windowed micro-grain buffers for Granular Weather Synthesis
   private roofDropGrainBuffer: AudioBuffer | null = null;
@@ -165,6 +167,12 @@ class SoundEngine {
   private granularTimer: number | null = null;
   private granularStepIndex = 0;
   private granularActive = false;
+
+  // Analog vinyl crackle loop
+  private crackleEnabled = false;
+  private crackleSource: AudioBufferSourceNode | null = null;
+  private crackleGain: GainNode | null = null;
+  private lastBrushSfxMs = 0;
 
   private lofiInterval: number | null = null;
   private chordIndex = 0;
@@ -299,26 +307,106 @@ class SoundEngine {
       const partial3 = Math.sin(2 * Math.PI * 5651.1 * t) * 0.15;
       chimeData[i] = (partial1 + partial2 + partial3) * hann * decay * 0.7;
     }
+
+    // 8. Analog Vinyl Dust Crackle & Warm Surface Hiss Buffer (3.5s seamless loop)
+    const crackleLen = Math.floor(sr * 3.5);
+    this.vinylCrackleBuffer = ctx.createBuffer(1, crackleLen, sr);
+    const crackleData = this.vinylCrackleBuffer.getChannelData(0);
+    let cPrev = 0;
+    for (let i = 0; i < crackleLen; i++) {
+      const white = Math.random() * 2 - 1;
+      cPrev = 0.75 * cPrev + white * 0.25;
+      const pop =
+        Math.random() < 0.00045
+          ? (Math.random() * 2 - 1) * (0.55 + Math.random() * 0.45)
+          : Math.random() < 0.0018
+          ? (Math.random() * 2 - 1) * 0.18
+          : 0;
+      crackleData[i] = cPrev * 0.055 + pop;
+    }
   }
 
   public init() {
     this.ensureContext();
   }
 
+  public setAmbienceVolume(vol: number) {
+    this.ambienceVolume = Math.max(0, Math.min(1, vol));
+    this.applyAmbienceGains();
+  }
+
+  public getAmbienceVolume(): number {
+    return this.ambienceVolume;
+  }
+
+  private applyAmbienceGains() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const scale = this.isMuted ? 0 : this.ambienceVolume;
+    if (this.rainGain) {
+      this.rainGain.gain.setTargetAtTime(0.055 * scale, now, 0.08);
+    }
+    if (this.ambienceGain) {
+      this.ambienceGain.gain.setTargetAtTime(0.038 * scale, now, 0.08);
+    }
+    if (this.granularMasterGain) {
+      this.granularMasterGain.gain.setTargetAtTime(1.1 * scale, now, 0.08);
+    }
+    if (this.crackleGain) {
+      this.crackleGain.gain.setTargetAtTime(
+        this.crackleEnabled && !this.isMuted ? 0.14 : 0,
+        now,
+        0.08
+      );
+    }
+  }
+
+  public setVinylCrackleEnabled(enabled: boolean) {
+    this.crackleEnabled = enabled;
+    if (!enabled) {
+      if (this.crackleSource) {
+        try {
+          this.crackleSource.stop();
+        } catch {
+          // ignore
+        }
+        this.crackleSource = null;
+      }
+      if (this.crackleGain && this.ctx) {
+        this.crackleGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.06);
+      }
+      return;
+    }
+    const ctx = this.ensureContext();
+    if (!ctx || !this.vinylCrackleBuffer) return;
+    if (!this.crackleSource) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.vinylCrackleBuffer;
+      src.loop = true;
+
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.setValueAtTime(1100, ctx.currentTime);
+
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(6200, ctx.currentTime);
+
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(this.isMuted ? 0 : 0.14, ctx.currentTime);
+
+      src.connect(hp).connect(lp).connect(g).connect(ctx.destination);
+      src.start();
+      this.crackleSource = src;
+      this.crackleGain = g;
+    } else if (this.crackleGain) {
+      this.crackleGain.gain.setTargetAtTime(this.isMuted ? 0 : 0.14, ctx.currentTime, 0.08);
+    }
+  }
+
   public setMuted(muted: boolean) {
     this.isMuted = muted;
-    if (this.ctx) {
-      const now = this.ctx.currentTime;
-      if (this.rainGain) {
-        this.rainGain.gain.setTargetAtTime(muted ? 0 : 0.045, now, 0.1);
-      }
-      if (this.ambienceGain) {
-        this.ambienceGain.gain.setTargetAtTime(muted ? 0 : 0.032, now, 0.1);
-      }
-      if (this.granularMasterGain) {
-        this.granularMasterGain.gain.setTargetAtTime(muted ? 0 : 0.9, now, 0.08);
-      }
-    }
+    this.applyAmbienceGains();
   }
 
   public getMuted(): boolean {
@@ -813,7 +901,7 @@ class SoundEngine {
       filter.frequency.setValueAtTime(980, ctx.currentTime);
 
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime(this.isMuted ? 0 : 0.04, ctx.currentTime);
+      gain.gain.setValueAtTime(this.isMuted ? 0 : 0.055 * this.ambienceVolume, ctx.currentTime);
 
       source.connect(filter);
       filter.connect(gain);
@@ -836,7 +924,7 @@ class SoundEngine {
       ambFilter.Q.setValueAtTime(0.9, ctx.currentTime);
 
       const ambGain = ctx.createGain();
-      ambGain.gain.setValueAtTime(this.isMuted ? 0 : 0.028, ctx.currentTime);
+      ambGain.gain.setValueAtTime(this.isMuted ? 0 : 0.038 * this.ambienceVolume, ctx.currentTime);
 
       ambSrc.connect(ambFilter);
       ambFilter.connect(ambGain);
@@ -886,7 +974,10 @@ class SoundEngine {
 
     if (!this.granularMasterGain) {
       this.granularMasterGain = ctx.createGain();
-      this.granularMasterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.9, ctx.currentTime);
+      this.granularMasterGain.gain.setValueAtTime(
+        this.isMuted ? 0 : 1.1 * this.ambienceVolume,
+        ctx.currentTime
+      );
       this.granularMasterGain.connect(ctx.destination);
     }
 
@@ -1528,6 +1619,154 @@ class SoundEngine {
     osc.connect(lp).connect(gain).connect(ctx.destination);
     osc.start(now);
     osc.stop(now + dur + 0.04);
+  }
+
+  // Phase 1.3: Gentle ceramic slide + glass showcase tuck when returning a plated pastry
+  public playPastryReturn(): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const notes = [1046.5, 783.99]; // Descending gentle ceramic tuck
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t0 = now + idx * 0.055;
+      osc.frequency.setValueAtTime(freq, t0);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.92, t0 + 0.14);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.075, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.17);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.18);
+    });
+  }
+
+  // Phase 3.1: Brief 350ms vintage analog FM radio tuning static + dial click
+  public playRadioStatic(durationSec = 0.35): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    // 1. Tactile brass dial notch click
+    const click = ctx.createOscillator();
+    const clickGain = ctx.createGain();
+    click.type = 'triangle';
+    click.frequency.setValueAtTime(1600, now);
+    click.frequency.exponentialRampToValueAtTime(420, now + 0.032);
+    clickGain.gain.setValueAtTime(0.075, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);
+    click.connect(clickGain).connect(ctx.destination);
+    click.start(now);
+    click.stop(now + 0.04);
+
+    // 2. Band-swept FM tuning hiss
+    const len = Math.max(1024, Math.floor(ctx.sampleRate * durationSec));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.65;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1400, now);
+    bp.frequency.exponentialRampToValueAtTime(3400, now + durationSec * 0.55);
+    bp.frequency.exponentialRampToValueAtTime(1850, now + durationSec);
+    bp.Q.value = 2.4;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.095, now + 0.04);
+    g.gain.setValueAtTime(0.085, now + Math.max(0.06, durationSec - 0.08));
+    g.gain.exponentialRampToValueAtTime(0.001, now + durationSec);
+
+    src.connect(bp).connect(g).connect(ctx.destination);
+    src.start(now);
+    src.stop(now + durationSec + 0.02);
+  }
+
+  // Phase 5.3: Soft wooden brush bristle stroke synced to drag speed
+  public playCatBrushStroke(speed = 1.0): void {
+    if (this.isMuted) return;
+    const nowMs = Date.now();
+    if (nowMs - this.lastBrushSfxMs < 140) return;
+    this.lastBrushSfxMs = nowMs;
+    const ctx = this.ensureContext();
+    if (!ctx || !this.steamNoiseBuffer) return;
+
+    const now = ctx.currentTime;
+    const clampedSpeed = Math.max(0.5, Math.min(2.2, speed));
+    const src = ctx.createBufferSource();
+    src.buffer = this.steamNoiseBuffer;
+    src.playbackRate.setValueAtTime(0.85 + clampedSpeed * 0.35, now);
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(1400 + clampedSpeed * 650, now);
+    bp.Q.value = 1.5;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.06 * Math.min(1.3, clampedSpeed), now + 0.035);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+    src.connect(bp).connect(gain).connect(ctx.destination);
+    src.start(now, Math.random() * 0.4, 0.17);
+  }
+
+  // Phase 5.3: Playful crispy fish biscuit treat crunch
+  public playCatTreatCrunch(): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    [0, 0.16, 0.32].forEach((offset, idx) => {
+      if (this.beanCrunchBuffer) {
+        const src = ctx.createBufferSource();
+        src.buffer = this.beanCrunchBuffer;
+        src.playbackRate.setValueAtTime(1.35 + idx * 0.12, now + offset);
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.setValueAtTime(2150, now + offset);
+        bp.Q.value = 1.8;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.001, now + offset);
+        g.gain.linearRampToValueAtTime(0.11, now + offset + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.11);
+        src.connect(bp).connect(g).connect(ctx.destination);
+        src.start(now + offset, idx * 0.12, 0.12);
+      }
+    });
+  }
+
+  // Phase 3.4: Warm amber celesta chime when secret cat Tisay wanders into the cafe!
+  public playSecretCatChime(): void {
+    if (this.isMuted) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const notes = [523.25, 659.25, 783.99, 987.77, 1318.51, 1567.98];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t0 = now + idx * 0.075;
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.1, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.65);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.68);
+    });
   }
 }
 

@@ -1,0 +1,399 @@
+// Pure Adaptive Cat Cosmetics Data, Fit Profiles & Meta-Unlock Logic
+// Zero DOM / Three.js dependencies so Node unit tests verify every rule deterministically.
+
+export type CatCosmeticSlot = 'eyewear' | 'headwear' | 'neckwear' | 'body' | 'full_suit';
+
+export type CatCosmeticId =
+  | 'glasses'
+  | 'thuglife_glasses'
+  | 'gold_chain'
+  | 'beret'
+  | 'cloth_pink'
+  | 'cloth_yellow'
+  | 'cloth_blue'
+  | 'cloth_white'
+  | 'cloth_orange'
+  | 'dino_costume';
+
+export interface CatCosmeticSpec {
+  id: CatCosmeticId;
+  name: string;
+  slot: CatCosmeticSlot;
+  unlockType: 'shop' | 'revenue' | 'golden_espresso' | 'meta_all_9';
+  cost: number; // Shop price ($) or revenue milestone ($) or 9 for meta
+  swatchHex?: string;
+  meshColorHex: number;
+  description: string;
+}
+
+export interface CatLoadout {
+  eyewear: CatCosmeticId | null;
+  headwear: CatCosmeticId | null;
+  neckwear: CatCosmeticId | null;
+  body: CatCosmeticId | null;
+  full_suit: CatCosmeticId | null;
+}
+
+export interface CatFitProfile {
+  bodyScale: number;
+  headScale: number;
+  eyeWidth: number;
+  neckRadius: number;
+  torsoScale: readonly [number, number, number];
+  furOffset: number;
+}
+
+export const BERET_REVENUE_MILESTONE = 10000;
+export const GOLDEN_ESPRESSO_COST = 50000;
+
+export const BASE_CAT_COSMETIC_IDS: readonly CatCosmeticId[] = [
+  'glasses',
+  'thuglife_glasses',
+  'gold_chain',
+  'beret',
+  'cloth_pink',
+  'cloth_yellow',
+  'cloth_blue',
+  'cloth_white',
+  'cloth_orange',
+] as const;
+
+export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
+  {
+    id: 'glasses',
+    name: 'Cat Glasses',
+    slot: 'eyewear',
+    unlockType: 'shop',
+    cost: 150,
+    meshColorHex: 0xd4a359,
+    description: 'Classic round wire-frame cafe glasses resting on the nose bridge.',
+  },
+  {
+    id: 'thuglife_glasses',
+    name: 'Thuglife Cat Glasses',
+    slot: 'eyewear',
+    unlockType: 'shop',
+    cost: 250,
+    meshColorHex: 0x09090b,
+    description: 'Iconic pixelated black 8-bit sunglasses with crisp white pixel glare.',
+  },
+  {
+    id: 'gold_chain',
+    name: 'Gold Chain',
+    slot: 'neckwear',
+    unlockType: 'golden_espresso',
+    cost: GOLDEN_ESPRESSO_COST,
+    meshColorHex: 0xfbbf24,
+    description:
+      'Layered metallic 24K gold Cuban-link chain unlocked alongside the Golden Espresso Machine ($50,000).',
+  },
+  {
+    id: 'beret',
+    name: 'Cat Beret',
+    slot: 'headwear',
+    unlockType: 'revenue',
+    cost: BERET_REVENUE_MILESTONE,
+    meshColorHex: 0x9f1239,
+    description:
+      'Soft tilted French artist beret resting naturally between the ears ($10,000 total revenue).',
+  },
+  {
+    id: 'cloth_pink',
+    name: 'Cat Cloth — Pink',
+    slot: 'body',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#f472b6',
+    meshColorHex: 0xf472b6,
+    description: 'Cozy fitted pastel-pink knit cafe shirt/vest.',
+  },
+  {
+    id: 'cloth_yellow',
+    name: 'Cat Cloth — Yellow',
+    slot: 'body',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#facc15',
+    meshColorHex: 0xfacc15,
+    description: 'Cozy fitted warm-yellow knit cafe shirt/vest.',
+  },
+  {
+    id: 'cloth_blue',
+    name: 'Cat Cloth — Blue',
+    slot: 'body',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#60a5fa',
+    meshColorHex: 0x60a5fa,
+    description: 'Cozy fitted soft-blue knit cafe shirt/vest.',
+  },
+  {
+    id: 'cloth_white',
+    name: 'Cat Cloth — White',
+    slot: 'body',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#f8fafc',
+    meshColorHex: 0xf8fafc,
+    description: 'Cozy fitted cream-white knit cafe shirt/vest.',
+  },
+  {
+    id: 'cloth_orange',
+    name: 'Cat Cloth — Orange',
+    slot: 'body',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#fb923c',
+    meshColorHex: 0xfb923c,
+    description: 'Cozy fitted tangerine-orange knit cafe shirt/vest.',
+  },
+  {
+    id: 'dino_costume',
+    name: 'Dinosaur Costume',
+    slot: 'full_suit',
+    unlockType: 'meta_all_9',
+    cost: 9,
+    swatchHex: '#22c55e',
+    meshColorHex: 0x22c55e,
+    description:
+      'Plush green T-Rex head hood + connected dorsal spine ridges. Auto-unlocks once all 9 base cosmetics are owned!',
+  },
+] as const;
+
+export const ALL_CAT_COSMETIC_IDS: readonly CatCosmeticId[] = CAT_COSMETICS_CATALOG.map(
+  (c) => c.id
+);
+
+export const CAT_FIT_PROFILES: Record<string, CatFitProfile> = {
+  default: {
+    bodyScale: 1.0,
+    headScale: 1.0,
+    eyeWidth: 1.0,
+    neckRadius: 1.0,
+    torsoScale: [1.0, 1.0, 1.0],
+    furOffset: 0.014,
+  },
+  champy: {
+    bodyScale: 1.0,
+    headScale: 1.0,
+    eyeWidth: 1.0,
+    neckRadius: 1.0,
+    torsoScale: [1.0, 1.0, 1.0],
+    furOffset: 0.014,
+  },
+  amby: {
+    bodyScale: 1.0,
+    headScale: 1.0,
+    eyeWidth: 1.0,
+    neckRadius: 1.0,
+    torsoScale: [1.0, 1.0, 1.0],
+    furOffset: 0.014,
+  },
+  gigi: {
+    bodyScale: 0.68,
+    headScale: 0.82,
+    eyeWidth: 0.8,
+    neckRadius: 0.72,
+    torsoScale: [0.68, 0.7, 0.68],
+    furOffset: 0.011,
+  },
+  tisay: {
+    bodyScale: 1.0,
+    headScale: 0.96,
+    eyeWidth: 0.94,
+    neckRadius: 0.86,
+    torsoScale: [0.82, 0.95, 1.0],
+    furOffset: 0.013,
+  },
+  chunky: {
+    bodyScale: 1.05,
+    headScale: 1.05,
+    eyeWidth: 1.08,
+    neckRadius: 1.22,
+    torsoScale: [1.28, 1.15, 1.04],
+    furOffset: 0.022,
+  },
+  kicks: {
+    bodyScale: 1.24,
+    headScale: 1.18,
+    eyeWidth: 1.16,
+    neckRadius: 1.22,
+    torsoScale: [1.24, 1.2, 1.24],
+    furOffset: 0.018,
+  },
+  luna: {
+    bodyScale: 0.92,
+    headScale: 0.94,
+    eyeWidth: 0.92,
+    neckRadius: 0.84,
+    torsoScale: [0.82, 1.0, 0.88],
+    furOffset: 0.013,
+  },
+  mikmik: {
+    bodyScale: 1.14,
+    headScale: 1.12,
+    eyeWidth: 1.1,
+    neckRadius: 1.15,
+    torsoScale: [1.15, 1.12, 1.14],
+    furOffset: 0.017,
+  },
+  lilo: {
+    bodyScale: 0.92,
+    headScale: 0.98,
+    eyeWidth: 1.0,
+    neckRadius: 1.06,
+    torsoScale: [1.1, 0.82, 0.88],
+    furOffset: 0.016,
+  },
+};
+
+export function getCatFitProfile(catId: string | undefined | null): CatFitProfile {
+  if (catId && CAT_FIT_PROFILES[catId]) {
+    return CAT_FIT_PROFILES[catId];
+  }
+  return CAT_FIT_PROFILES.default;
+}
+
+export function isValidCatCosmeticId(val: unknown): val is CatCosmeticId {
+  return typeof val === 'string' && ALL_CAT_COSMETIC_IDS.includes(val as CatCosmeticId);
+}
+
+export function getCatCosmeticSpec(id: CatCosmeticId): CatCosmeticSpec {
+  return CAT_COSMETICS_CATALOG.find((c) => c.id === id) || CAT_COSMETICS_CATALOG[0];
+}
+
+export function createEmptyCatLoadout(): CatLoadout {
+  return {
+    eyewear: null,
+    headwear: null,
+    neckwear: null,
+    body: null,
+    full_suit: null,
+  };
+}
+
+export function normalizeCatLoadout(raw: Partial<CatLoadout> | undefined | null): CatLoadout {
+  const base = createEmptyCatLoadout();
+  if (!raw || typeof raw !== 'object') return base;
+  return {
+    eyewear: isValidCatCosmeticId(raw.eyewear) ? raw.eyewear : null,
+    headwear: isValidCatCosmeticId(raw.headwear) ? raw.headwear : null,
+    neckwear: isValidCatCosmeticId(raw.neckwear) ? raw.neckwear : null,
+    body: isValidCatCosmeticId(raw.body) ? raw.body : null,
+    full_suit: isValidCatCosmeticId(raw.full_suit) ? raw.full_suit : null,
+  };
+}
+
+// Meta-unlock checker: once ALL 9 base cat cosmetics are owned, Dinosaur Costume unlocks automatically!
+export function checkDinoCostumeUnlock(unlockedCosmetics: readonly CatCosmeticId[]): {
+  unlockedCosmetics: CatCosmeticId[];
+  justUnlockedDino: boolean;
+} {
+  const set = new Set<CatCosmeticId>(unlockedCosmetics.filter(isValidCatCosmeticId));
+  const alreadyHasDino = set.has('dino_costume');
+  const ownsAllNine = BASE_CAT_COSMETIC_IDS.every((id) => set.has(id));
+  if (ownsAllNine && !alreadyHasDino) {
+    set.add('dino_costume');
+    return {
+      unlockedCosmetics: ALL_CAT_COSMETIC_IDS.filter((id) => set.has(id)),
+      justUnlockedDino: true,
+    };
+  }
+  return {
+    unlockedCosmetics: ALL_CAT_COSMETIC_IDS.filter((id) => set.has(id)),
+    justUnlockedDino: false,
+  };
+}
+
+export function syncCatCosmeticMilestones(
+  currentUnlocked: readonly CatCosmeticId[] | undefined,
+  lifetimeRevenue: number,
+  goldenEspressoUnlocked: boolean
+): {
+  unlockedCosmetics: CatCosmeticId[];
+  newlyUnlocked: CatCosmeticId[];
+  toastMessage: string | null;
+} {
+  const set = new Set<CatCosmeticId>(
+    Array.isArray(currentUnlocked) ? currentUnlocked.filter(isValidCatCosmeticId) : []
+  );
+  const newlyUnlocked: CatCosmeticId[] = [];
+
+  if (lifetimeRevenue >= BERET_REVENUE_MILESTONE && !set.has('beret')) {
+    set.add('beret');
+    newlyUnlocked.push('beret');
+  }
+
+  if (
+    (goldenEspressoUnlocked || lifetimeRevenue >= GOLDEN_ESPRESSO_COST) &&
+    !set.has('gold_chain')
+  ) {
+    set.add('gold_chain');
+    newlyUnlocked.push('gold_chain');
+  }
+
+  const dinoCheck = checkDinoCostumeUnlock(Array.from(set));
+  if (dinoCheck.justUnlockedDino) {
+    newlyUnlocked.push('dino_costume');
+  }
+
+  let toastMessage: string | null = null;
+  if (dinoCheck.justUnlockedDino) {
+    toastMessage = '🦖 Master Wardrobe Complete! Dinosaur Costume unlocked for all Cafe Cats!';
+  } else if (newlyUnlocked.includes('gold_chain')) {
+    toastMessage = '✨ Gold Chain Cat Cosmetic unlocked with the Golden Espresso Machine!';
+  } else if (newlyUnlocked.includes('beret')) {
+    toastMessage = '🎨 $10,000 Revenue Milestone! Cat Beret unlocked in Cat Station!';
+  }
+
+  return {
+    unlockedCosmetics: dinoCheck.unlockedCosmetics,
+    newlyUnlocked,
+    toastMessage,
+  };
+}
+
+// Equipping full_suit ('dino_costume') visually overrides headwear + body while preserving stored slots;
+// equipping headwear or body while full_suit is active clears full_suit so the newly picked item is visible!
+export function applyCosmeticToLoadout(
+  current: CatLoadout | undefined,
+  cosmeticId: CatCosmeticId | null,
+  slot: CatCosmeticSlot
+): CatLoadout {
+  const next = normalizeCatLoadout(current);
+  if (cosmeticId === null) {
+    next[slot] = null;
+    return next;
+  }
+
+  const spec = getCatCosmeticSpec(cosmeticId);
+  if (spec.slot === 'full_suit') {
+    // Toggle off if already wearing this full_suit
+    next.full_suit = next.full_suit === cosmeticId ? null : cosmeticId;
+    return next;
+  }
+
+  // Toggle off if clicking already equipped item
+  const alreadyEquipped = next[spec.slot] === cosmeticId;
+  next[spec.slot] = alreadyEquipped ? null : cosmeticId;
+
+  // If player picks a headwear or body item while full_suit is on, exit full_suit so it shows
+  if (!alreadyEquipped && (spec.slot === 'headwear' || spec.slot === 'body')) {
+    next.full_suit = null;
+  }
+
+  return next;
+}
+
+// Resolves effective visible cosmetics on the 3D rig (full_suit overrides headwear & body visually)
+export function getEffectiveVisibleLoadout(loadout: CatLoadout | undefined): CatLoadout {
+  const norm = normalizeCatLoadout(loadout);
+  if (norm.full_suit) {
+    return {
+      ...norm,
+      headwear: null,
+      body: null,
+    };
+  }
+  return norm;
+}

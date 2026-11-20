@@ -235,14 +235,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 
             <button
               type="button"
+              data-testid="btn-title-audio-deck"
               onClick={onOpenSpotifyModal}
-              className="glass-btn-inner py-1.5 px-2.5 rounded-xl !border-emerald-400/35 text-emerald-200 font-semibold text-[11px] sm:text-xs cursor-pointer truncate flex items-center justify-center gap-1.5"
-              title={`Now Spinning: ${spotifyTrackTitle}`}
+              className="glass-btn-inner py-1.5 px-2.5 rounded-xl !border-amber-400/40 text-amber-200 font-semibold text-[11px] sm:text-xs cursor-pointer truncate flex items-center justify-center gap-1.5"
+              title={`Now Playing: ${spotifyTrackTitle}`}
             >
-              <Disc3 className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={2.2} />
-              <span className="truncate">
-                {isApkVersion ? 'Phone Spotify & Vinyl' : 'Spotify Web Vinyl'}
-              </span>
+              <Disc3 className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <span className="truncate">Vinyl · Radio · Audio</span>
             </button>
           </div>
         </div>

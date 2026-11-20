@@ -30,6 +30,7 @@ import {
   getCalendarDayDiff,
   getLocalDateKey,
   getTimeUntilMidnightLabel,
+  getVisibleShopCats,
 } from '../game/rules';
 
 export type UpgradesHubTab =
@@ -48,6 +49,7 @@ interface BizUpgradesModalProps {
   ) => void;
   onUnlockOrEquipCustomerPack: (packId: CustomerSkinPackId) => void;
   onPurchaseOrEquipCafeCat: (catId: CafeCatId) => void;
+  onOpenCatStation?: () => void;
   onClaimLoginReward: (day: number) => void;
   onClose: () => void;
 }
@@ -59,6 +61,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
   onUnlockOrEquipEquipmentSkin,
   onUnlockOrEquipCustomerPack,
   onPurchaseOrEquipCafeCat,
+  onOpenCatStation,
   onClaimLoginReward,
   onClose,
 }) => {
@@ -106,6 +109,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
     Boolean(goldenSkin?.unlocked) || lifetimeGrossIncome >= GOLDEN_MACHINE_GROSS_THRESHOLD;
   const isGoldenEquipped = equippedMachineSkin === 'golden-espresso-machine';
   const activeCatSpec = getCafeCatSpec(equippedCatId);
+  const visibleCats = getVisibleShopCats(unlockedCats);
   const liloOwnedPrereqs = LILO_REQUIRED_CAT_IDS.filter((id) => unlockedCats.includes(id)).length;
 
   return (
@@ -123,11 +127,11 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               id="upgrades-modal-title"
               className="text-sm sm:text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
             >
-              Cafe Upgrades, Golden 150K Skins &amp; Login Unlockables
+              Cafe Upgrades, Golden 50K Skins &amp; Login Unlockables
             </h2>
             <p className="text-[11px] text-[#E7D7C1]/85">
-              60+ Unlockables · Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} /
-              $150,000
+              Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} / $
+              {GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()}
               {isGoldenEquipped ? ' · 2x GOLDEN SALE INCOME ACTIVE!' : ''}
             </p>
           </div>
@@ -153,10 +157,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               { id: 'upgrades', label: `Upgrades (${upgrades.length})`, Icon: Zap },
               {
                 id: 'cafe_cats',
-                label: `Cafe Cats (${unlockedCats.length}/${CAFE_CATS.length})`,
+                label: `Cafe Cats (${unlockedCats.length}/${visibleCats.length})`,
                 Icon: Cat,
               },
-              { id: 'equipment_skins', label: '150K & Skins', Icon: Crown },
+              { id: 'equipment_skins', label: '50K & Skins', Icon: Crown },
               {
                 id: 'customer_skins',
                 label: `Patrons (${customerSkinPacks.length})`,
@@ -234,7 +238,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           </div>
         )}
 
-        {/* Tab 2: Golden Espresso Machine ($150k Gross Income -> 2x Sale Income) & Equipment Skins */}
+        {/* Tab 2: Golden Espresso Machine ($50k Gross Income -> 2x Sale Income) & Equipment Skins */}
         {activeTab === 'equipment_skins' && (
           <div className="space-y-3 overflow-y-auto pr-1">
             {/* Hero Golden Espresso Machine Milestone Banner */}
@@ -243,14 +247,15 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 <div>
                   <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 flex items-center gap-1">
                     <Trophy className="w-3 h-3 shrink-0" strokeWidth={2.2} />
-                    <span>TRUE GRINDER PRESTIGE REWARD · 2X SALE INCOME MULTIPLIER</span>
+                    <span>PRESTIGE MILESTONE REWARD · 2X SALE INCOME MULTIPLIER</span>
                   </span>
                   <h3 className="text-sm font-bold text-[#FAF5EE] glass-text-crisp">
                     Golden Espresso Machine (24K Solid Gold Dual-Boiler)
                   </h3>
                 </div>
                 <span className="text-xs font-mono font-bold text-amber-300 bg-black/45 px-2.5 py-1 rounded-lg border border-amber-400/40">
-                  ${Math.round(lifetimeGrossIncome).toLocaleString()} / $150,000 Gross
+                  ${Math.round(lifetimeGrossIncome).toLocaleString()} / $
+                  {GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()} Gross
                 </span>
               </div>
 
@@ -263,8 +268,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                 <span className="text-[11px] text-[#E7D7C1]/95">
-                  Earned exclusively by grinding to $150,000 gross income. Doubles (2x) all drink
-                  sale income &amp; table tips once equipped!
+                  Earned by reaching ${GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()} gross
+                  income. Doubles (2x) all drink sale income &amp; table tips once equipped!
                 </span>
                 <div className="flex items-center gap-2">
                   {!isGoldenUnlocked ? (
@@ -361,7 +366,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       ) : needsGross ? (
                         <>
                           <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
-                          <span>Requires $150K Gross ({grossPct}%)</span>
+                          <span>Requires $50K Gross ({grossPct}%)</span>
                         </>
                       ) : skin.unlocked ? (
                         <span>Equip Skin</span>
@@ -438,15 +443,21 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
           </div>
         )}
 
-        {/* Tab 3.5: Unlockable Cafe Cats Roster (9 Real Cats with Custom 3D Models & Passives) */}
+        {/* Tab 3.5: Unlockable Cafe Cats Roster (Secret cats like Tisay remain hidden until unlocked!) */}
         {activeTab === 'cafe_cats' && (() => {
-          const milestoneCats = CAFE_CATS.filter(
-            (c) => c.unlockType === 'revenue' || c.unlockType === 'master'
+          const milestoneCats = visibleCats.filter(
+            (c) =>
+              c.unlockType === 'revenue' ||
+              c.unlockType === 'master' ||
+              c.unlockType === 'golden_espresso'
           );
-          const shopCats = CAFE_CATS.filter(
+          const shopCats = visibleCats.filter(
             (c) => c.unlockType === 'starter' || c.unlockType === 'shop'
           );
-          const liloPct = Math.min(100, Math.round((liloOwnedPrereqs / LILO_REQUIRED_CAT_IDS.length) * 100));
+          const liloPct = Math.min(
+            100,
+            Math.round((liloOwnedPrereqs / LILO_REQUIRED_CAT_IDS.length) * 100)
+          );
 
           const renderCatCard = (cat: (typeof CAFE_CATS)[number]) => {
             const isUnlocked = unlockedCats.includes(cat.id);
@@ -620,9 +631,25 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     )}
                   </div>
                 </div>
-                <span className="text-[10px] font-mono text-sky-200 bg-sky-950/60 border border-sky-400/35 px-2 py-0.5 rounded-md">
-                  Lilo Mastery: {liloOwnedPrereqs} / {LILO_REQUIRED_CAT_IDS.length}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {onOpenCatStation && (
+                    <button
+                      type="button"
+                      data-testid="btn-upgrades-open-cat-station"
+                      onClick={() => {
+                        onClose();
+                        onOpenCatStation();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#f5a623] hover:brightness-105 text-[#090705] text-[10px] font-bold flex items-center gap-1 cursor-pointer shadow"
+                    >
+                      <Cat className="w-3 h-3 shrink-0" strokeWidth={2.4} />
+                      <span>Visit Cat Station &amp; Wardrobe</span>
+                    </button>
+                  )}
+                  <span className="text-[10px] font-mono text-sky-200 bg-sky-950/60 border border-sky-400/35 px-2 py-0.5 rounded-md">
+                    Lilo Mastery: {liloOwnedPrereqs} / {LILO_REQUIRED_CAT_IDS.length}
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-1.5">
