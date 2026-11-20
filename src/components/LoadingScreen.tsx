@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 interface LoadingScreenProps {
   /** Resolves true once the 3D scene / WebGL assets finish initial boot */
   isReady?: boolean;
-  /** Fires at 1350ms once the Crema Ring entrance animation finishes so WebGL boot can begin without blocking 60 FPS entrance */
+  /** Fires at 1350ms once the entrance animation finishes so WebGL boot can begin without blocking 60 FPS entrance */
   onEntranceComplete?: () => void;
   /** Called right as the opaque backdrop starts fading out so the 3D scene can reveal smoothly */
   onStartFade?: () => void;
@@ -74,7 +74,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
     setExitStage('dim');
   }, [minTimerElapsed, isReady, failsafeElapsed, exitStage]);
 
-  // 3. Staggered Exit Stage A -> Step B (dim halo/thruster for 180ms, then fade backdrop)
+  // 3. Staggered Exit Stage A -> Step B (dim halo/thruster for 180ms, then crossfade backdrop)
   useEffect(() => {
     if (exitStage !== 'dim') return;
 
@@ -124,10 +124,10 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
       onTransitionEnd={handleBackdropTransitionEnd}
       role="status"
       aria-live="polite"
-      aria-label="Boosted By Caffeine"
+      aria-label="BoostedByCaffeine Studios"
     >
       <div className="crema-splash-lockup">
-        {/* Circular Rocket-Coffee Emblem + Restrained Ambient Glow */}
+        {/* Brushed Platinum Rocket-Coffee Emblem + Subtle Graphite Spotlight */}
         <div className="crema-emblem-wrap">
           <div className="crema-ambient-halo" aria-hidden="true" />
           <svg
@@ -138,55 +138,146 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
             aria-hidden="true"
           >
             <defs>
-              <linearGradient id={`crema_ring_grad_${uid}`} x1="20" y1="18" x2="180" y2="182" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#FDE68A" />
-                <stop offset="50%" stopColor="#E59A3C" />
-                <stop offset="100%" stopColor="#B4691E" />
+              {/* Brushed Platinum Metallic Ring & Cup Gradient */}
+              <linearGradient
+                id={`plat_ring_grad_${uid}`}
+                x1="18"
+                y1="14"
+                x2="184"
+                y2="186"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor="#F8FAFC" />
+                <stop offset="32%" stopColor="#94A3B8" />
+                <stop offset="66%" stopColor="#FFFFFF" />
+                <stop offset="100%" stopColor="#64748B" />
               </linearGradient>
 
-              <linearGradient id={`crema_flame_grad_${uid}`} x1="100" y1="142" x2="100" y2="188" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#FEF08A" />
-                <stop offset="48%" stopColor="#F59E0B" />
-                <stop offset="100%" stopColor="#EA580C" />
+              <linearGradient
+                id={`plat_body_grad_${uid}`}
+                x1="44"
+                y1="62"
+                x2="156"
+                y2="142"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor="#F8FAFC" />
+                <stop offset="28%" stopColor="#FFFFFF" />
+                <stop offset="56%" stopColor="#CBD5E1" />
+                <stop offset="82%" stopColor="#94A3B8" />
+                <stop offset="100%" stopColor="#64748B" />
               </linearGradient>
 
-              <radialGradient id={`crema_flame_glow_${uid}`} cx="50%" cy="45%" r="50%">
-                <stop offset="0%" stopColor="#F59E0B" stopOpacity="0.55" />
-                <stop offset="55%" stopColor="#E59A3C" stopOpacity="0.22" />
-                <stop offset="100%" stopColor="#EA580C" stopOpacity="0" />
+              <linearGradient
+                id={`plat_fin_grad_${uid}`}
+                x1="32"
+                y1="104"
+                x2="168"
+                y2="142"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor="#CBD5E1" />
+                <stop offset="50%" stopColor="#94A3B8" />
+                <stop offset="100%" stopColor="#64748B" />
+              </linearGradient>
+
+              <linearGradient
+                id={`plat_flame_grad_${uid}`}
+                x1="100"
+                y1="142"
+                x2="100"
+                y2="188"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor="#FFFFFF" />
+                <stop offset="46%" stopColor="#CBD5E1" />
+                <stop offset="100%" stopColor="#64748B" stopOpacity="0.35" />
+              </linearGradient>
+
+              <radialGradient id={`plat_flame_glow_${uid}`} cx="50%" cy="45%" r="50%">
+                <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.42" />
+                <stop offset="55%" stopColor="#94A3B8" stopOpacity="0.16" />
+                <stop offset="100%" stopColor="#09090B" stopOpacity="0" />
               </radialGradient>
 
-              <linearGradient id={`crema_steam_grad_${uid}`} x1="100" y1="56" x2="100" y2="16" gradientUnits="userSpaceOnUse">
-                <stop offset="0%" stopColor="#C8924A" />
-                <stop offset="100%" stopColor="#FEF3C7" />
+              <linearGradient
+                id={`plat_steam_grad_${uid}`}
+                x1="100"
+                y1="56"
+                x2="100"
+                y2="16"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor="#71717A" />
+                <stop offset="55%" stopColor="#CBD5E1" />
+                <stop offset="100%" stopColor="#FFFFFF" />
               </linearGradient>
+
+              {/* Diagonal Brushed-Metal Micro-Lines (-25deg) */}
+              <pattern
+                id={`plat_brushed_${uid}`}
+                width="6"
+                height="6"
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(-25)"
+              >
+                <line x1="0" y1="0" x2="0" y2="6" stroke="#FFFFFF" strokeWidth="0.7" opacity="0.24" />
+                <line x1="3" y1="0" x2="3" y2="6" stroke="#09090B" strokeWidth="0.6" opacity="0.18" />
+              </pattern>
+
+              {/* Animated Specular Sheen Sweep */}
+              <linearGradient
+                id={`plat_sheen_grad_${uid}`}
+                x1="0%"
+                y1="0%"
+                x2="100%"
+                y2="0%"
+              >
+                <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0" />
+                <stop offset="50%" stopColor="#FFFFFF" stopOpacity="0.52" />
+                <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+              </linearGradient>
+
+              <clipPath id={`plat_cup_clip_${uid}`}>
+                <path d="M52 70 H148 L135 122 C132 130 124 134 114 134 H86 C76 134 68 130 65 122 L52 70 Z" />
+              </clipPath>
             </defs>
 
-            {/* 1. Outer Amber Crema Ring (Draws 360° clockwise from 12 o'clock) */}
+            {/* 1. Outer Brushed Platinum Ring (Draws 360° clockwise from 12 o'clock) */}
             <circle
               className="crema-ring"
               cx="100"
               cy="100"
               r="86"
-              stroke={`url(#crema_ring_grad_${uid})`}
-              strokeWidth="4.2"
+              stroke={`url(#plat_ring_grad_${uid})`}
+              strokeWidth="3.8"
               strokeLinecap="round"
               fill="none"
             />
+            <circle
+              cx="100"
+              cy="100"
+              r="79.5"
+              stroke="#52525B"
+              strokeWidth="0.9"
+              strokeOpacity="0.55"
+              fill="none"
+              className="rocket-cup"
+            />
 
-            {/* 2. White Rocket-Cup Silhouette with Fins + Nozzle */}
+            {/* 2. Brushed Platinum Rocket-Coffee Cup Silhouette with Fins + Nozzle */}
             <g className="rocket-cup">
               {/* Swept Delta Fins */}
-              <path d="M56 104 L32 128 L36 142 L66 128 Z" fill="#F5F0E8" />
-              <path d="M54 112 L38 129 L41 136 L62 125 Z" fill="#E59A3C" />
-              <path d="M144 104 L168 128 L164 142 L134 128 Z" fill="#F5F0E8" />
-              <path d="M146 112 L162 129 L159 136 L138 125 Z" fill="#E59A3C" />
+              <path d="M56 104 L32 128 L36 142 L66 128 Z" fill={`url(#plat_body_grad_${uid})`} />
+              <path d="M54 112 L38 129 L41 136 L62 125 Z" fill={`url(#plat_fin_grad_${uid})`} />
+              <path d="M144 104 L168 128 L164 142 L134 128 Z" fill={`url(#plat_body_grad_${uid})`} />
+              <path d="M146 112 L162 129 L159 136 L138 125 Z" fill={`url(#plat_fin_grad_${uid})`} />
 
               {/* Rocket Thruster Nozzle */}
               <path
                 d="M82 132 H118 L124 145 H76 L82 132 Z"
-                fill="#242B2E"
-                stroke="#F5F0E8"
+                fill="#18181B"
+                stroke="#CBD5E1"
                 strokeWidth="2"
                 strokeLinejoin="round"
               />
@@ -194,45 +285,88 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
               {/* Barista Cup Handle */}
               <path
                 d="M136 80 H149 C160 80 166 88 164 99 C162 109 153 115 141 115 H131"
-                stroke="#F5F0E8"
-                strokeWidth="9.5"
+                stroke={`url(#plat_body_grad_${uid})`}
+                strokeWidth="9.2"
                 strokeLinecap="round"
                 fill="none"
               />
 
-              {/* Tapered Porcelain Rocket-Cup Body */}
+              {/* Tapered Metallic Platinum Rocket-Cup Body */}
               <path
                 d="M52 70 H148 L135 122 C132 130 124 134 114 134 H86 C76 134 68 130 65 122 L52 70 Z"
-                fill="#F5F0E8"
+                fill={`url(#plat_body_grad_${uid})`}
+              />
+              {/* Brushed Metal Micro-Line Texture Overlay */}
+              <path
+                d="M52 70 H148 L135 122 C132 130 124 134 114 134 H86 C76 134 68 130 65 122 L52 70 Z"
+                fill={`url(#plat_brushed_${uid})`}
               />
 
-              {/* Charcoal Aerospace Band & Brass Porthole */}
-              <path d="M57 94 H143 L140 106 H60 L57 94 Z" fill="#1A1613" />
-              <circle cx="100" cy="100" r="8.2" fill="#E59A3C" stroke="#F5F0E8" strokeWidth="2.4" />
+              {/* Animated Specular Sheen Pass across the Rocket-Coffee Body */}
+              <g clipPath={`url(#plat_cup_clip_${uid})`}>
+                <rect
+                  className="platinum-sheen-sweep"
+                  x="-40"
+                  y="58"
+                  width="46"
+                  height="90"
+                  transform="skewX(-24)"
+                  fill={`url(#plat_sheen_grad_${uid})`}
+                />
+              </g>
 
-              {/* Cup Rim & Warm Espresso Crema */}
-              <ellipse cx="100" cy="70" rx="48" ry="11" fill="#F5F0E8" stroke="#1A1613" strokeWidth="3" />
-              <ellipse cx="100" cy="70" rx="41" ry="7.5" fill="#451A03" />
-              <ellipse cx="100" cy="70" rx="32" ry="4.8" fill="#D97706" />
+              {/* Matte-Black Aerospace Band & Brushed Platinum Porthole */}
+              <path d="M57 94 H143 L140 106 H60 L57 94 Z" fill="#09090B" />
+              <circle
+                cx="100"
+                cy="100"
+                r="8.2"
+                fill={`url(#plat_ring_grad_${uid})`}
+                stroke="#F8FAFC"
+                strokeWidth="2.1"
+              />
+              <circle cx="100" cy="100" r="3.4" fill="#09090B" />
+
+              {/* Cup Rim & Dark Espresso Surface with Silver Specular Ring */}
+              <ellipse
+                cx="100"
+                cy="70"
+                rx="48"
+                ry="11"
+                fill={`url(#plat_body_grad_${uid})`}
+                stroke="#09090B"
+                strokeWidth="2.8"
+              />
+              <ellipse cx="100" cy="70" rx="41" ry="7.4" fill="#09090B" />
+              <ellipse
+                cx="100"
+                cy="70"
+                rx="32"
+                ry="4.5"
+                fill="#18181B"
+                stroke="#A1A1AA"
+                strokeWidth="1.2"
+                strokeOpacity="0.6"
+              />
             </g>
 
-            {/* 3. Warm Amber Thruster Flame + Pre-Blurred Radial SVG Glow (Zero CSS drop-shadow repaint!) */}
+            {/* 3. Silver-White Plasma Thruster Flame + Subtle Radial Glow */}
             <g className="thruster-flame">
-              <circle cx="100" cy="162" r="26" fill={`url(#crema_flame_glow_${uid})`} />
+              <circle cx="100" cy="162" r="26" fill={`url(#plat_flame_glow_${uid})`} />
               <path
                 d="M81 145 Q100 190 119 145 Q109 162 100 183 Q91 162 81 145 Z"
-                fill={`url(#crema_flame_grad_${uid})`}
+                fill={`url(#plat_flame_grad_${uid})`}
               />
-              <path d="M89 145 Q100 172 111 145 Z" fill="#FEF9C3" />
+              <path d="M89 145 Q100 172 111 145 Z" fill="#FFFFFF" />
             </g>
 
-            {/* 4. Three Staggered Rising Amber Steam Waves (drawn bottom-to-top) */}
+            {/* 4. Three Staggered Rising Silver-Platinum Steam Waves */}
             <path
               className="steam-wave-1"
               pathLength={1}
               d="M79 56 C72 46 86 36 79 24"
-              stroke={`url(#crema_steam_grad_${uid})`}
-              strokeWidth="4.8"
+              stroke={`url(#plat_steam_grad_${uid})`}
+              strokeWidth="4.4"
               strokeLinecap="round"
               fill="none"
             />
@@ -240,8 +374,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
               className="steam-wave-2"
               pathLength={1}
               d="M100 53 C91 41 109 29 100 16"
-              stroke={`url(#crema_steam_grad_${uid})`}
-              strokeWidth="5.6"
+              stroke={`url(#plat_steam_grad_${uid})`}
+              strokeWidth="5.2"
               strokeLinecap="round"
               fill="none"
             />
@@ -249,18 +383,18 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
               className="steam-wave-3"
               pathLength={1}
               d="M121 56 C114 46 128 36 121 24"
-              stroke={`url(#crema_steam_grad_${uid})`}
-              strokeWidth="4.8"
+              stroke={`url(#plat_steam_grad_${uid})`}
+              strokeWidth="4.4"
               strokeLinecap="round"
               fill="none"
             />
           </svg>
         </div>
 
-        {/* Remastered Clean Wordmark (Zero Cards, Zero Pills) */}
+        {/* Modern Wide-Tracked Plus Jakarta Sans Studio Wordmark */}
         <div className="crema-wordmark-stack">
-          <h1 className="crema-wordmark-boosted">BOOSTED</h1>
-          <p className="crema-wordmark-sub">BY CAFFEINE</p>
+          <h1 className="crema-wordmark-boosted">BOOSTEDBYCAFFEINE</h1>
+          <p className="crema-wordmark-sub">STUDIOS</p>
         </div>
       </div>
     </div>

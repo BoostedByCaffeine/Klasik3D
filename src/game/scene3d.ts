@@ -670,6 +670,23 @@ export class KlasikCafeScene3D {
   private lastPointerY = 0;
   private activeTouchPoints = new Map<number, { x: number; y: number }>();
   private lastPinchDist = 0;
+  private titleGlide: {
+    active: boolean;
+    elapsed: number;
+    startTimeMs: number;
+    duration: number;
+    startPos: THREE.Vector3;
+    startLook: THREE.Vector3;
+    onComplete: (() => void) | null;
+  } = {
+    active: false,
+    elapsed: 0,
+    startTimeMs: 0,
+    duration: 1.1,
+    startPos: new THREE.Vector3(0.30, 1.60, -10.25),
+    startLook: new THREE.Vector3(-2.45, 1.12, -7.25),
+    onComplete: null,
+  };
   private secretPasserby: {
     actor: PooledPedestrian['actor'];
     x: number;
@@ -912,8 +929,16 @@ export class KlasikCafeScene3D {
     this.scene.fog = new THREE.FogExp2(0x1a120e, 0.015);
 
     this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 240);
-    this.camera.position.set(2.02, 1.32, 1.18);
-    this.camera.lookAt(-0.85, 0.82, -1.35);
+    if (this.gameState.phase === 'title') {
+      this.camera.position.set(0.30, 1.60, -10.25);
+      this.currentLookAt.set(-2.45, 1.12, -7.25);
+      this.camera.lookAt(-2.45, 1.12, -7.25);
+    } else {
+      const initPreset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[3];
+      this.camera.position.copy(initPreset.pos);
+      this.currentLookAt.copy(initPreset.look);
+      this.camera.lookAt(initPreset.look);
+    }
     this.outdoorOverlook = new OutdoorOverlookController(this.camera);
 
     // 4. Studio Environment Map Reflection (RoomEnvironment + PMREMGenerator)
@@ -3323,14 +3348,13 @@ export class KlasikCafeScene3D {
     this.scene.add(this.stepHaloGroup);
   }
 
-  // Detailed Procedural 1990 Mazda Miata MX-5 (NA Generation) parked on its Dedicated Showroom Plinth Bay
+  // Detailed Procedural 1990 Mazda Miata MX-5 (NA Generation) — parks outside storefront on Title Screen & sits on indoor Showroom Plinth during gameplay
   private buildMazdaMiata1990(parentGroup: THREE.Group) {
-    this.miataGroup = new THREE.Group();
-    // Strictly positioned in the dedicated MIATA_BAY left showroom zone (zero table overlap!)
-    this.miataGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
-    this.miataGroup.rotation.y = MIATA_BAY.rotationY;
+    // 1. Fixed Indoor Showroom Plinth Bay (remains cleanly inside at MIATA_BAY)
+    const plinthGroup = new THREE.Group();
+    plinthGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
+    plinthGroup.rotation.y = MIATA_BAY.rotationY;
 
-    // 1. Sleek Recessed Concrete & Walnut Showroom Plinth (2.4m x 4.15m x 0.06m) + Wheel Stops + Soft Contact Shadow
     const plinthSlab = new THREE.Mesh(
       new THREE.BoxGeometry(2.42, 0.055, 4.15),
       new THREE.MeshStandardMaterial({
@@ -3341,7 +3365,7 @@ export class KlasikCafeScene3D {
     );
     plinthSlab.position.y = 0.0275;
     plinthSlab.receiveShadow = true;
-    this.miataGroup.add(plinthSlab);
+    plinthGroup.add(plinthSlab);
 
     // Warm walnut perimeter framing trim around the plinth
     const walnutPlinthTrim = new THREE.Mesh(
@@ -3349,7 +3373,7 @@ export class KlasikCafeScene3D {
       this.counterWoodMat
     );
     walnutPlinthTrim.position.y = 0.021;
-    this.miataGroup.add(walnutPlinthTrim);
+    plinthGroup.add(walnutPlinthTrim);
 
     // Subtle warm recessed brass/LED edge highlight
     const plinthRim = new THREE.Mesh(
@@ -3362,15 +3386,26 @@ export class KlasikCafeScene3D {
       })
     );
     plinthRim.position.y = 0.008;
-    this.miataGroup.add(plinthRim);
+    plinthGroup.add(plinthRim);
 
     // Matte-black wheel stops in front & rear of tires
     const wheelStopMat = new THREE.MeshStandardMaterial({ color: 0x111315, roughness: 0.65 });
     [-1.45, 1.45].forEach((wz) => {
       const stop = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.05, 0.12), wheelStopMat);
       stop.position.set(0, 0.075, wz);
-      this.miataGroup.add(stop);
+      plinthGroup.add(stop);
     });
+    parentGroup.add(plinthGroup);
+
+    // Movable Miata Roadster Group (parks cleanly outside storefront on Title Screen; returns to showroom plinth indoors)
+    this.miataGroup = new THREE.Group();
+    if (this.gameState.phase === 'title') {
+      this.miataGroup.position.set(-3.35, 0.08, -8.45);
+      this.miataGroup.rotation.y = 1.32;
+    } else {
+      this.miataGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
+      this.miataGroup.rotation.y = MIATA_BAY.rotationY;
+    }
 
     // Soft contact shadow directly underneath the Miata chassis (keeps grounded even in LOW quality!)
     const carShadow = new THREE.Mesh(
@@ -10246,6 +10281,30 @@ export class KlasikCafeScene3D {
     return this.secretPasserby !== null;
   }
 
+  // Smooth ~1.1s eased curved camera glide from exterior storefront through the doorway into Station 3 barista POV
+  public startEnterCafeGlide(onComplete: () => void) {
+    if (this.titleGlide.active) return;
+    this.manualCameraYawOffset = 0;
+    this.manualCameraZoomOffset = 0;
+    this.titleGlide.startPos.copy(this.camera.position);
+    this.titleGlide.startLook.copy(this.currentLookAt);
+    this.titleGlide.elapsed = 0;
+    this.titleGlide.startTimeMs = performance.now();
+    this.titleGlide.duration = 1.1;
+    this.titleGlide.onComplete = onComplete;
+    this.titleGlide.active = true;
+  }
+
+  public finishEnterCafeGlideNow() {
+    if (!this.titleGlide.active) return;
+    this.titleGlide.active = false;
+    this.titleGlide.onComplete = null;
+    const st3 = STATION_CAMERAS[3];
+    this.camera.position.copy(st3.pos);
+    this.currentLookAt.copy(st3.look);
+    this.camera.lookAt(this.currentLookAt);
+  }
+
   // Phase 7: Single-Context Offscreen ThumbnailStudio API (ZERO extra WebGLRenderer!)
   private ensureThumbnailStudio(): ThumbnailStudio {
     if (!this.thumbnailStudio) {
@@ -12062,10 +12121,25 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 2. Camera Mode: "TITLE_ORBIT" vs Cat Station Close-Up (0.55s cubic ease-in-out) vs POS Focus vs Station Barista Camera
+    // 2. Camera Mode: Exterior Title Storefront + Curved Doorway Glide vs Cat Station vs POS Focus vs Barista Camera
     const isTitle = this.gameState.phase === 'title';
-    this.titleHeroCupGroup.visible = isTitle;
-    this.titlePlaqueGroup.visible = isTitle;
+    this.titleHeroCupGroup.visible = false;
+    this.titlePlaqueGroup.visible = false;
+
+    // Park the 1990 Mazda Miata MX-5 outside on the storefront curb apron during Title & exterior glide; restore indoors once inside
+    if (this.miataGroup) {
+      const glideProgress = this.titleGlide.active
+        ? Math.min(1, Math.max(0, (performance.now() - this.titleGlide.startTimeMs) / (this.titleGlide.duration * 1000)))
+        : 0;
+      const showMiataOutside = isTitle && (!this.titleGlide.active || glideProgress < 0.62);
+      if (showMiataOutside) {
+        this.miataGroup.position.set(-3.35, 0.08, -8.45);
+        this.miataGroup.rotation.y = 1.32;
+      } else {
+        this.miataGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
+        this.miataGroup.rotation.y = MIATA_BAY.rotationY;
+      }
+    }
 
     // Advance smooth 0.55s transition blend for Cat Station close-up
     const catCamStep = dt / 0.55;
@@ -12073,11 +12147,57 @@ export class KlasikCafeScene3D {
       ? Math.min(1, this.catStationCamBlend + catCamStep)
       : Math.max(0, this.catStationCamBlend - catCamStep);
 
-    if (isTitle) {
-      const swayX = Math.sin(this.elapsed * 0.52) * 0.08;
-      const swayY = Math.cos(this.elapsed * 0.38) * 0.015;
-      _targetPos.set(1.86 + swayX, 1.28 + swayY, 0.96);
-      _targetLook.set(-1.35, 0.78, -1.85);
+    if (this.titleGlide.active) {
+      // Smooth ~1.1s wall-clock cubic-eased curved path from storefront through front doorway (x=-1.15, z=-6.2) straight into Station 3 barista POV
+      this.titleGlide.elapsed = Math.max(0, (performance.now() - this.titleGlide.startTimeMs) / 1000);
+      const rawT = Math.min(1, this.titleGlide.elapsed / this.titleGlide.duration);
+      const e = rawT < 0.5 ? 4 * rawT * rawT * rawT : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
+      const u = 1 - e;
+      const st3 = STATION_CAMERAS[3];
+
+      // Cubic Bezier position: storefront curb -> aligned in front of doorway -> cleanly inside cafe -> Station 3 POV
+      const p0 = this.titleGlide.startPos;
+      const p1x = -1.32, p1y = 1.56, p1z = -7.85;
+      const p2x = -1.25, p2y = 1.52, p2z = -3.15;
+      const p3 = st3.pos;
+      const b0 = u * u * u;
+      const b1 = 3 * u * u * e;
+      const b2 = 3 * u * e * e;
+      const b3 = e * e * e;
+      this.camera.position.set(
+        b0 * p0.x + b1 * p1x + b2 * p2x + b3 * p3.x,
+        b0 * p0.y + b1 * p1y + b2 * p2y + b3 * p3.y,
+        b0 * p0.z + b1 * p1z + b2 * p2z + b3 * p3.z
+      );
+
+      // Cubic Bezier look target: storefront -> open doorway -> espresso counter -> Station 3 look
+      const l0 = this.titleGlide.startLook;
+      const l1x = -1.15, l1y = 1.38, l1z = -4.6;
+      const l2x = -0.35, l2y = 1.24, l2z = -0.35;
+      const l3 = st3.look;
+      this.currentLookAt.set(
+        b0 * l0.x + b1 * l1x + b2 * l2x + b3 * l3.x,
+        b0 * l0.y + b1 * l1y + b2 * l2y + b3 * l3.y,
+        b0 * l0.z + b1 * l1z + b2 * l2z + b3 * l3.z
+      );
+      this.camera.lookAt(this.currentLookAt);
+
+      if (rawT >= 1) {
+        const cb = this.titleGlide.onComplete;
+        this.titleGlide.active = false;
+        this.titleGlide.onComplete = null;
+        this.camera.position.copy(st3.pos);
+        this.currentLookAt.copy(st3.look);
+        this.camera.lookAt(this.currentLookAt);
+        cb?.();
+      }
+    } else if (isTitle) {
+      // Exterior Title Screen Framing: Klasik Cafe Storefront (center) + Parked 1990 Mazda Miata MX-5 (right foreground/midground)
+      // Gentle breathing camera drift (±0.12 horizontal, ±0.04 vertical)
+      const driftX = Math.sin(this.elapsed * 0.48) * 0.12;
+      const driftY = Math.cos(this.elapsed * 0.36) * 0.04;
+      _targetPos.set(0.30 + driftX, 1.60 + driftY, -10.25);
+      _targetLook.set(-2.45 + driftX * 0.25, 1.12 + driftY * 0.25, -7.25);
     } else if (this.catStationOpen && this.catPerchGroup) {
       // Phase 5: Close-up framing of active cafe cat on velvet cushion (-2.90, 1.0, 0.24)
       // When Wardrobe Drawer (right 40%) is open, shift look-target right so the cat sits crisply centered in the left 60% viewport!
@@ -12138,7 +12258,7 @@ export class KlasikCafeScene3D {
 
     if (this.outdoorOverlook.active) {
       this.outdoorOverlook.update(dt);
-    } else {
+    } else if (!this.titleGlide.active) {
       const camDamp = this.catStationOpen
         ? 1 - Math.exp(-16.0 * dt)
         : this.isCodexFocused
@@ -12220,9 +12340,18 @@ export class KlasikCafeScene3D {
           doorActorPos = actor.currentPos;
         }
       }
-      const shouldOpen = minDoorDist < 1.65;
-      const targetDoorAngle = shouldOpen ? 1.38 : 0.0;
-      this.doorAngle += (targetDoorAngle - this.doorAngle) * (1 - Math.exp(-6.5 * dt));
+      const glideDoorOpen =
+        this.titleGlide.active &&
+        this.titleGlide.elapsed >= 0.02 &&
+        this.titleGlide.elapsed <= this.titleGlide.duration * 0.88;
+      const shouldOpen = minDoorDist < 1.65 || glideDoorOpen;
+      const targetDoorAngle = shouldOpen ? 1.48 : 0.0;
+      const doorSpeed = glideDoorOpen ? 14.0 : 6.5;
+      this.doorAngle += (targetDoorAngle - this.doorAngle) * (1 - Math.exp(-doorSpeed * dt));
+      if (glideDoorOpen) {
+        const openEase = Math.min(1, this.titleGlide.elapsed / 0.28);
+        this.doorAngle = Math.max(this.doorAngle, openEase * 1.48);
+      }
       this.entranceDoorPivot.rotation.y = this.doorAngle;
 
       this.doorChimeCooldown = Math.max(0, this.doorChimeCooldown - dt);

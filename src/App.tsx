@@ -148,6 +148,7 @@ export default function App() {
   const [outdoorOverlookOpen, setOutdoorOverlookOpen] = useState<boolean>(false);
   const [outdoorVantage, setOutdoorVantage] = useState<OutdoorVantageKey>('porch');
   const [sceneryFadeVisible, setSceneryFadeVisible] = useState<boolean>(false);
+  const [isEnteringCafe, setIsEnteringCafe] = useState<boolean>(false);
   const [hasUnseenCatUnlock, setHasUnseenCatUnlock] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [hoveredToolLabel, setHoveredToolLabel] = useState<string | null>(null);
@@ -165,7 +166,10 @@ export default function App() {
   const stepCommitTimerRef = useRef<number | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
   const fadeTimerRef = useRef<number | null>(null);
+  const enterGlideFallbackRef = useRef<number | null>(null);
   const stepLockUntilRef = useRef<number>(0);
+  const isEnteringCafeRef = useRef<boolean>(isEnteringCafe);
+  isEnteringCafeRef.current = isEnteringCafe;
   const activeModalRef = useRef<ActiveModal>(activeModal);
   activeModalRef.current = activeModal;
   const catStationOpenRef = useRef<boolean>(catStationOpen);
@@ -243,6 +247,7 @@ export default function App() {
       if (stepCommitTimerRef.current) window.clearTimeout(stepCommitTimerRef.current);
       if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
       if (fadeTimerRef.current) window.clearTimeout(fadeTimerRef.current);
+      if (enterGlideFallbackRef.current) window.clearTimeout(enterGlideFallbackRef.current);
       musicPlayerController.setOutdoorMuffle(false);
       soundEngine.setOutdoorAmbienceBoost(false);
     };
@@ -1049,13 +1054,13 @@ export default function App() {
   );
 
   const handleStartShift = useCallback((mode: GameMode) => {
+    if (isEnteringCafeRef.current) return;
     soundEngine.init();
     soundEngine.preloadChampyAudio();
-    soundEngine.playCustomerBell();
+    soundEngine.playDoorChime();
     const spState = spotifyManager.getState();
     soundEngine.setLofiSynthActive(spState.isPlaying && spState.internalSynthEnabled);
-    sceneRef.current?.resetCameraOffsets();
-    document.body.dataset.state = 'playing';
+    setActiveModal(null);
 
     try {
       const status = pwaManager.getStatus();
@@ -1071,26 +1076,50 @@ export default function App() {
       // Fallback handled automatically by .klasik-root-portrait-rotated
     }
 
-    const now = new Date();
-    setLiveClockLabel(formatLocalClock(now));
-    setGameState((prev) => {
-      const synced = syncDailyQuotaForDate(prev, now);
-      const rolledRain = synced.rainPreference === 'auto' ? rollAutoRain() : undefined;
-      const withWeather = applyWeatherPreferences(
-        synced,
-        synced.timeOfDayMode,
-        synced.rainPreference,
-        now,
-        rolledRain
-      );
-      soundEngine.setRainAmbience(true, withWeather.weather);
-      return {
-        ...withWeather,
-        phase: 'playing',
-        mode,
-        activeStation: 3,
-      };
-    });
+    let finished = false;
+    const finishEnterCafe = () => {
+      if (finished) return;
+      finished = true;
+      if (enterGlideFallbackRef.current) {
+        window.clearTimeout(enterGlideFallbackRef.current);
+        enterGlideFallbackRef.current = null;
+      }
+      sceneRef.current?.finishEnterCafeGlideNow();
+      sceneRef.current?.resetCameraOffsets();
+      document.body.dataset.state = 'playing';
+      const now = new Date();
+      setLiveClockLabel(formatLocalClock(now));
+      setIsEnteringCafe(false);
+      isEnteringCafeRef.current = false;
+      setGameState((prev) => {
+        const synced = syncDailyQuotaForDate(prev, now);
+        const rolledRain = synced.rainPreference === 'auto' ? rollAutoRain() : undefined;
+        const withWeather = applyWeatherPreferences(
+          synced,
+          synced.timeOfDayMode,
+          synced.rainPreference,
+          now,
+          rolledRain
+        );
+        soundEngine.setRainAmbience(true, withWeather.weather);
+        return {
+          ...withWeather,
+          phase: 'playing',
+          mode,
+          activeStation: 3,
+        };
+      });
+    };
+
+    // Start 0.25s title fade-out + ~1.1s curved camera glide from exterior storefront through the doorway into barista POV
+    if (gameStateRef.current.phase === 'title' && sceneRef.current) {
+      isEnteringCafeRef.current = true;
+      setIsEnteringCafe(true);
+      sceneRef.current.startEnterCafeGlide(finishEnterCafe);
+      enterGlideFallbackRef.current = window.setTimeout(finishEnterCafe, 2400);
+    } else {
+      finishEnterCafe();
+    }
   }, []);
 
   const handleRequestFullscreenLandscape = useCallback(() => {
@@ -1504,7 +1533,7 @@ export default function App() {
     <main
       data-landscape-enforced={isPortraitRotated ? 'rotated-90' : 'native-landscape'}
       data-weather={gameState.weather}
-      className={`bg-[#090705] select-none ${
+      className={`bg-[#09090B] select-none ${
         isPortraitRotated ? 'klasik-root-portrait-rotated' : 'klasik-root-landscape'
       }`}
     >
@@ -1554,7 +1583,7 @@ export default function App() {
         />
       )}
 
-      {/* Living 3D Title Card Overlay */}
+      {/* Living 3D Storefront & Parked Miata Title Overlay (Concept A Left-Aligned Monochrome + Platinum) */}
       {!isLoading && gameState.phase === 'title' && (
         <TitleScreen
           day={gameState.day}
@@ -1568,6 +1597,8 @@ export default function App() {
           activeScenery={gameState.activeScenery}
           graphicsQuality={gameState.graphicsQuality}
           pwaStatus={pwaStatus}
+          isMuted={isMuted}
+          isEnteringCafe={isEnteringCafe}
           spotifyTrackTitle={
             audioSnapshot.mode === 'vinyl'
               ? audioSnapshot.vinylTracks[audioSnapshot.activeVinylIndex]?.title || 'Cafe Vinyl'
@@ -1581,6 +1612,14 @@ export default function App() {
           onChangeRainPreference={handleChangeRainPreference}
           onChangeGraphics={handleChangeGraphics}
           onOpenSpotifyModal={() => setActiveModal('spotify')}
+          onOpenViewsModal={() => {
+            setUpgradesInitialTab('sceneries');
+            setActiveModal('upgrades');
+          }}
+          onOpenCatsModal={() => {
+            setUpgradesInitialTab('cafe_cats');
+            setActiveModal('upgrades');
+          }}
           onOpenPwaModal={() => setActiveModal('pwa')}
           onOpenCodeExportModal={() => setActiveModal('export')}
         />

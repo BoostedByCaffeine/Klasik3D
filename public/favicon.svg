@@ -1,83 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <radialGradient id="kgl_bg" cx="50%" cy="46%" r="54%">
-      <stop offset="0%" stop-color="#1E140E"/>
-      <stop offset="100%" stop-color="#090705"/>
-    </radialGradient>
-    <linearGradient id="kgl_brass" x1="20" y1="18" x2="180" y2="182" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FDE68A"/>
-      <stop offset="45%" stop-color="#E59A3C"/>
-      <stop offset="100%" stop-color="#B4691E"/>
+    <linearGradient id="platIcon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="45%" stop-color="#94A3B8" />
+      <stop offset="75%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#64748B" />
     </linearGradient>
-    <linearGradient id="kgl_espresso" x1="40" y1="24" x2="140" y2="176" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#4A2714"/>
-      <stop offset="55%" stop-color="#2B160C"/>
-      <stop offset="100%" stop-color="#160B06"/>
-    </linearGradient>
-    <linearGradient id="kgl_foam" x1="120" y1="26" x2="88" y2="174" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FFFDF8"/>
-      <stop offset="55%" stop-color="#F7EBD7"/>
-      <stop offset="100%" stop-color="#DFC49C"/>
-    </linearGradient>
-    <linearGradient id="kgl_leaf" x1="48" y1="54" x2="108" y2="128" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#86EFAC"/>
-      <stop offset="50%" stop-color="#34D399"/>
-      <stop offset="100%" stop-color="#047857"/>
-    </linearGradient>
-    <linearGradient id="kgl_rosetta" x1="100" y1="90" x2="152" y2="154" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#9A541C"/>
-      <stop offset="100%" stop-color="#4A2510"/>
-    </linearGradient>
-    <clipPath id="kgl_inner_clip">
-      <circle cx="100" cy="100" r="82"/>
-    </clipPath>
   </defs>
 
-  <!-- Full-bleed dark-roast espresso backdrop -->
-  <rect width="200" height="200" rx="44" fill="url(#kgl_bg)"/>
+  <rect width="64" height="64" rx="16" fill="#09090B" />
 
-  <!-- Warm Brushed Brass Outer Ring -->
-  <circle cx="100" cy="100" r="90" fill="#140C08" stroke="url(#kgl_brass)" stroke-width="5.5"/>
-  <circle cx="100" cy="100" r="84" fill="none" stroke="#FDE68A" stroke-opacity="0.32" stroke-width="1.2"/>
+  <!-- Automotive Pill Crest -->
+  <rect x="6" y="14" width="52" height="36" rx="18" fill="#111114" stroke="url(#platIcon)" stroke-width="2.6" />
+  <rect x="10.5" y="18.5" width="43" height="27" rx="13.5" fill="none" stroke="#52525B" stroke-width="1" />
 
-  <!-- Clipped Yin-Yang Interior -->
-  <g clip-path="url(#kgl_inner_clip)">
-    <!-- Base: Velvety Steamed Milk Foam (Right / Lower Half) -->
-    <circle cx="100" cy="100" r="82" fill="url(#kgl_foam)"/>
+  <!-- 3-Spoke Steering Wheel / Vinyl Ring -->
+  <circle cx="32" cy="32" r="11" fill="none" stroke="url(#platIcon)" stroke-width="2.6" />
+  <line x1="21" y1="32" x2="26.5" y2="32" stroke="#E4E4E7" stroke-width="2.2" stroke-linecap="round" />
+  <line x1="37.5" y1="32" x2="43" y2="32" stroke="#E4E4E7" stroke-width="2.2" stroke-linecap="round" />
+  <line x1="32" y1="37.5" x2="32" y2="43" stroke="#E4E4E7" stroke-width="2.2" stroke-linecap="round" />
 
-    <!-- Left / Upper Half: Deep Espresso Crema Yin-Yang S-Curve -->
-    <path d="M 100 18 A 82 82 0 0 0 100 182 A 41 41 0 0 0 100 100 A 41 41 0 0 1 100 18 Z" fill="url(#kgl_espresso)"/>
-
-    <!-- Subtle Golden S-Curve Rim Highlight -->
-    <path d="M 100 18 A 41 41 0 0 0 100 100 A 41 41 0 0 1 100 182" fill="none" stroke="url(#kgl_brass)" stroke-opacity="0.65" stroke-width="2.2"/>
-
-    <!-- LEFT YIN HALF: Botanical Garden Leaf -->
-    <g transform="translate(-4, 0)">
-      <path d="M 60 102 C 42 78, 52 44, 86 38 C 94 64, 88 94, 60 102 Z" fill="url(#kgl_leaf)" stroke="#064E3B" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M 55 112 C 62 94, 72 72, 82 47" stroke="#D1FAE5" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M 67 84 L 56 76 M 73 70 L 63 63 M 72 74 L 83 68 M 66 88 L 78 84" stroke="#A7F3D0" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.88"/>
-      <circle cx="96" cy="59" r="9.5" fill="url(#kgl_foam)" stroke="#E59A3C" stroke-width="1.4"/>
-      <circle cx="96" cy="59" r="3.4" fill="#10B981"/>
-    </g>
-
-    <!-- RIGHT YANG HALF: Cappuccino Rosetta & Roasted Coffee Bean -->
-    <g transform="translate(2, 0)">
-      <g fill="url(#kgl_rosetta)">
-        <path d="M 122 104 C 134 94, 152 100, 148 112 C 142 117, 130 112, 122 104 Z"/>
-        <path d="M 118 114 C 106 108, 102 120, 112 126 C 118 128, 124 122, 118 114 Z"/>
-        <path d="M 126 118 C 138 112, 152 120, 146 130 C 139 135, 130 128, 126 118 Z"/>
-        <path d="M 116 130 C 104 128, 104 140, 114 144 C 121 146, 124 138, 116 130 Z"/>
-        <path d="M 124 134 C 136 130, 146 138, 140 148 C 133 152, 126 144, 124 134 Z"/>
-        <path d="M 122 146 C 122 142, 129 142, 129 148 C 129 154, 122 158, 122 162 C 122 158, 115 154, 115 148 C 115 142, 122 142, 122 146 Z"/>
-      </g>
-      <path d="M 123 102 Q 125 128 122 154" stroke="#FFFDF8" stroke-width="1.8" stroke-linecap="round" stroke-opacity="0.85"/>
-      <g transform="translate(103, 140) rotate(-24)">
-        <ellipse cx="0" cy="0" rx="8.5" ry="11.5" fill="#2A140A" stroke="#E59A3C" stroke-width="1.4"/>
-        <path d="M 0 -9.5 C 2.5 -3, -2.5 3, 0 9.5" stroke="#FDE68A" stroke-width="1.5" stroke-linecap="round" fill="none"/>
-      </g>
-    </g>
+  <!-- Coffee Bean Hub -->
+  <g transform="translate(32, 32) rotate(-22)">
+    <ellipse cx="0" cy="0" rx="4.2" ry="6" fill="#FFFFFF" stroke="#09090B" stroke-width="1" />
+    <path d="M0 -5 C1.5 -2, -1.5 2, 0 5" fill="none" stroke="#09090B" stroke-width="1.3" stroke-linecap="round" />
   </g>
-
-  <!-- Crisp Inner Rim Bevel -->
-  <circle cx="100" cy="100" r="82" fill="none" stroke="url(#kgl_brass)" stroke-width="2.4"/>
 </svg>
