@@ -148,7 +148,9 @@ export const OutdoorOverlookOverlay: React.FC<OutdoorOverlookOverlayProps> = ({
           role="group"
           aria-label="Outdoor Scenic Vantage Spots"
         >
-          {OUTDOOR_VANTAGE_LIST.map((vantage) => {
+          {OUTDOOR_VANTAGE_LIST.filter(
+            (vantage) => scenerySpec.hasScenicOverlook || vantage.key !== 'overlook'
+          ).map((vantage) => {
             const active = activeVantage === vantage.key;
             return (
               <button

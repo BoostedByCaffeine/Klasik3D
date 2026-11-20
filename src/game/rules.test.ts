@@ -97,11 +97,18 @@ import {
   resolveSecretNpcAppearance,
   canSpawnSecretNpc,
   advanceSecretNpcNameIdx,
+  ALL_SCENERY_IDS,
+  ALL_PATRON_OUTFIT_IDS,
+  getScenerySpec,
 } from './rules';
 import {
   CAT_COSMETICS_CATALOG,
   BASE_CAT_COSMETIC_IDS,
   CAT_FIT_PROFILES,
+  CAT_COSMETIC_CLEARANCE,
+  DEFAULT_CAT_RIG_DIMENSIONS,
+  sampleCatTorsoOuterPoint,
+  sampleCatDorsalSplinePoints,
   getCatFitProfile,
   checkDinoCostumeUnlock,
   getEffectiveVisibleLoadout,
@@ -111,6 +118,19 @@ import {
   filterVerifiedRadioStations,
   cleanAudioFileName,
 } from './audio/MusicPlayerController';
+import {
+  getSidewalkObstacles,
+  computeAvoidedSidewalkZ,
+} from './sidewalkAvoidance';
+import {
+  TRAFFIC_MIN_LANE_SPACING,
+  TRAFFIC_X_BOUND,
+  getOutdoorLodBudgets,
+  getSceneryOutdoorBehaviors,
+  hasStreetTrafficScenery,
+  isUrbanStreetScenery,
+  stepTwoLaneTraffic,
+} from './outdoorLod';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
   const recipe = getRecipeById('vanilla-oat-latte');
@@ -1687,4 +1707,122 @@ test('Outdoor Sceneries Phase 6 & 7: Go Outside Overlook pauses customer mood de
   assert.ok(restored.enabledCustomPatronOutfits.includes('filipino'));
   assert.equal(restored.secretNpcNameIdx, 2);
 });
+
+test('Bugfix Phase A: Cookie Jar cheat unlocks ALL 9 sceneries & ALL 6 patron outfits dynamically, and sidewalk avoidance detours around parked Miata', () => {
+  const initial = createInitialGameState();
+  const unlocked = unlockAllEverythingCheat(initial);
+  assert.equal(unlocked.unlockedSceneries.length, ALL_SCENERY_IDS.length);
+  for (const scId of ALL_SCENERY_IDS) {
+    assert.ok(unlocked.unlockedSceneries.includes(scId), `Expected scenery ${scId} unlocked`);
+  }
+  assert.equal(unlocked.unlockedPatronOutfits.length, ALL_PATRON_OUTFIT_IDS.length);
+  for (const outfitId of ALL_PATRON_OUTFIT_IDS) {
+    assert.ok(unlocked.unlockedPatronOutfits.includes(outfitId), `Expected outfit ${outfitId} unlocked`);
+  }
+
+  // Sidewalk obstacle avoidance steers smoothly outside the parked Miata's padded AABB
+  const obstacles = getSidewalkObstacles(true, true);
+  const miata = obstacles.find((o) => o.id === 'parked-miata');
+  assert.ok(miata, 'Expected parked-miata obstacle when Miata is parked outside');
+  const laneThroughMiata = -8.55;
+  const avoidedZ = computeAvoidedSidewalkZ(-3.55, laneThroughMiata, obstacles);
+  assert.ok(
+    avoidedZ >= miata.maxZ - 0.02 || avoidedZ <= miata.minZ + 0.02,
+    `Expected avoidedZ (${avoidedZ}) to clear Miata Z band [${miata.minZ}, ${miata.maxZ}]`
+  );
+  // Far from Miata, sidewalk lane stays undisturbed
+  const clearZ = computeAvoidedSidewalkZ(10.0, -8.55, obstacles);
+  assert.equal(clearZ, -8.55);
+});
+
+test('Bugfix Phase B: Conformal Cat Cloth & Skeleton T-Rex spline sampling stay strictly outside cat torso/chest ellipsoids', () => {
+  assert.ok(CAT_COSMETIC_CLEARANCE >= 0.028);
+  const dims = DEFAULT_CAT_RIG_DIMENSIONS;
+  // Every sampled torso shell point must sit strictly outside both torso and chest ellipsoids
+  for (const y of [0.22, 0.28, 0.34, 0.40]) {
+    for (let i = 0; i < 16; i++) {
+      const theta = (i / 16) * Math.PI * 2;
+      const pt = sampleCatTorsoOuterPoint(y, theta, dims, CAT_COSMETIC_CLEARANCE);
+      const tx = pt.x / dims.torsoRadiusX;
+      const ty = (pt.y - dims.torsoCenterY) / dims.torsoRadiusY;
+      const tz = (pt.z - dims.torsoCenterZ) / dims.torsoRadiusZ;
+      const torsoNorm = Math.sqrt(tx * tx + ty * ty + tz * tz);
+      assert.ok(torsoNorm > 1.05, `Sampled point (${pt.x}, ${pt.y}, ${pt.z}) must clear torso ellipsoid (norm=${torsoNorm})`);
+
+      const cx = pt.x / dims.chestRadiusX;
+      const cy = (pt.y - dims.chestCenterY) / dims.chestRadiusY;
+      const cz = (pt.z - dims.chestCenterZ) / dims.chestRadiusZ;
+      const chestNorm = Math.sqrt(cx * cx + cy * cy + cz * cz);
+      assert.ok(chestNorm > 1.05, `Sampled point must clear chest ellipsoid (norm=${chestNorm})`);
+    }
+  }
+
+  // External dorsal spine spline rides strictly behind/outside the back surface (z < torso back)
+  const dorsalPts = sampleCatDorsalSplinePoints(dims, 6, CAT_COSMETIC_CLEARANCE + 0.015);
+  assert.equal(dorsalPts.length, 6);
+  for (const dp of dorsalPts) {
+    assert.ok(dp.z < dims.torsoCenterZ - dims.torsoRadiusZ * 0.5, `Dorsal spline point must sit externally behind back (z=${dp.z})`);
+  }
+});
+
+test('Bugfix Phase C: Scenic Overlook hidden on Busy Street, biome prop hygiene isolates alpine maps, strict two-lane traffic prevents overlaps, and Inside/Outside LOD scales cleanly', () => {
+  // 1. Scenic Overlook flag
+  assert.equal(getScenerySpec('busy_street').hasScenicOverlook, false);
+  for (const scId of ALL_SCENERY_IDS) {
+    if (scId !== 'busy_street') {
+      assert.equal(getScenerySpec(scId).hasScenicOverlook, true, `Expected scenic overlook enabled on ${scId}`);
+    }
+  }
+
+  // 2. Biome prop hygiene (Switzerland & Everest are non-urban & have zero street traffic)
+  assert.equal(isUrbanStreetScenery('busy_street'), true);
+  assert.equal(isUrbanStreetScenery('cyberpunk_neon'), true);
+  assert.equal(isUrbanStreetScenery('switzerland_hilltop'), false);
+  assert.equal(isUrbanStreetScenery('mt_everest'), false);
+  assert.equal(hasStreetTrafficScenery('switzerland_hilltop'), false);
+  assert.equal(hasStreetTrafficScenery('mt_everest'), false);
+  assert.equal(hasStreetTrafficScenery('busy_street'), true);
+
+  // 3. Inside vs. Outside Adaptive Performance LOD budgets
+  const inside = getOutdoorLodBudgets({
+    isPlayerOutside: false,
+    graphicsQuality: 'max',
+    isSoftwareGl: false,
+    sceneryId: 'busy_street',
+  });
+  const outside = getOutdoorLodBudgets({
+    isPlayerOutside: true,
+    graphicsQuality: 'max',
+    isSoftwareGl: false,
+    sceneryId: 'busy_street',
+  });
+  assert.equal(inside.showCloudsAndBirds, false);
+  assert.equal(inside.enableRichNpcBehaviors, false);
+  assert.ok(inside.maxTraffic <= 2 && inside.maxPedestrians <= 2);
+  assert.equal(outside.showCloudsAndBirds, true);
+  assert.equal(outside.enableRichNpcBehaviors, true);
+  assert.equal(outside.maxTraffic, 6);
+  assert.equal(outside.maxPedestrians, 8);
+  assert.ok(getSceneryOutdoorBehaviors('busy_street').includes('dog_walker'));
+  assert.ok(getSceneryOutdoorBehaviors('mt_everest').includes('everest_hiker'));
+  assert.ok(getSceneryOutdoorBehaviors('japanese_tranquility').includes('lantern_stroll'));
+
+  // 4. Two-lane traffic spacing prevents overlapping even when vehicles start close together
+  const vehicles = [
+    { x: 0.0, dir: 1 as const, speed: 4.5, visible: true },
+    { x: -2.0, dir: 1 as const, speed: 6.0, visible: true },
+    { x: 5.0, dir: -1 as const, speed: 5.0, visible: true },
+    { x: 6.5, dir: -1 as const, speed: 5.5, visible: true },
+  ];
+  for (let step = 0; step < 30; step++) {
+    stepTwoLaneTraffic(vehicles, 0.1, TRAFFIC_X_BOUND, TRAFFIC_MIN_LANE_SPACING);
+  }
+  const eastGap = Math.abs(vehicles[0].x - vehicles[1].x);
+  const westGap = Math.abs(vehicles[2].x - vehicles[3].x);
+  const wrapEastGap = Math.min(eastGap, TRAFFIC_X_BOUND * 2 - eastGap);
+  const wrapWestGap = Math.min(westGap, TRAFFIC_X_BOUND * 2 - westGap);
+  assert.ok(wrapEastGap >= TRAFFIC_MIN_LANE_SPACING - 0.1, `Eastbound gap too tight: ${wrapEastGap}`);
+  assert.ok(wrapWestGap >= TRAFFIC_MIN_LANE_SPACING - 0.1, `Westbound gap too tight: ${wrapWestGap}`);
+});
+
 

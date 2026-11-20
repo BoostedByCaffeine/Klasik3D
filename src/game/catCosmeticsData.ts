@@ -43,6 +43,183 @@ export interface CatFitProfile {
   furOffset: number;
 }
 
+/** Guaranteed positive outward clearance so cloth and plush bones never clip into fur meshes. */
+export const CAT_COSMETIC_CLEARANCE = 0.028;
+
+/** Measured procedural anatomy dimensions in cat bodyPivot local space plus root scale. */
+export interface CatRigDimensions {
+  torsoRadiusX: number;
+  torsoRadiusY: number;
+  torsoRadiusZ: number;
+  torsoCenterY: number;
+  torsoCenterZ: number;
+  torsoPitch: number;
+  chestRadiusX: number;
+  chestRadiusY: number;
+  chestRadiusZ: number;
+  chestCenterY: number;
+  chestCenterZ: number;
+  headRadius: number;
+  neckY: number;
+  tailBasePos: readonly [number, number, number];
+  rootScale: readonly [number, number, number];
+}
+
+export const DEFAULT_CAT_RIG_DIMENSIONS: CatRigDimensions = {
+  torsoRadiusX: 0.095 * 0.88, // 0.0836
+  torsoRadiusY: 0.095 * 1.18, // 0.1121
+  torsoRadiusZ: 0.095 * 1.05, // 0.09975
+  torsoCenterY: 0.115,
+  torsoCenterZ: -0.01,
+  torsoPitch: 0.24,
+  chestRadiusX: 0.068 * 0.95, // 0.0646
+  chestRadiusY: 0.068 * 1.05, // 0.0714
+  chestRadiusZ: 0.068 * 0.9,  // 0.0612
+  chestCenterY: 0.14,
+  chestCenterZ: 0.054,
+  headRadius: 0.072,
+  neckY: 0.205,
+  tailBasePos: [0, 0.065, -0.095],
+  rootScale: [1, 1, 1],
+};
+
+/**
+ * Ray-ellipsoid horizontal intersection from spine axis (0, y, axisZ) along unit direction (sin(theta), cos(theta)).
+ * Returns positive ray distance from (0, y, axisZ) to the outer surface of the ellipsoid, or 0 if y is outside.
+ */
+function intersectEllipsoidHorizontalRay(
+  y: number,
+  dirX: number,
+  dirZ: number,
+  axisZ: number,
+  cx: number,
+  cy: number,
+  cz: number,
+  rx: number,
+  ry: number,
+  rz: number
+): number {
+  const dy = (y - cy) / ry;
+  const yTerm = dy * dy;
+  if (yTerm >= 0.995) return 0;
+
+  const ox = -cx;
+  const oz = axisZ - cz;
+  const a = (dirX * dirX) / (rx * rx) + (dirZ * dirZ) / (rz * rz);
+  const b = 2 * ((ox * dirX) / (rx * rx) + (oz * dirZ) / (rz * rz));
+  const c = (ox * ox) / (rx * rx) + (oz * oz) / (rz * rz) + yTerm - 1;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0 || a <= 1e-8) return 0;
+  const t = (-b + Math.sqrt(disc)) / (2 * a);
+  return t > 0 ? t : 0;
+}
+
+/**
+ * Samples a conformal point strictly outside the combined cat torso + chest ellipsoids at height `y`
+ * and azimuth `theta` (theta = 0 is front chest +Z, theta = PI is dorsal back -Z).
+ */
+export function sampleCatTorsoOuterPoint(
+  y: number,
+  theta: number,
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS,
+  clearance: number = CAT_COSMETIC_CLEARANCE
+): { x: number; y: number; z: number; nx: number; nz: number } {
+  const axisZ = 0.014;
+  const dirX = Math.sin(theta);
+  const dirZ = Math.cos(theta);
+
+  const rTorso = intersectEllipsoidHorizontalRay(
+    y,
+    dirX,
+    dirZ,
+    axisZ,
+    0,
+    dims.torsoCenterY,
+    dims.torsoCenterZ,
+    dims.torsoRadiusX,
+    dims.torsoRadiusY,
+    dims.torsoRadiusZ
+  );
+  const rChest = intersectEllipsoidHorizontalRay(
+    y,
+    dirX,
+    dirZ,
+    axisZ,
+    0,
+    dims.chestCenterY,
+    dims.chestCenterZ,
+    dims.chestRadiusX,
+    dims.chestRadiusY,
+    dims.chestRadiusZ
+  );
+
+  // Smooth max (log-sum-exp style) prevents harsh creases where chest & torso spheres meet while staying >= max(rTorso, rChest)
+  const rMax = Math.max(rTorso, rChest, 0.042);
+  const smoothBoost = rTorso > 0 && rChest > 0 ? 0.004 * Math.exp(-Math.abs(rTorso - rChest) / 0.018) : 0;
+
+  // Scale local clearance gently to compensate for small/chubby root scales while keeping >= 0.016 local clearance
+  const avgScale = Math.max(
+    0.65,
+    (dims.rootScale[0] + dims.rootScale[1] + dims.rootScale[2]) / 3
+  );
+  const localClearance = Math.max(0.014, Math.min(0.024, (clearance * 0.62) / Math.sqrt(avgScale)));
+
+  const rFinal = rMax + smoothBoost + localClearance;
+  return {
+    x: dirX * rFinal,
+    y,
+    z: axisZ + dirZ * rFinal,
+    nx: dirX,
+    nz: dirZ,
+  };
+}
+
+/**
+ * Samples `count` points along the OUTER dorsal back meridian of the cat's torso ellipsoid
+ * (`surfacePoint + outwardNormal * clearance`) from nape down to rump/tail-base so the
+ * Skeleton T-Rex vertebral spine & spikes always sit strictly OUTSIDE the cat's back fur.
+ */
+export function sampleCatDorsalSplinePoints(
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS,
+  count: number = 6,
+  clearance: number = CAT_COSMETIC_CLEARANCE
+): Array<{ x: number; y: number; z: number; ny: number; nz: number }> {
+  const avgScale = Math.max(
+    0.65,
+    (dims.rootScale[0] + dims.rootScale[1] + dims.rootScale[2]) / 3
+  );
+  const outwardOffset = Math.max(0.018, Math.min(0.032, (clearance * 0.78) / Math.sqrt(avgScale)));
+
+  // Dorsal polar angle alpha from upper shoulder/nape (+1.05 rad) down to lower rump (-0.52 rad)
+  const startAlpha = 1.02;
+  const endAlpha = -0.52;
+  const points: Array<{ x: number; y: number; z: number; ny: number; nz: number }> = [];
+
+  for (let i = 0; i < count; i++) {
+    const t = count > 1 ? i / (count - 1) : 0;
+    const alpha = startAlpha + (endAlpha - startAlpha) * t;
+    const surfY = dims.torsoCenterY + dims.torsoRadiusY * Math.sin(alpha);
+    const surfZ = dims.torsoCenterZ - dims.torsoRadiusZ * Math.cos(alpha);
+
+    // Exact outward unit normal of ellipsoid on the x=0 dorsal meridian
+    const rawNy = Math.sin(alpha) / dims.torsoRadiusY;
+    const rawNz = -Math.cos(alpha) / dims.torsoRadiusZ;
+    const nLen = Math.hypot(rawNy, rawNz) || 1;
+    const ny = rawNy / nLen;
+    const nz = rawNz / nLen;
+
+    points.push({
+      x: 0,
+      y: surfY + ny * outwardOffset,
+      z: surfZ + nz * outwardOffset,
+      ny,
+      nz,
+    });
+  }
+
+  return points;
+}
+
 export const BERET_REVENUE_MILESTONE = 10000;
 export const GOLDEN_ESPRESSO_COST = 50000;
 

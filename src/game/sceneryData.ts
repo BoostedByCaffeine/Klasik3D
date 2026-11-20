@@ -51,6 +51,7 @@ export interface ScenerySpec {
   weatherRule: SceneryWeatherRule;
   badgeText: string;
   accentHex: string;
+  hasScenicOverlook: boolean;
 }
 
 export const SWITZERLAND_REVENUE_MILESTONE = 35_000;
@@ -106,6 +107,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.busy_street,
     badgeText: 'Default',
     accentHex: '#f59e0b',
+    hasScenicOverlook: false,
   },
   {
     id: 'mayon_volcano',
@@ -120,6 +122,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.mayon_volcano,
     badgeText: 'Bicol',
     accentHex: '#22c55e',
+    hasScenicOverlook: true,
   },
   {
     id: 'hilltop_city_lights',
@@ -134,6 +137,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.hilltop_city_lights,
     badgeText: 'Highland Mist',
     accentHex: '#38bdf8',
+    hasScenicOverlook: true,
   },
   {
     id: 'japanese_tranquility',
@@ -148,6 +152,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.japanese_tranquility,
     badgeText: 'Sakura & Fireflies',
     accentHex: '#f472b6',
+    hasScenicOverlook: true,
   },
   {
     id: 'brazilian_favela',
@@ -162,6 +167,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.brazilian_favela,
     badgeText: 'Rio View',
     accentHex: '#facc15',
+    hasScenicOverlook: true,
   },
   {
     id: 'cyberpunk_neon',
@@ -176,6 +182,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.cyberpunk_neon,
     badgeText: 'Neon Rain',
     accentHex: '#06b6d4',
+    hasScenicOverlook: true,
   },
   {
     id: 'eiffel_tower',
@@ -190,6 +197,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.eiffel_tower,
     badgeText: 'Snow Enabled',
     accentHex: '#fbbf24',
+    hasScenicOverlook: true,
   },
   {
     id: 'switzerland_hilltop',
@@ -204,6 +212,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.switzerland_hilltop,
     badgeText: '$35K Milestone · Snow',
     accentHex: '#60a5fa',
+    hasScenicOverlook: true,
   },
   {
     id: 'mt_everest',
@@ -218,6 +227,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.mt_everest,
     badgeText: 'Always Winter · $65K',
     accentHex: '#bae6fd',
+    hasScenicOverlook: true,
   },
 ] as const;
 

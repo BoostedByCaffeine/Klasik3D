@@ -2999,6 +2999,8 @@ export function unlockAllEverythingCheat(state: KlasikGameState): KlasikGameStat
     unlockedCats: [...ALL_CAFE_CAT_IDS],
     secretCatsUnlocked: [...SECRET_CAFE_CAT_IDS],
     unlockedCosmetics: [...ALL_CAT_COSMETIC_IDS],
+    unlockedSceneries: [...ALL_SCENERY_IDS],
+    unlockedPatronOutfits: [...ALL_PATRON_OUTFIT_IDS],
     goldenEspressoUnlocked: true,
     hasUnseenCatUnlock: true,
     cookieJarCheatUnlocked: true,

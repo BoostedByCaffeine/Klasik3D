@@ -47,11 +47,21 @@ import {
   CatCosmeticRigController,
 } from './catCosmetics3d';
 import { SceneryManager, buildMiniSceneryDiorama } from './sceneries/SceneryManager';
-import { getSharedGlowSpriteTexture } from './sceneries/sceneryTypes';
+import { getSharedGlowSpriteTexture, disposeObject3D } from './sceneries/sceneryTypes';
 import { applyPatronOutfitToRig, buildPatronOutfitPreviewMesh } from './patronOutfits3d';
 import { applySecretNpcLookToRig, createSecretNpcHeartSprite } from './secretNpc3d';
 import { OutdoorOverlookController, OutdoorVantageKey } from './OutdoorOverlookController';
 import { ThumbnailStudio } from './ThumbnailStudio';
+import { computeAvoidedSidewalkZ, getSidewalkObstacles } from './sidewalkAvoidance';
+import {
+  OutdoorNpcBehavior,
+  TRAFFIC_MIN_LANE_SPACING,
+  TRAFFIC_X_BOUND,
+  getOutdoorLodBudgets,
+  getSceneryOutdoorBehaviors,
+  isUrbanStreetScenery,
+  stepTwoLaneTraffic,
+} from './outdoorLod';
 
 // Pre-allocated scratch math objects (Zero GC in render loop)
 const _targetPos = new THREE.Vector3();
@@ -382,12 +392,25 @@ interface PooledPedestrian {
     | 'counterArrivedSignaled'
   >;
   laneZ: number;
+  currentZ: number;
   x: number;
   dir: 1 | -1;
   speed: number;
+  baseSpeed: number;
   walkPhase: number;
   pauseTimer: number;
+  pauseCooldown: number;
   glancePhase: number;
+  behavior: OutdoorNpcBehavior;
+  dogRig: {
+    root: THREE.Group;
+    legs: THREE.Mesh[];
+    tail: THREE.Mesh;
+  } | null;
+  lanternGroup: THREE.Group | null;
+  hikerGear: THREE.Group | null;
+  neonUmbrella: THREE.Group | null;
+  footballMesh: THREE.Mesh | null;
 }
 
 interface PooledTrafficVehicle {
@@ -627,6 +650,13 @@ export class KlasikCafeScene3D {
   private windowRainMat!: THREE.MeshBasicMaterial;
   private roadAsphaltMat!: THREE.MeshStandardMaterial;
   private patioFloorMat!: THREE.MeshStandardMaterial;
+  private nearSidewalkMat!: THREE.MeshStandardMaterial;
+  private natureApronMat!: THREE.MeshStandardMaterial;
+  private grassPlaneMesh!: THREE.Mesh;
+  private urbanBoulevardTreesGroup!: THREE.Group;
+  private urbanStreetLampsGroup!: THREE.Group;
+  private urbanRoadAndCrosswalkGroup!: THREE.Group;
+  private natureWalkwayApronGroup!: THREE.Group;
   private pendantBulbMats: THREE.MeshStandardMaterial[] = [];
   private streetLampBulbMats: THREE.MeshStandardMaterial[] = [];
   private streetLampConeMat!: THREE.MeshBasicMaterial;
@@ -639,6 +669,18 @@ export class KlasikCafeScene3D {
   private vehicleTaillightMat!: THREE.MeshStandardMaterial;
   private vehicleHeadlightBeamMat!: THREE.MeshBasicMaterial;
   private vehicleHeadlightBeamsGroupList: THREE.Object3D[] = [];
+  private outdoorSkyLifeGroup!: THREE.Group;
+  private cloudMat!: THREE.MeshStandardMaterial;
+  private driftingClouds: Array<{ group: THREE.Group; speed: number; baseY: number; phase: number }> = [];
+  private birdFlocks: Array<{
+    group: THREE.Group;
+    birds: Array<{ root: THREE.Group; wingL: THREE.Mesh; wingR: THREE.Mesh; phase: number }>;
+    speed: number;
+    dir: 1 | -1;
+    baseY: number;
+    baseZ: number;
+  }> = [];
+  private lastOutdoorLodKey = '';
   private glassRainStreaksGroup!: THREE.Group;
   private botanicalPlanterExtras: THREE.Object3D[] = [];
   private hangingSignFaceMat!: THREE.MeshStandardMaterial;
@@ -970,6 +1012,7 @@ export class KlasikCafeScene3D {
     this.initStaticColliders();
     this.buildOutdoorPedestrianPool();
     this.buildOutdoorTrafficPool();
+    this.buildOutdoorAtmosphereLife();
     this.scene.add(this.customersRoot);
 
     // Sync initial state & graphics quality
@@ -980,7 +1023,7 @@ export class KlasikCafeScene3D {
     this.redrawOrderTicketTextures();
     this.redrawPosScreenTexture();
     this.syncCustomerActors();
-    this.syncTrafficVisibilityForScenery();
+    this.syncOutdoorBiomeAndLod(true);
 
     // Pre-warm shaders on hardware GPUs
     if (!this.isSoftwareGl) {
@@ -1203,17 +1246,8 @@ export class KlasikCafeScene3D {
       });
     }
 
-    // Scale Fixed Outdoor Pedestrian Pool (2 Low, 4 Med, 6 Max)
-    const maxPeds = isLow ? 2 : isMed ? 4 : 6;
-    this.pedestrianPool.forEach((p, idx) => {
-      p.actor.group.visible = idx < maxPeds;
-    });
-
-    // Scale Fixed Outdoor Street Traffic Pool (2 Low, 4 Med, 6 Max)
-    const maxStreet = isLow ? 2 : isMed ? 4 : 6;
-    this.trafficPool.forEach((v, idx) => {
-      v.group.visible = idx < maxStreet;
-    });
+    // Sync adaptive Inside/Outside LOD pools & biome props
+    this.syncOutdoorBiomeAndLod(true);
 
     const { width, height } = this.getEffectiveLandscapeDimensions();
     this.renderer.setSize(width, height, false);
@@ -1850,64 +1884,123 @@ export class KlasikCafeScene3D {
     const sCtx = signCanvas.getContext('2d');
     if (!sCtx) return;
 
-    // Warm dark-roast double-sided exterior blade sign with Yin-Yang Leaf & Cappuccino Emblem + Entrance Arrow
-    sCtx.fillStyle = '#17100c';
+    // Matte-Black #09090B Exterior Blade Sign with Brushed-Platinum Automotive/Kissaten Pill Crest (matching /public/klasik-logo.svg)
+    sCtx.fillStyle = '#09090B';
     sCtx.fillRect(0, 0, 512, 160);
-    sCtx.strokeStyle = accentHex;
-    sCtx.lineWidth = 7;
-    sCtx.strokeRect(10, 10, 492, 140);
 
-    // Left Yin-Yang Botanical & Crema Emblem
+    // Subtle brushed-platinum metallic gradient
+    const platGrad = sCtx.createLinearGradient(0, 0, 512, 160);
+    platGrad.addColorStop(0, '#F8FAFC');
+    platGrad.addColorStop(0.45, '#CBD5E1');
+    platGrad.addColorStop(0.75, '#FFFFFF');
+    platGrad.addColorStop(1, '#94A3B8');
+
+    // Outer platinum trim frame & inner hairline rule
+    sCtx.strokeStyle = platGrad;
+    sCtx.lineWidth = 6;
+    sCtx.strokeRect(10, 10, 492, 140);
+    sCtx.strokeStyle = 'rgba(228, 228, 231, 0.25)';
+    sCtx.lineWidth = 1.5;
+    sCtx.strokeRect(18, 18, 476, 124);
+
+    // Left Monochrome + Brushed-Platinum Kissaten / Automotive Pill Crest
     sCtx.save();
-    sCtx.translate(72, 80);
+    sCtx.translate(82, 80);
+
+    // Outer pill border (-52..+52 width, -32..+32 height, rx=32)
+    sCtx.fillStyle = '#09090B';
     sCtx.beginPath();
-    sCtx.arc(0, 0, 42, 0, Math.PI * 2);
-    sCtx.fillStyle = '#291c14';
+    sCtx.roundRect(-52, -32, 104, 64, 32);
     sCtx.fill();
-    sCtx.strokeStyle = accentHex;
-    sCtx.lineWidth = 4;
+    sCtx.strokeStyle = platGrad;
+    sCtx.lineWidth = 3.2;
     sCtx.stroke();
-    // Crema upper swirl & botanical green lower swirl
+
+    // Inner graphite double-border pill
+    sCtx.strokeStyle = '#52525B';
+    sCtx.lineWidth = 1.4;
     sCtx.beginPath();
-    sCtx.arc(0, 0, 34, -Math.PI / 2, Math.PI / 2);
-    sCtx.fillStyle = '#f5e6cc';
-    sCtx.fill();
+    sCtx.roundRect(-45, -25, 90, 50, 25);
+    sCtx.stroke();
+
+    // Horizontal automotive wing accents inside pill
+    sCtx.strokeStyle = '#A1A1AA';
+    sCtx.lineWidth = 2.0;
     sCtx.beginPath();
-    sCtx.arc(0, 0, 34, Math.PI / 2, (Math.PI * 3) / 2);
-    sCtx.fillStyle = '#2d6a4f';
-    sCtx.fill();
+    sCtx.moveTo(-36, 0);
+    sCtx.lineTo(-22, 0);
+    sCtx.moveTo(22, 0);
+    sCtx.lineTo(36, 0);
+    sCtx.stroke();
+
+    // 3-spoke steering wheel / vinyl ring
+    sCtx.strokeStyle = '#E4E4E7';
+    sCtx.lineWidth = 2.8;
     sCtx.beginPath();
-    sCtx.arc(0, -17, 17, 0, Math.PI * 2);
-    sCtx.fillStyle = '#f5e6cc';
-    sCtx.fill();
+    sCtx.arc(0, 0, 19, 0, Math.PI * 2);
+    sCtx.stroke();
+
+    sCtx.strokeStyle = '#A1A1AA';
+    sCtx.lineWidth = 2.0;
     sCtx.beginPath();
-    sCtx.arc(0, 17, 17, 0, Math.PI * 2);
-    sCtx.fillStyle = '#2d6a4f';
-    sCtx.fill();
+    sCtx.moveTo(-16, 0);
+    sCtx.lineTo(-9, 0);
+    sCtx.moveTo(9, 0);
+    sCtx.lineTo(16, 0);
+    sCtx.moveTo(0, 9);
+    sCtx.lineTo(0, 17);
+    sCtx.stroke();
+
+    // Crisp White Roasted Coffee Bean Hub with S-curve crease
+    sCtx.fillStyle = '#FFFFFF';
     sCtx.beginPath();
-    sCtx.arc(0, -17, 5, 0, Math.PI * 2);
-    sCtx.fillStyle = '#3b1d0e';
+    sCtx.ellipse(0, 0, 7.5, 10.5, 0.2, 0, Math.PI * 2);
     sCtx.fill();
+
+    sCtx.strokeStyle = '#09090B';
+    sCtx.lineWidth = 2.0;
+    sCtx.lineCap = 'round';
     sCtx.beginPath();
-    sCtx.arc(0, 17, 5, 0, Math.PI * 2);
-    sCtx.fillStyle = '#f5e6cc';
-    sCtx.fill();
+    sCtx.moveTo(-0.5, -7.5);
+    sCtx.bezierCurveTo(3.2, -3.0, -3.2, 3.0, 0.5, 7.5);
+    sCtx.stroke();
     sCtx.restore();
 
-    // Main Branding Text
-    sCtx.fillStyle = '#fef3c7';
-    sCtx.font = 'bold 46px Georgia, serif';
+    // Main Branding Wordmark ("KLASIK" + brushed-platinum "3D" pill badge)
+    sCtx.fillStyle = '#FFFFFF';
+    sCtx.font = '800 42px "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif';
     sCtx.textAlign = 'left';
-    sCtx.fillText('KLASIK 3D', 132, 74);
+    sCtx.fillText('KLASIK', 152, 74);
 
-    sCtx.fillStyle = '#e7d7c1';
-    sCtx.font = '600 16px sans-serif';
-    sCtx.fillText('GARAGE GARDEN CAFE', 134, 102);
+    // Brushed-platinum "3D" pill badge
+    const badgeX = 332;
+    const badgeY = 40;
+    const badgeW = 68;
+    const badgeH = 36;
+    const badgeGrad = sCtx.createLinearGradient(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH);
+    badgeGrad.addColorStop(0, '#F8FAFC');
+    badgeGrad.addColorStop(0.5, '#CBD5E1');
+    badgeGrad.addColorStop(0.78, '#FFFFFF');
+    badgeGrad.addColorStop(1, '#94A3B8');
+    sCtx.fillStyle = badgeGrad;
+    sCtx.beginPath();
+    sCtx.roundRect(badgeX, badgeY, badgeW, badgeH, 18);
+    sCtx.fill();
+    sCtx.fillStyle = '#09090B';
+    sCtx.font = '800 21px "Plus Jakarta Sans", sans-serif';
+    sCtx.textAlign = 'center';
+    sCtx.fillText('3D', badgeX + badgeW / 2, badgeY + 25);
 
-    // Glowing Directional Entrance Arrow
-    sCtx.fillStyle = accentHex;
-    sCtx.font = 'bold 20px monospace';
-    sCtx.fillText('ENTRANCE  →', 134, 134);
+    // Subtitle
+    sCtx.textAlign = 'left';
+    sCtx.fillStyle = '#A1A1AA';
+    sCtx.font = '600 15px "Plus Jakarta Sans", sans-serif';
+    sCtx.fillText('GARAGE GARDEN CAFE', 154, 102);
+
+    // Directional Entrance Indicator (uses theme accent softly blended with silver)
+    sCtx.fillStyle = accentHex === '#f59e0b' ? '#E4E4E7' : accentHex;
+    sCtx.font = '700 18px "Plus Jakarta Sans", monospace';
+    sCtx.fillText('ENTRANCE  →', 154, 132);
 
     this.hangingSignTexture.needsUpdate = true;
   }
@@ -2587,7 +2680,7 @@ export class KlasikCafeScene3D {
     patioFloor.receiveShadow = true;
     archGroup.add(patioFloor);
 
-    // Outer Neighborhood Ground Plane beneath sidewalk, street & highway
+    // Outer Neighborhood Ground Plane beneath sidewalk, street & highway (hidden on alpine/scenic maps with 360° skirts)
     const grassMat = new THREE.MeshStandardMaterial({
       color: 0x1e2c21,
       roughness: 0.92,
@@ -2595,6 +2688,7 @@ export class KlasikCafeScene3D {
     const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(68, 36), grassMat);
     grassPlane.rotation.x = -Math.PI / 2;
     grassPlane.position.set(0, -0.04, -22.0);
+    this.grassPlaneMesh = grassPlane;
     archGroup.add(grassPlane);
 
     // 3. Main Fluted-Timber & Brushed-Brass Barista Counter (Extended +1.15m Left Wing for Champy's Perch; Top strictly y = 1.00)
@@ -2701,6 +2795,41 @@ export class KlasikCafeScene3D {
       slat.position.set(i * 0.42, 2.58, 3.55);
       archGroup.add(slat);
     }
+
+    // Solid Exterior Cafe Shell Cladding & Grounded Foundation Plinth (zero hollow/floating corners from 360° outside view)
+    const exteriorCladdingMat = new THREE.MeshStandardMaterial({
+      color: 0x26211e,
+      roughness: 0.84,
+      metalness: 0.06,
+      side: THREE.DoubleSide,
+    });
+    const extFoundationPlinth = new THREE.Mesh(
+      new THREE.BoxGeometry(11.95, 0.34, 10.65),
+      concreteDadoMat
+    );
+    extFoundationPlinth.position.set(0, -0.16, -1.2);
+    archGroup.add(extFoundationPlinth);
+
+    const extLeftCladding = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 4.45, 10.65),
+      exteriorCladdingMat
+    );
+    extLeftCladding.position.set(-5.82, 2.22, -1.2);
+    archGroup.add(extLeftCladding);
+
+    const extRightCladding = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 4.45, 10.65),
+      exteriorCladdingMat
+    );
+    extRightCladding.position.set(5.82, 2.22, -1.2);
+    archGroup.add(extRightCladding);
+
+    const extRearCladding = new THREE.Mesh(
+      new THREE.BoxGeometry(11.82, 4.45, 0.22),
+      exteriorCladdingMat
+    );
+    extRearCladding.position.set(0, 2.22, 3.95);
+    archGroup.add(extRearCladding);
 
     // Framed Vintage Coffee & Roadster Posters on Left Showroom Wall
     const posterConfigs = [
@@ -3128,7 +3257,9 @@ export class KlasikCafeScene3D {
       archGroup.add(beam);
     });
 
-    // 7. Sculpted Boulevard Trees Flanking the Far Sidewalk & Side Garden Margins (clear of road lanes!)
+    // 7. Urban Boulevard Trees (grouped separately so alpine/nature sceneries cleanly hide urban round city trees!)
+    this.urbanBoulevardTreesGroup = new THREE.Group();
+    this.urbanBoulevardTreesGroup.name = 'urban_boulevard_trees';
     const barkMat = new THREE.MeshStandardMaterial({ color: 0x3f2514, roughness: 0.9 });
     const canopyShades = [0x1b5e36, 0x266d3e, 0x357a44, 0x204e2e].map(
       (hex) => new THREE.MeshStandardMaterial({ color: hex, roughness: 0.72 })
@@ -3172,8 +3303,9 @@ export class KlasikCafeScene3D {
 
       tree.position.set(tx, 0, tz);
       tree.scale.setScalar(sc);
-      archGroup.add(tree);
+      this.urbanBoulevardTreesGroup.add(tree);
     });
+    archGroup.add(this.urbanBoulevardTreesGroup);
 
     // 8. Architectural Interior Botanical Planters (kept strictly clear of the x=-1.15 swinging entrance doorway!)
     const planterSpecs: Array<{
@@ -3400,8 +3532,8 @@ export class KlasikCafeScene3D {
     // Movable Miata Roadster Group (parks cleanly outside storefront on Title Screen; returns to showroom plinth indoors)
     this.miataGroup = new THREE.Group();
     if (this.gameState.phase === 'title') {
-      this.miataGroup.position.set(-3.35, 0.08, -8.45);
-      this.miataGroup.rotation.y = 1.32;
+      this.miataGroup.position.set(-3.55, 0.08, -8.68);
+      this.miataGroup.rotation.y = 1.36;
     } else {
       this.miataGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
       this.miataGroup.rotation.y = MIATA_BAY.rotationY;
@@ -3641,19 +3773,31 @@ export class KlasikCafeScene3D {
     this.miataLeftPopupGroup = buildPopupHeadlight(-0.46);
     this.miataRightPopupGroup = buildPopupHeadlight(0.46);
 
-    // Warm Halogen Light Beams Extending from Pop-Up Headlights
+    // Warm Halogen Light Beams Extending FORWARD from Pop-Up Headlight Lenses (apex at lens, pitched ~-8° onto street ahead)
     this.miataHeadlightBeamsGroup = new THREE.Group();
     const beamConeMat = new THREE.MeshBasicMaterial({
       color: 0xfef08a,
       transparent: true,
       opacity: 0.14,
+      blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
+    const beamLength = 1.75;
+    const beamPitch = 0.14; // ~8 deg downward toward pavement
     [-0.46, 0.46].forEach((bx) => {
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.65, 16, 1, true), beamConeMat);
-      cone.rotation.x = Math.PI / 2 + 0.14;
-      cone.position.set(bx, 0.52, 2.28);
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.38, beamLength, 16, 1, true),
+        beamConeMat
+      );
+      // ConeGeometry apex is at +Y (+beamLength/2) and wide mouth is at -Y (-beamLength/2).
+      // Rotating X by (-PI/2 + 0.14) maps +Y apex to (-Z, +Y_pitch) at the halogen lens and projects the wide beam FORWARD (+Z) downward onto the road.
+      cone.rotation.x = -Math.PI / 2 + beamPitch;
+      cone.position.set(
+        bx,
+        0.635 - Math.sin(beamPitch) * (beamLength * 0.5),
+        1.538 + Math.cos(beamPitch) * (beamLength * 0.5)
+      );
       this.miataHeadlightBeamsGroup.add(cone);
     });
     this.miataGroup.add(this.miataHeadlightBeamsGroup);
@@ -4211,6 +4355,7 @@ export class KlasikCafeScene3D {
       roughness: 0.84,
       metalness: 0.04,
     });
+    this.nearSidewalkMat = sidewalkMat;
     const curbMat = new THREE.MeshStandardMaterial({
       color: 0x6b7280,
       roughness: 0.88,
@@ -4229,7 +4374,7 @@ export class KlasikCafeScene3D {
       roughness: 0.72,
     });
 
-    // Layer 1: Raised Concrete Pedestrian Sidewalk (z = -7.2 to -9.2) & Painted Curb
+    // Layer 1: Raised Pedestrian Sidewalk (z = -7.2 to -9.2) & Curb (tinted per biome/snow)
     const nearSidewalk = new THREE.Mesh(new THREE.BoxGeometry(38, 0.12, 2.0), sidewalkMat);
     nearSidewalk.position.set(0, 0.02, -8.2);
     nearSidewalk.receiveShadow = true;
@@ -4269,12 +4414,14 @@ export class KlasikCafeScene3D {
       depthWrite: false,
     });
     this.streetLampGlowsGroup = new THREE.Group();
+    this.urbanStreetLampsGroup = new THREE.Group();
+    this.urbanStreetLampsGroup.name = 'urban_street_lamps';
 
     const coneGeo = new THREE.CylinderGeometry(0.16, 1.55, 3.38, 14, 1, true);
     const poolGeo = new THREE.CircleGeometry(1.65, 16);
     poolGeo.rotateX(-Math.PI / 2);
 
-    // Warm Minimalist Streetlamps along the Near Sidewalk Curb (with Night Volumetric Light Cones + Sidewalk Pools)
+    // Warm Minimalist Urban Streetlamps along the Near Sidewalk Curb (urban sceneries only)
     [-5.4, 0.55, 5.8].forEach((lx) => {
       const lampGroup = new THREE.Group();
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 3.6, 8), darkSteelMat);
@@ -4301,7 +4448,7 @@ export class KlasikCafeScene3D {
       lampGroup.add(globe);
 
       lampGroup.position.set(lx, 0.08, -8.95);
-      extGroup.add(lampGroup);
+      this.urbanStreetLampsGroup.add(lampGroup);
 
       // Volumetric downward cone & sidewalk glow pool
       const lightCone = new THREE.Mesh(coneGeo, this.streetLampConeMat);
@@ -4315,9 +4462,12 @@ export class KlasikCafeScene3D {
       this.streetLampGlowsGroup.add(lightPool);
     });
     this.streetLampGlowsGroup.visible = false;
-    extGroup.add(this.streetLampGlowsGroup);
+    this.urbanStreetLampsGroup.add(this.streetLampGlowsGroup);
+    extGroup.add(this.urbanStreetLampsGroup);
 
-    // Layer 2: Single Clean Two-Lane Neighborhood Avenue (z = -9.3 to -15.8) with Wet-Specular Asphalt
+    // Layer 2: Urban Two-Lane Neighborhood Avenue + Zebra Crosswalk (hidden on alpine/nature sceneries)
+    this.urbanRoadAndCrosswalkGroup = new THREE.Group();
+    this.urbanRoadAndCrosswalkGroup.name = 'urban_road_and_crosswalk';
     this.roadAsphaltMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: this.roadAsphaltTexture,
@@ -4328,7 +4478,7 @@ export class KlasikCafeScene3D {
     avenueRoad.rotation.x = -Math.PI / 2;
     avenueRoad.position.set(0, 0.0, -12.55);
     avenueRoad.receiveShadow = true;
-    extGroup.add(avenueRoad);
+    this.urbanRoadAndCrosswalkGroup.add(avenueRoad);
 
     // Pedestrian Crosswalk Stripes near Cafe Corner (x = -4.2)
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.72 });
@@ -4336,17 +4486,55 @@ export class KlasikCafeScene3D {
       const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 0.42), stripeMat);
       stripe.rotation.x = -Math.PI / 2;
       stripe.position.set(-4.2, 0.008, -10.0 - s * 1.0);
-      extGroup.add(stripe);
+      this.urbanRoadAndCrosswalkGroup.add(stripe);
     }
 
     // Opposite Far Sidewalk (z = -15.8 to -17.8) & Curb
     const farCurb = new THREE.Mesh(new THREE.BoxGeometry(46, 0.14, 0.16), curbMat);
     farCurb.position.set(0, 0.03, -15.82);
-    extGroup.add(farCurb);
+    this.urbanRoadAndCrosswalkGroup.add(farCurb);
 
     const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(46, 0.12, 2.2), sidewalkMat);
     farSidewalk.position.set(0, 0.02, -16.9);
-    extGroup.add(farSidewalk);
+    this.urbanRoadAndCrosswalkGroup.add(farSidewalk);
+    extGroup.add(this.urbanRoadAndCrosswalkGroup);
+
+    // Layer 2b: Nature / Alpine / Historic Terrace Apron (replaces urban asphalt & crosswalk on non-urban maps!)
+    this.natureWalkwayApronGroup = new THREE.Group();
+    this.natureWalkwayApronGroup.name = 'nature_walkway_apron';
+    this.natureApronMat = new THREE.MeshStandardMaterial({
+      color: 0xe6eff8,
+      roughness: 0.9,
+      metalness: 0.02,
+    });
+    const natureApron = new THREE.Mesh(new THREE.BoxGeometry(62, 0.14, 9.2), this.natureApronMat);
+    natureApron.position.set(0, 0.01, -13.4);
+    natureApron.receiveShadow = true;
+    this.natureWalkwayApronGroup.add(natureApron);
+
+    // Rustic timber mountain lantern posts flanking the walkway (alpine/nature equivalent of streetlamps)
+    const timberPostMat = new THREE.MeshStandardMaterial({ color: 0x5c3c24, roughness: 0.85 });
+    const timberLanternMat = new THREE.MeshStandardMaterial({
+      color: 0xfffbeb,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 1.4,
+      roughness: 0.25,
+    });
+    this.streetLampBulbMats.push(timberLanternMat);
+    [-5.4, 0.55, 5.8].forEach((lx) => {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 2.3, 7), timberPostMat);
+      post.position.set(lx, 1.2, -9.05);
+      this.natureWalkwayApronGroup.add(post);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.18, 4), darkSteelMat);
+      cap.rotation.y = Math.PI / 4;
+      cap.position.set(lx, 2.52, -9.05);
+      this.natureWalkwayApronGroup.add(cap);
+      const bulb = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.24, 6), timberLanternMat);
+      bulb.position.set(lx, 2.34, -9.05);
+      this.natureWalkwayApronGroup.add(bulb);
+    });
+    this.natureWalkwayApronGroup.visible = false;
+    extGroup.add(this.natureWalkwayApronGroup);
 
     // Layer 3: Swappable Outdoor Sceneries 1..9 are mounted dynamically by SceneryManager starting at z <= -16.2!
     // Retain lightweight dummy material refs so legacy weather checks never throw.
@@ -4399,15 +4587,129 @@ export class KlasikCafeScene3D {
     this.scene.add(this.snowPoints);
   }
 
-  private syncTrafficVisibilityForScenery() {
+  /**
+   * Phase C: Synchronizes Biome Prop Hygiene (urban vs alpine/nature) and Inside vs. Outside
+   * Adaptive Performance LOD (traffic density, pedestrian density, outdoor-only props, clouds & birds).
+   */
+  private syncOutdoorBiomeAndLod(force = false) {
     const sc = this.gameState.activeScenery || 'busy_street';
-    const allowStreetTraffic = sc === 'busy_street' || sc === 'cyberpunk_neon';
-    const isLow = this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
-    const isMed = this.gameState.graphicsQuality === 'medium';
-    const maxStreet = allowStreetTraffic ? (isLow ? 2 : isMed ? 4 : 6) : 0;
-    this.trafficPool.forEach((v, idx) => {
-      v.group.visible = idx < maxStreet;
+    const isPlayerOutside = this.outdoorOverlook.active || this.gameState.phase === 'title';
+    const isWinter =
+      this.gameState.climateState === 'winter' ||
+      Boolean(this.gameState.isSnowing) ||
+      sc === 'mt_everest';
+    const quality = this.gameState.graphicsQuality;
+    const key = `${sc}|${isPlayerOutside ? 1 : 0}|${isWinter ? 1 : 0}|${quality}`;
+    if (!force && key === this.lastOutdoorLodKey) return;
+    this.lastOutdoorLodKey = key;
+
+    // 1. Biome Prop Hygiene: Hide urban round trees, city streetlamps, and asphalt crosswalk on alpine/nature maps!
+    const urban = isUrbanStreetScenery(sc);
+    if (this.urbanBoulevardTreesGroup) {
+      this.urbanBoulevardTreesGroup.visible = sc === 'busy_street' || sc === 'brazilian_favela';
+    }
+    if (this.urbanStreetLampsGroup) {
+      this.urbanStreetLampsGroup.visible = urban;
+    }
+    if (this.urbanRoadAndCrosswalkGroup) {
+      this.urbanRoadAndCrosswalkGroup.visible = urban;
+    }
+    if (this.natureWalkwayApronGroup) {
+      this.natureWalkwayApronGroup.visible = !urban;
+    }
+    if (this.grassPlaneMesh) {
+      this.grassPlaneMesh.visible = false; // 360° biome ground skirts replace the small static grass rectangle!
+    }
+    if (this.natureApronMat) {
+      const apronHex =
+        sc === 'mt_everest' || (sc === 'switzerland_hilltop' && isWinter)
+          ? 0xebf4ff
+          : sc === 'switzerland_hilltop'
+          ? 0x7c867b
+          : sc === 'japanese_tranquility'
+          ? 0x5c6066
+          : sc === 'mayon_volcano'
+          ? 0x6f745c
+          : 0x4b5553;
+      this.natureApronMat.color.setHex(apronHex);
+    }
+    if (this.nearSidewalkMat) {
+      const swHex =
+        sc === 'mt_everest' || (isWinter && (sc === 'switzerland_hilltop' || sc === 'eiffel_tower'))
+          ? 0xdce9f7
+          : sc === 'cyberpunk_neon'
+          ? 0x262d42
+          : sc === 'japanese_tranquility'
+          ? 0x727579
+          : 0x9ca3af;
+      this.nearSidewalkMat.color.setHex(swHex);
+    }
+
+    // 2. Compute Inside vs. Outside Adaptive Performance LOD Budgets
+    const budgets = getOutdoorLodBudgets({
+      isPlayerOutside,
+      graphicsQuality: quality,
+      isSoftwareGl: this.isSoftwareGl,
+      sceneryId: sc,
     });
+
+    // 3. Apply Traffic Pool LOD Budget (alternating indices preserve balanced Eastbound/Westbound lanes!)
+    this.trafficPool.forEach((v, idx) => {
+      v.group.visible = idx < budgets.maxTraffic;
+    });
+
+    // 4. Apply Pedestrian Pool LOD Budget & Outdoor-Only Scenery Behaviors
+    const behaviorPool = getSceneryOutdoorBehaviors(sc);
+    this.pedestrianPool.forEach((p, idx) => {
+      p.actor.group.visible = idx < budgets.maxPedestrians;
+      const assignedBehavior: OutdoorNpcBehavior = budgets.enableRichNpcBehaviors
+        ? behaviorPool[idx % behaviorPool.length]
+        : 'plain_stroll';
+      p.behavior = assignedBehavior;
+      p.speed =
+        assignedBehavior === 'jogger'
+          ? p.baseSpeed * 1.55
+          : assignedBehavior === 'phone_browse' || assignedBehavior === 'lantern_stroll'
+          ? p.baseSpeed * 0.78
+          : p.baseSpeed;
+
+      // Toggle outdoor-only behavior props cleanly (all hidden when inside cafe!)
+      p.actor.heldCup.visible =
+        budgets.enableRichNpcBehaviors && assignedBehavior === 'coffee_stroll';
+      p.actor.phoneMesh.visible =
+        budgets.enableRichNpcBehaviors &&
+        (assignedBehavior === 'phone_browse' ||
+          assignedBehavior === 'phone_call' ||
+          assignedBehavior === 'tourist_photo');
+      if (p.dogRig) {
+        p.dogRig.root.visible =
+          budgets.enableRichNpcBehaviors && assignedBehavior === 'dog_walker';
+      }
+      if (p.lanternGroup) {
+        p.lanternGroup.visible =
+          budgets.enableRichNpcBehaviors && assignedBehavior === 'lantern_stroll';
+      }
+      if (p.hikerGear) {
+        p.hikerGear.visible =
+          budgets.enableRichNpcBehaviors && assignedBehavior === 'everest_hiker';
+      }
+      if (p.neonUmbrella) {
+        p.neonUmbrella.visible =
+          budgets.enableRichNpcBehaviors && assignedBehavior === 'neon_umbrella';
+      }
+      if (p.footballMesh) {
+        p.footballMesh.visible =
+          budgets.enableRichNpcBehaviors && assignedBehavior === 'favela_football';
+      }
+      if (!budgets.enableRichNpcBehaviors) {
+        p.pauseTimer = 0;
+      }
+    });
+
+    // 5. Outdoor-only 3D Clouds & Bird Flocks (paused & hidden when inside brewing)
+    if (this.outdoorSkyLifeGroup) {
+      this.outdoorSkyLifeGroup.visible = budgets.showCloudsAndBirds;
+    }
   }
 
   // Phase 3.3: Relocated Exterior Wrought-Iron Double-Sided Hanging Blade Sign beside Entrance Door
@@ -4747,7 +5049,7 @@ export class KlasikCafeScene3D {
       pastryCaseGroup.add(slotGroup);
     });
 
-    pastryCaseGroup.position.set(-1.86, 1.0, 0.22);
+    pastryCaseGroup.position.set(-1.90, 1.0, 0.16);
     st1Group.add(pastryCaseGroup);
 
     // 3. Overhead Glowing & Clickable Hanging Order Tickets (x = -2.28 to -1.68, y = 1.82)
@@ -5677,10 +5979,10 @@ export class KlasikCafeScene3D {
     bodyPivot.add(anchorTorso);
 
     const anchorSpinePoints: THREE.Group[] = [
-      new THREE.Vector3(0, 0.22, -0.015),
-      new THREE.Vector3(0, 0.185, -0.058),
-      new THREE.Vector3(0, 0.14, -0.086),
-      new THREE.Vector3(0, 0.092, -0.102),
+      new THREE.Vector3(0, 0.218, -0.072),
+      new THREE.Vector3(0, 0.178, -0.106),
+      new THREE.Vector3(0, 0.128, -0.124),
+      new THREE.Vector3(0, 0.076, -0.122),
     ].map((pt, idx) => {
       const node = new THREE.Group();
       node.name = `anchor_spine_point_${idx}`;
@@ -5689,9 +5991,36 @@ export class KlasikCafeScene3D {
       return node;
     });
 
+    // Phase B: Measure actual cat rig anatomy directly from the procedural meshes
+    const rigDimensions = {
+      torsoRadiusX: 0.095 * torsoMesh.scale.x,
+      torsoRadiusY: 0.095 * torsoMesh.scale.y,
+      torsoRadiusZ: 0.095 * torsoMesh.scale.z,
+      torsoCenterY: torsoMesh.position.y,
+      torsoCenterZ: torsoMesh.position.z,
+      torsoPitch: anchorTorso.rotation.x,
+      chestRadiusX: 0.068 * chestMesh.scale.x,
+      chestRadiusY: 0.068 * chestMesh.scale.y,
+      chestRadiusZ: 0.068 * chestMesh.scale.z,
+      chestCenterY: chestMesh.position.y,
+      chestCenterZ: chestMesh.position.z,
+      headRadius: 0.072,
+      neckY: collarMesh.position.y,
+      tailBasePos: [tailBase.position.x, tailBase.position.y, tailBase.position.z] as readonly [number, number, number],
+      rootScale: [spec.scale[0], spec.scale[1], spec.scale[2]] as readonly [number, number, number],
+    };
+
     const cosmeticsController = attachCatCosmeticsRig(
       catId,
-      { anchorEyes, anchorHeadTop, anchorNeck, anchorTorso, anchorSpinePoints },
+      {
+        anchorEyes,
+        anchorHeadTop,
+        anchorNeck,
+        anchorTorso,
+        anchorSpinePoints,
+        bodyRoot: bodyPivot,
+        rigDimensions,
+      },
       (showBaseCollar) => {
         collarMesh.visible = spec.hasCollar && showBaseCollar;
         collarBell.visible = spec.hasCollar && spec.hasBell && showBaseCollar;
@@ -7471,21 +7800,21 @@ export class KlasikCafeScene3D {
       new THREE.CylinderGeometry(0.038, 0.043, 0.014, 18),
       bellBaseMat
     );
-    bellFoot.position.set(-0.16, 0.007, 0.04);
+    bellFoot.position.set(0.21, 0.007, 0.06);
     serveTrayGroup.add(bellFoot);
 
     const bellDome = new THREE.Mesh(
       new THREE.SphereGeometry(0.034, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
       brassMat
     );
-    bellDome.position.set(-0.16, 0.014, 0.04);
+    bellDome.position.set(0.21, 0.014, 0.06);
     serveTrayGroup.add(bellDome);
 
     const bellPlunger = new THREE.Mesh(
       new THREE.CylinderGeometry(0.007, 0.007, 0.009, 10),
       brassMat
     );
-    bellPlunger.position.set(-0.16, 0.051, 0.04);
+    bellPlunger.position.set(0.21, 0.051, 0.06);
     serveTrayGroup.add(bellPlunger);
 
     // Expanding Golden Bell Ring Ripple Mesh
@@ -7499,7 +7828,7 @@ export class KlasikCafeScene3D {
       })
     );
     this.bellRippleRingMesh.rotation.x = -Math.PI / 2;
-    this.bellRippleRingMesh.position.set(-0.16, 0.065, 0.04);
+    this.bellRippleRingMesh.position.set(0.21, 0.065, 0.06);
     this.bellRippleRingMesh.visible = false;
     serveTrayGroup.add(this.bellRippleRingMesh);
 
@@ -7538,9 +7867,9 @@ export class KlasikCafeScene3D {
     );
     st4Group.add(serveTrayGroup);
 
-    // Phase 0.4 & 6: Staged Prepared Pastry in unobstructed front-center spot beside Pastry Showcase & Serve Coaster!
+    // Phase A.1: Staged Prepared Pastry Plate centered in open gap between Pastry Showcase (-1.90, 0.16) & Pickup Coaster (-1.32, 0.34) with >= 0.10 unit clearance
     this.preparedPastryStageGroup = new THREE.Group();
-    this.preparedPastryStageGroup.position.set(-1.58, 1.0, 0.34);
+    this.preparedPastryStageGroup.position.set(-1.59, 1.0, 0.53);
     this.preparedPastryStageGroup.visible = false;
 
     this.preparedPlateGroup = new THREE.Group();
@@ -7597,9 +7926,9 @@ export class KlasikCafeScene3D {
     this.pastryReturnRingMesh.position.y = 0.004;
     this.preparedPastryStageGroup.add(this.pastryReturnRingMesh);
 
-    // Phase 0.4 & 1.3: Expanded 1.45x top-priority touch hitbox for effortless mobile tapping
+    // Phase A.1: Aligned unobstructed touch collider centered directly over the Pastry Serving Plate
     const plateHit = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.16, 0.16, 0.16, 14),
+      new THREE.CylinderGeometry(0.115, 0.115, 0.16, 14),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
     plateHit.position.y = 0.08;
@@ -8405,12 +8734,28 @@ export class KlasikCafeScene3D {
 
   private buildOutdoorPedestrianPool() {
     const pedProfiles = [
-      { seed: 101, skin: '#f3d2b3', shirt: '#3b82f6', laneZ: -7.95, x: -7.5, dir: 1 as const, speed: 1.18 },
-      { seed: 207, skin: '#c68642', shirt: '#10b981', laneZ: -8.55, x: 5.2, dir: -1 as const, speed: 1.32 },
+      { seed: 101, skin: '#f3d2b3', shirt: '#3b82f6', laneZ: -7.95, x: -9.5, dir: 1 as const, speed: 1.18 },
+      { seed: 207, skin: '#c68642', shirt: '#10b981', laneZ: -8.55, x: 5.2, dir: -1 as const, speed: 1.28 },
       { seed: 313, skin: '#f1c27d', shirt: '#f43f5e', laneZ: -16.45, x: -3.2, dir: 1 as const, speed: 1.12 },
-      { seed: 419, skin: '#8d5524', shirt: '#f59e0b', laneZ: -8.2, x: 11.0, dir: -1 as const, speed: 1.24 },
+      { seed: 419, skin: '#8d5524', shirt: '#f59e0b', laneZ: -8.25, x: 11.2, dir: -1 as const, speed: 1.22 },
       { seed: 523, skin: '#ffdbac', shirt: '#8b5cf6', laneZ: -16.85, x: 7.4, dir: -1 as const, speed: 1.08 },
+      { seed: 631, skin: '#d8a373', shirt: '#06b6d4', laneZ: -16.35, x: -11.5, dir: 1 as const, speed: 1.16 },
+      { seed: 743, skin: '#e0ac69', shirt: '#ec4899', laneZ: -8.45, x: -2.4, dir: 1 as const, speed: 1.2 },
+      { seed: 857, skin: '#a86b3c', shirt: '#eab308', laneZ: -16.7, x: 12.6, dir: -1 as const, speed: 1.14 },
     ];
+
+    const dogFurColors = [0xc28b4e, 0xe7d3b7, 0x6b4423, 0x3f3f46];
+    const leashMat = new THREE.MeshBasicMaterial({ color: 0x18181b });
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.6 });
+    const packMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.75 });
+    const lanternPaperMat = new THREE.MeshStandardMaterial({
+      color: 0xffedd5,
+      emissive: 0xf97316,
+      emissiveIntensity: 1.65,
+      roughness: 0.35,
+    });
+    const neonUmbrellaColors = [0x06b6d4, 0xec4899, 0xa855f7];
+    const ballMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.6 });
 
     this.pedestrianPool = [];
     pedProfiles.forEach((cfg, idx) => {
@@ -8420,17 +8765,106 @@ export class KlasikCafeScene3D {
         cfg.shirt,
         'casual-garden'
       );
+      actor.activitySprite.visible = false;
+      actor.phoneMesh.visible = false;
+      actor.heldCup.visible = false;
+      const pedVessel: CupVesselType = idx % 2 === 0 ? 'hot-takeout' : 'iced-takeout';
+      actor.appliedVesselType = pedVessel;
+      this.setVesselVariantVisibility(actor.heldVesselVariants, pedVessel);
+
+      // 1. Optional Outdoor Dog Walker Companion + Thin Leash (attached to actor.group local +Z forward)
+      const dogRoot = new THREE.Group();
+      const furMat = new THREE.MeshStandardMaterial({
+        color: dogFurColors[idx % dogFurColors.length],
+        roughness: 0.85,
+      });
+      const dBody = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.36), furMat);
+      dBody.position.set(0.26, 0.22, 0.72);
+      dogRoot.add(dBody);
+      const dHead = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.15), furMat);
+      dHead.position.set(0.26, 0.31, 0.92);
+      dogRoot.add(dHead);
+      const dTail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 0.04), furMat);
+      dTail.position.set(0.26, 0.31, 0.54);
+      dTail.rotation.x = -0.45;
+      dogRoot.add(dTail);
+      const dLegs: THREE.Mesh[] = [];
+      [
+        [-0.06, 0.12],
+        [0.06, 0.12],
+        [-0.06, -0.12],
+        [0.06, -0.12],
+      ].forEach(([lx, lz]) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.15, 0.045), furMat);
+        leg.position.set(0.26 + lx, 0.08, 0.72 + lz);
+        dogRoot.add(leg);
+        dLegs.push(leg);
+      });
+      const leash = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.78, 5), leashMat);
+      leash.position.set(0.22, 0.56, 0.44);
+      leash.rotation.x = 0.78;
+      dogRoot.add(leash);
+      dogRoot.visible = false;
+      actor.group.add(dogRoot);
+
+      // 2. Japanese Tranquility Glowing Paper Lantern carried ahead on right hand
+      const lanternGroup = new THREE.Group();
+      const lStick = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.012, 0.42, 6), poleMat);
+      lStick.rotation.x = Math.PI / 2;
+      lStick.position.set(0, -0.14, 0.22);
+      lanternGroup.add(lStick);
+      const lBulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 7), lanternPaperMat);
+      lBulb.scale.set(0.85, 1.35, 0.85);
+      lBulb.position.set(0, -0.26, 0.42);
+      lanternGroup.add(lBulb);
+      lanternGroup.visible = false;
+      actor.rightElbowJoint.add(lanternGroup);
+
+      // 3. Mt. Everest Hiker Backpack + Trekking Pole
+      const hikerGear = new THREE.Group();
+      const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.18), packMat);
+      backpack.position.set(0, 0.24, -0.18);
+      hikerGear.add(backpack);
+      const trekkingPole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.01, 1.05, 6), poleMat);
+      trekkingPole.position.set(0.26, -0.02, 0.26);
+      trekkingPole.rotation.x = 0.22;
+      hikerGear.add(trekkingPole);
+      hikerGear.visible = false;
+      actor.torsoGroup.add(hikerGear);
+
+      // 4. Cyberpunk Translucent Neon Umbrella
+      const neonUmbrella = new THREE.Group();
+      const nuShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.92, 6), poleMat);
+      nuShaft.position.set(0, 0.46, 0);
+      neonUmbrella.add(nuShaft);
+      const nuCanopyMat = new THREE.MeshStandardMaterial({
+        color: neonUmbrellaColors[idx % neonUmbrellaColors.length],
+        emissive: neonUmbrellaColors[idx % neonUmbrellaColors.length],
+        emissiveIntensity: 0.95,
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+        roughness: 0.2,
+      });
+      const nuCanopy = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.22, 8, 1, true), nuCanopyMat);
+      nuCanopy.position.set(0, 0.9, 0);
+      neonUmbrella.add(nuCanopy);
+      neonUmbrella.position.set(-0.22, 0.72, 0.08);
+      neonUmbrella.visible = false;
+      actor.torsoGroup.add(neonUmbrella);
+
+      // 5. Brazilian Favela Football tucked under right arm
+      const footballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.115, 9, 8), ballMat);
+      footballMesh.position.set(0.08, -0.18, 0.06);
+      footballMesh.visible = false;
+      actor.rightElbowJoint.add(footballMesh);
+
       actor.group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           child.castShadow = false;
         }
       });
-      actor.activitySprite.visible = false;
-      actor.phoneMesh.visible = false;
-      actor.heldCup.visible = idx % 2 === 0;
-      const pedVessel: CupVesselType = idx % 4 === 0 ? 'hot-takeout' : 'iced-takeout';
-      actor.appliedVesselType = pedVessel;
-      this.setVesselVariantVisibility(actor.heldVesselVariants, pedVessel);
+
       actor.group.position.set(cfg.x, 0.08, cfg.laneZ);
       actor.group.rotation.y = cfg.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
       this.scene.add(actor.group);
@@ -8438,12 +8872,21 @@ export class KlasikCafeScene3D {
       this.pedestrianPool.push({
         actor,
         laneZ: cfg.laneZ,
+        currentZ: cfg.laneZ,
         x: cfg.x,
         dir: cfg.dir,
         speed: cfg.speed,
+        baseSpeed: cfg.speed,
         walkPhase: idx * 1.3,
         pauseTimer: 0,
+        pauseCooldown: 2 + idx * 1.4,
         glancePhase: idx * 0.9,
+        behavior: 'plain_stroll',
+        dogRig: { root: dogRoot, legs: dLegs, tail: dTail },
+        lanternGroup,
+        hikerGear,
+        neonUmbrella,
+        footballMesh,
       });
     });
   }
@@ -8618,13 +9061,13 @@ export class KlasikCafeScene3D {
       speed: number;
       isHighway: boolean;
     }> = [
-      // Single Ground-Level Two-Lane Neighborhood Avenue (6 pooled vehicles: 3 eastbound, 3 westbound)
-      { variant: 'keivan', color: 0xfef3c7, laneZ: -11.05, laneY: 0.02, x: -3.2, dir: 1, speed: 4.3, isHighway: false },
-      { variant: 'hatchback', color: 0x3b82f6, laneZ: -13.75, laneY: 0.02, x: 4.2, dir: -1, speed: 4.9, isHighway: false },
-      { variant: 'sedan', color: 0x94a3b8, laneZ: -11.05, laneY: 0.02, x: -13.0, dir: 1, speed: 4.6, isHighway: false },
-      { variant: 'coupe', color: 0xef4444, laneZ: -13.75, laneY: 0.02, x: -9.5, dir: -1, speed: 5.5, isHighway: false },
-      { variant: 'hatchback', color: 0x10b981, laneZ: -11.05, laneY: 0.02, x: 11.5, dir: 1, speed: 4.5, isHighway: false },
-      { variant: 'keivan', color: 0xf97316, laneZ: -13.75, laneY: 0.02, x: 15.0, dir: -1, speed: 4.2, isHighway: false },
+      // Strict Two-Lane Opposing Traffic (3 Near-Lane Eastbound +X on z=-11.05, 3 Far-Lane Westbound -X on z=-13.75; >=14u spacing!)
+      { variant: 'keivan', color: 0xfef3c7, laneZ: -11.05, laneY: 0.02, x: -16.0, dir: 1, speed: 4.5, isHighway: false },
+      { variant: 'hatchback', color: 0x3b82f6, laneZ: -13.75, laneY: 0.02, x: 16.0, dir: -1, speed: 4.8, isHighway: false },
+      { variant: 'sedan', color: 0x94a3b8, laneZ: -11.05, laneY: 0.02, x: -1.0, dir: 1, speed: 4.5, isHighway: false },
+      { variant: 'coupe', color: 0xef4444, laneZ: -13.75, laneY: 0.02, x: 0.5, dir: -1, speed: 4.8, isHighway: false },
+      { variant: 'hatchback', color: 0x10b981, laneZ: -11.05, laneY: 0.02, x: 14.5, dir: 1, speed: 4.5, isHighway: false },
+      { variant: 'keivan', color: 0xf97316, laneZ: -13.75, laneY: 0.02, x: -15.0, dir: -1, speed: 4.8, isHighway: false },
     ];
 
     this.trafficPool = [];
@@ -8644,6 +9087,101 @@ export class KlasikCafeScene3D {
         isHighway: def.isHighway,
       });
     });
+  }
+
+  // Phase C.4: Outdoor-Only Living Sky (Dynamic Drifting 3D Cloud Clusters + Flying Bird Flocks; active only when outside!)
+  private buildOutdoorAtmosphereLife() {
+    this.outdoorSkyLifeGroup = new THREE.Group();
+    this.outdoorSkyLifeGroup.name = 'outdoor_sky_life_lod';
+
+    this.cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: 0.96,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const puffGeo = new THREE.DodecahedronGeometry(1.0, 1);
+    this.driftingClouds = [];
+
+    for (let c = 0; c < 10; c++) {
+      const cluster = new THREE.Group();
+      const puffCount = 3 + (c % 3);
+      for (let p = 0; p < puffCount; p++) {
+        const puff = new THREE.Mesh(puffGeo, this.cloudMat);
+        const rx = (p - (puffCount - 1) / 2) * 2.6;
+        const ry = p === Math.floor(puffCount / 2) ? 0.75 : 0.0;
+        const rz = ((p % 2) - 0.5) * 1.4;
+        const sc = p === Math.floor(puffCount / 2) ? 2.8 : 2.0 + (p % 2) * 0.4;
+        puff.position.set(rx, ry, rz);
+        puff.scale.set(sc * 1.35, sc * 0.52, sc * 0.92);
+        puff.castShadow = false;
+        cluster.add(puff);
+      }
+      const startX = -68 + c * 15.2;
+      const baseY = 23 + (c % 4) * 3.8;
+      const z = -26 - (c % 5) * 16;
+      cluster.position.set(startX, baseY, z);
+      this.outdoorSkyLifeGroup.add(cluster);
+      this.driftingClouds.push({
+        group: cluster,
+        speed: 0.75 + (c % 3) * 0.28,
+        baseY,
+        phase: c * 1.1,
+      });
+    }
+
+    // Two graceful V-formation flying bird flocks
+    const birdMat = new THREE.MeshBasicMaterial({
+      color: 0x1e293b,
+      side: THREE.DoubleSide,
+    });
+    const wingGeo = new THREE.PlaneGeometry(0.46, 0.16);
+    wingGeo.translate(0.23, 0, 0);
+    const bodyGeo = new THREE.ConeGeometry(0.055, 0.34, 5);
+    bodyGeo.rotateX(Math.PI / 2);
+
+    this.birdFlocks = [];
+    for (let f = 0; f < 2; f++) {
+      const flockGroup = new THREE.Group();
+      const dir: 1 | -1 = f === 0 ? 1 : -1;
+      const birds: Array<{ root: THREE.Group; wingL: THREE.Mesh; wingR: THREE.Mesh; phase: number }> = [];
+      for (let b = 0; b < 5; b++) {
+        const bird = new THREE.Group();
+        const body = new THREE.Mesh(bodyGeo, birdMat);
+        bird.add(body);
+        const wingL = new THREE.Mesh(wingGeo, birdMat);
+        wingL.rotation.x = Math.PI / 2;
+        wingL.scale.x = -1;
+        bird.add(wingL);
+        const wingR = new THREE.Mesh(wingGeo, birdMat);
+        wingR.rotation.x = Math.PI / 2;
+        bird.add(wingR);
+
+        // V-formation offset
+        const rank = Math.ceil(b / 2);
+        const side = b === 0 ? 0 : b % 2 === 1 ? -1 : 1;
+        bird.position.set(-rank * 1.1 * dir, side * 0.18, side * rank * 0.95);
+        bird.rotation.y = dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+        flockGroup.add(bird);
+        birds.push({ root: bird, wingL, wingR, phase: b * 0.85 + f * 2.1 });
+      }
+      const baseY = 14.5 + f * 4.2;
+      const baseZ = -28 - f * 18;
+      flockGroup.position.set(dir === 1 ? -46 : 46, baseY, baseZ);
+      this.outdoorSkyLifeGroup.add(flockGroup);
+      this.birdFlocks.push({
+        group: flockGroup,
+        birds,
+        speed: 4.4 + f * 0.9,
+        dir,
+        baseY,
+        baseZ,
+      });
+    }
+
+    this.outdoorSkyLifeGroup.visible = false;
+    this.scene.add(this.outdoorSkyLifeGroup);
   }
 
   private drawCustomerActivityBadge(tex: THREE.CanvasTexture, text: string) {
@@ -10195,12 +10733,11 @@ export class KlasikCafeScene3D {
     const sceneryChanged = prevScenery !== nextScenery;
     if (sceneryChanged && this.sceneryManager) {
       this.sceneryManager.loadScenery(nextScenery);
-      this.syncTrafficVisibilityForScenery();
+      this.syncOutdoorBiomeAndLod(true);
     }
 
     if (prevQuality !== newState.graphicsQuality) {
       this.updateGraphicsQuality();
-      this.syncTrafficVisibilityForScenery();
     }
     if (
       prevWeather !== newState.weather ||
@@ -10209,6 +10746,7 @@ export class KlasikCafeScene3D {
       prevClimate !== (newState.climateState || 'summer')
     ) {
       this.applyWeatherLighting(newState.weather);
+      this.syncOutdoorBiomeAndLod(true);
     }
     if (
       newState.equippedCatId &&
@@ -10242,6 +10780,7 @@ export class KlasikCafeScene3D {
     this.redrawOrderTicketTextures();
     this.redrawPosScreenTexture();
     this.syncCustomerActors();
+    this.syncOutdoorBiomeAndLod(false);
   }
 
   private spawnSecretHeartAt(pos: THREE.Vector3) {
@@ -10263,7 +10802,25 @@ export class KlasikCafeScene3D {
       this.outdoorOverlook.enter(vantage);
     } else {
       this.outdoorOverlook.exit();
+      this.camera.rotation.order = 'XYZ';
+      if (this.catStationOpen && this.catPerchGroup) {
+        if (this.catStationCustomizeOpen) {
+          this.camera.position.set(-2.70, 1.34, 1.06);
+          this.currentLookAt.set(-2.74, 1.18, 0.24);
+        } else {
+          this.camera.position.set(-2.82, 1.35, 0.94);
+          this.currentLookAt.set(-2.90, 1.20, 0.24);
+        }
+      } else {
+        const preset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[3];
+        this.camera.position.copy(preset.pos);
+        this.camera.position.z += this.manualCameraZoomOffset;
+        this.currentLookAt.copy(preset.look);
+        this.currentLookAt.x += this.manualCameraYawOffset * 2.2;
+      }
+      this.camera.lookAt(this.currentLookAt);
     }
+    this.syncOutdoorBiomeAndLod(true);
     if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }
@@ -11178,7 +11735,7 @@ export class KlasikCafeScene3D {
           pinnedOrder?.orderType === 'takeout' || Boolean(pinnedOrder?.isDeliveryRider);
         this.preparedPastryStageGroup.visible = true;
         if (!this.pastryReturnAnim.active) {
-          this.preparedPastryStageGroup.position.set(-1.58, 1.0, 0.34);
+          this.preparedPastryStageGroup.position.set(-1.59, 1.0, 0.53);
           this.preparedPastryStageGroup.scale.setScalar(1);
         }
         this.preparedPlateGroup.visible = !isTakeout;
@@ -12107,15 +12664,15 @@ export class KlasikCafeScene3D {
       const u = Math.min(1, this.pastryReturnAnim.elapsed / this.pastryReturnAnim.duration);
       const e = easeInOutCubic(u);
       this.preparedPastryStageGroup.position.set(
-        THREE.MathUtils.lerp(-1.58, -1.86, e),
+        THREE.MathUtils.lerp(-1.59, -1.90, e),
         THREE.MathUtils.lerp(1.0, 1.12, e) + Math.sin(u * Math.PI) * 0.18,
-        THREE.MathUtils.lerp(0.34, 0.22, e)
+        THREE.MathUtils.lerp(0.53, 0.16, e)
       );
       this.preparedPastryStageGroup.scale.setScalar(1 - e * 0.45);
       if (u >= 1) {
         this.pastryReturnAnim.active = false;
         this.preparedPastryStageGroup.visible = false;
-        this.preparedPastryStageGroup.position.set(-1.58, 1.0, 0.34);
+        this.preparedPastryStageGroup.position.set(-1.59, 1.0, 0.53);
         this.preparedPastryStageGroup.scale.setScalar(1);
         this.callbacks.onReturnPastry?.();
       }
@@ -12133,8 +12690,8 @@ export class KlasikCafeScene3D {
         : 0;
       const showMiataOutside = isTitle && (!this.titleGlide.active || glideProgress < 0.62);
       if (showMiataOutside) {
-        this.miataGroup.position.set(-3.35, 0.08, -8.45);
-        this.miataGroup.rotation.y = 1.32;
+        this.miataGroup.position.set(-3.55, 0.08, -8.68);
+        this.miataGroup.rotation.y = 1.36;
       } else {
         this.miataGroup.position.set(MIATA_BAY.centerX, 0.0, MIATA_BAY.centerZ);
         this.miataGroup.rotation.y = MIATA_BAY.rotationY;
@@ -12672,49 +13229,145 @@ export class KlasikCafeScene3D {
       this.goldenDustInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 8b. Advance Pooled Full-Quality Outdoor Sidewalk Pedestrians + Phase 6 Rainy-Day 3D Umbrellas (Zero Allocation)
+    // 8b. Advance Pooled Full-Quality Outdoor Sidewalk Pedestrians + 2D Miata/Obstacle Avoidance + Phase 6 Rainy-Day 3D Umbrellas
     const isRainActive = isRainyWeather(this.gameState.weather);
+    const isMiataOutsideNow = this.gameState.phase === 'title';
+    const activeSceneryNow = this.gameState.activeScenery || 'busy_street';
+    this.syncOutdoorBiomeAndLod(false);
+    const isPlayerOutsideNow = this.outdoorOverlook.active || this.gameState.phase === 'title';
+    const isUrbanNow = isUrbanStreetScenery(activeSceneryNow);
+    const sidewalkObstacles = getSidewalkObstacles(isMiataOutsideNow, isUrbanNow);
     for (let i = 0; i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
       if (!p.actor.group.visible) continue;
+
+      // Outdoor-only scenic photo / ridge gaze pause near the lookout railing
+      const isScenicGazer =
+        isPlayerOutsideNow &&
+        (p.behavior === 'tourist_photo' || p.behavior === 'ridge_gaze') &&
+        p.laneZ < -15.0;
+      if (p.pauseCooldown > 0) p.pauseCooldown -= dt;
+      if (isScenicGazer && p.pauseTimer <= 0 && p.pauseCooldown <= 0 && Math.abs(p.x) < 6.5) {
+        p.pauseTimer = 3.2;
+        p.pauseCooldown = 14.0;
+      }
+
+      if (p.pauseTimer > 0) {
+        p.pauseTimer -= dt;
+        // Turn toward the scenic vista (-Z) and lift phone/camera for a photo
+        p.actor.group.rotation.y = Math.PI;
+        p.actor.pelvisGroup.position.y = 0.58;
+        p.actor.pelvisGroup.rotation.z = 0;
+        p.actor.leftHipJoint.rotation.x = 0;
+        p.actor.rightHipJoint.rotation.x = 0;
+        p.actor.leftKneeJoint.rotation.x = 0;
+        p.actor.rightKneeJoint.rotation.x = 0;
+        p.actor.neckJoint.rotation.x = -0.06;
+        p.actor.neckJoint.rotation.y = Math.sin(this.elapsed * 1.4 + i) * 0.14;
+        if (p.behavior === 'tourist_photo') {
+          p.actor.rightShoulderJoint.rotation.x = -1.25;
+          p.actor.rightElbowJoint.rotation.x = -0.82;
+          p.actor.leftShoulderJoint.rotation.x = -1.18;
+          p.actor.leftElbowJoint.rotation.x = -0.78;
+        } else {
+          p.actor.rightShoulderJoint.rotation.x = -0.35;
+          p.actor.rightElbowJoint.rotation.x = -0.45;
+          p.actor.leftShoulderJoint.rotation.x = -0.35;
+          p.actor.leftElbowJoint.rotation.x = -0.45;
+        }
+        continue;
+      }
+
       p.x += p.dir * p.speed * dt;
-      if (p.dir === 1 && p.x > 14.5) p.x = -14.5;
-      else if (p.dir === -1 && p.x < -14.5) p.x = 14.5;
+      if (p.dir === 1 && p.x > 16.5) {
+        p.x = -16.5;
+        p.currentZ = p.laneZ;
+      } else if (p.dir === -1 && p.x < -16.5) {
+        p.x = 16.5;
+        p.currentZ = p.laneZ;
+      }
 
-      p.actor.group.position.set(p.x, 0.08, p.laneZ);
-      p.actor.group.rotation.y = p.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+      const targetZ = computeAvoidedSidewalkZ(p.x, p.laneZ, sidewalkObstacles);
+      const prevZ = p.currentZ;
+      p.currentZ += (targetZ - p.currentZ) * Math.min(1, dt * 6.5);
+      const dzHeading = (p.currentZ - prevZ) / Math.max(dt, 0.001);
+      const vxHeading = p.dir * p.speed;
 
-      p.walkPhase += p.speed * dt * 5.0;
+      p.actor.group.position.set(p.x, 0.08, p.currentZ);
+      p.actor.group.rotation.y = Math.atan2(vxHeading, dzHeading);
+
+      const strideMult = p.behavior === 'jogger' ? 6.8 : 5.0;
+      p.walkPhase += p.speed * dt * strideMult;
       const s = Math.sin(p.walkPhase);
       const c = Math.cos(p.walkPhase);
-      p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * 0.032;
+      const legAmp = p.behavior === 'jogger' ? 0.68 : 0.48;
+      p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * (p.behavior === 'jogger' ? 0.055 : 0.032);
       p.actor.pelvisGroup.rotation.z = s * 0.03;
       p.actor.torsoGroup.rotation.y = -s * 0.07;
-      p.actor.leftHipJoint.rotation.x = s * 0.48;
-      p.actor.rightHipJoint.rotation.x = -s * 0.48;
-      p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * 0.5);
-      p.actor.rightKneeJoint.rotation.x = Math.max(0, c * 0.5);
+      p.actor.leftHipJoint.rotation.x = s * legAmp;
+      p.actor.rightHipJoint.rotation.x = -s * legAmp;
+      p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.04));
+      p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.04));
 
-      p.actor.umbrellaGroup.visible = isRainActive;
-      if (isRainActive) {
-        // Hold umbrella upright above head in left hand
+      // Rain umbrella vs neon umbrella vs normal left-arm swing
+      const holdingNeonUmbrella = isPlayerOutsideNow && p.behavior === 'neon_umbrella';
+      p.actor.umbrellaGroup.visible = isRainActive && !holdingNeonUmbrella;
+      if (isRainActive || holdingNeonUmbrella) {
         p.actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03;
         p.actor.leftElbowJoint.rotation.x = -0.3;
+      } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
+        p.actor.leftShoulderJoint.rotation.x = -s * 0.72;
+        p.actor.leftElbowJoint.rotation.x = -1.18;
       } else {
         p.actor.leftShoulderJoint.rotation.x = -s * 0.38;
         p.actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.22;
       }
 
-      if (p.actor.heldCup.visible) {
+      // Outdoor-only right-arm & head behavior poses
+      let targetNeckPitch = 0;
+      if (isPlayerOutsideNow && p.behavior === 'phone_browse') {
+        p.actor.rightShoulderJoint.rotation.x = -0.68;
+        p.actor.rightElbowJoint.rotation.x = -1.08;
+        targetNeckPitch = 0.34;
+      } else if (isPlayerOutsideNow && p.behavior === 'phone_call') {
+        p.actor.rightShoulderJoint.rotation.x = -1.35;
+        p.actor.rightElbowJoint.rotation.x = -1.78;
+        targetNeckPitch = 0.05;
+      } else if (isPlayerOutsideNow && p.behavior === 'lantern_stroll') {
+        p.actor.rightShoulderJoint.rotation.x = -0.82 + Math.sin(this.elapsed * 2.2 + i) * 0.05;
+        p.actor.rightElbowJoint.rotation.x = -0.32;
+      } else if (isPlayerOutsideNow && p.behavior === 'everest_hiker') {
+        p.actor.rightShoulderJoint.rotation.x = -0.45 + s * 0.42;
+        p.actor.rightElbowJoint.rotation.x = -0.52;
+      } else if (isPlayerOutsideNow && p.behavior === 'favela_football') {
+        p.actor.rightShoulderJoint.rotation.x = -0.22;
+        p.actor.rightElbowJoint.rotation.x = -0.78;
+      } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
+        p.actor.rightShoulderJoint.rotation.x = s * 0.72;
+        p.actor.rightElbowJoint.rotation.x = -1.18;
+      } else if (p.actor.heldCup.visible) {
         p.actor.rightShoulderJoint.rotation.x = -0.56 + Math.abs(s) * 0.04;
         p.actor.rightElbowJoint.rotation.x = -0.88;
       } else {
         p.actor.rightShoulderJoint.rotation.x = s * 0.38;
         p.actor.rightElbowJoint.rotation.x = -0.22 - Math.max(0, s) * 0.22;
       }
+      p.actor.neckJoint.rotation.x += (targetNeckPitch - p.actor.neckJoint.rotation.x) * Math.min(1, dt * 6);
+
+      // Animate trotting companion dog & wagging tail for dog walkers
+      if (p.dogRig && p.dogRig.root.visible) {
+        const trot = this.elapsed * 11.5 + i * 1.7;
+        p.dogRig.legs[0].rotation.x = Math.sin(trot) * 0.52;
+        p.dogRig.legs[3].rotation.x = Math.sin(trot) * 0.52;
+        p.dogRig.legs[1].rotation.x = -Math.sin(trot) * 0.52;
+        p.dogRig.legs[2].rotation.x = -Math.sin(trot) * 0.52;
+        p.dogRig.tail.rotation.z = Math.sin(this.elapsed * 13 + i) * 0.42;
+        p.dogRig.root.position.y = Math.abs(Math.sin(trot)) * 0.025;
+      }
+
       // Subtle glance toward the warm cafe facade when walking past
       const nearCafe = Math.abs(p.x) < 3.4 && p.laneZ > -10;
-      const targetGlance = nearCafe ? (p.dir === 1 ? -0.45 : 0.45) : 0;
+      const targetGlance = nearCafe && p.behavior !== 'phone_browse' ? (p.dir === 1 ? -0.45 : 0.45) : 0;
       p.actor.neckJoint.rotation.y += (targetGlance - p.actor.neckJoint.rotation.y) * Math.min(1, dt * 4);
     }
 
@@ -12823,18 +13476,56 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 8c. Advance Pooled Outdoor Street Traffic Vehicles (Zero Allocation)
+    // 8c. Advance Pooled Outdoor Street Traffic Vehicles with Strict Two-Lane Spacing (Zero Overlapping!)
+    const trafficStepInputs = this.trafficPool.map((v) => ({
+      x: v.x,
+      dir: v.dir,
+      speed: v.speed,
+      visible: v.group.visible,
+    }));
+    stepTwoLaneTraffic(trafficStepInputs, dt, TRAFFIC_X_BOUND, TRAFFIC_MIN_LANE_SPACING);
     for (let i = 0; i < this.trafficPool.length; i++) {
       const v = this.trafficPool[i];
       if (!v.group.visible) continue;
-      v.x += v.dir * v.speed * dt;
-      const bound = 19.0;
-      if (v.dir === 1 && v.x > bound) v.x = -bound;
-      else if (v.dir === -1 && v.x < -bound) v.x = bound;
+      v.x = trafficStepInputs[i].x;
       v.group.position.x = v.x;
+      v.group.rotation.y = v.dir === 1 ? 0 : Math.PI;
       const wheelSpin = (v.speed / 0.27) * dt;
       for (let w = 0; w < v.wheels.length; w++) {
         v.wheels[w].rotation.z -= wheelSpin;
+      }
+    }
+
+    // 8c-ii. Outdoor-Only Dynamic 3D Drifting Clouds & Flying Bird Flocks (paused when inside cafe!)
+    if (this.outdoorSkyLifeGroup && this.outdoorSkyLifeGroup.visible) {
+      const isNightSky = isNightWeather(this.gameState.weather);
+      if (this.cloudMat) {
+        this.cloudMat.color.setHex(
+          isNightSky ? 0x1e293b : isRainActive ? 0x94a3b8 : 0xf8fafc
+        );
+        this.cloudMat.opacity = isNightSky ? 0.52 : 0.86;
+      }
+      for (let c = 0; c < this.driftingClouds.length; c++) {
+        const cl = this.driftingClouds[c];
+        cl.group.position.x += cl.speed * dt;
+        if (cl.group.position.x > 76) cl.group.position.x = -76;
+        cl.group.position.y = cl.baseY + Math.sin(this.elapsed * 0.35 + cl.phase) * 0.45;
+      }
+      const showBirdsNow = !isRainActive && !isNightSky;
+      for (let f = 0; f < this.birdFlocks.length; f++) {
+        const fl = this.birdFlocks[f];
+        fl.group.visible = showBirdsNow;
+        if (!showBirdsNow) continue;
+        fl.group.position.x += fl.dir * fl.speed * dt;
+        if (fl.dir === 1 && fl.group.position.x > 58) fl.group.position.x = -58;
+        else if (fl.dir === -1 && fl.group.position.x < -58) fl.group.position.x = 58;
+        fl.group.position.y = fl.baseY + Math.sin(this.elapsed * 0.9 + f * 2.4) * 0.85;
+        for (let b = 0; b < fl.birds.length; b++) {
+          const bd = fl.birds[b];
+          const flap = Math.sin(this.elapsed * 8.5 + bd.phase) * 0.58;
+          bd.wingL.rotation.z = -flap;
+          bd.wingR.rotation.z = flap;
+        }
       }
     }
 
@@ -13741,6 +14432,13 @@ export class KlasikCafeScene3D {
       h.sprite.material.dispose();
     });
     this.floatingSecretHearts = [];
+    if (this.outdoorSkyLifeGroup) {
+      this.scene.remove(this.outdoorSkyLifeGroup);
+      disposeObject3D(this.outdoorSkyLifeGroup);
+    }
+    if (this.natureWalkwayApronGroup) {
+      disposeObject3D(this.natureWalkwayApronGroup);
+    }
     this.renderer.dispose();
   }
 }

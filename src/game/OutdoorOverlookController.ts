@@ -21,9 +21,9 @@ export const OUTDOOR_VANTAGES: Record<OutdoorVantageKey, OutdoorVantageSpec> = {
   porch: {
     key: 'porch',
     label: 'Cafe Porch',
-    pos: [-1.15, 1.68, -8.35],
+    pos: [-1.15, 1.82, -7.35],
     baseYaw: 0,
-    basePitch: 0.04,
+    basePitch: 0.05,
   },
   overlook: {
     key: 'overlook',

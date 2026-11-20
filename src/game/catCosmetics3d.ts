@@ -9,12 +9,17 @@
 
 import * as THREE from 'three';
 import {
+  CAT_COSMETIC_CLEARANCE,
   CAT_FIT_PROFILES,
   CatCosmeticId,
   CatFitProfile,
   CatLoadout,
+  CatRigDimensions,
+  DEFAULT_CAT_RIG_DIMENSIONS,
   getCatFitProfile,
   getEffectiveVisibleLoadout,
+  sampleCatDorsalSplinePoints,
+  sampleCatTorsoOuterPoint,
 } from './catCosmeticsData';
 import { CafeCatId } from './rules';
 
@@ -24,6 +29,8 @@ export interface CatCosmeticSockets {
   anchorNeck: THREE.Group;
   anchorTorso: THREE.Group;
   anchorSpinePoints: THREE.Group[]; // 4 nodes along dorsal spine
+  bodyRoot?: THREE.Group; // Un-tilted bodyPivot root for exact geometry-driven torso/spine alignment
+  rigDimensions?: CatRigDimensions;
 }
 
 export interface CatCosmeticRigController {
@@ -259,19 +266,17 @@ function buildBeretMesh(profile: CatFitProfile): THREE.Group {
 
 function buildClothVestMesh(
   hexColor: string,
-  profile: CatFitProfile
+  profile: CatFitProfile,
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS
 ): THREE.Group {
   const g = new THREE.Group();
-  const [tx, ty, tz] = profile.torsoScale;
-  // Snug sleeveless pet vest hugging the seated cat's vertical torso (+0.015 outward clearance, never a shield)
-  const pad = 1 + Math.min(0.16, profile.furOffset * 3.2);
-  g.scale.set(tx * pad, ty * pad, tz * pad);
-
-  const tex = getKnitClothTexture(hexColor, [tx, ty, tz]);
+  // Note: catRoot already carries spec.scale, so we NEVER double-scale by profile.torsoScale!
+  // Instead, every vertex is computed directly from the cat's actual torso + chest ellipsoids + positive clearance.
+  const tex = getKnitClothTexture(hexColor, [profile.torsoScale[0], profile.torsoScale[1], profile.torsoScale[2]]);
   const clothMat = new THREE.MeshStandardMaterial({
     color: tex ? 0xffffff : hexColor,
     map: tex ?? undefined,
-    roughness: 0.86,
+    roughness: 0.85,
     metalness: 0.02,
     side: THREE.DoubleSide,
   });
@@ -281,67 +286,137 @@ function buildClothVestMesh(
     metalness: 0.02,
   });
 
-  // Contoured sleeveless pet tank-top shell aligned vertically along the seated torso spine
-  const profilePoints = [
-    new THREE.Vector2(0.058, 0.082),  // Snug collar neckline just under chin
-    new THREE.Vector2(0.076, 0.056),  // Upper shoulders / chest
-    new THREE.Vector2(0.088, 0.018),  // Mid ribcage
-    new THREE.Vector2(0.092, -0.024), // Lower barrel
-    new THREE.Vector2(0.085, -0.062), // Curved back hem resting neatly above haunches
-  ];
-  const vestShellGeo = new THREE.LatheGeometry(profilePoints, 20);
-  // Subtle anatomical cross-section matching seated cat torso (slightly deeper front-to-back than wide)
-  vestShellGeo.scale(0.95, 1.0, 1.07);
-  const vestShell = new THREE.Mesh(vestShellGeo, clothMat);
+  const heightSteps = 12;
+  const radialSteps = 28;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const getTopY = (theta: number) => {
+    const frontFactor = Math.max(0, Math.cos(theta));
+    return dims.neckY - 0.009 - frontFactor * 0.015;
+  };
+  const getBotY = (theta: number) => {
+    const frontFactor = Math.max(0, Math.cos(theta));
+    return 0.056 + frontFactor * 0.026;
+  };
+
+  // Evaluate whether a (y, theta) point lies inside either front-leg armhole cutout
+  const isInsideArmhole = (y: number, theta: number): boolean => {
+    // Wrap angle to [-PI, PI]
+    let a = theta % (Math.PI * 2);
+    if (a > Math.PI) a -= Math.PI * 2;
+    if (a < -Math.PI) a += Math.PI * 2;
+    const absA = Math.abs(a);
+    const da = (absA - 0.64) / 0.34;
+    const dy = (y - 0.112) / 0.028;
+    return da * da + dy * dy < 1.0;
+  };
+
+  // Generate grid of conformal vertices strictly outside torsoMesh + chestMesh
+  for (let r = 0; r <= heightSteps; r++) {
+    const v = r / heightSteps;
+    for (let c = 0; c <= radialSteps; c++) {
+      const u = c / radialSteps;
+      const theta = u * Math.PI * 2;
+      const yTop = getTopY(theta);
+      const yBot = getBotY(theta);
+      const y = yBot + (yTop - yBot) * v;
+      const pt = sampleCatTorsoOuterPoint(y, theta, dims, CAT_COSMETIC_CLEARANCE);
+      positions.push(pt.x, pt.y, pt.z);
+      uvs.push(u * 2.0, v);
+    }
+  }
+
+  const cols = radialSteps + 1;
+  for (let r = 0; r < heightSteps; r++) {
+    for (let c = 0; c < radialSteps; c++) {
+      const uMid = (c + 0.5) / radialSteps;
+      const vMid = (r + 0.5) / heightSteps;
+      const thetaMid = uMid * Math.PI * 2;
+      const yMid =
+        getBotY(thetaMid) + (getTopY(thetaMid) - getBotY(thetaMid)) * vMid;
+
+      // Leave clean open armholes for both front legs
+      if (isInsideArmhole(yMid, thetaMid)) continue;
+
+      const i00 = r * cols + c;
+      const i10 = (r + 1) * cols + c;
+      const i01 = r * cols + (c + 1);
+      const i11 = (r + 1) * cols + (c + 1);
+      indices.push(i00, i01, i11, i00, i11, i10);
+    }
+  }
+
+  const vestGeo = new THREE.BufferGeometry();
+  vestGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  vestGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  vestGeo.setIndex(indices);
+  vestGeo.computeVertexNormals();
+
+  const vestShell = new THREE.Mesh(vestGeo, clothMat);
   g.add(vestShell);
 
-  // Rib-knit collar neckline trim right below the cat's collar
-  const neckTrim = new THREE.Mesh(new THREE.TorusGeometry(0.058, 0.0075, 8, 20), trimMat);
-  neckTrim.rotation.x = Math.PI / 2 + 0.14;
-  neckTrim.scale.set(0.95, 1.07, 1.0);
-  neckTrim.position.set(0, 0.082, 0.006);
+  // Conformal rib-knit collar neckline piping
+  const neckPts: THREE.Vector3[] = [];
+  const hemPts: THREE.Vector3[] = [];
+  for (let i = 0; i < 24; i++) {
+    const theta = (i / 24) * Math.PI * 2;
+    const pTop = sampleCatTorsoOuterPoint(getTopY(theta), theta, dims, CAT_COSMETIC_CLEARANCE + 0.002);
+    neckPts.push(new THREE.Vector3(pTop.x, pTop.y, pTop.z));
+    const pBot = sampleCatTorsoOuterPoint(getBotY(theta), theta, dims, CAT_COSMETIC_CLEARANCE + 0.002);
+    hemPts.push(new THREE.Vector3(pBot.x, pBot.y, pBot.z));
+  }
+  const neckCurve = new THREE.CatmullRomCurve3(neckPts, true);
+  const neckTrim = new THREE.Mesh(new THREE.TubeGeometry(neckCurve, 28, 0.0062, 7, true), trimMat);
   g.add(neckTrim);
 
-  // Open side armhole trim rings framing both front legs so front limbs move freely without clipping
-  [-1, 1].forEach((side) => {
-    const armholeTrim = new THREE.Mesh(new THREE.TorusGeometry(0.029, 0.0055, 8, 16), trimMat);
-    armholeTrim.position.set(side * 0.064, 0.022, 0.046);
-    armholeTrim.rotation.y = side * 0.92;
-    armholeTrim.rotation.x = 0.18;
-    armholeTrim.scale.set(0.92, 1.18, 1.0);
-    g.add(armholeTrim);
-  });
-
-  // Curved rear & lower hem rib-knit binding
-  const hemTrim = new THREE.Mesh(new THREE.TorusGeometry(0.084, 0.007, 8, 22), trimMat);
-  hemTrim.rotation.x = Math.PI / 2 - 0.1;
-  hemTrim.scale.set(0.95, 1.07, 1.0);
-  hemTrim.position.set(0, -0.062, -0.004);
+  const hemCurve = new THREE.CatmullRomCurve3(hemPts, true);
+  const hemTrim = new THREE.Mesh(new THREE.TubeGeometry(hemCurve, 28, 0.0058, 7, true), trimMat);
   g.add(hemTrim);
+
+  // Conformal armhole rib-knit piping rings around both front-leg cutouts
+  [-1, 1].forEach((side) => {
+    const armPts: THREE.Vector3[] = [];
+    for (let i = 0; i < 16; i++) {
+      const ang = (i / 16) * Math.PI * 2;
+      const theta = side * (0.64 + Math.cos(ang) * 0.34);
+      const y = 0.112 + Math.sin(ang) * 0.028;
+      const pt = sampleCatTorsoOuterPoint(y, theta, dims, CAT_COSMETIC_CLEARANCE + 0.002);
+      armPts.push(new THREE.Vector3(pt.x, pt.y, pt.z));
+    }
+    const armCurve = new THREE.CatmullRomCurve3(armPts, true);
+    const armTrim = new THREE.Mesh(new THREE.TubeGeometry(armCurve, 18, 0.0046, 6, true), trimMat);
+    g.add(armTrim);
+  });
 
   return g;
 }
 
-// Phase 0.1 C: Bone-White Plush Skeleton T-Rex Costume (Open-Jaw Skull Hood + Curved Ribcage, Dorsal Spikes & Plush Bone Tail)
-function buildDinoHeadHood(profile: CatFitProfile): THREE.Group {
+// Phase B: Geometry-Driven Bone-White Plush Skeleton T-Rex Skull Hood (Solid Collar-Anchored Lower Jaw, Zero Floating Teeth!)
+function buildDinoHeadHood(
+  _profile: CatFitProfile,
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS
+): THREE.Group {
   const g = new THREE.Group();
-  const hs = profile.headScale;
-  g.scale.set(hs, hs, hs);
-  // Seated directly on anchor_head_top (headRadius * 0.84) with zero floating gap
+  // Scale cleanly to actual headRadius * 1.18 relative to baseline 0.072 (NO double scaling against catRoot.scale!)
+  const headFitScale = (dims.headRadius * 1.18) / (0.072 * 1.18);
+  g.scale.setScalar(headFitScale);
+  // anchor_head_top sits at (0, 0.058, 0.002) relative to headPivot center
   g.position.set(0, -0.004, -0.002);
 
   const bonePlushMat = new THREE.MeshStandardMaterial({
-    color: 0xf2efe9, // Soft plush bone white
+    color: 0xf2efe9,
     roughness: 0.88,
     metalness: 0.02,
   });
   const boneShadeMat = new THREE.MeshStandardMaterial({
-    color: 0xe3ddd2, // Warm plush seam/depth shading
+    color: 0xe3ddd2,
     roughness: 0.9,
     metalness: 0.02,
   });
   const socketDarkMat = new THREE.MeshStandardMaterial({
-    color: 0x2b2826, // Charcoal recessed eye sockets & nostril cutouts
+    color: 0x2b2826,
     roughness: 0.92,
     metalness: 0.02,
   });
@@ -350,49 +425,51 @@ function buildDinoHeadHood(profile: CatFitProfile): THREE.Group {
     roughness: 0.72,
   });
 
-  // 1. Rear & top plush cranium hood (open in front so the cat's entire face stays 100% visible!)
+  // 1. Rear & top plush cranium hood (open in front so the cat's entire face stays 100% visible)
   const craniumBack = new THREE.Mesh(
-    new THREE.SphereGeometry(0.084, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    new THREE.SphereGeometry(0.086, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.58),
     bonePlushMat
   );
-  craniumBack.scale.set(1.06, 0.88, 1.12);
+  craniumBack.scale.set(1.08, 0.9, 1.14);
   craniumBack.rotation.x = -0.36;
   craniumBack.position.set(0, -0.008, -0.012);
   g.add(craniumBack);
 
   // Sculpted upper brow ridge & projecting plush T-Rex snout perched cleanly ABOVE the cat's eyes
-  const browBridge = new THREE.Mesh(new THREE.BoxGeometry(0.118, 0.044, 0.072), bonePlushMat);
-  browBridge.position.set(0, 0.042, 0.028);
+  const browBridge = new THREE.Mesh(new THREE.BoxGeometry(0.122, 0.044, 0.074), bonePlushMat);
+  browBridge.position.set(0, 0.044, 0.028);
   g.add(browBridge);
 
-  const snoutMain = new THREE.Mesh(new THREE.SphereGeometry(0.052, 16, 12), bonePlushMat);
+  const snoutMain = new THREE.Mesh(new THREE.SphereGeometry(0.053, 16, 12), bonePlushMat);
   snoutMain.scale.set(1.12, 0.62, 1.38);
-  snoutMain.position.set(0, 0.036, 0.074);
+  snoutMain.position.set(0, 0.038, 0.074);
   g.add(snoutMain);
 
-  // Two recessed charcoal oval eye sockets on the skull sides (matching reference plush skull!)
+  // Recessed charcoal oval eye sockets, nostrils, and SOLID plush cheek hinges tying skull into the neck collar
   [-1, 1].forEach((side) => {
     const socket = new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 10), socketDarkMat);
     socket.scale.set(0.55, 1.18, 1.05);
-    socket.position.set(side * 0.056, 0.038, 0.036);
+    socket.position.set(side * 0.058, 0.04, 0.036);
     socket.rotation.y = side * 0.25;
     g.add(socket);
 
-    // Subtle plush cheek arch framing the sides of the cat's face without blocking eyes
-    const cheekStrap = new THREE.Mesh(new THREE.CapsuleGeometry(0.016, 0.068, 6, 10), boneShadeMat);
-    cheekStrap.position.set(side * 0.074, -0.048, 0.012);
-    cheekStrap.rotation.z = side * 0.18;
-    cheekStrap.rotation.x = 0.22;
-    g.add(cheekStrap);
+    // Solid plush cheek-to-collar jaw hinge connecting cranium temples straight down into the neck collar ring
+    const hingeCurve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(side * 0.076, 0.006, 0.004),
+      new THREE.Vector3(side * 0.084, -0.056, 0.014),
+      new THREE.Vector3(side * 0.062, -0.114, 0.008)
+    );
+    const hingeMesh = new THREE.Mesh(new THREE.TubeGeometry(hingeCurve, 10, 0.016, 8, false), boneShadeMat);
+    g.add(hingeMesh);
 
     // Recessed charcoal nostril cutouts near front of snout
     const nostril = new THREE.Mesh(new THREE.SphereGeometry(0.0085, 8, 8), socketDarkMat);
     nostril.scale.set(0.7, 1.0, 1.25);
-    nostril.position.set(side * 0.025, 0.042, 0.128);
+    nostril.position.set(side * 0.025, 0.044, 0.128);
     g.add(nostril);
   });
 
-  // Cute pointed white plush teeth lining the upper jaw rim (above cat's eyes!)
+  // Upper plush teeth lining the upper jaw rim (above cat's eyes)
   const upperToothGeo = new THREE.ConeGeometry(0.0072, 0.018, 5);
   upperToothGeo.rotateX(Math.PI);
   const upperToothArc: Array<[number, number]> = [
@@ -406,40 +483,56 @@ function buildDinoHeadHood(profile: CatFitProfile): THREE.Group {
   ];
   upperToothArc.forEach(([tx, tz]) => {
     const tooth = new THREE.Mesh(upperToothGeo, toothWhiteMat);
-    tooth.position.set(tx, 0.011, tz);
+    tooth.position.set(tx, 0.012, tz);
     g.add(tooth);
   });
 
-  // Open lower plush jaw chin-cup + soft under-chin Velcro collar strap beneath the cat's muzzle
-  const lowerJaw = new THREE.Mesh(new THREE.TorusGeometry(0.058, 0.015, 8, 16, Math.PI), bonePlushMat);
-  lowerJaw.rotation.x = Math.PI / 2 + 0.14;
-  lowerJaw.rotation.z = Math.PI;
-  lowerJaw.scale.set(1.02, 1.24, 0.9);
-  lowerJaw.position.set(0, -0.104, 0.036);
-  g.add(lowerJaw);
-
-  const lowerToothGeo = new THREE.ConeGeometry(0.006, 0.014, 5);
-  [-0.034, -0.016, 0.016, 0.034].forEach((tx, i) => {
-    const tz = i === 1 || i === 2 ? 0.098 : 0.078;
-    const tooth = new THREE.Mesh(lowerToothGeo, toothWhiteMat);
-    tooth.position.set(tx, -0.091, tz);
-    g.add(tooth);
-  });
-
-  // Under-chin plush Velcro collar strap
-  const collarStrap = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 18), boneShadeMat);
-  collarStrap.rotation.x = Math.PI / 2 + 0.2;
-  collarStrap.position.set(0, -0.114, 0.008);
+  // Solid snug plush neck collar band anchoring the entire hood & lower jaw firmly around the neck
+  const collarStrap = new THREE.Mesh(new THREE.TorusGeometry(0.064, 0.0155, 10, 22), boneShadeMat);
+  collarStrap.rotation.x = Math.PI / 2 + 0.16;
+  collarStrap.position.set(0, -0.116, 0.002);
   g.add(collarStrap);
+
+  // Under-chin plush gusset solidly bridging the neck collar forward to the lower jaw chin
+  const chinGusset = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.022, 0.072), boneShadeMat);
+  chinGusset.position.set(0, -0.115, 0.046);
+  chinGusset.rotation.x = -0.12;
+  g.add(chinGusset);
+
+  // Curved U-shaped lower mandible anchored directly at both ends into the neck collar hinges
+  const lowerJawCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.062, -0.114, 0.008),
+    new THREE.Vector3(-0.056, -0.109, 0.062),
+    new THREE.Vector3(-0.028, -0.104, 0.094),
+    new THREE.Vector3(0, -0.102, 0.102),
+    new THREE.Vector3(0.028, -0.104, 0.094),
+    new THREE.Vector3(0.056, -0.109, 0.062),
+    new THREE.Vector3(0.062, -0.114, 0.008),
+  ]);
+  const lowerJawMesh = new THREE.Mesh(
+    new THREE.TubeGeometry(lowerJawCurve, 18, 0.0145, 8, false),
+    bonePlushMat
+  );
+  g.add(lowerJawMesh);
+
+  // 6 lower plush teeth seated directly ON TOP of lowerJawCurve so zero teeth ever float disconnected!
+  const lowerToothGeo = new THREE.ConeGeometry(0.0062, 0.015, 5);
+  [0.24, 0.35, 0.45, 0.55, 0.65, 0.76].forEach((t) => {
+    const pt = lowerJawCurve.getPoint(t);
+    const tooth = new THREE.Mesh(lowerToothGeo, toothWhiteMat);
+    tooth.position.set(pt.x, pt.y + 0.016, pt.z);
+    g.add(tooth);
+  });
 
   return g;
 }
 
-function buildDinoTorsoSuit(profile: CatFitProfile): THREE.Group {
+// Phase B: Geometry-Driven External Dorsal Spine, Ribcage & Tapered Skeletal Tail (ZERO Body Clipping!)
+function buildDinoTorsoSuit(
+  _profile: CatFitProfile,
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS
+): THREE.Group {
   const g = new THREE.Group();
-  const [tx, ty, tz] = profile.torsoScale;
-  const pad = 1 + Math.min(0.14, profile.furOffset * 3.0);
-  g.scale.set(tx * pad, ty * pad, tz * pad);
 
   const bonePlushMat = new THREE.MeshStandardMaterial({
     color: 0xf2efe9,
@@ -452,56 +545,98 @@ function buildDinoTorsoSuit(profile: CatFitProfile): THREE.Group {
     metalness: 0.02,
   });
 
-  // 1. Contoured dorsal plush vertebral back-strip (NEVER a full sphere — chest, front legs & belly stay visible!)
-  const spineStrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.026, 0.155, 8, 12), bonePlushMat);
-  spineStrip.position.set(0, 0.012, -0.086);
-  spineStrip.rotation.x = -0.16;
-  g.add(spineStrip);
+  // 1. Sample 6 points strictly OUTSIDE the cat's dorsal back meridian (surfacePoint + outwardNormal * clearance)
+  const dorsalSamples = sampleCatDorsalSplinePoints(dims, 6, CAT_COSMETIC_CLEARANCE);
+  const dorsalVecs = dorsalSamples.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+  const spineCurve = new THREE.CatmullRomCurve3(dorsalVecs);
 
-  // 2. 6 pairs of curved plush bone rib segments arching snugly down the left & right sides of the torso
-  const ribHeights = [0.062, 0.038, 0.014, -0.01, -0.034, -0.056];
-  const ribLengths = [0.062, 0.074, 0.08, 0.078, 0.07, 0.058];
-  const ribZOffsets = [-0.072, -0.078, -0.082, -0.082, -0.078, -0.072];
+  // External plush vertebral spine strip riding cleanly ON TOP of the back fur
+  const spineGeo = new THREE.TubeGeometry(spineCurve, 18, 0.018, 8, false);
+  const spineMesh = new THREE.Mesh(spineGeo, bonePlushMat);
+  g.add(spineMesh);
 
-  ribHeights.forEach((ry, idx) => {
-    const len = ribLengths[idx];
-    const rz = ribZOffsets[idx];
-    [-1, 1].forEach((side) => {
-      const curve = new THREE.QuadraticBezierCurve3(
-        new THREE.Vector3(side * 0.018, ry, rz),
-        new THREE.Vector3(side * (0.088 + (idx === 2 || idx === 3 ? 0.008 : 0)), ry - 0.006, rz + 0.052),
-        new THREE.Vector3(side * 0.064, ry - 0.024, rz + 0.052 + len * 0.62)
-      );
-      const ribGeo = new THREE.TubeGeometry(curve, 10, 0.0095, 7, false);
-      const ribMesh = new THREE.Mesh(ribGeo, bonePlushMat);
-      g.add(ribMesh);
+  // Rounded plush end-caps on top & bottom of vertebral ridge
+  const capGeo = new THREE.SphereGeometry(0.018, 8, 8);
+  const topCap = new THREE.Mesh(capGeo, bonePlushMat);
+  topCap.position.copy(dorsalVecs[0]);
+  const botCap = new THREE.Mesh(capGeo, bonePlushMat);
+  botCap.position.copy(dorsalVecs[dorsalVecs.length - 1]);
+  g.add(topCap, botCap);
 
-      const ribTip = new THREE.Mesh(new THREE.SphereGeometry(0.0098, 7, 7), bonePlushMat);
-      ribTip.position.copy(curve.getPoint(1));
-      g.add(ribTip);
-    });
+  // 6 External Dorsal Bone Spikes oriented directly along each sampled point's outward dorsal normal
+  const spikeScales = [0.85, 1.05, 1.12, 1.05, 0.95, 0.82];
+  const upAxis = new THREE.Vector3(0, 1, 0);
+  const normalVec = new THREE.Vector3();
+  const spikeQuat = new THREE.Quaternion();
+  dorsalSamples.forEach((pt, idx) => {
+    const sc = spikeScales[idx] ?? 0.9;
+    const spikeGeo = new THREE.ConeGeometry(0.0125 * sc, 0.034 * sc, 5);
+    const spike = new THREE.Mesh(spikeGeo, bonePlushMat);
+    normalVec.set(0, pt.ny, pt.nz).normalize();
+    spikeQuat.setFromUnitVectors(upAxis, normalVec);
+    spike.quaternion.copy(spikeQuat);
+    spike.position.set(
+      pt.x,
+      pt.y + normalVec.y * (0.017 * sc + 0.008),
+      pt.z + normalVec.z * (0.017 * sc + 0.008)
+    );
+    g.add(spike);
   });
 
-  // 3. Thin plush belly strap holding the ribcage snugly underneath (keeps fur & chest completely open)
-  const bellyStrap = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.0075, 6, 18, Math.PI * 1.15), boneShadeMat);
-  bellyStrap.rotation.x = Math.PI / 2;
-  bellyStrap.rotation.z = Math.PI * 0.42;
-  bellyStrap.position.set(0, -0.004, 0.002);
+  // 2. 6 pairs of curved plush bone ribs anchored directly to the external dorsal spine, wrapping STRICTLY outside the torso ellipsoid
+  const ribClearance = CAT_COSMETIC_CLEARANCE + 0.004;
+  for (let idx = 0; idx < dorsalSamples.length; idx++) {
+    const dorsalPt = dorsalSamples[idx];
+    const ribY = THREE.MathUtils.clamp(dorsalPt.y - 0.006, 0.072, 0.194);
+    const ribEndTheta = idx === 0 || idx === 5 ? 0.42 * Math.PI : 0.34 * Math.PI;
+
+    [-1, 1].forEach((side) => {
+      const p0 = new THREE.Vector3(side * 0.012, dorsalPt.y, dorsalPt.z);
+      const mid1 = sampleCatTorsoOuterPoint(ribY, side * (0.76 * Math.PI), dims, ribClearance);
+      const mid2 = sampleCatTorsoOuterPoint(ribY - 0.006, side * (0.54 * Math.PI), dims, ribClearance);
+      const tip = sampleCatTorsoOuterPoint(ribY - 0.014, side * ribEndTheta, dims, ribClearance);
+
+      const ribCurve = new THREE.CatmullRomCurve3([
+        p0,
+        new THREE.Vector3(mid1.x, mid1.y, mid1.z),
+        new THREE.Vector3(mid2.x, mid2.y, mid2.z),
+        new THREE.Vector3(tip.x, tip.y, tip.z),
+      ]);
+      const ribMesh = new THREE.Mesh(new THREE.TubeGeometry(ribCurve, 12, 0.0088, 7, false), bonePlushMat);
+      g.add(ribMesh);
+
+      const ribTip = new THREE.Mesh(new THREE.SphereGeometry(0.0092, 7, 7), bonePlushMat);
+      ribTip.position.set(tip.x, tip.y, tip.z);
+      g.add(ribTip);
+    });
+  }
+
+  // 3. Conformal plush belly/chest strap wrapping outside the torso to hold the ribcage snugly without hiding chest fur
+  const strapPts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 14; i++) {
+    const theta = -0.62 * Math.PI + (i / 14) * (1.24 * Math.PI);
+    const pt = sampleCatTorsoOuterPoint(0.102, theta, dims, CAT_COSMETIC_CLEARANCE);
+    strapPts.push(new THREE.Vector3(pt.x, pt.y, pt.z));
+  }
+  const strapCurve = new THREE.CatmullRomCurve3(strapPts);
+  const bellyStrap = new THREE.Mesh(new THREE.TubeGeometry(strapCurve, 18, 0.0072, 6, false), boneShadeMat);
   g.add(bellyStrap);
 
-  // 4. Tapered plush bone dinosaur tail projecting smoothly behind the seated cat with tiny bone spikes
+  // 4. External tapered skeletal plush tail rooted strictly OUTSIDE the rump along tailBasePos
+  const lastDorsal = dorsalVecs[dorsalVecs.length - 1];
+  const tailRootZ = Math.min(lastDorsal.z, dims.tailBasePos[2] - 0.024);
+  const tailRootY = Math.max(dims.tailBasePos[1] + 0.008, lastDorsal.y - 0.008);
   const tailCurve = new THREE.QuadraticBezierCurve3(
-    new THREE.Vector3(0, -0.058, -0.082),
-    new THREE.Vector3(0, -0.068, -0.168),
-    new THREE.Vector3(0, -0.044, -0.245)
+    new THREE.Vector3(0, tailRootY, tailRootZ),
+    new THREE.Vector3(0, tailRootY - 0.012, tailRootZ - 0.095),
+    new THREE.Vector3(0, tailRootY + 0.022, tailRootZ - 0.175)
   );
-  const tailGeo = new THREE.TubeGeometry(tailCurve, 12, 0.022, 8, false);
-  // Taper vertices along the tail length toward a cute plush point
+  const tailGeo = new THREE.TubeGeometry(tailCurve, 14, 0.02, 8, false);
   const posAttr = tailGeo.attributes.position;
   for (let i = 0; i < posAttr.count; i++) {
     const zVal = posAttr.getZ(i);
-    const t = THREE.MathUtils.clamp((-0.082 - zVal) / 0.165, 0, 1);
-    const taper = 1 - t * 0.72;
+    const t = THREE.MathUtils.clamp((tailRootZ - zVal) / 0.175, 0, 1);
+    const taper = 1 - t * 0.74;
     const centerPt = tailCurve.getPoint(t);
     posAttr.setX(i, centerPt.x + (posAttr.getX(i) - centerPt.x) * taper);
     posAttr.setY(i, centerPt.y + (posAttr.getY(i) - centerPt.y) * taper);
@@ -511,49 +646,25 @@ function buildDinoTorsoSuit(profile: CatFitProfile): THREE.Group {
   const tailMesh = new THREE.Mesh(tailGeo, bonePlushMat);
   g.add(tailMesh);
 
-  // Small rounded triangular bone spikes running down the plush tail
-  const tailSpikeGeo = new THREE.ConeGeometry(0.009, 0.022, 5);
-  [0.24, 0.48, 0.72, 0.9].forEach((t) => {
+  // External bone spikes riding along top of the plush tail
+  const tailSpikeGeo = new THREE.ConeGeometry(0.0088, 0.022, 5);
+  [0.22, 0.46, 0.68, 0.88].forEach((t) => {
     const pt = tailCurve.getPoint(t);
     const spike = new THREE.Mesh(tailSpikeGeo, bonePlushMat);
-    const s = 1 - t * 0.45;
+    const s = 1 - t * 0.48;
     spike.scale.setScalar(s);
-    spike.position.set(pt.x, pt.y + 0.022 * s, pt.z);
-    spike.rotation.x = -0.35;
+    spike.position.set(pt.x, pt.y + 0.021 * s, pt.z);
+    spike.rotation.x = -0.32;
     g.add(spike);
   });
 
   return g;
 }
 
-function buildDinoSpineRidges(
-  spinePoints: THREE.Group[],
-  profile: CatFitProfile
-): THREE.Mesh[] {
-  const boneRidgeMat = new THREE.MeshStandardMaterial({
-    color: 0xf2efe9, // Matching plush bone-white dorsal spikes
-    roughness: 0.85,
-  });
-  const scales = [0.92, 1.05, 0.96, 0.78];
-  const meshes: THREE.Mesh[] = [];
-
-  spinePoints.forEach((node, idx) => {
-    const sc = (scales[idx] ?? 0.85) * profile.bodyScale;
-    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.014 * sc, 0.036 * sc, 5), boneRidgeMat);
-    spike.position.set(0, 0.016 * sc + profile.furOffset * 0.4, -0.012);
-    spike.rotation.y = Math.PI / 4;
-    spike.rotation.x = -0.42;
-    spike.visible = false;
-    node.add(spike);
-    meshes.push(spike);
-  });
-
-  return meshes;
-}
-
 // Phase 7 ThumbnailStudio helper: build a standalone 3D preview mesh for any cat cosmetic
 export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Group {
   const profile = CAT_FIT_PROFILES.default;
+  const dims = DEFAULT_CAT_RIG_DIMENSIONS;
   const wrap = new THREE.Group();
   if (cosmeticId === 'glasses') {
     wrap.add(buildRoundGlassesMesh(profile));
@@ -564,10 +675,10 @@ export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Gr
   } else if (cosmeticId === 'beret') {
     wrap.add(buildBeretMesh(profile));
   } else if (cosmeticId === 'dino_costume') {
-    const hood = buildDinoHeadHood(profile);
-    hood.position.set(0, 0.14, 0.05);
-    const body = buildDinoTorsoSuit(profile);
-    body.position.set(0, 0, 0);
+    const hood = buildDinoHeadHood(profile, dims);
+    hood.position.set(0, 0.145, 0.052);
+    const body = buildDinoTorsoSuit(profile, dims);
+    body.position.set(0, -0.11, 0.02);
     wrap.add(hood, body);
   } else {
     const hexMap: Record<string, string> = {
@@ -577,7 +688,9 @@ export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Gr
       cloth_white: '#f5f0e6',
       cloth_orange: '#fb923c',
     };
-    wrap.add(buildClothVestMesh(hexMap[cosmeticId] || '#f48fb1', profile));
+    const vest = buildClothVestMesh(hexMap[cosmeticId] || '#f48fb1', profile, dims);
+    vest.position.set(0, -0.125, -0.01);
+    wrap.add(vest);
   }
   return wrap;
 }
@@ -588,6 +701,7 @@ export function attachCatCosmeticsRig(
   onToggleBaseCollar?: (visible: boolean) => void
 ): CatCosmeticRigController {
   const profile = getCatFitProfile(catId) ?? CAT_FIT_PROFILES.default;
+  const rigDims = sockets.rigDimensions ?? DEFAULT_CAT_RIG_DIMENSIONS;
 
   const cosmeticMeshes = new Map<CatCosmeticId, THREE.Object3D[]>();
 
@@ -614,7 +728,11 @@ export function attachCatCosmeticsRig(
   sockets.anchorHeadTop.add(beret);
   cosmeticMeshes.set('beret', [beret]);
 
-  // 4. Sleeveless Knit Pet Vests (5 colors)
+  // Mount container for body-aligned conformal outfits (bodyRoot = un-tilted bodyPivot when provided)
+  const bodyMountParent = sockets.bodyRoot ?? sockets.anchorTorso;
+  const needsFallbackOffset = !sockets.bodyRoot;
+
+  // 4. Conformal Sleeveless Knit Pet Vests (5 colors — zero chest/belly clipping on all cat sizes)
   const clothSpecs: Array<{ id: CatCosmeticId; hex: string }> = [
     { id: 'cloth_pink', hex: '#f48fb1' },
     { id: 'cloth_yellow', hex: '#f6d365' },
@@ -623,23 +741,30 @@ export function attachCatCosmeticsRig(
     { id: 'cloth_orange', hex: '#fb923c' },
   ];
   clothSpecs.forEach(({ id, hex }) => {
-    const vest = buildClothVestMesh(hex, profile);
+    const vest = buildClothVestMesh(hex, profile, rigDims);
+    if (needsFallbackOffset) {
+      vest.position.set(0, -0.116, 0.006);
+      vest.rotation.x = -0.24;
+    }
     vest.visible = false;
-    sockets.anchorTorso.add(vest);
+    bodyMountParent.add(vest);
     cosmeticMeshes.set(id, [vest]);
   });
 
-  // 5. Full Suit: Bone-White Plush Skeleton T-Rex (open-jaw skull hood + curved ribcage/tail + 4 dorsal spikes)
-  const dinoHood = buildDinoHeadHood(profile);
+  // 5. Full Suit: Geometry-Driven Bone-White Plush Skeleton T-Rex (solid collar-anchored lower jaw + external dorsal spine, ribcage & tail)
+  const dinoHood = buildDinoHeadHood(profile, rigDims);
   dinoHood.visible = false;
   sockets.anchorHeadTop.add(dinoHood);
 
-  const dinoSuit = buildDinoTorsoSuit(profile);
+  const dinoSuit = buildDinoTorsoSuit(profile, rigDims);
+  if (needsFallbackOffset) {
+    dinoSuit.position.set(0, -0.116, 0.006);
+    dinoSuit.rotation.x = -0.24;
+  }
   dinoSuit.visible = false;
-  sockets.anchorTorso.add(dinoSuit);
+  bodyMountParent.add(dinoSuit);
 
-  const dinoSpikes = buildDinoSpineRidges(sockets.anchorSpinePoints, profile);
-  cosmeticMeshes.set('dino_costume', [dinoHood, dinoSuit, ...dinoSpikes]);
+  cosmeticMeshes.set('dino_costume', [dinoHood, dinoSuit]);
 
   const applyLoadout = (loadout: CatLoadout | undefined) => {
     const visibleSlots = getEffectiveVisibleLoadout(loadout);

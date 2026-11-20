@@ -45,6 +45,7 @@ import {
   getOrderVesselType,
   getPastryById,
   getRecipeById,
+  getScenerySpec,
   getStepDurationMs,
   isStepLockActive,
   loadGameFromStorage,
@@ -558,9 +559,12 @@ export default function App() {
   }, [runEspressoFade]);
 
   const handleSelectOutdoorVantage = useCallback((vantage: OutdoorVantageKey) => {
+    const spec = getScenerySpec(gameStateRef.current.activeScenery);
+    const resolvedVantage: OutdoorVantageKey =
+      vantage === 'overlook' && !spec.hasScenicOverlook ? 'porch' : vantage;
     soundEngine.playCeramicClink(1.06);
-    setOutdoorVantage(vantage);
-    sceneRef.current?.setOutdoorVantage(vantage);
+    setOutdoorVantage(resolvedVantage);
+    sceneRef.current?.setOutdoorVantage(resolvedVantage);
   }, []);
 
   const handlePurchaseOrEquipScenery = useCallback(
@@ -577,8 +581,15 @@ export default function App() {
       } else {
         soundEngine.playCeramicClink(1.14);
       }
+      const nextSpec = getScenerySpec(next.activeScenery);
       runEspressoFade(() => {
         setGameState(next);
+        if (!nextSpec.hasScenicOverlook) {
+          setOutdoorVantage((curr) => (curr === 'overlook' ? 'porch' : curr));
+          if (outdoorOverlookOpenRef.current) {
+            sceneRef.current?.setOutdoorVantage('porch');
+          }
+        }
         sceneRef.current?.updateGameState(next);
         soundEngine.setRainAmbience(next.phase === 'playing', next.weather);
       });

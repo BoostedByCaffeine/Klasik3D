@@ -5,6 +5,7 @@ import {
   disableShadowsRecursive,
   getSharedGlowSpriteTexture,
 } from './sceneryTypes';
+import { addSurrounding360Context } from './surroundingContext';
 
 // ============================================================================
 // PHASE 2: OUTDOOR SCENERIES 1–5
@@ -217,35 +218,7 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
   farInst.instanceMatrix.needsUpdate = true;
   root.add(farInst);
 
-  // Distant looping box-silhouette traffic (2 lanes along z = -11.3 & -13.9, safe & distant)
-  const cars: Array<{ group: THREE.Group; speed: number; dir: 1 | -1 }> = [];
-  const carColors = [0xdc2626, 0x2563eb, 0xf59e0b, 0xe2e8f0];
-  const headMat = new THREE.MeshBasicMaterial({ color: 0xfef3c7 });
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
-  for (let c = 0; c < 4; c++) {
-    const dir: 1 | -1 = c % 2 === 0 ? 1 : -1;
-    const car = new THREE.Group();
-    const cMat = new THREE.MeshStandardMaterial({
-      color: carColors[c],
-      roughness: 0.35,
-      metalness: 0.35,
-    });
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.56, 1.05), cMat);
-    chassis.position.y = 0.42;
-    car.add(chassis);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.45, 0.92), cMat);
-    cabin.position.set(-0.1 * dir, 0.88, 0);
-    car.add(cabin);
-    const frontLight = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.78), headMat);
-    frontLight.position.set(1.16 * dir, 0.45, 0);
-    car.add(frontLight);
-    const rearLight = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.78), tailMat);
-    rearLight.position.set(-1.16 * dir, 0.45, 0);
-    car.add(rearLight);
-    car.position.set(-22 + c * 14, 0, dir === 1 ? -14.2 : -11.1);
-    root.add(car);
-    cars.push({ group: car, speed: 5.5 + (c % 2) * 1.8, dir });
-  }
+  const ctx = addSurrounding360Context(root, 'busy_street');
 
   disableShadowsRecursive(root);
 
@@ -253,15 +226,11 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
     id: 'busy_street',
     root,
     envHint: {},
-    update: (dt, _elapsed, isNight) => {
+    update: (_dt, _elapsed, isNight, climateState) => {
+      ctx.update(isNight, climateState);
       windowWarmMat.emissiveIntensity = isNight ? 1.55 : 0.16;
       windowCoolMat.emissiveIntensity = isNight ? 1.1 : 0.1;
       signEmissiveMat.emissiveIntensity = isNight ? 1.9 : 0.55;
-      for (const c of cars) {
-        c.group.position.x += c.dir * c.speed * dt;
-        if (c.dir === 1 && c.group.position.x > 28) c.group.position.x = -28;
-        if (c.dir === -1 && c.group.position.x < -28) c.group.position.x = 28;
-      }
     },
   };
 }
@@ -472,6 +441,8 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   crowns.instanceMatrix.needsUpdate = true;
   root.add(trunks, crowns);
 
+  const ctx = addSurrounding360Context(root, 'mayon_volcano');
+
   disableShadowsRecursive(root);
 
   return {
@@ -482,7 +453,8 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
       fogColorNight: 0x0f1a2a,
       fogDensityScale: 0.72,
     },
-    update: (dt) => {
+    update: (dt, _elapsed, isNight, climateState) => {
+      ctx.update(isNight, climateState);
       cloudRing.rotation.y += dt * 0.08;
     },
   };
@@ -673,6 +645,8 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     mistSprites.push(sp);
   }
 
+  const ctx = addSurrounding360Context(root, 'hilltop_city_lights');
+
   disableShadowsRecursive(root);
 
   return {
@@ -683,7 +657,8 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
       fogColorNight: 0x0b1222,
       fogDensityScale: 1.05,
     },
-    update: (dt, elapsed, isNight) => {
+    update: (dt, elapsed, isNight, climateState) => {
+      ctx.update(isNight, climateState);
       cityLightsMat.opacity = isNight
         ? 0.88 + Math.sin(elapsed * 2.1) * 0.1
         : 0.24;
@@ -865,6 +840,8 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   const particleField = new THREE.Points(pGeo, sakuraFireflyMat);
   root.add(particleField);
 
+  const ctx = addSurrounding360Context(root, 'japanese_tranquility');
+
   disableShadowsRecursive(root);
 
   return {
@@ -875,7 +852,8 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
       fogColorNight: 0x111525,
       fogDensityScale: 0.9,
     },
-    update: (dt, elapsed, isNight) => {
+    update: (dt, elapsed, isNight, climateState) => {
+      ctx.update(isNight, climateState);
       shojiMat.emissiveIntensity = isNight ? 1.45 : 0.25;
       lanternMat.emissiveIntensity = isNight ? 2.1 : 0.7;
       sakuraFireflyMat.color.setHex(isNight ? 0xfde047 : 0xf9a8d4);
@@ -1037,6 +1015,8 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   statueArms.position.set(-20, 21.1, -98);
   root.add(statueArms);
 
+  const ctx = addSurrounding360Context(root, 'brazilian_favela');
+
   disableShadowsRecursive(root);
 
   return {
@@ -1047,7 +1027,8 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
       fogColorNight: 0x0f172a,
       fogDensityScale: 0.78,
     },
-    update: (_dt, _elapsed, isNight) => {
+    update: (_dt, _elapsed, isNight, climateState) => {
+      ctx.update(isNight, climateState);
       statueMat.emissiveIntensity = isNight ? 1.8 : 0.2;
       bayMat.color.setHex(isNight ? 0x0b2545 : 0x0284c7);
     },
