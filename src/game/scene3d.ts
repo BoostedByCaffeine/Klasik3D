@@ -11708,7 +11708,7 @@ export class KlasikCafeScene3D {
     }
 
     const camDamp = this.catStationOpen
-      ? 1 - Math.exp(-8.5 * dt)
+      ? 1 - Math.exp(-10.5 * dt)
       : this.isCodexFocused
       ? 1 - Math.exp(-9.0 * dt)
       : dampFactor;

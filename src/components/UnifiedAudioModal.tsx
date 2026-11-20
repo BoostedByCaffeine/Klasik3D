@@ -146,10 +146,10 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     aria-selected={active}
                     data-testid={`audio-mode-${tab.id}`}
                     onClick={() => handleModeSwitch(tab.id)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors duration-75 ${
                       active
                         ? 'bg-[#f5a623] text-[#090705] shadow-[0_4px_12px_-3px_rgba(245,166,35,0.6)]'
-                        : 'text-[#E7D7C1] hover:text-[#FAF5EE]'
+                        : 'bg-transparent text-[#E7D7C1] hover:text-[#FAF5EE] hover:bg-white/[0.06]'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />

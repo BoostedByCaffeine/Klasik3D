@@ -1900,12 +1900,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         type="button"
         data-testid="btn-open-cat-station"
         onClick={onOpenCatStation}
-        className="pointer-events-auto fixed left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-[#090705]/85 hover:bg-[#1a130d]/95 border border-[#f5a623]/45 backdrop-blur-md shadow-[0_10px_24px_-6px_rgba(0,0,0,0.75)] flex flex-col items-center justify-center gap-0.5 text-[#f5a623] cursor-pointer transition-transform active:scale-95"
+        className="pointer-events-auto fixed left-2 sm:left-3 top-1/2 -translate-y-1/2 z-20 min-w-[54px] h-11 sm:min-w-[58px] sm:h-12 px-1.5 rounded-2xl bg-[#090705]/85 hover:bg-[#1a130d]/95 border border-[#f5a623]/45 backdrop-blur-md shadow-[0_10px_24px_-6px_rgba(0,0,0,0.75)] flex flex-col items-center justify-center gap-0.5 text-[#f5a623] cursor-pointer transition-transform active:scale-95"
         title={`Visit ${equippedCat.name} · Pet, Comb, Feed Treats & Customize Wardrobe`}
         aria-label={`Open Cat Station (${equippedCat.name})`}
       >
         <Cat className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" strokeWidth={2.2} />
-        <span className="text-[8px] font-bold uppercase tracking-wider text-[#FAF5EE] leading-none truncate max-w-[36px]">
+        <span className="text-[8.5px] font-bold uppercase tracking-wider text-[#FAF5EE] leading-none truncate max-w-[48px]">
           {equippedCat.name}
         </span>
         {hasUnseenCatUnlock && (

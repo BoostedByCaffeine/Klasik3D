@@ -13,8 +13,6 @@ import path from 'node:path';
 const ROOT = process.cwd();
 const MANIFEST_PATH = path.join(ROOT, 'android/app/src/main/AndroidManifest.xml');
 const STYLES_PATH = path.join(ROOT, 'android/app/src/main/res/values/styles.xml');
-const APP_BUILD_GRADLE_PATH = path.join(ROOT, 'android/app/build.gradle');
-const ROOT_BUILD_GRADLE_PATH = path.join(ROOT, 'android/build.gradle');
 const AUDIO_SRC_DIR = path.join(ROOT, 'android-native/audio');
 const AUDIO_DEST_DIR = path.join(
   ROOT,
@@ -105,42 +103,17 @@ function patchStyles() {
   console.log('[patch-android] Wrote cutout-aware fullscreen res/values/styles.xml');
 }
 
-function copyKotlinAudioBridge() {
+function copyJavaAudioBridge() {
   if (!fs.existsSync(AUDIO_SRC_DIR)) {
     throw new Error(`Missing android-native audio sources at ${AUDIO_SRC_DIR}`);
   }
   fs.mkdirSync(AUDIO_DEST_DIR, { recursive: true });
-  for (const fileName of ['KlasikMediaListenerService.kt', 'KlasikNativeAudioBridge.kt']) {
+  for (const fileName of ['KlasikMediaListenerService.java', 'KlasikNativeAudioBridge.java']) {
     const src = path.join(AUDIO_SRC_DIR, fileName);
     const dest = path.join(AUDIO_DEST_DIR, fileName);
     fs.copyFileSync(src, dest);
   }
-  console.log('[patch-android] Copied Kotlin external audio bridge sources into Android project');
-}
-
-function ensureKotlinGradleSupport() {
-  if (fs.existsSync(ROOT_BUILD_GRADLE_PATH)) {
-    let rootGradle = fs.readFileSync(ROOT_BUILD_GRADLE_PATH, 'utf8');
-    if (!rootGradle.includes('kotlin-gradle-plugin')) {
-      rootGradle = rootGradle.replace(
-        /dependencies\s*\{/,
-        `dependencies {\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24"`
-      );
-      fs.writeFileSync(ROOT_BUILD_GRADLE_PATH, rootGradle, 'utf8');
-      console.log('[patch-android] Added kotlin-gradle-plugin to android/build.gradle');
-    }
-  }
-  if (fs.existsSync(APP_BUILD_GRADLE_PATH)) {
-    let appGradle = fs.readFileSync(APP_BUILD_GRADLE_PATH, 'utf8');
-    if (!appGradle.includes('kotlin-android') && !appGradle.includes('org.jetbrains.kotlin.android')) {
-      appGradle = appGradle.replace(
-        /apply plugin:\s*['"]com\.android\.application['"]/,
-        `apply plugin: 'com.android.application'\napply plugin: 'kotlin-android'`
-      );
-      fs.writeFileSync(APP_BUILD_GRADLE_PATH, appGradle, 'utf8');
-      console.log('[patch-android] Enabled kotlin-android plugin in android/app/build.gradle');
-    }
-  }
+  console.log('[patch-android] Copied pure Java 17 external audio bridge sources into Android project');
 }
 
 function patchMainActivity() {
@@ -239,7 +212,6 @@ public class MainActivity extends BridgeActivity {
 
 patchManifest();
 patchStyles();
-copyKotlinAudioBridge();
-ensureKotlinGradleSupport();
+copyJavaAudioBridge();
 patchMainActivity();
 

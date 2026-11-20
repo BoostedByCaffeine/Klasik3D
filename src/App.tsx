@@ -1632,14 +1632,12 @@ export default function App() {
         />
       )}
 
-      {/* PERSISTENT SPOTIFY WEB EMBED PLAYER (Mounted ONLY for Live Web & PWA when online; APK uses Phone Spotify App + Internal Player) */}
+      {/* PERSISTENT SPOTIFY WEB EMBED PLAYER (Hidden while UnifiedAudioModal is open so Counter Audio Deck stays uncluttered) */}
       {shouldRenderWebSpotifyEmbed && (
         <div
           data-testid="persistent-spotify-embed-dock"
           className={
-            activeModal === 'spotify' && spotifyState.mode === 'bridge'
-              ? 'fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md rounded-xl overflow-hidden glass-modal border-emerald-400/50'
-              : spotifyState.showMiniEmbed && gameState.phase !== 'title'
+            activeModal !== 'spotify' && spotifyState.showMiniEmbed && gameState.phase !== 'title'
               ? 'fixed bottom-12 right-2.5 z-30 w-64 sm:w-72 rounded-xl overflow-hidden glass-panel border-emerald-400/40'
               : 'fixed -bottom-96 left-0 w-72 h-20 opacity-0 pointer-events-none overflow-hidden'
           }

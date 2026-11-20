@@ -77,6 +77,8 @@ export interface SnapshotRadioStation {
   genre: string;
   streamUrl: string;
   codec: string;
+  layer: 'curated' | 'directory';
+  freqLabel?: string;
 }
 
 export interface MusicPlayerSnapshot {
@@ -560,6 +562,8 @@ export class MusicPlayerController {
         genre: st.subtitle,
         streamUrl: st.streamUrl,
         codec: st.codec,
+        layer: st.category === 'directory' ? 'directory' : 'curated',
+        freqLabel: st.bitrate ? `${st.bitrate}k ${st.codec}` : st.codec,
       })),
       activeStationId: s.currentRadioId,
       radioStatus,
@@ -613,12 +617,15 @@ export class MusicPlayerController {
   public hydratePreferences(prefs?: AudioPreferences) {
     if (!prefs) return;
     const safeMode: 'vinyl' | 'radio' = prefs.mode === 'radio' ? 'radio' : 'vinyl';
-    const validVinyl = this.state.vinylTracks.some((t) => t.id === prefs.lastVinylTrackId)
-      ? prefs.lastVinylTrackId
-      : DEFAULT_VINYL_CRATE[0].id;
-    const validRadio = this.state.radioStations.some((s) => s.id === prefs.lastRadioStationId)
-      ? prefs.lastRadioStationId
-      : CURATED_RADIO_STATIONS[0].id;
+    const validVinyl: string =
+      prefs.lastVinylTrackId && this.state.vinylTracks.some((t) => t.id === prefs.lastVinylTrackId)
+        ? prefs.lastVinylTrackId
+        : DEFAULT_VINYL_CRATE[0].id;
+    const validRadio: string =
+      prefs.lastRadioStationId &&
+      this.state.radioStations.some((s) => s.id === prefs.lastRadioStationId)
+        ? prefs.lastRadioStationId
+        : CURATED_RADIO_STATIONS[0].id;
 
     soundEngine.setAmbienceVolume(prefs.ambienceVolume);
     this.setState({
