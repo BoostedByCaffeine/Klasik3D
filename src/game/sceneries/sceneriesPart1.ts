@@ -950,6 +950,7 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     hasCamera: boolean;
     strollAmp: number;
     flashMesh?: THREE.Mesh;
+    umbrellaGroup: THREE.Group;
   }
   const tourists: SightseeingTourist[] = [];
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xe2b192, roughness: 0.72 });
@@ -957,6 +958,10 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   const shoeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.78 });
   const cameraBodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.38, metalness: 0.4 });
   const lensMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.18, metalness: 0.7 });
+  const touristUmbStemGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.88, 5);
+  const touristUmbCanopyGeo = new THREE.ConeGeometry(0.56, 0.22, 10);
+  const touristUmbStemMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
+  const touristUmbPalette = [0xef4444, 0x2563eb, 0x10b981, 0xf59e0b, 0xec4899];
   const flashMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
@@ -1056,8 +1061,27 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     headGroup.add(neck, head, hair, brim, crown);
     tg.add(headGroup);
 
+    // Phase 3: Shared-geometry colorful rain umbrella attached to tourist's free left hand
+    const umbrellaGroup = new THREE.Group();
+    const umbStem = new THREE.Mesh(touristUmbStemGeo, touristUmbStemMat);
+    umbStem.position.y = 0.44;
+    const umbCanopy = new THREE.Mesh(
+      touristUmbCanopyGeo,
+      new THREE.MeshStandardMaterial({
+        color: touristUmbPalette[idx % touristUmbPalette.length],
+        roughness: 0.58,
+        side: THREE.DoubleSide,
+      })
+    );
+    umbCanopy.position.y = 0.88;
+    umbrellaGroup.add(umbStem, umbCanopy);
+    umbrellaGroup.position.set(-0.18, 1.24, 0.24);
+    umbrellaGroup.visible = false;
+    tg.add(umbrellaGroup);
+
     tg.position.set(ts.x, 0.02, ts.z);
     tg.rotation.y = ts.rotY;
+    tg.userData.outdoorOnly = true;
     root.add(tg);
     tourists.push({
       group: tg,
@@ -1073,6 +1097,7 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
       hasCamera: ts.hasCamera,
       strollAmp: ts.strollAmp,
       flashMesh,
+      umbrellaGroup,
     });
   });
 
@@ -1341,12 +1366,13 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
       fogColorNight: 0x0f1a2a,
       fogDensityScale: 0.72,
     },
-    update: (dt, elapsed, isNight, climateState) => {
+    update: (dt, elapsed, isNight, climateState, weather) => {
       ctx.update(isNight, climateState, elapsed);
       cloudRing.rotation.y += dt * 0.08;
       stallBulbMat.emissiveIntensity = isNight ? 2.1 : 0.3;
       kuboWinMat.emissiveIntensity = isNight ? 1.75 : 0.14;
       waterStripMat.color.setHex(isNight ? 0x164e63 : 0x38bdf8);
+      const isRain = weather === 'rainy' || weather === 'storm';
 
       for (let i = 0; i < tourists.length; i++) {
         const t = tourists[i];
@@ -1358,7 +1384,14 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
         t.rightLeg.rotation.x = -step;
         t.headGroup.rotation.y = Math.sin(elapsed * 0.85 + t.phase) * 0.26;
         t.headGroup.rotation.x = -0.14 + Math.sin(elapsed * 0.6 + t.phase) * 0.05; // Looking up at Mayon
-        if (!t.hasCamera) {
+        t.umbrellaGroup.visible = isRain;
+        if (isRain) {
+          t.leftArm.rotation.x = -1.15;
+          t.rightArm.rotation.x = t.hasCamera ? -0.95 : step * 0.45;
+          if (t.flashMesh) {
+            (t.flashMesh.material as THREE.MeshBasicMaterial).opacity = 0;
+          }
+        } else if (!t.hasCamera) {
           t.leftArm.rotation.x = -step * 0.8;
           t.rightArm.rotation.x = step * 0.8;
         } else {

@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import type { ClimateState, SceneryId } from '../sceneryData';
-import { ROAD_ELEVATION_LAYERS, getSceneryStreetlightSpec } from '../outdoorLod';
+import {
+  EIFFEL_DOWNHILL_START_Z,
+  ROAD_ELEVATION_LAYERS,
+  getEiffelRoadPose,
+  getSceneryRoadTopology,
+  getSceneryStreetlightSpec,
+} from '../outdoorLod';
+import { batchStaticMeshesByMaterial } from './sceneryTypes';
 
 export interface SurroundingContextHandle {
   update: (isNight: boolean, climateState: ClimateState, elapsed?: number) => void;
@@ -255,8 +262,14 @@ export function addSurrounding360Context(
   root: THREE.Group,
   sceneryId: SceneryId
 ): SurroundingContextHandle {
+  const horizonBackdropGroup = new THREE.Group();
+  horizonBackdropGroup.name = `horizon_backdrop_${sceneryId}`;
+  horizonBackdropGroup.userData.alwaysVisibleBackdrop = true;
+  root.add(horizonBackdropGroup);
+
   const ctxGroup = new THREE.Group();
   ctxGroup.name = `surrounding_360_${sceneryId}`;
+  ctxGroup.userData.outdoorOnly = true;
   root.add(ctxGroup);
 
   const warmWindowMats: THREE.MeshStandardMaterial[] = [];
@@ -313,7 +326,7 @@ export function addSurrounding360Context(
     const upperTerrace = new THREE.Mesh(new THREE.PlaneGeometry(360, 182), groundSkirtMat);
     upperTerrace.rotation.x = -Math.PI / 2;
     upperTerrace.position.set(0, -0.12, 73.4);
-    ctxGroup.add(upperTerrace);
+    horizonBackdropGroup.add(upperTerrace);
 
     // Deep lower valley/basin floor spanning 360° far below the cliffside
     const deepFloorY = sceneryId === 'eiffel_tower' ? -14.5 : -38.0;
@@ -332,13 +345,13 @@ export function addSurrounding360Context(
     const deepFloor = new THREE.Mesh(new THREE.CircleGeometry(210, 48), deepFloorMat);
     deepFloor.rotation.x = -Math.PI / 2;
     deepFloor.position.set(0, deepFloorY, -24);
-    ctxGroup.add(deepFloor);
+    horizonBackdropGroup.add(deepFloor);
   } else {
     // Continuous flat 360° perimeter ground skirt cleanly below asphalt (y = -0.12)
     const groundSkirt = new THREE.Mesh(new THREE.CircleGeometry(195, 48), groundSkirtMat);
     groundSkirt.rotation.x = -Math.PI / 2;
     groundSkirt.position.set(0, -0.12, -18);
-    ctxGroup.add(groundSkirt);
+    horizonBackdropGroup.add(groundSkirt);
   }
 
   // Horizon atmospheric blend cylinder matching lower sky dome band
@@ -354,7 +367,7 @@ export function addSurrounding360Context(
     horizonBandMat
   );
   horizonBand.position.set(0, 13.0, -18);
-  ctxGroup.add(horizonBand);
+  horizonBackdropGroup.add(horizonBand);
 
   const dummy = new THREE.Object3D();
 
@@ -707,18 +720,53 @@ export function addSurrounding360Context(
       winterGroundMats.push({ mat: extSidewalkMat, summerHex: 0x8d95a0, winterHex: 0xdce8f4 });
     }
 
-    // Extended sidewalk wings starting past main sidewalk (x = ±22 to ±64) with zero overlap
-    [-43, 43].forEach((sx) => {
-      const sw = new THREE.Mesh(new THREE.BoxGeometry(42, 0.12, 2.2), extSidewalkMat);
-      sw.position.set(sx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -8.2);
-      ctxGroup.add(sw);
-      const farSw = new THREE.Mesh(new THREE.BoxGeometry(42, 0.12, 2.2), extSidewalkMat);
-      farSw.position.set(sx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
-      ctxGroup.add(farSw);
-      const roadWing = new THREE.Mesh(new THREE.PlaneGeometry(42, 6.6), extAsphaltMat);
+    // Segmented Sidewalk Wings & Road Extensions cleanly split around x = ±33.8 junctions (ZERO gutter/sidewalk overlap!)
+    const curbFilletMat = new THREE.MeshStandardMaterial({
+      color: sceneryId === 'cyberpunk_neon' ? 0x1e293b : 0x6b7280,
+      roughness: 0.86,
+    });
+    const roadTopo = getSceneryRoadTopology(sceneryId);
+    [-1, 1].forEach((sign) => {
+      // Inner connector sidewalk from main sidewalk end (±22.0) strictly up to junction opening (±29.2)
+      const innerSw = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.12, 2.2), extSidewalkMat);
+      innerSw.position.set(sign * 25.6, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -8.2);
+      ctxGroup.add(innerSw);
+      const innerFarSw = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.12, 2.2), extSidewalkMat);
+      innerFarSw.position.set(sign * 25.6, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
+      ctxGroup.add(innerFarSw);
+
+      // Outer sidewalk continuation strictly BEYOND junction opening (±38.4 to ±60.0)
+      const outerSw = new THREE.Mesh(new THREE.BoxGeometry(21.6, 0.12, 2.2), extSidewalkMat);
+      outerSw.position.set(sign * 49.2, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -8.2);
+      ctxGroup.add(outerSw);
+      const outerFarSw = new THREE.Mesh(new THREE.BoxGeometry(21.6, 0.12, 2.2), extSidewalkMat);
+      outerFarSw.position.set(sign * 49.2, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
+      ctxGroup.add(outerFarSw);
+
+      // Continuous main avenue wing asphalt extending cleanly to corner buildings (zero curb intrusion)
+      const roadWing = new THREE.Mesh(new THREE.PlaneGeometry(38, 6.6), extAsphaltMat);
       roadWing.rotation.x = -Math.PI / 2;
-      roadWing.position.set(sx, ROAD_ELEVATION_LAYERS.asphaltY - 0.004, -12.55);
+      roadWing.position.set(sign * 41.0, ROAD_ELEVATION_LAYERS.asphaltY - 0.004, -12.55);
       ctxGroup.add(roadWing);
+
+      // Clean 90° rounded corner curb fillets framing both inner & outer mouths of x = ±33.8 junction
+      const ix = sign * 33.8;
+      const filletOffsets: Array<[number, number, number]> = [
+        [ix - 4.6, -8.6, 0],
+        [ix + 4.6, -8.6, Math.PI * 0.5],
+        [ix + 4.6, -16.5, Math.PI],
+        [ix - 4.6, -16.5, Math.PI * 1.5],
+      ];
+      filletOffsets.forEach(([fx, fz, startAng]) => {
+        if (roadTopo === 'l_junction' && fz < -12) return;
+        const fillet = new THREE.Mesh(
+          new THREE.RingGeometry(0.45, 0.82, 8, 1, startAng, Math.PI * 0.5),
+          curbFilletMat
+        );
+        fillet.rotation.x = -Math.PI / 2;
+        fillet.position.set(fx, ROAD_ELEVATION_LAYERS.curbTopY - 0.015, fz);
+        ctxGroup.add(fillet);
+      });
     });
 
     // Immediate Flush Flanking Buildings directly touching Klasik Cafe's left (-5.8) and right (+5.8) sides
@@ -1086,7 +1134,7 @@ export function addSurrounding360Context(
     ctxGroup.add(blocksInst, parapetsInst);
 
     // =========================================================================
-    // PHASE 2.1: TRUE 4-WAY / T CROSS-STREET INTERSECTIONS AT x = ±34
+    // PHASE 2.1: STANDARDIZED T-ROADS & DOWNHILL PARIS MONTMARTRE BRANCH AT x = ±33.8
     // =========================================================================
     const crossStripeMat = new THREE.MeshStandardMaterial({
       color: 0xe2e8f0,
@@ -1095,29 +1143,63 @@ export function addSurrounding360Context(
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
     });
-    const isTIntersectionOnly = sceneryId === 'eiffel_tower' || sceneryId === 'brazilian_favela';
+    const isDownhillParis = sceneryId === 'eiffel_tower';
     if (sceneryId === 'busy_street' || sceneryId === 'eiffel_tower' || sceneryId === 'cyberpunk_neon' || sceneryId === 'brazilian_favela') {
       [-33.8, 33.8].forEach((ix, idx) => {
         const sign = Math.sign(ix);
-        // Perpendicular cross-street asphalt (4-way on busy_street/cyberpunk, T-junction on eiffel/favela)
-        const crossLen = isTIntersectionOnly ? 26 : 52;
-        const crossZCenter = isTIntersectionOnly ? -3.0 : -12.55;
+        // Near (+Z) cross-street leg behind flanking buildings (z = -15.9 to +14.0)
+        const nearCrossLen = isDownhillParis ? 29.9 : 54.0;
+        const nearCrossZ = isDownhillParis ? -0.95 : -12.55;
         const crossRoad = new THREE.Mesh(
-          new THREE.PlaneGeometry(7.8, crossLen),
+          new THREE.PlaneGeometry(7.8, nearCrossLen),
           extAsphaltMat
         );
         crossRoad.rotation.x = -Math.PI / 2;
-        crossRoad.position.set(ix, ROAD_ELEVATION_LAYERS.asphaltY - 0.002, crossZCenter);
+        crossRoad.position.set(ix, ROAD_ELEVATION_LAYERS.asphaltY - 0.001, nearCrossZ);
         ctxGroup.add(crossRoad);
 
-        // Corner sidewalk strips flanking the perpendicular cross-street
-        [-4.6, 4.6].forEach((dx) => {
+        // Eiffel Tower Special Downhill T-Road Branch sloping smoothly from z = -15.9 down into Paris!
+        if (isDownhillParis) {
+          const slopeSegs = 14;
+          const slopeLen = 28.0; // z = -15.9 down to -43.9
+          const slopeGeo = new THREE.PlaneGeometry(7.8, slopeLen, 2, slopeSegs);
+          slopeGeo.rotateX(-Math.PI / 2);
+          const posAttr = slopeGeo.attributes.position as THREE.BufferAttribute;
+          for (let vi = 0; vi < posAttr.count; vi++) {
+            const localZ = posAttr.getZ(vi); // -slopeLen/2 .. +slopeLen/2
+            const worldZ = EIFFEL_DOWNHILL_START_Z - slopeLen * 0.5 + localZ;
+            const pose = getEiffelRoadPose(worldZ, 0, -1);
+            posAttr.setY(vi, pose.y + ROAD_ELEVATION_LAYERS.asphaltY);
+          }
+          slopeGeo.computeVertexNormals();
+          const downhillMesh = new THREE.Mesh(slopeGeo, extAsphaltMat);
+          downhillMesh.position.set(ix, 0, EIFFEL_DOWNHILL_START_Z - slopeLen * 0.5);
+          ctxGroup.add(downhillMesh);
+
+          // Flanking Montmartre limestone parapets descending alongside the sloped branch
+          [-4.25, 4.25].forEach((dx) => {
+            const wallGeo = new THREE.BoxGeometry(0.65, 1.3, slopeLen, 1, 1, slopeSegs);
+            const wPos = wallGeo.attributes.position as THREE.BufferAttribute;
+            for (let vi = 0; vi < wPos.count; vi++) {
+              const worldZ = EIFFEL_DOWNHILL_START_Z - slopeLen * 0.5 + wPos.getZ(vi);
+              const pose = getEiffelRoadPose(worldZ, 0, -1);
+              wPos.setY(vi, wPos.getY(vi) + pose.y + 0.48);
+            }
+            wallGeo.computeVertexNormals();
+            const rampWall = new THREE.Mesh(wallGeo, extSidewalkMat);
+            rampWall.position.set(ix + dx, 0, EIFFEL_DOWNHILL_START_Z - slopeLen * 0.5);
+            ctxGroup.add(rampWall);
+          });
+        }
+
+        // Corner sidewalk strips flanking the perpendicular cross-street (strictly outside main roadway)
+        [-4.65, 4.65].forEach((dx) => {
           const crossSwNear = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 18), extSidewalkMat);
-          crossSwNear.position.set(ix + dx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, 1.5);
+          crossSwNear.position.set(ix + dx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, 1.8);
           ctxGroup.add(crossSwNear);
-          if (!isTIntersectionOnly) {
+          if (!isDownhillParis) {
             const crossSwFar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 18), extSidewalkMat);
-            crossSwFar.position.set(ix + dx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -26.5);
+            crossSwFar.position.set(ix + dx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -27.0);
             ctxGroup.add(crossSwFar);
           }
         });
@@ -1508,18 +1590,31 @@ export function addSurrounding360Context(
         ctxGroup.add(mansard);
       });
     } else if (sceneryId === 'brazilian_favela') {
-      // Curving terraced favela hillside slopes + stacked colorful houses closing both -X and +X corners
-      const rioHillMat = new THREE.MeshStandardMaterial({ color: 0x3a6432, roughness: 0.92, flatShading: true });
-      [-50, 50].forEach((endX) => {
+      // Phase 2: Replace end-of-road green mountains with authentic Rio T-road corner botecos,
+      // colorful plaster walls, stone retaining steps, and tiled awnings framing the cross-street!
+      const botecoColors = [0xf59e0b, 0x06b6d4, 0xf43f5e, 0x10b981];
+      const botecoWallMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.9 });
+      [-45.5, 45.5].forEach((endX, eIdx) => {
         const sign = Math.sign(endX);
-        const slope = new THREE.Mesh(new THREE.ConeGeometry(28, 22, 8), rioHillMat);
-        slope.position.set(endX + sign * 12, 8.5, -12.5);
-        ctxGroup.add(slope);
-        for (let step = 0; step < 3; step++) {
-          const house = new THREE.Mesh(new THREE.BoxGeometry(7.2, 5.2 + step * 1.4, 9.5), blockMat);
-          house.position.set(endX + sign * (step * 4.5), 2.4 + step * 2.8, -12.5 + (step - 1) * 4.5);
-          ctxGroup.add(house);
-        }
+        // Corner Boteco storefront directly across the T-road turn
+        const shopMat = new THREE.MeshStandardMaterial({
+          color: botecoColors[eIdx % botecoColors.length],
+          roughness: 0.8,
+        });
+        const shop = new THREE.Mesh(new THREE.BoxGeometry(9.2, 6.2, 14.0), shopMat);
+        shop.position.set(endX + sign * 2.5, 3.0, -12.5);
+        ctxGroup.add(shop);
+        const shop2Mat = new THREE.MeshStandardMaterial({
+          color: botecoColors[(eIdx + 2) % botecoColors.length],
+          roughness: 0.82,
+        });
+        const shop2 = new THREE.Mesh(new THREE.BoxGeometry(8.4, 4.4, 11.2), shop2Mat);
+        shop2.position.set(endX + sign * 2.8, 8.2, -13.0);
+        ctxGroup.add(shop2);
+        // Stone coastal retaining wall & hillside stairway rising cleanly along the cross-street flank
+        const retainWall = new THREE.Mesh(new THREE.BoxGeometry(10.5, 1.8, 1.2), botecoWallMat);
+        retainWall.position.set(endX - sign * 2.5, 0.85, -18.5);
+        ctxGroup.add(retainWall);
       });
     }
   } else {
@@ -1723,7 +1818,51 @@ export function addSurrounding360Context(
       ctxGroup.add(snowTips);
     }
 
-    // Road-End Terrain Embankments / Rocky Outcrops closing BOTH -X and +X ends cleanly
+    // Phase 2: Standardized L-Junction Road / Trail Bends curving strictly BACKWARD (+Z) away from the vista
+    // (Mayon Volcano, Hilltop City Lights, Switzerland Hilltop, Mt. Everest — ZERO road cutting toward overlook!)
+    const lRoadMat = new THREE.MeshStandardMaterial({
+      color:
+        sceneryId === 'mt_everest'
+          ? 0xdce8f4
+          : sceneryId === 'mayon_volcano'
+          ? 0x6f745c
+          : sceneryId === 'switzerland_hilltop'
+          ? 0x768078
+          : 0x4b5553,
+      roughness: 0.9,
+    });
+    if (sceneryId === 'switzerland_hilltop') {
+      winterGroundMats.push({ mat: lRoadMat, summerHex: 0x768078, winterHex: 0xe3eef9 });
+    }
+    const lCurbMat = new THREE.MeshStandardMaterial({
+      color: isSnowBiome ? 0xcbd5e1 : 0x64748b,
+      roughness: 0.92,
+    });
+
+    [-1, 1].forEach((sign) => {
+      const bendX = sign * 33.8;
+      // Curved quarter-circle L-bend apron turning strictly from main road (-13.2) backward into +Z (-13.2 -> +12.0)
+      const bendDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(4.6, 12, sign === 1 ? 0 : Math.PI * 0.5, Math.PI * 0.5),
+        lRoadMat
+      );
+      bendDisc.rotation.x = -Math.PI / 2;
+      bendDisc.position.set(bendX - sign * 0.8, ROAD_ELEVATION_LAYERS.natureApronTopY + 0.004, -12.4);
+      ctxGroup.add(bendDisc);
+
+      // Backward-curving L-junction side lane running strictly behind the flanking cabins (+Z only!)
+      const lBackLane = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 26.0), lRoadMat);
+      lBackLane.rotation.x = -Math.PI / 2;
+      lBackLane.position.set(bendX, ROAD_ELEVATION_LAYERS.natureApronTopY + 0.002, 0.2);
+      ctxGroup.add(lBackLane);
+
+      // Protective outer stone/timber guardrail or snow-edged stone wall guiding the L-bend away from the cliff/vista
+      const outerBendWall = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.82, 16.0), lCurbMat);
+      outerBendWall.position.set(bendX + sign * 4.2, 0.41, -7.8);
+      ctxGroup.add(outerBendWall);
+    });
+
+    // Natural corner rock outcrops tucked safely outside the L-junction bend
     const ridgeRockMat = new THREE.MeshStandardMaterial({
       color: isSnowBiome ? 0x475569 : isTropical ? 0x2f6331 : 0x233834,
       roughness: 0.92,
@@ -1737,11 +1876,11 @@ export function addSurrounding360Context(
 
     [-58, 58].forEach((endX) => {
       const bluff = new THREE.Mesh(new THREE.ConeGeometry(22, 16, 7), ridgeRockMat);
-      bluff.position.set(endX, 6.2, -13.5);
+      bluff.position.set(endX, 5.2, -5.5);
       ctxGroup.add(bluff);
       if (isSnowBiome) {
         const bluffCap = new THREE.Mesh(new THREE.ConeGeometry(13, 9.5, 7), ridgeSnowMat);
-        bluffCap.position.set(endX, 10.0, -13.5);
+        bluffCap.position.set(endX, 9.0, -5.5);
         ctxGroup.add(bluffCap);
       }
     });
@@ -2074,6 +2213,9 @@ export function addSurrounding360Context(
       });
     }
   }
+
+  // Collapse repeated static flanking/intersection/streetlight meshes sharing identical materials into merged batches
+  batchStaticMeshesByMaterial(ctxGroup);
 
   return {
     update: (isNight: boolean, climateState: ClimateState, elapsed?: number) => {

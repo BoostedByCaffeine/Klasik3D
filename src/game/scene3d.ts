@@ -65,6 +65,8 @@ import {
   TRAFFIC_X_BOUND,
   computeLeashTransform,
   evaluateCornerTurnPath,
+  getEiffelRoadPose,
+  getJunctionTurnOutZSign,
   getOutdoorLodBudgets,
   getSceneryOutdoorBehaviors,
   isUrbanStreetScenery,
@@ -342,20 +344,26 @@ const GOD_RAY_FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-// Custom GLSL GPU-Driven Outdoor-Only Rain Curtain Shader (Zero CPU Loop, Zero Frozen Droplets, Strictly z <= -6.55)
+// Custom GLSL GPU-Driven Outdoor-Only Rain Curtain Shader (Camera-Anchored Outdoors, Strictly Outside Cafe Glass Indoors)
 const GPU_RAIN_VERTEX_SHADER = /* glsl */ `
   attribute vec3 aOrigin;
   attribute float aSpeed;
   attribute float aPhase;
   attribute float aIsTail;
   uniform float uTime;
+  uniform vec3 uAnchor;
+  uniform float uIsOutside;
   varying float vTail;
 
   void main() {
     vTail = aIsTail;
-    float fallHeight = 9.5;
-    float yHead = fallHeight - mod(uTime * aSpeed + aPhase * fallHeight, fallHeight);
-    vec3 pos = vec3(aOrigin.x, yHead, aOrigin.z);
+    float fallHeight = 10.5;
+    float yHead = uAnchor.y + fallHeight - mod(uTime * aSpeed + aPhase * fallHeight, fallHeight);
+    vec3 pos = vec3(aOrigin.x + uAnchor.x, yHead, aOrigin.z + uAnchor.z);
+    // Keep rain streaks strictly outside the cafe interior volume (x in [-6.1, 6.1], z > -6.55)
+    if (uIsOutside > 0.5 && pos.z > -6.55 && abs(pos.x) < 6.1) {
+      pos.z -= 12.0;
+    }
     // Wind-slanted raindrop tail trailing slightly up and left
     if (aIsTail > 0.5) {
       pos.y += 0.38;
@@ -718,6 +726,10 @@ export class KlasikCafeScene3D {
   private thumbnailStudio: ThumbnailStudio | null = null;
   private snowPoints: THREE.Points | null = null;
   private snowVelocities: Float32Array = new Float32Array(0);
+  private trafficStepInputsBuffer: Array<{ x: number; dir: 1 | -1; speed: number; visible: boolean }> = [];
+  private rollingFrameMs = 16.6;
+  private mobileDprThrottled = false;
+  private mobileDprSlowTimer = 0;
   private lastPointerX = 0;
   private lastPointerY = 0;
   private activeTouchPoints = new Map<number, { x: number; y: number }>();
@@ -1180,14 +1192,22 @@ export class KlasikCafeScene3D {
     const isLow = quality === 'low';
     const isMed = quality === 'medium';
     const dpr = window.devicePixelRatio || 1;
-    // Calibrated 3-tier DPR: Low (0.9x mobile / 1.0x desktop), Medium (1.35x), Max (2.0x)
-    const targetRatio = isLow
-      ? this.isMobileDevice
+    // Calibrated Mobile-Safe DPR cap: Mobile <= 1.35 (drops to 1.0 if frame time > 28ms), Desktop <= 1.75
+    const baseRatio = this.isSoftwareGl
+      ? 1.0
+      : this.isMobileDevice
+      ? isLow
         ? Math.min(dpr, 0.9)
-        : 1.0
+        : isMed
+        ? Math.min(dpr, 1.15)
+        : Math.min(dpr, 1.35)
+      : isLow
+      ? 1.0
       : isMed
       ? Math.min(dpr, 1.35)
-      : Math.min(dpr, 2.0);
+      : Math.min(dpr, 1.75);
+    const targetRatio =
+      this.isMobileDevice && this.mobileDprThrottled ? Math.min(baseRatio, 1.0) : baseRatio;
 
     this.renderer.setPixelRatio(targetRatio);
     const enableShadows = !isLow;
@@ -4477,13 +4497,14 @@ export class KlasikCafeScene3D {
       roughness: 0.85,
       metalness: 0.08,
     });
-    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(96, 6.6), this.roadAsphaltMat);
+    // Clip central avenue asphalt cleanly into the ±33.8 junction mouths (width 76 spans -38..+38)
+    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(76, 6.6), this.roadAsphaltMat);
     avenueRoad.rotation.x = -Math.PI / 2;
     avenueRoad.position.set(0, ROAD_ELEVATION_LAYERS.asphaltY, -12.55);
     avenueRoad.receiveShadow = true;
     this.urbanRoadAndCrosswalkGroup.add(avenueRoad);
 
-    // Phase 1.4: Dedicated Non-Flickering Road Gutters at y = 0.012 with polygonOffset
+    // Phase 2 Gutter Fix: Dedicated Non-Flickering Road Gutters strictly between intersections (x = -29.2..+29.2, ZERO overlap across junctions!)
     const gutterMat = new THREE.MeshStandardMaterial({
       color: 0x4b5563,
       roughness: 0.86,
@@ -4493,7 +4514,7 @@ export class KlasikCafeScene3D {
       polygonOffsetUnits: -1,
     });
     [-9.42, -15.64].forEach((gz) => {
-      const gutter = new THREE.Mesh(new THREE.PlaneGeometry(96, 0.34), gutterMat);
+      const gutter = new THREE.Mesh(new THREE.PlaneGeometry(58.4, 0.34), gutterMat);
       gutter.rotation.x = -Math.PI / 2;
       gutter.position.set(0, ROAD_ELEVATION_LAYERS.gutterY, gz);
       this.urbanRoadAndCrosswalkGroup.add(gutter);
@@ -4514,12 +4535,12 @@ export class KlasikCafeScene3D {
       this.urbanRoadAndCrosswalkGroup.add(stripe);
     }
 
-    // Opposite Far Sidewalk (top y = 0.09, thickness 0.12) & Curb (top y = 0.11)
-    const farCurb = new THREE.Mesh(new THREE.BoxGeometry(96, 0.14, 0.16), curbMat);
+    // Opposite Far Sidewalk & Curb strictly segmented to x = -29.2..+29.2 (NEVER slashes across ±33.8 intersections!)
+    const farCurb = new THREE.Mesh(new THREE.BoxGeometry(58.4, 0.14, 0.16), curbMat);
     farCurb.position.set(0, ROAD_ELEVATION_LAYERS.curbTopY - 0.07, -15.82);
     this.urbanRoadAndCrosswalkGroup.add(farCurb);
 
-    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(96, 0.12, 2.2), sidewalkMat);
+    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(58.4, 0.12, 2.2), sidewalkMat);
     farSidewalk.position.set(0, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
     this.urbanRoadAndCrosswalkGroup.add(farSidewalk);
     extGroup.add(this.urbanRoadAndCrosswalkGroup);
@@ -4609,13 +4630,18 @@ export class KlasikCafeScene3D {
     if (!force && key === this.lastOutdoorLodKey) return;
     this.lastOutdoorLodKey = key;
 
-    // 1. Biome Prop Hygiene: Hide urban round trees, city streetlamps, and asphalt crosswalk on alpine/nature maps!
+    // 0. Sync two-tier outdoor scenery visibility split (strictly hides outdoorOnlyGroup while indoors!)
+    this.sceneryManager?.setPlayerOutside(isPlayerOutside);
+
+    // 1. Biome Prop Hygiene: Hide urban round trees, city streetlamps, and asphalt crosswalk on alpine/nature maps
+    //    AND cull unseen exterior trees/streetlamps while the player is indoors behind the espresso counter!
     const urban = isUrbanStreetScenery(sc);
     if (this.urbanBoulevardTreesGroup) {
-      this.urbanBoulevardTreesGroup.visible = sc === 'busy_street' || sc === 'brazilian_favela';
+      this.urbanBoulevardTreesGroup.visible =
+        isPlayerOutside && (sc === 'busy_street' || sc === 'brazilian_favela');
     }
     if (this.urbanStreetLampsGroup) {
-      this.urbanStreetLampsGroup.visible = urban;
+      this.urbanStreetLampsGroup.visible = isPlayerOutside && urban;
     }
     if (this.urbanRoadAndCrosswalkGroup) {
       this.urbanRoadAndCrosswalkGroup.visible = urban;
@@ -8777,6 +8803,8 @@ export class KlasikCafeScene3D {
       fragmentShader: GPU_RAIN_FRAGMENT_SHADER,
       uniforms: {
         uTime: { value: 0 },
+        uAnchor: { value: new THREE.Vector3(0, 0, 0) },
+        uIsOutside: { value: 0 },
         uColor: { value: new THREE.Color(0xbae6fd) },
         uOpacity: { value: 0.48 },
       },
@@ -10159,6 +10187,9 @@ export class KlasikCafeScene3D {
       );
       bucketBrim.position.set(0, 0.248, 0);
       neckJoint.add(bucketBrim);
+    } else if (secretNpcAppearance) {
+      // Phase 3: Secret NPC Anton owns 100% of his sculpted male head & dual-state cap-safe hair mesh!
+      hairCrown.visible = false;
     } else {
       // 6 Diverse Hairstyle & Full 3D Hat Variants
       const styleVariant = seed % 6;
@@ -11639,6 +11670,7 @@ export class KlasikCafeScene3D {
         this.skyDomeMat.uniforms.uStarIntensity.value = 0.0;
       }
       if (this.gpuRainLines) this.gpuRainLines.visible = !this.gameState.isSnowing;
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = this.gameState.isSnowing ? 0.88 : 0.36;
       const isCyberNeonRain = (this.gameState.activeScenery || 'busy_street') === 'cyberpunk_neon';
       if (this.gpuRainMat) {
         this.gpuRainMat.uniforms.uColor.value.setHex(
@@ -11675,6 +11707,7 @@ export class KlasikCafeScene3D {
       if (this.nearSidewalkMat) this.nearSidewalkMat.roughness = 0.84;
       if (this.natureApronMat) this.natureApronMat.roughness = 0.9;
       if (this.gpuRainLines) this.gpuRainLines.visible = false;
+      if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = 0.85;
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
     }
@@ -13074,29 +13107,62 @@ export class KlasikCafeScene3D {
       this.camera.quaternion.slerp(_targetQuat, camDamp);
     }
 
-    // Update active 3D Outdoor Scenery animations (funicular, Sakura/fireflies, prayer flags, neon holograms, crater clouds)
+    // Update active 3D Outdoor Scenery animations (bypasses per-frame outdoor loops while inside cafe!)
+    const isPlayerOutsideFrame = this.outdoorOverlook.active || this.gameState.phase === 'title';
     if (this.sceneryManager) {
       this.sceneryManager.update(
         dt,
         this.elapsed,
         isNightWeather(this.gameState.weather),
         this.gameState.climateState || 'summer',
-        this.gameState.weather
+        this.gameState.weather,
+        isPlayerOutsideFrame
       );
     }
 
-    // Update falling snow particles when Snow / Always Winter is active
+    // Mobile adaptive resolution guard: step down to 1.0 DPR if rolling frame time stays > 28ms
+    if (this.isMobileDevice && !this.isSoftwareGl) {
+      const frameMs = dt * 1000;
+      this.rollingFrameMs = this.rollingFrameMs * 0.92 + frameMs * 0.08;
+      if (!this.mobileDprThrottled && this.rollingFrameMs > 28) {
+        this.mobileDprSlowTimer += dt;
+        if (this.mobileDprSlowTimer > 1.5) {
+          this.mobileDprThrottled = true;
+          this.mobileDprSlowTimer = 0;
+          this.updateGraphicsQuality();
+        }
+      } else if (this.mobileDprThrottled && this.rollingFrameMs < 18) {
+        this.mobileDprSlowTimer += dt;
+        if (this.mobileDprSlowTimer > 3.0) {
+          this.mobileDprThrottled = false;
+          this.mobileDprSlowTimer = 0;
+          this.updateGraphicsQuality();
+        }
+      } else {
+        this.mobileDprSlowTimer = Math.max(0, this.mobileDprSlowTimer - dt * 0.5);
+      }
+    }
+
+    // Update falling snow particles anchored dynamically around the camera when outside (zero extra particles!)
     if (this.snowPoints && this.snowPoints.visible) {
       const posAttr = this.snowPoints.geometry.attributes.position as THREE.BufferAttribute;
       const count = posAttr.count;
+      const anchorX = isPlayerOutsideFrame ? this.camera.position.x : 0;
+      const anchorZ = isPlayerOutsideFrame ? this.camera.position.z - 6.0 : -19.5;
+      const anchorY = isPlayerOutsideFrame ? Math.max(0, this.camera.position.y - 2.0) : 0;
       for (let i = 0; i < count; i++) {
         let sx = posAttr.getX(i) + (this.snowVelocities[i * 3] + Math.sin(this.elapsed * 0.9 + i) * 0.25) * dt;
         let sy = posAttr.getY(i) + this.snowVelocities[i * 3 + 1] * dt;
         let sz = posAttr.getZ(i) + this.snowVelocities[i * 3 + 2] * dt;
-        if (sy < 0.05) {
-          sy = 13.5;
-          sx = -26 + ((i * 11.7) % 52);
-          sz = -6.8 - ((i * 5.3) % 26);
+        const outOfRange =
+          sy < anchorY - 1.5 ||
+          Math.abs(sx - anchorX) > 28 ||
+          Math.abs(sz - anchorZ) > 16;
+        if (outOfRange) {
+          sy = anchorY + 12.5 + ((i * 3.7) % 3.0);
+          sx = anchorX - 24 + ((i * 11.7) % 48);
+          sz = anchorZ - 12 + ((i * 5.3) % 24);
+          if (!isPlayerOutsideFrame && sz > -6.6) sz = -6.6 - ((i * 3.1) % 14);
         }
         posAttr.setXYZ(i, sx, sy, sz);
       }
@@ -13435,9 +13501,23 @@ export class KlasikCafeScene3D {
       this.musicNotesInstanced.instanceMatrix.needsUpdate = true;
     }
 
-    // 8. Outdoor-Only GPU Rain Curtain, Scrolling Window Droplets, Puddle Splashes, Volumetric God Rays & Golden Dust
+    // 8. Outdoor-Only GPU Rain Curtain (dynamically camera-anchored at Cafe Porch, Scenic Overlook & Look Back!)
     if (this.gpuRainMat && this.gpuRainLines?.visible) {
       this.gpuRainMat.uniforms.uTime.value = this.elapsed;
+      const anchorUniform = this.gpuRainMat.uniforms.uAnchor.value as THREE.Vector3;
+      if (isPlayerOutsideFrame) {
+        // Center the 12m deep rain volume right in front of the active camera (aOrigin.z spans -18.58..-6.58 -> center -12.58)
+        const lookZShift = this.outdoorOverlook.vantageKey === 'lookback' ? 14.0 : 5.5;
+        anchorUniform.set(
+          this.camera.position.x,
+          Math.max(0, this.camera.position.y - 2.2),
+          this.camera.position.z + lookZShift
+        );
+        this.gpuRainMat.uniforms.uIsOutside.value = 1.0;
+      } else {
+        anchorUniform.set(0, 0, 0);
+        this.gpuRainMat.uniforms.uIsOutside.value = 0.0;
+      }
       if (this.windowRainTexture) {
         this.windowRainTexture.offset.y = (this.windowRainTexture.offset.y + dt * 0.38) % 1;
       }
@@ -13482,8 +13562,10 @@ export class KlasikCafeScene3D {
     this.syncOutdoorBiomeAndLod(false);
     const isPlayerOutsideNow = this.outdoorOverlook.active || this.gameState.phase === 'title';
     const isUrbanNow = isUrbanStreetScenery(activeSceneryNow);
-    const sidewalkObstacles = getSidewalkObstacles(isMiataOutsideNow, isUrbanNow, activeSceneryNow);
-    for (let i = 0; i < this.pedestrianPool.length; i++) {
+    const sidewalkObstacles = isPlayerOutsideNow
+      ? getSidewalkObstacles(isMiataOutsideNow, isUrbanNow, activeSceneryNow)
+      : [];
+    for (let i = 0; isPlayerOutsideNow && i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
       if (!p.actor.group.visible) continue;
 
@@ -13557,12 +13639,10 @@ export class KlasikCafeScene3D {
 
       // Phase 2: Smooth 90-degree corner turn onto the perpendicular cross-street at x = ±27.5
       // so pedestrians turn naturally behind corner storefronts/chalets instead of bubble-popping!
-      const isDeepCliff =
-        activeSceneryNow === 'hilltop_city_lights' ||
-        activeSceneryNow === 'switzerland_hilltop' ||
-        activeSceneryNow === 'eiffel_tower';
       const pedTurnSign: 1 | -1 =
-        p.laneZ > -12.4 || isDeepCliff ? 1 : -1;
+        activeSceneryNow === 'eiffel_tower'
+          ? 1
+          : getJunctionTurnOutZSign(activeSceneryNow, p.laneZ);
       const pedCorner = evaluateCornerTurnPath(
         p.x,
         p.currentZ,
@@ -13780,27 +13860,52 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 8c. Advance Pooled Outdoor Street Traffic Vehicles with Strict Two-Lane Spacing & Smooth 90° Intersection Turns!
-    const trafficStepInputs = this.trafficPool.map((v) => ({
-      x: v.x,
-      dir: v.dir,
-      speed: v.speed,
-      visible: v.group.visible,
-    }));
-    stepTwoLaneTraffic(trafficStepInputs, dt, TRAFFIC_X_BOUND, TRAFFIC_MIN_LANE_SPACING);
-    for (let i = 0; i < this.trafficPool.length; i++) {
-      const v = this.trafficPool[i];
-      if (!v.group.visible) continue;
-      v.x = trafficStepInputs[i].x;
-      // Near lane (eastbound, z=-11.05) turns right (+Z) around the corner building;
-      // Far lane (westbound, z=-13.75) turns right (-Z) down the cross-street behind far corner buildings.
-      const turnSign: 1 | -1 = v.laneZ > -12.4 ? 1 : -1;
-      const pose = evaluateCornerTurnPath(v.x, v.laneZ, v.dir, 29.0, 4.6, turnSign);
-      v.group.position.set(pose.x, v.laneY, pose.z);
-      v.group.rotation.y = pose.vehicleYaw;
-      const wheelSpin = (v.speed / 0.27) * dt;
-      for (let w = 0; w < v.wheels.length; w++) {
-        v.wheels[w].rotation.z -= wheelSpin;
+    // 8c. Advance Pooled Outdoor Street Traffic Vehicles (completely bypassed while indoors for 60 FPS brewing!)
+    if (isPlayerOutsideNow && this.trafficPool.length > 0) {
+      while (this.trafficStepInputsBuffer.length < this.trafficPool.length) {
+        this.trafficStepInputsBuffer.push({ x: 0, dir: 1, speed: 0, visible: false });
+      }
+      let anyVisibleTraffic = false;
+      for (let i = 0; i < this.trafficPool.length; i++) {
+        const v = this.trafficPool[i];
+        const slot = this.trafficStepInputsBuffer[i];
+        slot.x = v.x;
+        slot.dir = v.dir;
+        slot.speed = v.speed;
+        slot.visible = v.group.visible;
+        if (v.group.visible) anyVisibleTraffic = true;
+      }
+      if (anyVisibleTraffic) {
+        stepTwoLaneTraffic(
+          this.trafficStepInputsBuffer,
+          dt,
+          TRAFFIC_X_BOUND,
+          TRAFFIC_MIN_LANE_SPACING
+        );
+        for (let i = 0; i < this.trafficPool.length; i++) {
+          const v = this.trafficPool[i];
+          if (!v.group.visible) continue;
+          v.x = this.trafficStepInputsBuffer[i].x;
+          const turnSign = getJunctionTurnOutZSign(activeSceneryNow, v.laneZ);
+          const pose = evaluateCornerTurnPath(v.x, v.laneZ, v.dir, 29.0, 4.6, turnSign);
+          let carY = v.laneY;
+          let carPitch = 0;
+          if (activeSceneryNow === 'eiffel_tower') {
+            const slope = getEiffelRoadPose(pose.z, pose.vx, pose.vz);
+            carY = v.laneY + slope.y;
+            carPitch = slope.pitch;
+          }
+          v.group.position.set(pose.x, carY, pose.z);
+          v.group.rotation.order = 'YXZ';
+          v.group.rotation.y = pose.vehicleYaw;
+          // Local forward for traffic car meshes is +X, so pitch rotates around local Z!
+          v.group.rotation.z = carPitch;
+          v.group.rotation.x = 0;
+          const wheelSpin = (v.speed / 0.27) * dt;
+          for (let w = 0; w < v.wheels.length; w++) {
+            v.wheels[w].rotation.z -= wheelSpin;
+          }
+        }
       }
     }
 

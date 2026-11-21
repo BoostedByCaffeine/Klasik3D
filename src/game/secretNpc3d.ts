@@ -18,9 +18,25 @@ export interface SecretNpcRigTargets {
 }
 
 /**
- * Phase 5: Applies the Secret Easter Egg NPC ("Beb" / "Anton" / "Duminiki") visual signature onto a character rig:
- * - Short jet-black hair (#18181A) with straight fringe
- * - Warm tan skin (#C6936B), subtle mustache, stud earrings
+ * Pure helper to determine whether the Secret NPC's upper hair crown should be hidden
+ * so zero hair polygons ever clip through the Polo RL baseball cap or rain/snow hood.
+ */
+export function resolveSecretNpcHairVisibility(appearance: Pick<SecretNpcAppearance, 'wearsCap' | 'hoodUp'>): {
+  showHairCrown: boolean;
+  showUnderCapTrim: boolean;
+} {
+  return {
+    showHairCrown: !appearance.wearsCap && !appearance.hoodUp,
+    showUnderCapTrim: true,
+  };
+}
+
+/**
+ * Phase 3 & 5: Applies the Secret Easter Egg NPC ("Beb" / "Anton" / "Duminiki") visual signature onto a character rig:
+ * - Sculpted masculine male head/jawline, warm tan skin (#C6936B), clean brow, subtle mustache, flush silver stud earrings
+ * - Dual-state cap-safe jet-black short male haircut (#18181A):
+ *     * `hairCrownGroup` (textured top volume & straight fringe) automatically hidden when wearing cap or hood
+ *     * `hairUnderCapGroup` (tight tapered low sideburns & nape strictly below cap brim) always clean with zero clipping
  * - Black-and-white colorblock windbreaker (#F2F2F2 / #1C1C20) with thin crimson (#C83232) vertical chest zipper
  *   (or 25% dark charcoal grey tee #595B60 on non-winter Clear days)
  * - Baggy light-wash denim jeans (#B8C9DC) & black sneakers with white stripes/soles
@@ -137,69 +153,125 @@ export function applySecretNpcLookToRig(
     rig.leftArmJoint.add(watch);
   }
 
-  // Jet-black short hair (#18181A) with straight fringe + subtle mustache + silver stud earrings
-  const jetHairMat = new THREE.MeshStandardMaterial({ color: 0x18181a, roughness: 0.65 });
-  const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.068, 0.09), jetHairMat);
-  fringe.position.set(0, 0.285, 0.115);
-  neckJoint.add(fringe);
+  // === PHASE 3: SCULPTED MALE HEAD/JAWLINE & DUAL-STATE CAP-SAFE HAIR MESH ===
+  const jetHairMat = new THREE.MeshStandardMaterial({ color: 0x18181a, roughness: 0.72 });
 
-  const hairCrown = new THREE.Mesh(
-    new THREE.SphereGeometry(0.172, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
-    jetHairMat
-  );
-  hairCrown.position.set(0, 0.215, -0.008);
-  neckJoint.add(hairCrown);
+  // Structured masculine jawline & chin contour seated seamlessly onto the lower head
+  const maleJaw = new THREE.Mesh(new THREE.BoxGeometry(0.195, 0.095, 0.18), rig.skinMat);
+  maleJaw.position.set(0, 0.128, 0.024);
+  neckJoint.add(maleJaw);
+  const chinPad = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.052, 0.075), rig.skinMat);
+  chinPad.position.set(0, 0.098, 0.112);
+  neckJoint.add(chinPad);
 
-  // Subtle mustache right above smile
-  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.012, 0.014), jetHairMat);
-  mustache.position.set(0, 0.165, 0.162);
+  // Clean masculine dark eyebrows
+  [-0.052, 0.052].forEach((bx) => {
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.056, 0.014, 0.018), jetHairMat);
+    brow.position.set(bx, 0.242, 0.156);
+    brow.rotation.z = bx < 0 ? 0.05 : -0.05;
+    neckJoint.add(brow);
+  });
+
+  // Subtle dark mustache hugging the upper lip
+  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.013, 0.016), jetHairMat);
+  mustache.position.set(0, 0.154, 0.164);
   neckJoint.add(mustache);
 
-  // Stud earrings on both ears
+  // Flush silver stud earrings on both ear lobes
   const studMat = new THREE.MeshStandardMaterial({
     color: 0xe2e8f0,
     metalness: 0.9,
     roughness: 0.15,
   });
-  [-0.165, 0.165].forEach((ex) => {
-    const stud = new THREE.Mesh(new THREE.SphereGeometry(0.009, 6, 6), studMat);
-    stud.position.set(ex, 0.165, 0.01);
+  [-0.164, 0.164].forEach((ex) => {
+    const stud = new THREE.Mesh(new THREE.SphereGeometry(0.0085, 6, 6), studMat);
+    stud.position.set(ex, 0.158, 0.008);
     neckJoint.add(stud);
   });
 
-  // Cap & Weather-Smart Hood rules
+  const hairVis = resolveSecretNpcHairVisibility(appearance);
+
+  // 1) hairUnderCapGroup: tight tapered low sideburns + clean back nape strictly BELOW the cap brim (y <= 0.235)
+  const hairUnderCapGroup = new THREE.Group();
+  hairUnderCapGroup.name = 'secret_npc_hair_under_cap';
+  [-0.148, 0.148].forEach((sx) => {
+    const sideTaper = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.082, 0.115), jetHairMat);
+    sideTaper.position.set(sx, 0.195, -0.025);
+    hairUnderCapGroup.add(sideTaper);
+  });
+  const backNape = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.11, 0.055), jetHairMat);
+  backNape.position.set(0, 0.185, -0.142);
+  hairUnderCapGroup.add(backNape);
+  // Subtle tucked low front hairline strictly beneath cap brim
+  const lowBangs = new THREE.Mesh(new THREE.BoxGeometry(0.195, 0.024, 0.032), jetHairMat);
+  lowBangs.position.set(0, 0.246, 0.138);
+  hairUnderCapGroup.add(lowBangs);
+  hairUnderCapGroup.visible = hairVis.showUnderCapTrim;
+  neckJoint.add(hairUnderCapGroup);
+
+  // 2) hairCrownGroup: full modern textured short male haircut — strictly HIDDEN when wearing cap or hood!
+  const hairCrownGroup = new THREE.Group();
+  hairCrownGroup.name = 'secret_npc_hair_crown';
+  const crownCap = new THREE.Mesh(
+    new THREE.SphereGeometry(0.174, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.52),
+    jetHairMat
+  );
+  crownCap.scale.set(1.01, 0.96, 1.04);
+  crownCap.position.set(0, 0.222, -0.01);
+  hairCrownGroup.add(crownCap);
+  // Textured modern male upper crop & clean straight-across fringe stopping above brows
+  const topCrop = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.068, 0.24), jetHairMat);
+  topCrop.position.set(0, 0.345, 0.005);
+  hairCrownGroup.add(topCrop);
+  const frontFringe = new THREE.Mesh(new THREE.BoxGeometry(0.225, 0.055, 0.085), jetHairMat);
+  frontFringe.position.set(0, 0.285, 0.118);
+  hairCrownGroup.add(frontFringe);
+  hairCrownGroup.visible = hairVis.showHairCrown;
+  neckJoint.add(hairCrownGroup);
+
+  // 3) Headwear: Caramel Polo RL Baseball Cap OR Black Weather Hood (zero hair clipping!)
   if (appearance.wearsCap) {
-    // Brown-caramel Polo RL Baseball Cap (#A66B3C) + tiny Navy (#1B2845) pony emblem
     const capMat = new THREE.MeshStandardMaterial({ color: 0xa66b3c, roughness: 0.72 });
+    const capButtonMat = new THREE.MeshStandardMaterial({ color: 0x8a5429, roughness: 0.78 });
     const capDome = new THREE.Mesh(
-      new THREE.SphereGeometry(0.176, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.52),
+      new THREE.SphereGeometry(0.182, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.54),
       capMat
     );
-    capDome.position.set(0, 0.235, 0);
+    capDome.scale.set(1.01, 0.95, 1.04);
+    capDome.position.set(0, 0.236, -0.006);
     neckJoint.add(capDome);
-    const capBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.016, 14, 1, false, -0.8, 1.6), capMat);
-    capBrim.position.set(0, 0.252, 0.078);
-    capBrim.rotation.x = 0.12;
-    neckJoint.add(capBrim);
-    const ponyEmblem = new THREE.Mesh(
-      new THREE.BoxGeometry(0.022, 0.028, 0.01),
-      new THREE.MeshStandardMaterial({ color: 0x1b2845, roughness: 0.5 })
+
+    const capButton = new THREE.Mesh(new THREE.SphereGeometry(0.016, 6, 5), capButtonMat);
+    capButton.position.set(0, 0.408, -0.006);
+    neckJoint.add(capButton);
+
+    const capBrim = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.174, 0.178, 0.015, 16, 1, false, -0.82, 1.64),
+      capMat
     );
-    ponyEmblem.position.set(0, 0.3, 0.17);
+    capBrim.position.set(0, 0.252, 0.082);
+    capBrim.rotation.x = 0.1;
+    neckJoint.add(capBrim);
+
+    // Crisp Navy (#1B2845) Polo RL pony emblem centered on the front cap crown
+    const ponyEmblem = new THREE.Mesh(
+      new THREE.BoxGeometry(0.022, 0.03, 0.012),
+      new THREE.MeshStandardMaterial({ color: 0x1b2845, roughness: 0.48 })
+    );
+    ponyEmblem.position.set(0, 0.305, 0.181);
     neckJoint.add(ponyEmblem);
   } else if (appearance.hoodUp) {
-    // Automatic black windbreaker hood pulled up cleanly around the head (leaving face open)
     const hoodMat = new THREE.MeshStandardMaterial({
       color: 0x1c1c20,
       roughness: 0.55,
       side: THREE.DoubleSide,
     });
     const hoodShell = new THREE.Mesh(
-      new THREE.SphereGeometry(0.205, 14, 12, Math.PI * 0.22, Math.PI * 1.56, 0, Math.PI * 0.72),
+      new THREE.SphereGeometry(0.208, 14, 12, Math.PI * 0.2, Math.PI * 1.6, 0, Math.PI * 0.72),
       hoodMat
     );
     hoodShell.rotation.y = Math.PI * 0.5;
-    hoodShell.position.set(0, 0.215, -0.015);
+    hoodShell.position.set(0, 0.218, -0.016);
     neckJoint.add(hoodShell);
   }
 }

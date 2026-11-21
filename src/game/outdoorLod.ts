@@ -122,6 +122,135 @@ export function evaluateCornerTurnPath(
   };
 }
 
+export type SceneryRoadTopology = 't_road' | 'downhill_t_road' | 'l_junction';
+
+/**
+ * Standardized road junction topology across all 9 sceneries:
+ * - T-Road Intersections: Busy Street, Japanese Tranquility, Brazilian Favela, Cyberpunk Neon
+ * - Special Downhill T-Road: Eiffel Tower View (slopes smoothly downhill toward Paris vista)
+ * - L-Junction Only (zero road cutting toward overlook): Mayon, Hilltop, Switzerland, Mt. Everest
+ */
+export function getSceneryRoadTopology(sceneryId: SceneryId): SceneryRoadTopology {
+  switch (sceneryId) {
+    case 'busy_street':
+    case 'japanese_tranquility':
+    case 'brazilian_favela':
+    case 'cyberpunk_neon':
+      return 't_road';
+    case 'eiffel_tower':
+      return 'downhill_t_road';
+    case 'mayon_volcano':
+    case 'hilltop_city_lights':
+    case 'switzerland_hilltop':
+    case 'mt_everest':
+      return 'l_junction';
+  }
+}
+
+/**
+ * Returns the perpendicular turn direction (+1 = away from vista behind cafe flanks,
+ * -1 = toward the far cross-street / downhill Montmartre ramp) for a given scenery & lane.
+ * L-junction overlook maps ALWAYS bend strictly backward (+1) so zero traffic/walkers cut into the vista.
+ */
+export function getJunctionTurnOutZSign(sceneryId: SceneryId, laneZ: number): 1 | -1 {
+  const topo = getSceneryRoadTopology(sceneryId);
+  if (topo === 'l_junction') return 1;
+  return laneZ > -12.4 ? 1 : -1;
+}
+
+export interface SlopedRoadPose {
+  y: number;
+  /** Forward nose pitch in radians (positive = nose up, negative = nose down along travel direction). */
+  pitch: number;
+  isOnDownhillBranch: boolean;
+}
+
+export const EIFFEL_DOWNHILL_START_Z = -15.9;
+export const EIFFEL_DOWNHILL_EASE_LEN = 3.0;
+export const EIFFEL_DOWNHILL_GRADE = 0.36; // Smooth 20° Montmartre descent matching sloped ramp mesh
+
+/**
+ * Computes exact road surface height and forward pitch for Eiffel Tower View's downhill T-road branch.
+ * Main flat street (z >= -15.9) stays at y = 0, pitch = 0; far branch (z < -15.9) eases smoothly
+ * downhill with C1 continuity so vehicle tires hug the asphalt with zero floating.
+ */
+export function getEiffelRoadPose(
+  z: number,
+  vx: number,
+  vz: number
+): SlopedRoadPose {
+  if (z >= EIFFEL_DOWNHILL_START_Z) {
+    return { y: 0, pitch: 0, isOnDownhillBranch: false };
+  }
+  const dist = EIFFEL_DOWNHILL_START_Z - z;
+  let y: number;
+  let dydDist: number;
+  if (dist < EIFFEL_DOWNHILL_EASE_LEN) {
+    // Smooth quadratic crest transition: y(0) = 0, dy/ddist(0) = 0, dy/ddist(easeLen) = -grade
+    const u = dist / EIFFEL_DOWNHILL_EASE_LEN;
+    y = -0.5 * EIFFEL_DOWNHILL_GRADE * EIFFEL_DOWNHILL_EASE_LEN * u * u;
+    dydDist = -EIFFEL_DOWNHILL_GRADE * u;
+  } else {
+    const easeDrop = 0.5 * EIFFEL_DOWNHILL_GRADE * EIFFEL_DOWNHILL_EASE_LEN;
+    y = -easeDrop - (dist - EIFFEL_DOWNHILL_EASE_LEN) * EIFFEL_DOWNHILL_GRADE;
+    dydDist = -EIFFEL_DOWNHILL_GRADE;
+  }
+  // Since dist = startZ - z, dy/dz = -dydDist. Along travel unit vector (vx, vz):
+  const horizSpeed = Math.hypot(vx, vz) || 1;
+  const dzds = vz / horizSpeed;
+  const dyds = -dydDist * dzds;
+  return {
+    y,
+    pitch: Math.atan2(dyds, 1),
+    isOnDownhillBranch: true,
+  };
+}
+
+export interface AerialTurnPose extends CornerTurnPose {
+  y: number;
+  /** Banking roll angle in radians during the 90-degree sky-canyon turn. */
+  bankRoll: number;
+}
+
+/**
+ * Evaluates a smooth 90-degree banking aerial sky-canyon turn for Cyberpunk Neon hover-cars
+ * so flying traffic curves behind towering corner skyscrapers instead of vanishing mid-road.
+ */
+export function evaluateAerialTurnPath(
+  u: number,
+  laneZ: number,
+  baseY: number,
+  dir: 1 | -1,
+  turnStartX: number,
+  turnRadius: number,
+  turnOutZSign: 1 | -1
+): AerialTurnPose {
+  const base = evaluateCornerTurnPath(u, laneZ, dir, turnStartX, turnRadius, turnOutZSign);
+  const safeRadius = Math.max(1.0, turnRadius);
+  const arcLen = Math.PI * 0.5 * safeRadius;
+  let bankRoll = 0;
+
+  if (u > turnStartX) {
+    const s = u - turnStartX;
+    if (s <= arcLen) {
+      const theta = s / safeRadius;
+      bankRoll = Math.sin(theta * 2) * 0.28 * turnOutZSign * dir;
+    }
+  } else if (u < -turnStartX) {
+    const s = -turnStartX - u;
+    if (s <= arcLen) {
+      const theta = s / safeRadius;
+      bankRoll = -Math.sin(theta * 2) * 0.28 * turnOutZSign * dir;
+    }
+  }
+
+  return {
+    ...base,
+    y: baseY,
+    bankRoll,
+  };
+}
+
 export type StreetlightThemeStyle =
   | 'urban_cobra'
   | 'ph_solar_highway'
@@ -301,11 +430,16 @@ export function isUrbanStreetScenery(sceneryId: SceneryId): boolean {
 }
 
 /**
- * Returns true for sceneries where animated two-lane street traffic drives along the avenue.
- * Cyberpunk Neon uses elevated multi-altitude flying hover-cars (spinners) instead of wheeled cars.
+ * Returns true for sceneries where animated two-lane street traffic drives and turns on the T-road.
+ * Busy Street, Eiffel Tower (downhill T-road), Brazilian Favela, and Cyberpunk Neon (ground + aerial traffic).
  */
 export function hasStreetTrafficScenery(sceneryId: SceneryId): boolean {
-  return sceneryId === 'busy_street' || sceneryId === 'eiffel_tower';
+  return (
+    sceneryId === 'busy_street' ||
+    sceneryId === 'eiffel_tower' ||
+    sceneryId === 'brazilian_favela' ||
+    sceneryId === 'cyberpunk_neon'
+  );
 }
 
 /**
@@ -334,8 +468,8 @@ export function getOutdoorLodBudgets(params: {
   if (!isPlayerOutside) {
     return {
       isPlayerOutside: false,
-      maxTraffic: allowTraffic ? (isLow ? 1 : 2) : 0,
-      maxPedestrians: isLow ? 1 : 2,
+      maxTraffic: 0,
+      maxPedestrians: 0,
       showCloudsAndBirds: false,
       enableRichNpcBehaviors: false,
     };

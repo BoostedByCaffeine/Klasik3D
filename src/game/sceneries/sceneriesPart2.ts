@@ -5,6 +5,7 @@ import {
   disableShadowsRecursive,
   getSharedGlowSpriteTexture,
 } from './sceneryTypes';
+import { evaluateAerialTurnPath } from '../outdoorLod';
 import {
   addSurrounding360Context,
   createProceduralFacadeTextures,
@@ -728,12 +729,27 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
       }
       sAttr.needsUpdate = true;
 
-      // Multi-altitude flying hover-cars
-      for (const sp of flyingSpinners) {
-        sp.group.position.x += sp.dir * sp.speed * dt;
-        sp.group.position.y = sp.baseY + Math.sin(elapsed * 2.4 + sp.phase) * 0.18;
-        if (sp.dir === 1 && sp.group.position.x > 46) sp.group.position.x = -46;
-        if (sp.dir === -1 && sp.group.position.x < -46) sp.group.position.x = 46;
+      // Multi-altitude flying hover-cars smoothly banking & turning 90° down perpendicular sky-canyons at the T-intersection!
+      for (let si = 0; si < flyingSpinners.length; si++) {
+        const sp = flyingSpinners[si];
+        if (sp.group.userData.u === undefined) {
+          sp.group.userData.u = sp.group.position.x;
+          sp.group.userData.laneZ = sp.group.position.z;
+        }
+        let u = (sp.group.userData.u as number) + sp.dir * sp.speed * dt;
+        const bound = 52;
+        if (sp.dir === 1 && u > bound) u = -bound;
+        if (sp.dir === -1 && u < -bound) u = bound;
+        sp.group.userData.u = u;
+
+        const laneZ = sp.group.userData.laneZ as number;
+        const turnSign: 1 | -1 = si % 2 === 0 ? -1 : 1;
+        const bobY = sp.baseY + Math.sin(elapsed * 2.4 + sp.phase) * 0.18;
+        const pose = evaluateAerialTurnPath(u, laneZ, bobY, sp.dir, 29.0, 5.2, turnSign);
+        sp.group.position.set(pose.x, pose.y, pose.z);
+        sp.group.rotation.order = 'YXZ';
+        sp.group.rotation.y = pose.vehicleYaw;
+        sp.group.rotation.x = pose.bankRoll;
       }
 
       // Low-chance periodic aerial police chase
@@ -1006,23 +1022,23 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     root.add(crossPath);
   });
 
-  // Trimmed Parisian topiary hedges & manicured emerald parterres with refined rose/tulip accent borders
+  // Trimmed Parisian topiary hedges & manicured emerald parterres cleanly spaced away from bench walkways
   const flowerColors = [0xe11d48, 0xf59e0b, 0xec4899, 0x8b5cf6];
   const flowerMats = flowerColors.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }));
   const parterreLawnMat = new THREE.MeshStandardMaterial({ color: 0x2f7d44, roughness: 0.9 });
   [-35.5, -49.2].forEach((hz, hIdx) => {
-    [-4.8, 5.8].forEach((hx, sideIdx) => {
-      const hedge = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.58, 10.2), hedgeMat);
-      hedge.position.set(hx, parkY + 0.29, hz);
+    [-5.35, 6.35].forEach((hx, sideIdx) => {
+      const hedge = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.56, 9.8), hedgeMat);
+      hedge.position.set(hx, parkY + 0.28, hz);
       root.add(hedge);
-      const innerLawn = new THREE.Mesh(new THREE.BoxGeometry(3.85, 0.14, 9.4), parterreLawnMat);
-      innerLawn.position.set(hx, parkY + 0.62, hz);
+      const innerLawn = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.14, 9.0), parterreLawnMat);
+      innerLawn.position.set(hx, parkY + 0.6, hz);
       root.add(innerLawn);
       const flowerStrip = new THREE.Mesh(
-        new THREE.BoxGeometry(0.95, 0.16, 6.8),
+        new THREE.BoxGeometry(0.82, 0.16, 6.4),
         flowerMats[(hIdx * 2 + sideIdx) % flowerMats.length]
       );
-      flowerStrip.position.set(hx, parkY + 0.72, hz);
+      flowerStrip.position.set(hx, parkY + 0.7, hz);
       root.add(flowerStrip);
     });
   });
@@ -1030,9 +1046,9 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
   // Central Parisian Stone Fountain with animated shimmering water plume at z = -42.5
   const fountainGroup = new THREE.Group();
   fountainGroup.position.set(0.5, parkY, -42.5);
-  const fBasin = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 3.1, 0.65, 16), stoneMat);
+  const fBasin = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.9, 0.65, 16), stoneMat);
   fBasin.position.y = 0.32;
-  const fPool = new THREE.Mesh(new THREE.CircleGeometry(2.55, 16), fountainWaterMat);
+  const fPool = new THREE.Mesh(new THREE.CircleGeometry(2.35, 16), fountainWaterMat);
   fPool.rotation.x = -Math.PI / 2;
   fPool.position.y = 0.62;
   const fPedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.55, 10), stoneMat);
@@ -1049,14 +1065,14 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
   fountainGroup.add(fBasin, fPool, fPedestal, fBowl, fJet);
   root.add(fountainGroup);
 
-  // Wooden Parisian Park Benches & Checkered Picnic Blankets on the Champ de Mars lawns
+  // Wooden Parisian Park Benches cleanly seated on the flat gravel walkway edge (>= 0.65m clear of hedges!)
   const benchSpots: Array<[number, number, number]> = [
-    [-2.8, -31.5, Math.PI / 2],
-    [3.8, -31.5, -Math.PI / 2],
-    [-2.8, -47.0, Math.PI / 2],
-    [3.8, -47.0, -Math.PI / 2],
-    [-2.8, -53.0, Math.PI / 2],
-    [3.8, -53.0, -Math.PI / 2],
+    [-2.65, -31.5, Math.PI / 2],
+    [3.65, -31.5, -Math.PI / 2],
+    [-2.65, -47.0, Math.PI / 2],
+    [3.65, -47.0, -Math.PI / 2],
+    [-2.65, -53.0, Math.PI / 2],
+    [3.65, -53.0, -Math.PI / 2],
   ];
   benchSpots.forEach(([bx, bz, brot]) => {
     const bg = new THREE.Group();
@@ -1070,30 +1086,34 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
       bg.add(leg);
     });
     bg.add(seat, back);
-    bg.position.set(bx, parkY, bz);
+    bg.position.set(bx, parkY + 0.03, bz);
     bg.rotation.y = brot;
     root.add(bg);
   });
 
-  // Checkered picnic blankets on open lawns
+  // Checkered picnic blankets on open lawns (hidden automatically during rain!)
+  const picnicRainHideGroup = new THREE.Group();
+  picnicRainHideGroup.userData.dynamicVisibility = true;
+  root.add(picnicRainHideGroup);
+
   const picnicRedMat = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.88 });
   const picnicCreamMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.88 });
   const picnicSpots: Array<[number, number]> = [
-    [-5.8, -25.8],
-    [6.6, -26.2],
-    [-6.0, -39.2],
-    [6.4, -52.5],
+    [-5.8, -25.4],
+    [6.6, -25.8],
+    [-5.8, -42.5],
+    [6.6, -42.5],
   ];
   picnicSpots.forEach(([px, pz], idx) => {
     const pg = new THREE.Group();
     const cloth = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.3, 2.3),
+      new THREE.PlaneGeometry(2.2, 2.2),
       idx % 2 === 0 ? picnicRedMat : picnicCreamMat
     );
     cloth.rotation.x = -Math.PI / 2;
     cloth.position.y = 0.04;
     const inner = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.4, 1.4),
+      new THREE.PlaneGeometry(1.3, 1.3),
       idx % 2 === 0 ? picnicCreamMat : picnicRedMat
     );
     inner.rotation.x = -Math.PI / 2;
@@ -1103,11 +1123,11 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     pg.add(cloth, inner, basket);
     pg.position.set(px, parkY, pz);
     pg.rotation.y = idx * 0.4;
-    root.add(pg);
+    picnicRainHideGroup.add(pg);
   });
 
   // Classic Dark-Green Parisian Morris Columns flanking the entrance to Champ de Mars
-  [-9.5, 10.5].forEach((mx) => {
+  [-10.4, 11.2].forEach((mx) => {
     const colG = new THREE.Group();
     const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.58, 3.2, 10), ironMat);
     cyl.position.y = 1.6;
@@ -1120,20 +1140,32 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     root.add(colG);
   });
 
-  // Helper: Articulated Full-Rigged Park NPC (Head, Hair, Torso, 2 Arms, 2 Legs — Zero Limbless Blocks!)
+  // Shared Umbrella Geometry for Universal Park Rain Reaction (Zero extra draw bloat!)
+  const sharedUmbCanopyGeo = new THREE.ConeGeometry(0.62, 0.24, 10);
+  const sharedUmbStemGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.95, 5);
+  const umbStemMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
+  const umbPalette = [0xb91c1c, 0x1d4ed8, 0x0f766e, 0x7c3aed, 0xd97706, 0x334155];
+  const parkUmbrellas: Array<{ umb: THREE.Group; arm: THREE.Mesh; baseArmX: number }> = [];
+
+  // Helper: Articulated Full-Rigged Park NPC (Head, Hair, Torso, 2 Arms, 2 Legs + Rain Umbrella)
   const parkSkinMat = new THREE.MeshStandardMaterial({ color: 0xe8bc9e, roughness: 0.72 });
   const parkHairMat = new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 0.85 });
   const parkPantsMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
-  const createParkPerson = (coatHex: number, seated: boolean, holdingHandSide: -1 | 0 | 1) => {
+  const createParkPerson = (
+    coatHex: number,
+    seated: boolean,
+    holdingHandSide: -1 | 0 | 1,
+    umbrellaIdx?: number
+  ) => {
     const g = new THREE.Group();
     const coatMat = new THREE.MeshStandardMaterial({ color: coatHex, roughness: 0.78 });
     const legL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.68, 0.16), parkPantsMat);
     const legR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.68, 0.16), parkPantsMat);
     if (seated) {
-      legL.rotation.x = -Math.PI / 2.2;
-      legR.rotation.x = -Math.PI / 2.2;
-      legL.position.set(-0.1, 0.44, 0.25);
-      legR.position.set(0.1, 0.44, 0.25);
+      legL.rotation.x = -Math.PI / 2.15;
+      legR.rotation.x = -Math.PI / 2.15;
+      legL.position.set(-0.1, 0.47, 0.24);
+      legR.position.set(0.1, 0.47, 0.24);
     } else {
       legL.position.set(-0.1, 0.34, 0);
       legR.position.set(0.1, 0.34, 0);
@@ -1152,10 +1184,32 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     const hair = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.58), parkHairMat);
     hair.position.y = torsoY + 0.47;
     g.add(legL, legR, torso, armL, armR, head, hair);
+
+    if (typeof umbrellaIdx === 'number') {
+      const umb = new THREE.Group();
+      const umbMat = new THREE.MeshStandardMaterial({
+        color: umbPalette[umbrellaIdx % umbPalette.length],
+        roughness: 0.6,
+        side: THREE.DoubleSide,
+      });
+      const stem = new THREE.Mesh(sharedUmbStemGeo, umbStemMat);
+      stem.position.y = 0.48;
+      const canopy = new THREE.Mesh(sharedUmbCanopyGeo, umbMat);
+      canopy.position.y = 0.95;
+      umb.add(stem, canopy);
+      umb.position.set(holdingHandSide === -1 ? 0.22 : -0.22, torsoY + 0.06, 0.18);
+      umb.visible = false;
+      g.add(umb);
+      parkUmbrellas.push({
+        umb,
+        arm: holdingHandSide === -1 ? armR : armL,
+        baseArmX: 0,
+      });
+    }
     return { group: g, legL, legR, armL, armR, head };
   };
 
-  // Animated Dating Couples Strolling Hand-in-Hand along the Champ de Mars Esplanade!
+  // Animated Dating Couples Strolling Hand-in-Hand strictly inside flat gravel walkways (ZERO fountain/wall clipping!)
   interface StrollingCouple {
     group: THREE.Group;
     pA: ReturnType<typeof createParkPerson>;
@@ -1170,20 +1224,21 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
   }
   const strollingCouples: StrollingCouple[] = [];
   const coupleSpecs = [
-    { x: -0.9, z: -29.0, zMin: -54, zMax: -24, dir: -1 as const, speed: 1.15, cA: 0xb91c1c, cB: 0x1d4ed8 },
-    { x: 1.8, z: -48.0, zMin: -56, zMax: -25, dir: 1 as const, speed: 1.05, cA: 0x0f766e, cB: 0xbe185d },
-    { x: -8.5, z: -36.0, zMin: -55, zMax: -24, dir: -1 as const, speed: 1.25, cA: 0x7c3aed, cB: 0xd97706 },
-    { x: 9.5, z: -44.0, zMin: -55, zMax: -24, dir: 1 as const, speed: 1.1, cA: 0x334155, cB: 0xe11d48 },
+    { x: -0.6, z: -30.0, zMin: -38.2, zMax: -24.2, dir: -1 as const, speed: 1.05, cA: 0xb91c1c, cB: 0x1d4ed8 },
+    { x: 1.5, z: -50.5, zMin: -55.2, zMax: -46.8, dir: 1 as const, speed: 1.0, cA: 0x0f766e, cB: 0xbe185d },
+    { x: -8.6, z: -36.0, zMin: -54.5, zMax: -28.0, dir: -1 as const, speed: 1.2, cA: 0x7c3aed, cB: 0xd97706 },
+    { x: 9.6, z: -44.0, zMin: -54.5, zMax: -28.0, dir: 1 as const, speed: 1.1, cA: 0x334155, cB: 0xe11d48 },
   ];
   coupleSpecs.forEach((cs, idx) => {
     const cg = new THREE.Group();
-    const pA = createParkPerson(cs.cA, false, 1);
+    const pA = createParkPerson(cs.cA, false, 1, idx);
     pA.group.position.x = -0.32;
     const pB = createParkPerson(cs.cB, false, -1);
     pB.group.position.x = 0.32;
     cg.add(pA.group, pB.group);
     cg.position.set(cs.x, parkY + 0.03, cs.z);
     cg.rotation.y = cs.dir === 1 ? 0 : Math.PI;
+    cg.userData.outdoorOnly = true;
     root.add(cg);
     strollingCouples.push({
       group: cg,
@@ -1199,20 +1254,21 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     });
   });
 
-  // Dating Couples Seated Together on Park Benches & Checkered Picnic Blankets
+  // Dating Couples Snapped Cleanly onto Park Bench Seats (y = parkY + 0.03, facing outward esplanade normal, sharing umbrella in rain!)
   const seatedHeads: THREE.Mesh[] = [];
   [
-    { x: -2.8, z: -31.5, rot: Math.PI / 2, cA: 0x9f1239, cB: 0x1e40af },
-    { x: 3.8, z: -47.0, rot: -Math.PI / 2, cA: 0x047857, cB: 0xb45309 },
-  ].forEach((sb) => {
+    { x: -2.65, z: -31.5, rot: Math.PI / 2, cA: 0x9f1239, cB: 0x1e40af },
+    { x: 3.65, z: -47.0, rot: -Math.PI / 2, cA: 0x047857, cB: 0xb45309 },
+  ].forEach((sb, idx) => {
     const pair = new THREE.Group();
-    const a = createParkPerson(sb.cA, true, 1);
-    a.group.position.set(-0.34, 0, 0.05);
+    const a = createParkPerson(sb.cA, true, 1, idx + 4);
+    a.group.position.set(-0.32, 0.03, 0.04);
     const b = createParkPerson(sb.cB, true, -1);
-    b.group.position.set(0.34, 0, 0.05);
+    b.group.position.set(0.32, 0.03, 0.04);
     pair.add(a.group, b.group);
-    pair.position.set(sb.x, parkY, sb.z);
+    pair.position.set(sb.x, parkY + 0.03, sb.z);
     pair.rotation.y = sb.rot;
+    pair.userData.outdoorOnly = true;
     root.add(pair);
     seatedHeads.push(a.head, b.head);
   });
@@ -1224,15 +1280,16 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     const pB = createParkPerson(idx === 0 ? 0x1e293b : 0xd97706, true, 0);
     pB.group.position.set(px + 0.55, parkY - 0.25, pz + 0.2);
     pB.group.rotation.y = -0.8;
-    root.add(pA.group, pB.group);
+    picnicRainHideGroup.add(pA.group, pB.group);
     seatedHeads.push(pA.head, pB.head);
   });
 
-  // Parisian Artist painting at a wooden easel facing the Eiffel Tower
+  // Parisian Artist painting at a wooden easel facing the Eiffel Tower (equips umbrella in rain!)
   const artistGroup = new THREE.Group();
-  artistGroup.position.set(-4.2, parkY + 0.03, -27.5);
+  artistGroup.position.set(-3.4, parkY + 0.03, -27.2);
   artistGroup.rotation.y = Math.PI - 0.2;
-  const artist = createParkPerson(0x1f2937, false, 0);
+  artistGroup.userData.outdoorOnly = true;
+  const artist = createParkPerson(0x1f2937, false, 0, 5);
   artist.armR.rotation.x = -1.05;
   artistGroup.add(artist.group);
   const easelStand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.55, 0.08), benchWoodMat);
@@ -1430,7 +1487,10 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
       boulevardTreeMat.color.setHex(climateState === 'winter' ? 0xd8e6f2 : 0x3a6b35);
       parkLawnMat.color.setHex(climateState === 'winter' ? 0xdce8f4 : 0x3b8640);
       seineMat.color.setHex(isNight ? 0x0b2545 : 0x1d4e68);
-      cobbleMat.roughness = weather === 'rainy' ? 0.25 : 0.82;
+      const isRain = weather === 'rainy' || weather === 'storm';
+      cobbleMat.roughness = isRain ? 0.25 : 0.82;
+      parkGravelMat.roughness = isRain ? 0.36 : 0.92;
+      picnicRainHideGroup.visible = !isRain;
 
       // Animate central Parisian fountain shimmer
       fJet.scale.y = 0.88 + Math.sin(elapsed * 5.4) * 0.14;
@@ -1450,7 +1510,7 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
         const swing = Math.sin(elapsed * 4.8 + sc.phase) * 0.42;
         sc.pA.legL.rotation.x = swing;
         sc.pA.legR.rotation.x = -swing;
-        sc.pA.armL.rotation.x = -swing * 0.7;
+        sc.pA.armL.rotation.x = isRain ? -1.15 : -swing * 0.7;
         sc.pB.legL.rotation.x = -swing;
         sc.pB.legR.rotation.x = swing;
         sc.pB.armR.rotation.x = swing * 0.7;
@@ -1459,6 +1519,19 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
         seatedHeads[i].rotation.y = Math.sin(elapsed * 1.1 + i * 1.9) * 0.22;
       }
       artist.armR.rotation.z = Math.sin(elapsed * 3.8) * 0.16;
+
+      // Universal park rain umbrellas for strolling couples, bench couples & artist
+      for (let i = 0; i < parkUmbrellas.length; i++) {
+        const pu = parkUmbrellas[i];
+        pu.umb.visible = isRain;
+        if (isRain) {
+          pu.arm.rotation.x = -1.15;
+        } else if (pu.arm !== artist.armL) {
+          pu.arm.rotation.x = pu.baseArmX;
+        } else {
+          pu.arm.rotation.x = 0;
+        }
+      }
 
       // Glide Bateaux Mouches riverboats along the Seine
       for (const rb of riverBoats) {

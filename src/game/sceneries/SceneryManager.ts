@@ -6,7 +6,10 @@ import {
   SceneryDioramaBuilderFn,
   SceneryEnvironmentHint,
   SceneryRuntimeInstance,
+  applyIndoorBackdropCullFilter,
+  disableShadowsRecursive,
   disposeObject3D,
+  stripRealtimeOutdoorLights,
 } from './sceneryTypes';
 import {
   buildBrazilianFavelaDiorama,
@@ -61,14 +64,18 @@ export function buildMiniSceneryDiorama(sceneryId: SceneryId): THREE.Group {
 }
 
 /**
- * Phase 1 SceneryManager:
- * Swaps the 9 outdoor backdrops cleanly inside `outdoorSceneryRoot`, recursively disposing
- * all previous geometries, materials, and owned textures on every location change.
+ * Performance-hardened SceneryManager:
+ * - Swaps the 9 outdoor backdrops inside `outdoorSceneryRoot`, disposing all GPU resources cleanly.
+ * - Enforces zero outdoor shadow casting/receiving and zero realtime PointLight/SpotLights.
+ * - Strictly culls `outdoorOnlyGroup` & unseen flanking/valley subtrees when the player is indoors,
+ *   and bypasses per-frame outdoor animation loops while brewing coffee inside the cafe.
  */
 export class SceneryManager {
   public readonly container: THREE.Group;
   private current: SceneryRuntimeInstance | null = null;
   private activeId: SceneryId | null = null;
+  private isPlayerOutside = false;
+  private lastIndoorEnvSignature = '';
 
   constructor(parentScene: THREE.Scene) {
     this.container = new THREE.Group();
@@ -84,6 +91,22 @@ export class SceneryManager {
     return this.current?.envHint || {};
   }
 
+  public setPlayerOutside(isOutside: boolean): void {
+    this.isPlayerOutside = isOutside;
+    this.applyVisibilitySplit();
+  }
+
+  private applyVisibilitySplit(): void {
+    if (!this.current) return;
+    if (this.current.outdoorOnlyGroup) {
+      this.current.outdoorOnlyGroup.visible = this.isPlayerOutside;
+    }
+    if (this.current.windowBackdropGroup) {
+      this.current.windowBackdropGroup.visible = true;
+    }
+    applyIndoorBackdropCullFilter(this.current.root, this.isPlayerOutside);
+  }
+
   public loadScenery(sceneryId: SceneryId): boolean {
     if (this.activeId === sceneryId && this.current) {
       return false;
@@ -92,9 +115,13 @@ export class SceneryManager {
 
     const builder = SCENERY_BUILDERS[sceneryId] || SCENERY_BUILDERS.busy_street;
     const instance = builder();
+    stripRealtimeOutdoorLights(instance.root);
+    disableShadowsRecursive(instance.root);
     this.container.add(instance.root);
     this.current = instance;
     this.activeId = sceneryId;
+    this.lastIndoorEnvSignature = '';
+    this.applyVisibilitySplit();
     return true;
   }
 
@@ -103,11 +130,26 @@ export class SceneryManager {
     elapsed: number,
     isNight: boolean,
     climateState: ClimateState,
-    weather: WeatherMode
+    weather: WeatherMode,
+    isPlayerOutside?: boolean
   ): void {
-    if (this.current?.update) {
-      this.current.update(dt, elapsed, isNight, climateState, weather);
+    if (typeof isPlayerOutside === 'boolean' && isPlayerOutside !== this.isPlayerOutside) {
+      this.setPlayerOutside(isPlayerOutside);
     }
+    if (!this.current?.update) return;
+
+    // Hard Indoor Cull: when inside the cafe, bypass per-frame outdoor animation loops completely.
+    // Only invoke a single sync tick when night/climate/weather state changes so window-visible silhouettes stay tinted.
+    if (!this.isPlayerOutside) {
+      const envSig = `${isNight ? 1 : 0}|${climateState}|${weather}`;
+      if (envSig === this.lastIndoorEnvSignature) return;
+      this.lastIndoorEnvSignature = envSig;
+      this.current.update(0, elapsed, isNight, climateState, weather, false);
+      return;
+    }
+
+    this.lastIndoorEnvSignature = '';
+    this.current.update(dt, elapsed, isNight, climateState, weather, true);
   }
 
   private unloadCurrent(): void {
@@ -116,6 +158,7 @@ export class SceneryManager {
     disposeObject3D(this.current.root);
     this.current = null;
     this.activeId = null;
+    this.lastIndoorEnvSignature = '';
   }
 
   public dispose(): void {
