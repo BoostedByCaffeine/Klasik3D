@@ -407,6 +407,119 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
     root.add(bush);
   });
 
+  // Curbside Street Furniture: Cast-Iron Fire Hydrant, Postal Mailbox & Metal Bike Rack with Bicycles
+  const hydrantMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.42, metalness: 0.35 });
+  const hydrant = new THREE.Group();
+  hydrant.position.set(-14.6, 0, -16.62);
+  const hBody = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.64, 8), hydrantMat);
+  hBody.position.y = 0.32;
+  const hCap = new THREE.Mesh(new THREE.SphereGeometry(0.115, 8, 6), hydrantMat);
+  hCap.position.y = 0.64;
+  const hNozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.34, 6), hydrantMat);
+  hNozzle.rotation.z = Math.PI / 2;
+  hNozzle.position.y = 0.48;
+  hydrant.add(hBody, hCap, hNozzle);
+  root.add(hydrant);
+
+  const mailboxMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.48, metalness: 0.35 });
+  const mailbox = new THREE.Group();
+  mailbox.position.set(1.85, 0, -16.82);
+  const mbLegs = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.38), darkSteelMat);
+  mbLegs.position.y = 0.17;
+  const mbBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.72, 0.44), mailboxMat);
+  mbBox.position.y = 0.68;
+  const mbTop = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.48, 10, 1, false, 0, Math.PI), mailboxMat);
+  mbTop.rotation.z = Math.PI / 2;
+  mbTop.position.y = 1.04;
+  const mbSlot = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, 0.08), darkSteelMat);
+  mbSlot.position.set(0, 0.96, 0.21);
+  mailbox.add(mbLegs, mbBox, mbTop, mbSlot);
+  root.add(mailbox);
+
+  // Metal Bike Rack with 2 parked commuter bicycles on far sidewalk
+  const rackGroup = new THREE.Group();
+  rackGroup.position.set(12.2, 0, -16.85);
+  const rackRail = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.05, 0.46), darkSteelMat);
+  rackRail.position.y = 0.04;
+  rackGroup.add(rackRail);
+  [-0.72, 0, 0.72].forEach((hx) => {
+    const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.024, 6, 12, Math.PI), darkSteelMat);
+    hoop.position.set(hx, 0.32, 0);
+    rackGroup.add(hoop);
+  });
+  const bikeColors = [0x0f766e, 0xd97706];
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.88 });
+  [-0.42, 0.45].forEach((bx, bIdx) => {
+    const bike = new THREE.Group();
+    bike.position.set(bx, 0, 0.06);
+    bike.rotation.y = bIdx === 0 ? 0.16 : -0.18;
+    const frameMat = new THREE.MeshStandardMaterial({ color: bikeColors[bIdx], roughness: 0.38, metalness: 0.45 });
+    [-0.38, 0.38].forEach((wz) => {
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.032, 6, 12), tireMat);
+      wheel.rotation.y = Math.PI / 2;
+      wheel.position.set(0, 0.25, wz);
+      bike.add(wheel);
+    });
+    const topTube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.56, 6), frameMat);
+    topTube.rotation.x = Math.PI / 2;
+    topTube.position.set(0, 0.56, 0);
+    const seatPost = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.42, 6), frameMat);
+    seatPost.position.set(0, 0.48, -0.22);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.46, 6), frameMat);
+    stem.position.set(0, 0.54, 0.28);
+    const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.4, 6), darkSteelMat);
+    handleBar.rotation.z = Math.PI / 2;
+    handleBar.position.set(0, 0.76, 0.28);
+    const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.19), tireMat);
+    saddle.position.set(0, 0.71, -0.24);
+    bike.add(topTube, seatPost, stem, handleBar, saddle);
+    rackGroup.add(bike);
+  });
+  root.add(rackGroup);
+
+  // Backlit Neighborhood Storefront Marquee Fascia Signs (24H MART / BAKERY / VINYL)
+  const marqueeSpecs = [
+    { x: -13.6, label: '24H MART', bg: '#065f46', fg: '#ecfdf5', glow: 0x34d399 },
+    { x: -3.2, label: 'BAKERY', bg: '#7c2d12', fg: '#fef3c7', glow: 0xfbbf24 },
+    { x: 7.2, label: 'VINYL', bg: '#1e3a8a', fg: '#e0f2fe', glow: 0x38bdf8 },
+  ];
+  const marqueeMats: THREE.MeshStandardMaterial[] = [];
+  marqueeSpecs.forEach((ms) => {
+    let tex: THREE.CanvasTexture | null = null;
+    if (typeof document !== 'undefined') {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 64;
+      const g = c.getContext('2d');
+      if (g) {
+        g.fillStyle = ms.bg;
+        g.fillRect(0, 0, 256, 64);
+        g.strokeStyle = ms.fg;
+        g.lineWidth = 4;
+        g.strokeRect(5, 5, 246, 54);
+        g.fillStyle = ms.fg;
+        g.font = '800 32px sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(ms.label, 128, 34);
+        tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+      }
+    }
+    const mMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: tex ?? undefined,
+      emissive: ms.glow,
+      emissiveMap: tex ?? undefined,
+      emissiveIntensity: 0.45,
+      roughness: 0.3,
+    });
+    marqueeMats.push(mMat);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.56, 0.14), mMat);
+    board.position.set(ms.x, 2.58, -18.08);
+    root.add(board);
+  });
+
   // Crosswalk Traffic Signal Poles on far curb
   const signalRedMat = new THREE.MeshStandardMaterial({
     color: 0xef4444,
@@ -497,13 +610,16 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
     root,
     envHint: {},
     update: (_dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       windowWarmMat.emissiveIntensity = isNight ? 1.55 : 0.16;
       windowCoolMat.emissiveIntensity = isNight ? 1.15 : 0.12;
       signEmissiveMat.emissiveIntensity = isNight ? 1.95 : 0.55;
       signCyanMat.emissiveIntensity = isNight ? 1.8 : 0.45;
       posterMat.emissiveIntensity = isNight ? 1.1 : 0.35;
       farSkyMat.emissiveIntensity = isNight ? 1.35 : 0.08;
+      for (let i = 0; i < marqueeMats.length; i++) {
+        marqueeMats[i].emissiveIntensity = isNight ? 1.45 : 0.38;
+      }
       const greenPhase = Math.floor(elapsed / 8) % 2 === 0;
       signalGreenMat.emissiveIntensity = greenPhase ? 1.6 : 0.15;
       signalRedMat.emissiveIntensity = greenPhase ? 0.15 : 1.6;
@@ -585,50 +701,57 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     root.add(channel);
   }
 
-  // Subtle green foothills hugging the volcano base
+  // Subtle green foothills framing only the outer flanks so Mayon's center base is unobstructed
   const hillMat = new THREE.MeshStandardMaterial({ color: 0x2f6331, roughness: 0.9 });
   [
-    { x: -38, z: -66, r: 22, h: 7.5 },
-    { x: 36, z: -64, r: 24, h: 8.5 },
-    { x: -18, z: -58, r: 16, h: 4.8 },
-    { x: 24, z: -60, r: 18, h: 5.4 },
+    { x: -46, z: -70, r: 24, h: 8.2 },
+    { x: 46, z: -68, r: 26, h: 9.0 },
+    { x: -26, z: -64, r: 16, h: 4.5 },
+    { x: 29, z: -64, r: 18, h: 5.0 },
   ].forEach((h) => {
     const hill = new THREE.Mesh(new THREE.ConeGeometry(h.r, h.h, 12), hillMat);
     hill.position.set(h.x, h.h * 0.42, h.z);
     root.add(hill);
   });
 
-  // Iconic near-perfect symmetrical Mayon Volcano cone rising front-center horizon
+  // Grand, monumental near-perfect symmetrical Mayon Volcano rising cleanly over the Bicol plains
   const mayonGroup = new THREE.Group();
-  mayonGroup.position.set(-1.2, 0, -96);
+  mayonGroup.position.set(-0.6, 0, -104);
   const profile = [
-    new THREE.Vector2(44, 0),
-    new THREE.Vector2(30, 6.5),
-    new THREE.Vector2(19.5, 14.5),
-    new THREE.Vector2(11.8, 23.5),
-    new THREE.Vector2(6.2, 32.5),
-    new THREE.Vector2(2.8, 39.2),
-    new THREE.Vector2(1.9, 40.2),
-    new THREE.Vector2(1.2, 39.4),
+    new THREE.Vector2(54, 0),
+    new THREE.Vector2(38, 7.8),
+    new THREE.Vector2(24.5, 17.6),
+    new THREE.Vector2(14.5, 28.5),
+    new THREE.Vector2(7.6, 39.2),
+    new THREE.Vector2(3.3, 47.4),
+    new THREE.Vector2(2.2, 48.6),
+    new THREE.Vector2(1.4, 47.6),
   ];
-  const mayonGeo = new THREE.LatheGeometry(profile, 28);
+  const mayonGeo = new THREE.LatheGeometry(profile, 32);
   const posAttr = mayonGeo.attributes.position;
   const colors = new Float32Array(posAttr.count * 3);
-  const cBase = new THREE.Color(0x2d5e2e);
-  const cMid = new THREE.Color(0x4a5d47);
-  const cSummit = new THREE.Color(0x524c48);
+  const cBase = new THREE.Color(0x2d6130);
+  const cMid = new THREE.Color(0x4a6048);
+  const cSummit = new THREE.Color(0x5a514c);
   const tmpC = new THREE.Color();
   for (let i = 0; i < posAttr.count; i++) {
-    const y = posAttr.getY(i);
-    if (y < 14) {
-      tmpC.lerpColors(cBase, cMid, y / 14);
+    const vx = posAttr.getX(i);
+    const vy = posAttr.getY(i);
+    const vz = posAttr.getZ(i);
+    const ang = Math.atan2(vz, vx);
+    // Subtle natural volcanic gully ridges running down the symmetrical cone
+    const ridgeFactor = vy > 2 && vy < 46 ? 1 + Math.sin(ang * 14 + vy * 0.05) * 0.022 : 1;
+    posAttr.setXYZ(i, vx * ridgeFactor, vy, vz * ridgeFactor);
+    if (vy < 17) {
+      tmpC.lerpColors(cBase, cMid, vy / 17);
     } else {
-      tmpC.lerpColors(cMid, cSummit, Math.min(1, (y - 14) / 26));
+      tmpC.lerpColors(cMid, cSummit, Math.min(1, (vy - 17) / 31));
     }
     colors[i * 3] = tmpC.r;
     colors[i * 3 + 1] = tmpC.g;
     colors[i * 3 + 2] = tmpC.b;
   }
+  mayonGeo.computeVertexNormals();
   mayonGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const mayonMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -637,20 +760,20 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   });
   mayonGroup.add(new THREE.Mesh(mayonGeo, mayonMat));
 
-  // Soft drifting cloud ring near Mayon's crater
+  // Soft drifting cloud ring & gentle summit steam plume near Mayon's crater
   const cloudRing = new THREE.Group();
-  cloudRing.position.set(0, 34.5, 0);
+  cloudRing.position.set(0, 41.2, 0);
   const cloudMat = new THREE.MeshStandardMaterial({
     color: 0xf8fafc,
     roughness: 0.95,
     transparent: true,
     opacity: 0.78,
   });
-  for (let i = 0; i < 8; i++) {
-    const ang = (i / 8) * Math.PI * 2;
-    const puff = new THREE.Mesh(new THREE.SphereGeometry(2.8 + (i % 3) * 0.9, 9, 7), cloudMat);
-    puff.scale.set(1.8, 0.52, 1.3);
-    puff.position.set(Math.cos(ang) * 7.8, (i % 2) * 1.1, Math.sin(ang) * 6.5);
+  for (let i = 0; i < 9; i++) {
+    const ang = (i / 9) * Math.PI * 2;
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(3.2 + (i % 3) * 0.95, 9, 7), cloudMat);
+    puff.scale.set(1.85, 0.5, 1.35);
+    puff.position.set(Math.cos(ang) * 9.2, (i % 2) * 1.2, Math.sin(ang) * 7.4);
     cloudRing.add(puff);
   }
   mayonGroup.add(cloudRing);
@@ -812,20 +935,28 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     root.add(stall);
   });
 
-  // Animated outdoor sightseeing tourists browsing stalls & snapping photos of Mayon
+  // Full-Rigged Articulated Multi-Part Sightseeing Tourists (separate legs, shoes, torso, articulated arms, backpacks, cameras)
   interface SightseeingTourist {
     group: THREE.Group;
+    leftLeg: THREE.Group;
+    rightLeg: THREE.Group;
+    leftArm: THREE.Group;
+    rightArm: THREE.Group;
+    headGroup: THREE.Group;
     baseX: number;
     baseZ: number;
     baseRotY: number;
     phase: number;
     hasCamera: boolean;
+    strollAmp: number;
     flashMesh?: THREE.Mesh;
   }
   const tourists: SightseeingTourist[] = [];
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe6b89c, roughness: 0.72 });
-  const pantsMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.84 });
-  const cameraBodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe2b192, roughness: 0.72 });
+  const hairDarkMat = new THREE.MeshStandardMaterial({ color: 0x1e1b18, roughness: 0.86 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.78 });
+  const cameraBodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.38, metalness: 0.4 });
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.18, metalness: 0.7 });
   const flashMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
@@ -833,59 +964,324 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   });
 
   const touristSpecs = [
-    { x: -11.4, z: -18.9, rotY: Math.PI - 0.12, shirt: 0xef4444, hat: 0xfef3c7, hasCamera: false },
-    { x: -3.2, z: -20.2, rotY: Math.PI + 0.06, shirt: 0x3b82f6, hat: 0xfde047, hasCamera: true },
-    { x: -1.8, z: -20.6, rotY: Math.PI - 0.14, shirt: 0xf59e0b, hat: 0xffffff, hasCamera: false },
-    { x: 2.8, z: -21.0, rotY: Math.PI + 0.18, shirt: 0x10b981, hat: 0xd97706, hasCamera: true },
-    { x: 8.6, z: -19.4, rotY: Math.PI - 0.25, shirt: 0xec4899, hat: 0xfef3c7, hasCamera: false },
+    { x: -10.8, z: -19.1, rotY: Math.PI - 0.18, shirt: 0xef4444, pants: 0x334155, hat: 0xfef3c7, pack: 0x1e293b, hasCamera: false, strollAmp: 0.34 },
+    { x: -3.2, z: -20.3, rotY: Math.PI + 0.08, shirt: 0x2563eb, pants: 0x475569, hat: 0xfde047, pack: 0x0f766e, hasCamera: true, strollAmp: 0.14 },
+    { x: -1.7, z: -20.6, rotY: Math.PI - 0.16, shirt: 0xf59e0b, pants: 0x1e3a5f, hat: 0xffffff, pack: 0x92400e, hasCamera: false, strollAmp: 0.24 },
+    { x: 2.8, z: -21.0, rotY: Math.PI + 0.16, shirt: 0x10b981, pants: 0x292524, hat: 0xd97706, pack: 0x334155, hasCamera: true, strollAmp: 0.12 },
+    { x: 8.6, z: -19.3, rotY: Math.PI - 0.22, shirt: 0xec4899, pants: 0x3b82f6, hat: 0xfef3c7, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.36 },
   ];
   touristSpecs.forEach((ts, idx) => {
     const tg = new THREE.Group();
     const shirtMat = new THREE.MeshStandardMaterial({ color: ts.shirt, roughness: 0.78 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: ts.pants, roughness: 0.85 });
     const hatMat = new THREE.MeshStandardMaterial({ color: ts.hat, roughness: 0.85 });
+    const packMat = new THREE.MeshStandardMaterial({ color: ts.pack, roughness: 0.82 });
 
-    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.72, 0.2), pantsMat);
-    legs.position.y = 0.36;
-    tg.add(legs);
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.56, 0.24), shirtMat);
-    torso.position.y = 1.0;
-    tg.add(torso);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 7), skinMat);
-    head.position.y = 1.44;
-    tg.add(head);
-    const sunHat = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.06, 8), hatMat);
-    sunHat.position.y = 1.56;
-    tg.add(sunHat);
+    // Separate Left & Right Legs with shoes pivoting from the hip
+    const makeLeg = (xOff: number): THREE.Group => {
+      const leg = new THREE.Group();
+      leg.position.set(xOff, 0.76, 0);
+      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.062, 0.38, 7), pantsMat);
+      thigh.position.y = -0.19;
+      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.048, 0.34, 7), skinMat);
+      shin.position.y = -0.53;
+      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.08, 0.2), shoeMat);
+      shoe.position.set(0, -0.72, 0.035);
+      leg.add(thigh, shin, shoe);
+      return leg;
+    };
+    const leftLeg = makeLeg(-0.105);
+    const rightLeg = makeLeg(0.105);
+    tg.add(leftLeg, rightLeg);
+
+    // Waist/pelvis + tailored torso + backpack
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.2), pantsMat);
+    pelvis.position.y = 0.78;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.22), shirtMat);
+    torso.position.y = 1.08;
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.14), packMat);
+    backpack.position.set(0, 1.08, -0.17);
+    tg.add(pelvis, torso, backpack);
+
+    // Articulated Left & Right Arms pivoting at shoulders
+    const makeArm = (side: -1 | 1): THREE.Group => {
+      const arm = new THREE.Group();
+      arm.position.set(side * 0.235, 1.28, 0);
+      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.2, 7), shirtMat);
+      sleeve.position.y = -0.09;
+      const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.04, 0.32, 7), skinMat);
+      forearm.position.y = -0.32;
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.048, 6, 5), skinMat);
+      hand.position.y = -0.49;
+      arm.add(sleeve, forearm, hand);
+      return arm;
+    };
+    const leftArm = makeArm(-1);
+    const rightArm = makeArm(1);
+    tg.add(leftArm, rightArm);
 
     let flashMesh: THREE.Mesh | undefined;
     if (ts.hasCamera) {
-      const cam = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.1), cameraBodyMat);
-      cam.position.set(0, 1.32, 0.24);
-      tg.add(cam);
+      // Raise both arms forward holding DSLR camera toward Mayon Volcano
+      leftArm.rotation.x = -1.25;
+      leftArm.rotation.z = -0.28;
+      rightArm.rotation.x = -1.25;
+      rightArm.rotation.z = 0.28;
+      const cam = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.09), cameraBodyMat);
+      cam.position.set(-0.08, -0.46, 0.04);
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.036, 0.06, 8), lensMat);
+      lens.rotation.x = Math.PI / 2;
+      lens.position.set(-0.08, -0.46, 0.1);
       flashMesh = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5), flashMat.clone());
-      flashMesh.position.set(0, 1.34, 0.32);
-      tg.add(flashMesh);
+      flashMesh.position.set(-0.08, -0.44, 0.14);
+      rightArm.add(cam, lens, flashMesh);
     }
+
+    // Neck, sculpted head, hair & wide-brim sun hat
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.38, 0);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.09, 6), skinMat);
+    neck.position.y = 0.02;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 9, 8), skinMat);
+    head.position.y = 0.14;
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.152, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.56),
+      hairDarkMat
+    );
+    hair.position.set(0, 0.155, -0.015);
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.29, 0.035, 10), hatMat);
+    brim.position.y = 0.245;
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.165, 0.1, 9), hatMat);
+    crown.position.y = 0.305;
+    headGroup.add(neck, head, hair, brim, crown);
+    tg.add(headGroup);
 
     tg.position.set(ts.x, 0.02, ts.z);
     tg.rotation.y = ts.rotY;
     root.add(tg);
     tourists.push({
       group: tg,
+      leftLeg,
+      rightLeg,
+      leftArm,
+      rightArm,
+      headGroup,
       baseX: ts.x,
       baseZ: ts.z,
       baseRotY: ts.rotY,
       phase: idx * 1.4,
       hasCamera: ts.hasCamera,
+      strollAmp: ts.strollAmp,
       flashMesh,
     });
   });
 
-  // Multi-frond Instanced tropical coconut palms framing left & right (3 draw calls total!)
+  // Winding sandy Bicol plains dirt trail connecting viewing plaza past Cagsawa Ruins toward rice fields
+  const trailMat = new THREE.MeshStandardMaterial({ color: 0xb99b72, roughness: 0.94 });
+  [
+    { x: -1.5, z: -27.5, w: 3.4, l: 10, ry: -0.18 },
+    { x: 1.4, z: -35.5, w: 2.8, l: 11, ry: 0.28 },
+    { x: -1.8, z: -44.0, w: 2.3, l: 10, ry: -0.22 },
+  ].forEach((seg) => {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(seg.w, seg.l), trailMat);
+    p.rotation.x = -Math.PI / 2;
+    p.rotation.z = seg.ry;
+    p.position.set(seg.x, 0.025, seg.z);
+    root.add(p);
+  });
+
+  // Colorful Fiesta Banderitas (festive pennant strings across viewing plaza bamboo poles)
+  const banderitaColors = [0xef4444, 0xfacc15, 0x3b82f6, 0x22c55e, 0xf97316, 0xec4899];
+  const banderitaMats = banderitaColors.map(
+    (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.78, side: THREE.DoubleSide })
+  );
+  const wireMat = new THREE.LineBasicMaterial({ color: 0x4b5563 });
+  const banderitaSpans: Array<[number, number, number, number]> = [
+    [-14.2, -19.2, -6.2, -20.8],
+    [6.0, -20.8, 14.0, -19.2],
+  ];
+  banderitaSpans.forEach(([x1, z1, x2, z2], sIdx) => {
+    [
+      [x1, z1],
+      [x2, z2],
+    ].forEach(([px, pz]) => {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.068, 3.6, 6), bambooMat);
+      pole.position.set(px, 1.8, pz);
+      root.add(pole);
+    });
+    const pts: THREE.Vector3[] = [];
+    for (let k = 0; k <= 10; k++) {
+      const t = k / 10;
+      const sag = Math.sin(t * Math.PI) * 0.42;
+      pts.push(new THREE.Vector3(x1 + (x2 - x1) * t, 3.45 - sag, z1 + (z2 - z1) * t));
+    }
+    root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat));
+    for (let k = 1; k < 10; k++) {
+      const p = pts[k];
+      const flag = new THREE.Mesh(
+        new THREE.ConeGeometry(0.16, 0.34, 3),
+        banderitaMats[(sIdx * 3 + k) % banderitaMats.length]
+      );
+      flag.rotation.x = Math.PI;
+      flag.position.set(p.x, p.y - 0.18, p.z);
+      root.add(flag);
+    }
+  });
+
+  // Distant rural Bahay Kubo (stilt nipa-thatch provincial houses) & far market canopies across the Bicol plains
+  const nipaMat = new THREE.MeshStandardMaterial({ color: 0x9a7b4f, roughness: 0.92 });
+  const kuboWallMat = new THREE.MeshStandardMaterial({ color: 0xc29b61, roughness: 0.88 });
+  const kuboWinMat = new THREE.MeshStandardMaterial({
+    color: 0xfef3c7,
+    emissive: 0xf59e0b,
+    emissiveIntensity: 0.25,
+  });
+  const kuboLocations = [
+    { x: -16.5, z: -36.5, s: 1.05, ry: 0.35 },
+    { x: -10.8, z: -48.5, s: 0.9, ry: -0.22 },
+    { x: 14.8, z: -45.5, s: 0.95, ry: -0.45 },
+    { x: 20.5, z: -39.0, s: 1.0, ry: -0.3 },
+    { x: -21.5, z: -53.0, s: 0.85, ry: 0.18 },
+    { x: 24.0, z: -54.5, s: 0.88, ry: -0.25 },
+  ];
+  kuboLocations.forEach((kl) => {
+    const kubo = new THREE.Group();
+    kubo.position.set(kl.x, 0, kl.z);
+    kubo.rotation.y = kl.ry;
+    kubo.scale.setScalar(kl.s);
+    // 4 bamboo stilts
+    [
+      [-0.95, -0.75],
+      [0.95, -0.75],
+      [-0.95, 0.75],
+      [0.95, 0.75],
+    ].forEach(([sx, sz]) => {
+      const stilt = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.05, 5), bambooMat);
+      stilt.position.set(sx, 0.52, sz);
+      kubo.add(stilt);
+    });
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.45, 1.85), kuboWallMat);
+    cabin.position.y = 1.65;
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.52), kuboWinMat);
+    win.position.set(0, 1.72, 0.94);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.15, 1.55, 4), nipaMat);
+    roof.rotation.y = Math.PI / 4;
+    roof.position.y = 3.12;
+    kubo.add(cabin, win, roof);
+    root.add(kubo);
+  });
+
+  // Distant miniature colorful souvenir canopies along the midground trail
+  [
+    { x: -5.4, z: -31.8, col: 0xdc2626 },
+    { x: -8.6, z: -33.2, col: 0x0284c7 },
+    { x: 4.4, z: -36.5, col: 0xeab308 },
+    { x: 12.8, z: -34.2, col: 0x0d9488 },
+  ].forEach((mc) => {
+    const tent = new THREE.Group();
+    tent.position.set(mc.x, 0, mc.z);
+    const roof = new THREE.Mesh(
+      new THREE.ConeGeometry(1.45, 0.72, 4),
+      new THREE.MeshStandardMaterial({ color: mc.col, roughness: 0.78 })
+    );
+    roof.rotation.y = Math.PI / 4;
+    roof.position.y = 1.72;
+    tent.add(roof);
+    const tbl = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.65, 0.6), tableWoodMat);
+    tbl.position.y = 0.33;
+    tent.add(tbl);
+    [
+      [-0.82, -0.82],
+      [0.82, -0.82],
+      [-0.82, 0.82],
+      [0.82, 0.82],
+    ].forEach(([px, pz]) => {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 1.4, 5), bambooMat);
+      p.position.set(px, 0.7, pz);
+      tent.add(p);
+    });
+    root.add(tent);
+  });
+
+  // Parked Philippine Tricycle (motorcycle + colorful roofed sidecar) & 2 Mayon Trail ATV Buggies!
+  const wheelBlackMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.88 });
+  const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, roughness: 0.25, metalness: 0.75 });
+  const tricycle = new THREE.Group();
+  tricycle.position.set(-15.4, 0, -18.8);
+  tricycle.rotation.y = 0.52;
+  const triPaintMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.36, metalness: 0.25 });
+  const triTrimMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.42 });
+  // Motorcycle frame + 2 wheels
+  [-0.52, 0.52].forEach((wz) => {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.12, 10), wheelBlackMat);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(-0.42, 0.28, wz);
+    tricycle.add(w);
+  });
+  const motoBody = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.42, 1.15), triPaintMat);
+  motoBody.position.set(-0.42, 0.56, 0);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.58, 6), chromeMat);
+  handle.rotation.z = Math.PI / 2;
+  handle.position.set(-0.42, 0.96, 0.42);
+  // Roofed passenger sidecar
+  const cabBody = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.65, 1.28), triPaintMat);
+  cabBody.position.set(0.32, 0.55, -0.04);
+  const cabStripe = new THREE.Mesh(new THREE.BoxGeometry(0.97, 0.14, 1.3), triTrimMat);
+  cabStripe.position.set(0.32, 0.62, -0.04);
+  const cabRoof = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.08, 1.46), triTrimMat);
+  cabRoof.position.set(0.24, 1.48, -0.04);
+  const sideWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.12, 10), wheelBlackMat);
+  sideWheel.rotation.z = Math.PI / 2;
+  sideWheel.position.set(0.84, 0.26, -0.18);
+  [
+    [-0.12, -0.62],
+    [0.74, -0.62],
+    [-0.12, 0.54],
+    [0.74, 0.54],
+  ].forEach(([px, pz]) => {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.64, 5), chromeMat);
+    pillar.position.set(px, 1.16, pz);
+    tricycle.add(pillar);
+  });
+  tricycle.add(motoBody, handle, cabBody, cabStripe, cabRoof, sideWheel);
+  root.add(tricycle);
+
+  // 2 Rugged Mayon Trail ATV Buggies parked near the right viewing edge
+  [
+    { x: 14.8, z: -22.2, ry: -0.62, col: 0xdc2626 },
+    { x: 16.4, z: -23.6, ry: -0.84, col: 0xf97316 },
+  ].forEach((atvSpec) => {
+    const atv = new THREE.Group();
+    atv.position.set(atvSpec.x, 0, atvSpec.z);
+    atv.rotation.y = atvSpec.ry;
+    const atvMat = new THREE.MeshStandardMaterial({ color: atvSpec.col, roughness: 0.42, metalness: 0.2 });
+    [
+      [-0.48, -0.52],
+      [0.48, -0.52],
+      [-0.48, 0.52],
+      [0.48, 0.52],
+    ].forEach(([wx, wz]) => {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.22, 9), wheelBlackMat);
+      tire.rotation.z = Math.PI / 2;
+      tire.position.set(wx, 0.26, wz);
+      atv.add(tire);
+    });
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.36, 1.32), atvMat);
+    chassis.position.set(0, 0.52, 0);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.56), wheelBlackMat);
+    seat.position.set(0, 0.74, -0.14);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.64, 6), chromeMat);
+    bar.rotation.z = Math.PI / 2;
+    bar.position.set(0, 0.92, 0.38);
+    atv.add(chassis, seat, bar);
+    root.add(atv);
+  });
+
+  // Multi-frond Instanced tropical coconut palms STRICTLY on outer left/right flanks (ZERO trees in front of Mayon's base!)
   const palmSpots = [
-    [-19, -21], [-15.5, -24], [-11.5, -25.5], [-22, -29], [-16.8, -33], [-9.2, -31],
-    [14.5, -21], [18.5, -25], [22.5, -22], [16.5, -34], [24, -30], [-26, -24],
-    [27, -26], [-13, -42], [15, -44], [5.5, -43], [-28, -35], [29, -36],
+    [-21.5, -21.5], [-18.2, -25.0], [-25.5, -27.5], [-19.4, -31.5], [-28.5, -33.0],
+    [18.2, -21.5], [21.5, -25.2], [25.0, -23.0], [19.8, -32.2], [27.5, -29.5], [30.5, -34.0],
+    [-27.5, -23.0],
   ];
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a593c, roughness: 0.9 });
   const frondMatA = new THREE.MeshStandardMaterial({ color: 0x2b7a37, roughness: 0.78 });
@@ -946,19 +1342,34 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
       fogDensityScale: 0.72,
     },
     update: (dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       cloudRing.rotation.y += dt * 0.08;
       stallBulbMat.emissiveIntensity = isNight ? 2.1 : 0.3;
+      kuboWinMat.emissiveIntensity = isNight ? 1.75 : 0.14;
       waterStripMat.color.setHex(isNight ? 0x164e63 : 0x38bdf8);
 
       for (let i = 0; i < tourists.length; i++) {
         const t = tourists[i];
-        t.group.rotation.y = t.baseRotY + Math.sin(elapsed * 0.65 + t.phase) * 0.24;
-        t.group.position.x = t.baseX + Math.sin(elapsed * 0.35 + t.phase) * 0.32;
-        if (t.hasCamera && t.flashMesh) {
-          const cycle = (elapsed + t.phase * 2.1) % 6.5;
-          const m = t.flashMesh.material as THREE.MeshBasicMaterial;
-          m.opacity = cycle < 0.16 ? (1 - cycle / 0.16) * 0.95 : 0;
+        const stroll = Math.sin(elapsed * 0.48 + t.phase);
+        const step = Math.sin(elapsed * 1.9 + t.phase) * (t.hasCamera ? 0.08 : 0.24);
+        t.group.position.x = t.baseX + stroll * t.strollAmp;
+        t.group.rotation.y = t.baseRotY + Math.sin(elapsed * 0.55 + t.phase) * 0.22;
+        t.leftLeg.rotation.x = step;
+        t.rightLeg.rotation.x = -step;
+        t.headGroup.rotation.y = Math.sin(elapsed * 0.85 + t.phase) * 0.26;
+        t.headGroup.rotation.x = -0.14 + Math.sin(elapsed * 0.6 + t.phase) * 0.05; // Looking up at Mayon
+        if (!t.hasCamera) {
+          t.leftArm.rotation.x = -step * 0.8;
+          t.rightArm.rotation.x = step * 0.8;
+        } else {
+          const raise = -1.2 + Math.sin(elapsed * 1.1 + t.phase) * 0.12;
+          t.leftArm.rotation.x = raise;
+          t.rightArm.rotation.x = raise;
+          if (t.flashMesh) {
+            const cycle = (elapsed + t.phase * 2.1) % 6.5;
+            const m = t.flashMesh.material as THREE.MeshBasicMaterial;
+            m.opacity = cycle < 0.16 ? (1 - cycle / 0.16) * 0.95 : 0;
+          }
         }
       }
     },
@@ -1113,39 +1524,87 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   bulbsInst.instanceMatrix.needsUpdate = true;
   root.add(bulbsInst);
 
-  // Dramatic mountain cliff drop-off plunging down into the deep valley basin
-  const cliffFace = new THREE.Mesh(new THREE.PlaneGeometry(180, 44), ridgeStoneMat);
-  cliffFace.rotation.x = -Math.PI * 0.24;
-  cliffFace.position.set(0, -16.2, -31.5);
+  // Sculpted Descending Tagaytay / Baguio Mountain Cliff Escarpment
+  // Starts flush underneath the z = -17.5 stone parapet (y = -0.35) and plunges smoothly
+  // down to the deep valley floor (y = -32.0 at z = -51.6) with upward-facing normals (zero flat wall glitch!).
+  const cliffGeo = new THREE.PlaneGeometry(196, 34, 24, 6);
+  cliffGeo.rotateX(-Math.PI / 2);
+  const cliffPosAttr = cliffGeo.attributes.position as THREE.BufferAttribute;
+  const cliffColors = new Float32Array(cliffPosAttr.count * 3);
+  const cliffTopCol = new THREE.Color(0x284331);
+  const cliffMidCol = new THREE.Color(0x1f2d2c);
+  const cliffBotCol = new THREE.Color(0x111a24);
+  const tmpCliffC = new THREE.Color();
+  for (let i = 0; i < cliffPosAttr.count; i++) {
+    const vx = cliffPosAttr.getX(i);
+    const vz = cliffPosAttr.getZ(i); // +17 (near rim) .. -17 (valley bottom)
+    const t = Math.max(0, Math.min(1, (17 - vz) / 34));
+    const ridgeNoise =
+      Math.sin(vx * 0.12 + t * 3.8) * 1.35 * Math.sin(t * Math.PI) +
+      Math.cos(vx * 0.27 - t * 2.2) * 0.65 * Math.sin(t * Math.PI);
+    const vy = -0.38 - Math.pow(t, 1.12) * 31.65 + ridgeNoise;
+    cliffPosAttr.setY(i, vy);
+    if (t < 0.45) {
+      tmpCliffC.lerpColors(cliffTopCol, cliffMidCol, t / 0.45);
+    } else {
+      tmpCliffC.lerpColors(cliffMidCol, cliffBotCol, (t - 0.45) / 0.55);
+    }
+    cliffColors[i * 3] = tmpCliffC.r;
+    cliffColors[i * 3 + 1] = tmpCliffC.g;
+    cliffColors[i * 3 + 2] = tmpCliffC.b;
+  }
+  cliffGeo.translate(0, 0, -34.6); // Near edge at z = -17.6, far edge at z = -51.6
+  cliffGeo.setAttribute('color', new THREE.BufferAttribute(cliffColors, 3));
+  cliffGeo.computeVertexNormals();
+  const sculptedCliffMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.94,
+    flatShading: true,
+  });
+  const cliffFace = new THREE.Mesh(cliffGeo, sculptedCliffMat);
   root.add(cliffFace);
 
   const valleyFloor = new THREE.Mesh(
-    new THREE.PlaneGeometry(240, 160),
-    new THREE.MeshStandardMaterial({ color: 0x0f1a24, roughness: 0.96 })
+    new THREE.PlaneGeometry(260, 175),
+    new THREE.MeshStandardMaterial({ color: 0x0c1420, roughness: 0.96 })
   );
   valleyFloor.rotation.x = -Math.PI / 2;
-  valleyFloor.position.set(0, -32.0, -98);
+  valleyFloor.position.set(0, -32.0, -104);
   root.add(valleyFloor);
 
+  // Layered misty rolling foothills flanking the distant basin rim
+  const foothillMat = new THREE.MeshStandardMaterial({ color: 0x172534, roughness: 0.95, flatShading: true });
+  [
+    [-68, -96, 36, 20],
+    [-28, -118, 42, 24],
+    [22, -120, 44, 25],
+    [66, -98, 38, 22],
+  ].forEach(([fx, fz, fr, fh]) => {
+    const fhMesh = new THREE.Mesh(new THREE.ConeGeometry(fr, fh, 8), foothillMat);
+    fhMesh.position.set(fx, -32 + fh * 0.42, fz);
+    root.add(fhMesh);
+  });
+
   // Distant Cordillera / Tagaytay volcanic ridge silhouettes across the far horizon
-  const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x1b2938, roughness: 0.95 });
-  [-74, -40, -8, 24, 56, 86].forEach((rx, idx) => {
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x152232, roughness: 0.95, flatShading: true });
+  [-84, -46, -10, 26, 62, 94].forEach((rx, idx) => {
     const peak = new THREE.Mesh(
-      new THREE.ConeGeometry(34 + (idx % 2) * 10, 34 + (idx % 3) * 9, 7),
+      new THREE.ConeGeometry(38 + (idx % 2) * 10, 40 + (idx % 3) * 9, 7),
       ridgeMat
     );
-    peak.position.set(rx, -17.5, -138 - (idx % 2) * 14);
+    peak.position.set(rx, -14.5, -146 - (idx % 2) * 14);
     root.add(peak);
   });
 
-  // Layered Multi-Tier Baguio Pine Trees flanking the cliff ridge (3 draw calls total)
+  // Framed Baguio Pine Trees strictly on left & right cliff edges (|x| > 9.5 so center valley view is 100% clear!)
   const pineCoords: Array<[number, number, number]> = [];
-  for (let i = 0; i < 34; i++) {
-    const x = -34 + i * 2.05 + Math.sin(i * 2.7) * 0.65;
-    if (Math.abs(x) < 6.4) continue; // Keep panoramic valley vista wide open!
+  for (let i = 0; i < 36; i++) {
+    const x = -38 + i * 2.15 + Math.sin(i * 2.7) * 0.55;
+    if (Math.abs(x) < 9.5) continue;
     const tier = i % 4;
-    const z = -19.0 - tier * 2.8;
-    const y = -1.2 - tier * 2.1;
+    const z = -19.2 - tier * 3.0;
+    const tSlope = Math.max(0, Math.min(1, (-17.6 - z) / 34));
+    const y = -0.5 - Math.pow(tSlope, 1.12) * 31.6;
     pineCoords.push([x, y, z]);
   }
   const pineTrunks = new THREE.InstancedMesh(
@@ -1186,6 +1645,34 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   pineUpper.instanceMatrix.needsUpdate = true;
   root.add(pineTrunks, pineLower, pineUpper);
 
+  // Cozy Glowing Hillside Resort Cabins perched along mid-cliff terraces below (left & right shoulders)
+  const resortWinMat = new THREE.MeshStandardMaterial({
+    color: 0xfef3c7,
+    emissive: 0xf59e0b,
+    emissiveIntensity: 1.65,
+    roughness: 0.25,
+  });
+  [
+    [-22, -10.5, -28.5],
+    [-16, -15.8, -34.0],
+    [17, -11.2, -29.2],
+    [25, -16.4, -35.5],
+    [-30, -18.5, -38.0],
+    [32, -19.2, -39.0],
+  ].forEach(([cx, cy, cz]) => {
+    const cg = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.0, 2.6), woodMat);
+    body.position.y = 1.0;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.7, 1.3, 4), ridgeStoneMat);
+    roof.rotation.y = Math.PI / 4;
+    roof.position.y = 2.6;
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.72), resortWinMat);
+    win.position.set(0, 1.15, 1.33);
+    cg.add(body, roof, win);
+    cg.position.set(cx, cy, cz);
+    root.add(cg);
+  });
+
   // Clustered Valley Metropolis Silhouette Districts below (1 InstancedMesh)
   const valleyTex = createProceduralFacadeTextures('urban', '#1e293b', '#fbbf24');
   const valleyBlockMat = new THREE.MeshStandardMaterial({
@@ -1193,22 +1680,22 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     map: valleyTex?.map,
     emissive: 0xfde68a,
     emissiveMap: valleyTex?.emissiveMap,
-    emissiveIntensity: 0.9,
+    emissiveIntensity: 0.95,
     roughness: 0.85,
   });
-  const blockCount = 120;
+  const blockCount = 150;
   const valleyBlocks = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1, 1, 1),
     valleyBlockMat,
     blockCount
   );
   for (let i = 0; i < blockCount; i++) {
-    const district = (i % 6) - 2.5;
-    const bx = district * 24 + Math.sin(i * 19.3) * 14;
-    const bz = -48 - ((i * 13) % 72);
-    const bw = 2.6 + (i % 4) * 1.1;
-    const bh = 2.2 + ((i * 7) % 10) * 0.95;
-    const bd = 2.6 + ((i * 3) % 4) * 0.9;
+    const district = (i % 7) - 3;
+    const bx = district * 22 + Math.sin(i * 19.3) * 14;
+    const bz = -50 - ((i * 13) % 78);
+    const bw = 2.6 + (i % 4) * 1.15;
+    const bh = 2.4 + ((i * 7) % 11) * 1.05;
+    const bd = 2.6 + ((i * 3) % 4) * 0.95;
     dummy.position.set(bx, -32.0 + bh / 2, bz);
     dummy.rotation.set(0, (i % 4) * 0.22, 0);
     dummy.scale.set(bw, bh, bd);
@@ -1218,37 +1705,43 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   valleyBlocks.instanceMatrix.needsUpdate = true;
   root.add(valleyBlocks);
 
-  // Winding glowing valley highway ribbons + animated moving headlight streaks!
+  // Winding glowing valley highway ribbons + animated moving white headlights & red taillights!
   const highwayGlowMat = new THREE.MeshBasicMaterial({
     color: 0xf59e0b,
     transparent: true,
-    opacity: 0.42,
+    opacity: 0.44,
   });
   [-56, -78, -104].forEach((hz, idx) => {
-    const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(175, 1.35), highwayGlowMat);
+    const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(185, 1.45), highwayGlowMat);
     ribbon.rotation.x = -Math.PI / 2;
     ribbon.rotation.z = idx === 1 ? 0.08 : -0.05;
-    ribbon.position.set(0, -31.85, hz);
+    ribbon.position.set(0, -31.82, hz);
     root.add(ribbon);
   });
 
-  const carStreakCount = 36;
-  const carStreakMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
-  const carStreaks = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1.4, 0.25, 0.4),
-    carStreakMat,
-    carStreakCount
+  const carStreakCount = 48;
+  const carHeadMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
+  const carTailMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
+  const carHeadStreaks = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1.45, 0.28, 0.42),
+    carHeadMat,
+    carStreakCount / 2
+  );
+  const carTailStreaks = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1.45, 0.28, 0.42),
+    carTailMat,
+    carStreakCount / 2
   );
   const streakData = Array.from({ length: carStreakCount }, (_, i) => ({
-    x: -80 + ((i * 19) % 160),
-    z: i % 3 === 0 ? -56 : i % 3 === 1 ? -78 : -104,
-    dir: i % 2 === 0 ? 1 : -1,
-    speed: 4.5 + (i % 4) * 1.6,
+    x: -85 + ((i * 17) % 170),
+    z: (i % 3 === 0 ? -56 : i % 3 === 1 ? -78 : -104) + (i % 2 === 0 ? -0.45 : 0.45),
+    dir: (i % 2 === 0 ? 1 : -1) as 1 | -1,
+    speed: 4.8 + (i % 4) * 1.7,
   }));
-  root.add(carStreaks);
+  root.add(carHeadStreaks, carTailStreaks);
 
-  // 2,600+ Shimmering Valley City Lights in ONE THREE.Points draw call!
-  const lightCount = 2600;
+  // 3,600+ Shimmering Valley & Hillside City Lights in ONE THREE.Points draw call!
+  const lightCount = 3600;
   const positions = new Float32Array(lightCount * 3);
   const colors = new Float32Array(lightCount * 3);
   const palette = [
@@ -1267,18 +1760,30 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     let lx: number;
     let lz: number;
     let ly: number;
-    if (i < 600) {
+    if (i < 750) {
       // Dense golden lights along the 3 winding valley highways
       const lane = i % 3;
-      lx = (h1 - 0.5) * 185;
-      lz = (lane === 0 ? -56 : lane === 1 ? -78 : -104) + (h2 - 0.5) * 3.8;
-      ly = -31.5 + h3 * 0.5;
-    } else {
-      // Clustered metropolitan districts spreading across the entire basin
+      lx = (h1 - 0.5) * 190;
+      lz = (lane === 0 ? -56 : lane === 1 ? -78 : -104) + (h2 - 0.5) * 4.2;
+      ly = -31.4 + h3 * 0.6;
+    } else if (i < 1150) {
+      // Twinkling winding mountain-road & hillside resort lights descending the cliff slope
+      const tSlope = 0.22 + h2 * 0.72;
+      lx = (h1 - 0.5) * 140;
+      lz = -17.6 - tSlope * 34;
+      ly = -0.2 - Math.pow(tSlope, 1.12) * 31.4 + 0.8;
+    } else if (i < 2450) {
+      // Clustered metropolitan districts spreading across the entire deep basin floor
       const cluster = (i % 9) - 4;
-      lx = cluster * 20 + (h1 - 0.5) * 34;
-      lz = -42 - h2 * 92;
-      ly = -31.4 + h3 * 5.2;
+      lx = cluster * 21 + (h1 - 0.5) * 36;
+      lz = -46 - h2 * 82;
+      ly = -31.3 + h3 * 7.2;
+    } else {
+      // Rising Baguio / Tagaytay across-the-valley terraced hillside city lights (visible even from Cafe Porch!)
+      const ridgeClimb = h2; // 0 = lower foothills, 1 = upper ridge slopes
+      lx = (h1 - 0.5) * 210;
+      lz = -78 - ridgeClimb * 62;
+      ly = -16.0 + ridgeClimb * 21.5 + Math.sin(lx * 0.08) * 2.2 + (h3 - 0.5) * 2.4;
     }
     positions[i * 3] = lx;
     positions[i * 3 + 1] = ly;
@@ -1293,11 +1798,11 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   lightsGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   lightsGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const cityLightsMat = new THREE.PointsMaterial({
-    size: 2.1,
+    size: 2.35,
     vertexColors: true,
     map: getSharedGlowSpriteTexture(),
     transparent: true,
-    opacity: 0.92,
+    opacity: 0.94,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -1310,12 +1815,12 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     map: getSharedGlowSpriteTexture(),
     color: 0xdbeafe,
     transparent: true,
-    opacity: 0.14,
+    opacity: 0.12,
     depthWrite: false,
   });
   for (let m = 0; m < 10; m++) {
     const sp = new THREE.Sprite(mistMat);
-    sp.position.set(-30 + m * 7.0, -5.5 - (m % 3) * 2.5, -26 - (m % 4) * 10);
+    sp.position.set(-30 + m * 7.0, -7.5 - (m % 3) * 3.0, -28 - (m % 4) * 11);
     sp.scale.set(18, 5.2, 1);
     root.add(sp);
     mistSprites.push(sp);
@@ -1330,31 +1835,39 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     envHint: {
       fogColorDay: 0xcbd9e6,
       fogColorNight: 0x091020,
-      fogDensityScale: 0.72,
+      fogDensityScale: 0.65,
     },
     update: (dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       cityLightsMat.opacity = isNight
-        ? 0.92 + Math.sin(elapsed * 2.2) * 0.08
-        : 0.34;
-      cityLightsMat.size = isNight ? 2.25 : 1.15;
+        ? 0.94 + Math.sin(elapsed * 2.2) * 0.06
+        : 0.42;
+      cityLightsMat.size = isNight ? 2.45 : 1.35;
       stringBulbMat.emissiveIntensity = isNight ? 2.25 : 0.45;
-      valleyBlockMat.emissiveIntensity = isNight ? 1.45 : 0.14;
-      highwayGlowMat.opacity = isNight ? 0.46 : 0.14;
-      mistMat.opacity = isNight ? 0.1 : 0.18;
+      resortWinMat.emissiveIntensity = isNight ? 2.1 : 0.45;
+      valleyBlockMat.emissiveIntensity = isNight ? 1.55 : 0.18;
+      highwayGlowMat.opacity = isNight ? 0.52 : 0.16;
+      mistMat.opacity = isNight ? 0.09 : 0.15;
 
+      let hIdx = 0;
+      let tIdx = 0;
       for (let i = 0; i < carStreakCount; i++) {
         const s = streakData[i];
         s.x += s.dir * s.speed * dt;
-        if (s.x > 88) s.x = -88;
-        if (s.x < -88) s.x = 88;
-        dummy.position.set(s.x, -31.55, s.z);
+        if (s.x > 92) s.x = -92;
+        if (s.x < -92) s.x = 92;
+        dummy.position.set(s.x, -31.5, s.z);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
-        carStreaks.setMatrixAt(i, dummy.matrix);
+        if (s.dir === 1) {
+          carHeadStreaks.setMatrixAt(hIdx++, dummy.matrix);
+        } else {
+          carTailStreaks.setMatrixAt(tIdx++, dummy.matrix);
+        }
       }
-      carStreaks.instanceMatrix.needsUpdate = true;
+      carHeadStreaks.instanceMatrix.needsUpdate = true;
+      carTailStreaks.instanceMatrix.needsUpdate = true;
 
       for (let i = 0; i < mistSprites.length; i++) {
         mistSprites[i].position.x += dt * (0.44 + (i % 3) * 0.14);
@@ -1699,6 +2212,98 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   });
   root.add(new THREE.Points(pGeo, sakuraFireflyMat));
 
+  // Cozy Kyoto Street-Level Props: Ema Prayer-Plaque & Furin Wind-Chime Rack, Bamboo Shishi-Odoshi Water Fountain & Vintage Mamachari Bicycle
+  const emaRack = new THREE.Group();
+  emaRack.position.set(-3.35, 0, -17.95);
+  emaRack.rotation.y = 0.22;
+  [-0.78, 0.78].forEach((px) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.09, 2.05, 0.09), darkCedarMat);
+    p.position.set(px, 1.02, 0);
+    emaRack.add(p);
+  });
+  const emaRoof = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.12, 0.56), roofTileMat);
+  emaRoof.position.set(0, 2.08, 0);
+  emaRoof.rotation.x = 0.12;
+  emaRack.add(emaRoof);
+  const emaPlaqueMat = new THREE.MeshStandardMaterial({ color: 0xf2d5a0, roughness: 0.78 });
+  const chimeRibbonMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.75 });
+  const chimeStrips: THREE.Mesh[] = [];
+  for (let row = 0; row < 2; row++) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.04, 0.04), warmWoodMat);
+    bar.position.set(0, 1.48 - row * 0.38, 0);
+    emaRack.add(bar);
+    for (let col = -3; col <= 3; col++) {
+      const plaque = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.025), emaPlaqueMat);
+      plaque.position.set(col * 0.2, 1.34 - row * 0.38, 0.02);
+      plaque.rotation.z = ((col + row) % 3 - 1) * 0.08;
+      emaRack.add(plaque);
+    }
+  }
+  [-0.5, 0, 0.5].forEach((cx) => {
+    const bell = new THREE.Mesh(
+      new THREE.SphereGeometry(0.055, 7, 6),
+      new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.15, transparent: true, opacity: 0.8 })
+    );
+    bell.position.set(cx, 1.88, 0.18);
+    emaRack.add(bell);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.01), chimeRibbonMat);
+    strip.position.set(cx, 1.72, 0.18);
+    emaRack.add(strip);
+    chimeStrips.push(strip);
+  });
+  root.add(emaRack);
+
+  // Bamboo Shishi-Odoshi Water Fountain over a mossy granite basin (animated gentle rocking!)
+  const fountainGroup = new THREE.Group();
+  fountainGroup.position.set(3.45, 0, -18.02);
+  const basin = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.38, 0.42, 9), stoneMat);
+  basin.position.y = 0.21;
+  const basinWater = new THREE.Mesh(
+    new THREE.CircleGeometry(0.38, 10),
+    new THREE.MeshStandardMaterial({ color: 0x155e75, roughness: 0.18, metalness: 0.35 })
+  );
+  basinWater.rotation.x = -Math.PI / 2;
+  basinWater.position.y = 0.43;
+  const spoutPost = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.92, 6), bambooMat);
+  spoutPost.position.set(0.32, 0.46, -0.18);
+  const spoutArm = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.035, 0.48, 6), bambooMat);
+  spoutArm.rotation.z = Math.PI * 0.42;
+  spoutArm.position.set(0.14, 0.84, -0.14);
+  const shishiPivot = new THREE.Group();
+  shishiPivot.position.set(-0.08, 0.54, 0);
+  const rockerTube = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.042, 0.68, 6), bambooMat);
+  rockerTube.rotation.z = Math.PI / 2;
+  shishiPivot.add(rockerTube);
+  fountainGroup.add(basin, basinWater, spoutPost, spoutArm, shishiPivot);
+  root.add(fountainGroup);
+
+  // Vintage Japanese Commuter Bicycle (Mamachari) with wicker basket parked outside a Machiya
+  const mamachari = new THREE.Group();
+  mamachari.position.set(-8.6, 0.07, -17.92);
+  mamachari.rotation.y = 0.14;
+  const bikeTireMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.88 });
+  const bikeFrameMat = new THREE.MeshStandardMaterial({ color: 0x2f5e4e, roughness: 0.38, metalness: 0.35 });
+  const basketMat = new THREE.MeshStandardMaterial({ color: 0xb4844e, roughness: 0.85 });
+  [-0.44, 0.44].forEach((wx) => {
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.03, 6, 12), bikeTireMat);
+    wheel.position.set(wx, 0.27, 0);
+    mamachari.add(wheel);
+  });
+  const frameBar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.72, 6), bikeFrameMat);
+  frameBar.rotation.z = Math.PI / 2 + 0.16;
+  frameBar.position.set(0, 0.48, 0);
+  const seatTube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.46, 6), bikeFrameMat);
+  seatTube.position.set(-0.24, 0.54, 0);
+  const handlePost = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.54, 6), bikeFrameMat);
+  handlePost.position.set(0.32, 0.58, 0);
+  const handleGrip = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.42, 6), darkCedarMat);
+  handleGrip.rotation.x = Math.PI / 2;
+  handleGrip.position.set(0.32, 0.84, 0);
+  const basket = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.32), basketMat);
+  basket.position.set(0.46, 0.72, 0);
+  mamachari.add(frameBar, seatTube, handlePost, handleGrip, basket);
+  root.add(mamachari);
+
   const ctx = addSurrounding360Context(root, 'japanese_tranquility');
   disableShadowsRecursive(root);
 
@@ -1711,7 +2316,7 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
       fogDensityScale: 0.86,
     },
     update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       shojiMat.emissiveIntensity = isNight ? 1.5 : 0.25;
       machiyaWallMat.emissiveIntensity = isNight ? 1.35 : 0.16;
       lanternMat.emissiveIntensity = isNight ? 2.2 : 0.72;
@@ -1720,6 +2325,14 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
       sakuraFireflyMat.color.setHex(isNight ? 0xfde047 : 0xf9a8d4);
       sakuraFireflyMat.size = isNight ? 0.38 : 0.28;
       sakuraFireflyMat.opacity = isNight ? 0.76 + Math.sin(elapsed * 3.5) * 0.2 : 0.86;
+
+      // Gentle breeze swaying wind chimes + periodic Shishi-Odoshi bamboo tip
+      for (let i = 0; i < chimeStrips.length; i++) {
+        chimeStrips[i].rotation.z = Math.sin(elapsed * 2.2 + i * 1.1) * 0.18;
+      }
+      const tipCycle = elapsed % 5.5;
+      shishiPivot.rotation.z =
+        tipCycle > 4.6 ? -0.45 * Math.sin(((tipCycle - 4.6) / 0.9) * Math.PI) : 0.22;
 
       const attr = pGeo.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < pCount; i++) {
@@ -1846,17 +2459,18 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     hasTank: boolean;
   }> = [];
 
-  for (let tier = 0; tier < 6; tier++) {
-    for (let col = 0; col < 22; col++) {
-      const idx = tier * 22 + col;
-      const hx = -44 + col * 3.8 + (tier % 2) * 1.3;
-      // Leave scenic right-center panoramic window open to Guanabara Bay & Sugarloaf!
-      if (hx > 6.5 && hx < 23.5) continue;
-      const hz = -19.2 - tier * 3.7 - ((idx * 3) % 3) * 0.45;
-      const hy = tier * 2.15 + ((idx * 5) % 4) * 0.28;
-      const w = 2.6 + (idx % 3) * 0.65;
-      const h = 2.3 + (idx % 4) * 0.52;
-      const d = 2.5 + (idx % 2) * 0.55;
+  for (let tier = 0; tier < 7; tier++) {
+    for (let col = 0; col < 25; col++) {
+      const idx = tier * 25 + col;
+      const hx = -45 + col * 3.65 + (tier % 2) * 1.15;
+      // Fill lower slopes densely across the entire ridge; keep ONLY an upper scenic window
+      // (tier >= 2 and hx between 8.5 and 22.5) open to Guanabara Bay, Sugarloaf & Christ!
+      if (tier >= 2 && hx > 8.5 && hx < 22.5) continue;
+      const hz = -18.8 - tier * 3.45 - ((idx * 3) % 3) * 0.42;
+      const hy = tier * 2.05 + ((idx * 5) % 4) * 0.26;
+      const w = 2.75 + (idx % 3) * 0.62;
+      const h = 2.35 + (idx % 4) * 0.54;
+      const d = 2.55 + (idx % 2) * 0.52;
       houseSpecs.push({
         x: hx,
         y: hy,
@@ -1922,22 +2536,41 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   waterTanks.instanceMatrix.needsUpdate = true;
   root.add(houses, roofs, waterTanks);
 
-  // Winding painted hillside staircases connecting favela tiers
-  const stairColors = [0xeab308, 0x0d9488, 0xe07a5f];
-  [-18.5, -5.2, 27.5].forEach((sx, sIdx) => {
-    const sMat = new THREE.MeshStandardMaterial({
-      color: stairColors[sIdx % stairColors.length],
-      roughness: 0.85,
-    });
-    for (let step = 0; step < 16; step++) {
-      const tread = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.36, 0.72), sMat);
+  // Vibrant Selarón-style colorful mosaic staircases (Escadarias) & neighborhood mural walls
+  const mosaicMats = [
+    new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.65 }),
+    new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.65 }),
+    new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.65 }),
+    new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.65 }),
+  ];
+  [-18.5, -5.2, 6.2, 26.8].forEach((sx, sIdx) => {
+    for (let step = 0; step < 18; step++) {
+      const tread = new THREE.Mesh(
+        new THREE.BoxGeometry(1.5, 0.36, 0.72),
+        mosaicMats[(sIdx + step) % mosaicMats.length]
+      );
       tread.position.set(
         sx + Math.sin(step * 0.38) * 1.15,
         0.18 + step * 0.56,
-        -18.2 - step * 0.92
+        -18.0 - step * 0.9
       );
       root.add(tread);
     }
+  });
+
+  // Colorful street-level favela retaining wall murals
+  [
+    { x: -12.5, z: -17.65, cols: [0x0ea5e9, 0xfacc15, 0x16a34a] },
+    { x: 14.5, z: -17.65, cols: [0xec4899, 0xf97316, 0x0d9488] },
+  ].forEach((mural) => {
+    mural.cols.forEach((c, idx) => {
+      const panel = new THREE.Mesh(
+        new THREE.BoxGeometry(1.4, 1.35, 0.14),
+        new THREE.MeshStandardMaterial({ color: c, roughness: 0.78 })
+      );
+      panel.position.set(mural.x + (idx - 1) * 1.42, 0.68, mural.z);
+      root.add(panel);
+    });
   });
 
   // Leaning wooden utility poles + tangled Rio overhead power wires + colorful hanging laundry lines
@@ -1976,6 +2609,7 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   [
     [-14.5, 4.4, -21.2],
     [-2.5, 4.1, -21.0],
+    [11.5, 3.2, -20.2],
     [29.5, 4.6, -21.4],
   ].forEach(([lx, ly, lz]) => {
     const linePts = [
@@ -1995,13 +2629,15 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     }
   });
 
-  // Tropical foliage & magenta bougainvillea clusters tucked between terraces
+  // Tropical foliage, palms & magenta bougainvillea clusters tucked between terraces
   const palmFoliageMat = new THREE.MeshStandardMaterial({ color: 0x257034, roughness: 0.84 });
   const bougMat = new THREE.MeshStandardMaterial({ color: 0xdb2777, roughness: 0.82 });
   [
     [-20.5, 2.2, -19.8, false],
     [-8.4, 4.6, -23.0, true],
     [4.2, 2.8, -20.5, true],
+    [9.8, 2.6, -20.6, false],
+    [19.2, 3.0, -21.2, true],
     [24.5, 3.2, -20.8, false],
     [-14.2, 7.6, -27.5, true],
     [32.5, 5.8, -24.5, false],
@@ -2015,50 +2651,130 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     root.add(bush);
   });
 
-  // Sugarloaf Mountain (Pão de Açúcar) + Morro da Urca + cable car line across Guanabara Bay
+  // Sugarloaf Mountain (Pão de Açúcar) + Morro da Urca + ANIMATED Bondinho Cable Car across Guanabara Bay
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.9 });
   const greenMountMat = new THREE.MeshStandardMaterial({ color: 0x2f6838, roughness: 0.9 });
-  const sugarloaf = new THREE.Mesh(new THREE.SphereGeometry(12, 14, 12), rockMat);
-  sugarloaf.scale.set(0.92, 1.9, 0.92);
-  sugarloaf.position.set(17, 5.0, -90);
+  const sugarloaf = new THREE.Mesh(new THREE.SphereGeometry(12.2, 14, 12), rockMat);
+  sugarloaf.scale.set(0.95, 2.05, 0.95);
+  sugarloaf.position.set(22.0, 14.2, -86);
   root.add(sugarloaf);
-  const morro = new THREE.Mesh(new THREE.ConeGeometry(16, 15.5, 10), greenMountMat);
-  morro.position.set(5, 1.8, -94);
+  const morro = new THREE.Mesh(new THREE.ConeGeometry(15.0, 22.0, 10), greenMountMat);
+  morro.position.set(8.5, 11.2, -89);
   root.add(morro);
-  // Subtle Sugarloaf cable car span line
+
+  const cableStart = new THREE.Vector3(8.5, 22.0, -88.2);
+  const cableEnd = new THREE.Vector3(22.0, 36.2, -85.8);
+  const cableMid = cableStart.clone().lerp(cableEnd, 0.5).add(new THREE.Vector3(0, -1.8, 0));
   root.add(
     new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(5, 9.5, -93),
-        new THREE.Vector3(11, 14.2, -91.5),
-        new THREE.Vector3(17, 24.0, -90),
-      ]),
+      new THREE.BufferGeometry().setFromPoints([cableStart, cableMid, cableEnd]),
       wireMat
     )
   );
-
-  // Corcovado peak with illuminated Christ the Redeemer statue
-  const corcovado = new THREE.Mesh(new THREE.ConeGeometry(15, 26, 9), greenMountMat);
-  corcovado.position.set(-18, 7.5, -100);
-  root.add(corcovado);
-  const statueMat = new THREE.MeshStandardMaterial({
-    color: 0xf8fafc,
-    emissive: 0xfef3c7,
-    emissiveIntensity: 0.3,
-    roughness: 0.45,
+  // Animated Bondinho Glass Cable Car gliding between Morro da Urca and Sugarloaf
+  const cableCarGroup = new THREE.Group();
+  const cableCarMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35, metalness: 0.2 });
+  const cableCarWinMat = new THREE.MeshStandardMaterial({
+    color: 0xfef3c7,
+    emissive: 0xfbbf24,
+    emissiveIntensity: 0.6,
+    roughness: 0.15,
   });
-  const pedestal = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.2, 1.4), statueMat);
-  pedestal.position.set(-18, 20.6, -100);
-  root.add(pedestal);
-  const statueBody = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.48, 4.0, 8), statueMat);
-  statueBody.position.set(-18, 23.1, -100);
-  root.add(statueBody);
-  const statueArms = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.4, 0.4), statueMat);
-  statueArms.position.set(-18, 24.3, -100);
-  root.add(statueArms);
+  const cableHanger = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.1, 0.22), rockMat);
+  cableHanger.position.y = -0.55;
+  const cableCabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.15, 1.15), cableCarMat);
+  cableCabin.position.y = -1.45;
+  const cableGlass = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.62, 1.2), cableCarWinMat);
+  cableGlass.position.y = -1.42;
+  cableCarGroup.add(cableHanger, cableCabin, cableGlass);
+  root.add(cableCarGroup);
+
+  // Corcovado Peak with Unmistakable Sculpted Art Deco CHRIST THE REDEEMER (Cristo Redentor) in Iconic Outstretched T-Pose
+  const corcovado = new THREE.Mesh(new THREE.ConeGeometry(16, 36, 10), greenMountMat);
+  corcovado.position.set(-12.5, 15.6, -84);
+  root.add(corcovado);
+
+  const cristoGroup = new THREE.Group();
+  cristoGroup.position.set(-12.5, 33.2, -84);
+  cristoGroup.scale.setScalar(1.28);
+  cristoGroup.rotation.y = 0.18; // Facing gently toward the cafe & Guanabara Bay
+  const soapstoneMat = new THREE.MeshStandardMaterial({
+    color: 0xeae6df,
+    emissive: 0xfff3d6,
+    emissiveIntensity: 0.32,
+    roughness: 0.55,
+  });
+  const pedestalBaseMat = new THREE.MeshStandardMaterial({
+    color: 0xd6d0c4,
+    emissive: 0xfde68a,
+    emissiveIntensity: 0.18,
+    roughness: 0.68,
+  });
+
+  // Stepped Art Deco Pedestal
+  const pedStep1 = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.1, 3.6), pedestalBaseMat);
+  pedStep1.position.y = 0.55;
+  const pedStep2 = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.9, 2.6), pedestalBaseMat);
+  pedStep2.position.y = 2.0;
+  const pedCap = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.28, 2.9), soapstoneMat);
+  pedCap.position.y = 3.05;
+  cristoGroup.add(pedStep1, pedStep2, pedCap);
+
+  // Flowing Robe Torso Column + Sculpted Vertical Drapery Folds
+  const robeLower = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.98, 4.4, 10), soapstoneMat);
+  robeLower.position.y = 5.35;
+  const robeChest = new THREE.Mesh(new THREE.CylinderGeometry(0.94, 0.72, 2.4, 10), soapstoneMat);
+  robeChest.scale.set(1.22, 1, 0.78);
+  robeChest.position.y = 8.45;
+  const shoulders = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.82, 0.95), soapstoneMat);
+  shoulders.position.y = 9.48;
+  // Center vertical robe fold ridge
+  const robeFold = new THREE.Mesh(new THREE.BoxGeometry(0.32, 6.2, 0.92), soapstoneMat);
+  robeFold.position.set(0, 6.4, 0.25);
+  cristoGroup.add(robeLower, robeChest, shoulders, robeFold);
+
+  // Iconic Wide Outstretched T-Pose Arms with Draped Sleeves & Open Hands (spanning ~9.6 units wide!)
+  [-1, 1].forEach((side) => {
+    const upperArm = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.88, 0.74), soapstoneMat);
+    upperArm.position.set(side * 2.15, 9.48, 0);
+    const sleeveDrape = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.65, 0.62), soapstoneMat);
+    sleeveDrape.position.set(side * 2.0, 9.0, 0);
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.66, 0.62), soapstoneMat);
+    forearm.position.set(side * 4.05, 9.52, 0);
+    const hand = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.44, 0.34), soapstoneMat);
+    hand.position.set(side * 5.2, 9.52, 0.04);
+    cristoGroup.add(upperArm, sleeveDrape, forearm, hand);
+  });
+
+  // Sculpted Neck & Head tilted slightly downward in blessing
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.48, 8), soapstoneMat);
+  neck.position.y = 10.05;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.66, 10, 8), soapstoneMat);
+  head.scale.set(0.88, 1.14, 0.95);
+  head.position.set(0, 10.72, 0.12);
+  head.rotation.x = 0.2;
+  cristoGroup.add(neck, head);
+
+  // Nighttime Upward Warm Monument Floodlight Halo Cones illuminating Christ the Redeemer
+  const floodConeMat = new THREE.MeshBasicMaterial({
+    color: 0xfef3c7,
+    transparent: true,
+    opacity: 0.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  [-1.9, 1.9].forEach((fx) => {
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(3.8, 11.5, 10, 1, true), floodConeMat);
+    cone.position.set(fx * 0.6, 6.2, 1.2);
+    cone.rotation.z = fx * 0.12;
+    cone.rotation.x = -0.14;
+    cristoGroup.add(cone);
+  });
+  root.add(cristoGroup);
 
   // Distant Guanabara Bay harbor lights shimmer at night
-  const bayLightCount = 45;
+  const bayLightCount = 55;
   const bayLightPos = new Float32Array(bayLightCount * 3);
   for (let i = 0; i < bayLightCount; i++) {
     bayLightPos[i * 3] = -10 + ((i * 7.3) % 68);
@@ -2090,11 +2806,23 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
       fogDensityScale: 0.76,
     },
     update: (_dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       houseMat.emissiveIntensity = isNight ? 1.45 : 0.14;
-      statueMat.emissiveIntensity = isNight ? 2.1 : 0.25;
+      soapstoneMat.emissiveIntensity = isNight ? 1.85 : 0.24;
+      pedestalBaseMat.emissiveIntensity = isNight ? 1.05 : 0.12;
+      floodConeMat.opacity = isNight ? 0.16 + Math.sin(elapsed * 1.4) * 0.025 : 0.0;
+      cableCarWinMat.emissiveIntensity = isNight ? 1.8 : 0.35;
       bayMat.color.setHex(isNight ? 0x0b2545 : 0x0284c7);
       bayLightsMat.opacity = isNight ? 0.78 + Math.sin(elapsed * 2.5) * 0.14 : 0.0;
+
+      // Smooth Sugarloaf Bondinho cable car travel along parabolic sag curve
+      const carT = 0.5 - 0.44 * Math.cos(elapsed * 0.22);
+      const cx = cableStart.x + (cableEnd.x - cableStart.x) * carT;
+      const cz = cableStart.z + (cableEnd.z - cableStart.z) * carT;
+      const cy =
+        cableStart.y + (cableEnd.y - cableStart.y) * carT - Math.sin(carT * Math.PI) * 1.8;
+      cableCarGroup.position.set(cx, cy, cz);
+
       for (let i = 0; i < laundryFlaps.length; i++) {
         laundryFlaps[i].rotation.x = Math.sin(elapsed * 2.4 + i * 0.9) * 0.22;
       }

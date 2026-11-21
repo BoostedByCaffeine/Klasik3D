@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { ClimateState, SceneryId } from '../sceneryData';
-import { ROAD_ELEVATION_LAYERS } from '../outdoorLod';
+import { ROAD_ELEVATION_LAYERS, getSceneryStreetlightSpec } from '../outdoorLod';
 
 export interface SurroundingContextHandle {
-  update: (isNight: boolean, climateState: ClimateState) => void;
+  update: (isNight: boolean, climateState: ClimateState, elapsed?: number) => void;
 }
 
 type FacadeStyle =
@@ -264,6 +264,14 @@ export function addSurrounding360Context(
   const winterGroundMats: Array<{ mat: THREE.MeshStandardMaterial; summerHex: number; winterHex: number }> = [];
   const winterFoliageMats: Array<{ mat: THREE.MeshStandardMaterial; summerHex: number; winterHex: number }> = [];
   const neonAccentMats: THREE.MeshBasicMaterial[] = [];
+  const lampBulbMats: THREE.MeshStandardMaterial[] = [];
+  const lampGlowPoolMats: THREE.MeshBasicMaterial[] = [];
+  const trafficSignalSets: Array<{
+    redMat: THREE.MeshBasicMaterial;
+    yellowMat: THREE.MeshBasicMaterial;
+    greenMat: THREE.MeshBasicMaterial;
+    phaseOffset: number;
+  }> = [];
 
   // 1. Continuous 360-Degree Biome Ground Skirt
   // IMPORTANT: On elevated cliffside/overlook maps (hilltop_city_lights, switzerland_hilltop, eiffel_tower),
@@ -987,9 +995,12 @@ export function addSurrounding360Context(
     }
 
     // Instanced Textured 360° Perimeter Neighborhood Blocks + Rooftop Parapets (Zero Blank Boxes!)
+    // Leaves a true 10u-wide perpendicular cross-street open at x = ±34 (skip i === 2)
+    // so vehicles and pedestrians execute smooth 90° turns around real corner buildings!
     const blockSpecs: Array<[number, number, number, number, number]> = [];
     for (const side of [-1, 1]) {
       for (let i = 0; i < 6; i++) {
+        if (i === 2) continue; // Open perpendicular cross-street corridor at x ≈ ±34
         const bx = side * (20.8 + i * 6.4);
         const bh =
           sceneryId === 'cyberpunk_neon'
@@ -999,6 +1010,14 @@ export function addSurrounding360Context(
         if (sceneryId === 'busy_street' || sceneryId === 'cyberpunk_neon' || sceneryId === 'japanese_tranquility') {
           blockSpecs.push([bx, -21.0, 5.9, bh * 1.05, 6.4]);
         }
+      }
+      // Deep continuation facades lining the perpendicular cross-street behind the corner (z = +9..+22 & -28..-34)
+      const crossBH = sceneryId === 'cyberpunk_neon' ? 22 : 7.8;
+      blockSpecs.push([side * 27.4, 9.2, 5.8, crossBH, 7.6]);
+      blockSpecs.push([side * 40.4, 9.2, 5.8, crossBH + 1.4, 7.6]);
+      if (sceneryId === 'busy_street' || sceneryId === 'cyberpunk_neon') {
+        blockSpecs.push([side * 27.4, -29.5, 5.8, crossBH + 1.2, 7.2]);
+        blockSpecs.push([side * 40.4, -29.5, 5.8, crossBH + 2.4, 7.2]);
       }
     }
     // Rear city blocks behind the cafe (+Z = +11 to +38)
@@ -1067,13 +1086,101 @@ export function addSurrounding360Context(
     ctxGroup.add(blocksInst, parapetsInst);
 
     // =========================================================================
-    // PHASE 2.1: BIOME-MATCHED -X & +X ROAD-END VISUAL TERMINATORS (ZERO VOID!)
+    // PHASE 2.1: TRUE 4-WAY / T CROSS-STREET INTERSECTIONS AT x = ±34
+    // =========================================================================
+    const crossStripeMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.72,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const isTIntersectionOnly = sceneryId === 'eiffel_tower' || sceneryId === 'brazilian_favela';
+    if (sceneryId === 'busy_street' || sceneryId === 'eiffel_tower' || sceneryId === 'cyberpunk_neon' || sceneryId === 'brazilian_favela') {
+      [-33.8, 33.8].forEach((ix, idx) => {
+        const sign = Math.sign(ix);
+        // Perpendicular cross-street asphalt (4-way on busy_street/cyberpunk, T-junction on eiffel/favela)
+        const crossLen = isTIntersectionOnly ? 26 : 52;
+        const crossZCenter = isTIntersectionOnly ? -3.0 : -12.55;
+        const crossRoad = new THREE.Mesh(
+          new THREE.PlaneGeometry(7.8, crossLen),
+          extAsphaltMat
+        );
+        crossRoad.rotation.x = -Math.PI / 2;
+        crossRoad.position.set(ix, ROAD_ELEVATION_LAYERS.asphaltY - 0.002, crossZCenter);
+        ctxGroup.add(crossRoad);
+
+        // Corner sidewalk strips flanking the perpendicular cross-street
+        [-4.6, 4.6].forEach((dx) => {
+          const crossSwNear = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 18), extSidewalkMat);
+          crossSwNear.position.set(ix + dx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, 1.5);
+          ctxGroup.add(crossSwNear);
+          if (!isTIntersectionOnly) {
+            const crossSwFar = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 18), extSidewalkMat);
+            crossSwFar.position.set(ix + dx, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -26.5);
+            ctxGroup.add(crossSwFar);
+          }
+        });
+
+        // White stop-bars & zebra crosswalk stripes framing the main avenue approach
+        const stopLine = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 6.2), crossStripeMat);
+        stopLine.rotation.x = -Math.PI / 2;
+        stopLine.position.set(ix - sign * 5.3, ROAD_ELEVATION_LAYERS.crosswalkY, -12.55);
+        ctxGroup.add(stopLine);
+
+        for (let s = 0; s < 5; s++) {
+          const zStripe = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.42), crossStripeMat);
+          zStripe.rotation.x = -Math.PI / 2;
+          zStripe.position.set(ix - sign * 4.2, ROAD_ELEVATION_LAYERS.crosswalkY, -10.3 - s * 1.12);
+          ctxGroup.add(zStripe);
+
+          // Perpendicular crosswalk across +Z side-street mouth
+          const pStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.4), crossStripeMat);
+          pStripe.rotation.x = -Math.PI / 2;
+          pStripe.position.set(ix - 2.4 + s * 1.2, ROAD_ELEVATION_LAYERS.crosswalkY, -8.3);
+          ctxGroup.add(pStripe);
+        }
+
+        // Working 3-Lens Red/Yellow/Green Cantilever Traffic Signal Posts on Busy Street & Eiffel Avenue
+        if (sceneryId === 'busy_street' || sceneryId === 'eiffel_tower') {
+          const signalPoleX = ix - sign * 4.5;
+          const signalPoleZ = -8.7;
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, 5.6, 8), darkIronMat);
+          post.position.set(signalPoleX, 2.8, signalPoleZ);
+          ctxGroup.add(post);
+          const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 4.4), darkIronMat);
+          arm.position.set(signalPoleX, 5.42, signalPoleZ - 2.1);
+          ctxGroup.add(arm);
+
+          const headBox = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.02, 0.36), darkIronMat);
+          headBox.position.set(signalPoleX, 5.1, signalPoleZ - 3.6);
+          ctxGroup.add(headBox);
+
+          const redMat = new THREE.MeshBasicMaterial({ color: 0x3f1212 });
+          const yellowMat = new THREE.MeshBasicMaterial({ color: 0x423009 });
+          const greenMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
+          trafficSignalSets.push({ redMat, yellowMat, greenMat, phaseOffset: idx * 7.5 });
+
+          const faceOffset = -sign * 0.18;
+          const lensGeo = new THREE.SphereGeometry(0.095, 8, 8);
+          const redLens = new THREE.Mesh(lensGeo, redMat);
+          redLens.position.set(signalPoleX + faceOffset, 5.38, signalPoleZ - 3.6);
+          const yellowLens = new THREE.Mesh(lensGeo, yellowMat);
+          yellowLens.position.set(signalPoleX + faceOffset, 5.1, signalPoleZ - 3.6);
+          const greenLens = new THREE.Mesh(lensGeo, greenMat);
+          greenLens.position.set(signalPoleX + faceOffset, 4.82, signalPoleZ - 3.6);
+          ctxGroup.add(redLens, yellowLens, greenLens);
+        }
+      });
+    }
+
+    // =========================================================================
+    // PHASE 2.2: BIOME-MATCHED -X & +X ROAD-END VISUAL TERMINATORS (ZERO VOID!)
     // =========================================================================
     if (sceneryId === 'busy_street') {
-      // Cross-street T-intersection buildings spanning across z = -12.5 + traffic signal gantries + distant skyline
+      // Cross-street corner mid-rise & distant skyline beyond the ±34 intersections
       [-54, 54].forEach((endX) => {
         const sign = Math.sign(endX);
-        // Cross-street corner mid-rise spanning right across the road corridor
         const tBldg = new THREE.Mesh(new THREE.BoxGeometry(11, 16, 26), blockMat);
         tBldg.position.set(endX + sign * 6, 7.8, -12.5);
         ctxGroup.add(tBldg);
@@ -1081,31 +1188,9 @@ export function addSurrounding360Context(
         tRoof.position.set(endX + sign * 6, 16.0, -12.5);
         ctxGroup.add(tRoof);
 
-        // Second tall skyline backdrop tower behind T-intersection
         const skyTower = new THREE.Mesh(new THREE.BoxGeometry(14, 28, 22), blockMat);
         skyTower.position.set(endX + sign * 18, 13.8, -10.0);
         ctxGroup.add(skyTower);
-
-        // Overhead street gantry / traffic light arch framing the intersection
-        [-8.8, -16.2].forEach((pz) => {
-          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 6.2, 8), darkIronMat);
-          pole.position.set(endX - sign * 5, 3.1, pz);
-          ctxGroup.add(pole);
-        });
-        const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.28, 8.2), darkIronMat);
-        crossBeam.position.set(endX - sign * 5, 5.9, -12.5);
-        ctxGroup.add(crossBeam);
-
-        // Glowing green/amber traffic signals hanging from gantry
-        const signalBox = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.85, 0.36), darkIronMat);
-        signalBox.position.set(endX - sign * 5, 5.35, -12.5);
-        ctxGroup.add(signalBox);
-        const greenLight = new THREE.Mesh(
-          new THREE.SphereGeometry(0.11, 8, 8),
-          new THREE.MeshBasicMaterial({ color: 0x22c55e })
-        );
-        greenLight.position.set(endX - sign * 5.2, 5.15, -12.5);
-        ctxGroup.add(greenLight);
       });
     } else if (sceneryId === 'cyberpunk_neon') {
       // Towering elevated maglev skybridges, stacked megastructure arches & glowing arcology towers closing both ends!
@@ -1161,103 +1246,254 @@ export function addSurrounding360Context(
         ctxGroup.add(holoPanel);
       });
     } else if (sceneryId === 'japanese_tranquility') {
-      // Primary (-X) road end: Grand Vermilion Torii Gate, stone steps, sakura trees, multi-tiered pagoda & misty Higashiyama hill!
-      const toriiRedMat = new THREE.MeshStandardMaterial({ color: 0xc8281c, roughness: 0.62 });
+      // Primary (-X) road end: Grand Vermilion Torii Gate, stone komainu plinths, ascending stone steps,
+      // illuminated 5-tier Kyoto pagoda, dense cedar & sakura grove, and warm festival yatai stalls!
+      const toriiRedMat = new THREE.MeshStandardMaterial({ color: 0xc8281c, roughness: 0.58 });
       const stoneStepMat = new THREE.MeshStandardMaterial({ color: 0x73787d, roughness: 0.92 });
-      const sakuraPinkMat = new THREE.MeshStandardMaterial({ color: 0xf9a8d4, roughness: 0.85 });
-      const hillMat = new THREE.MeshStandardMaterial({ color: 0x284b36, roughness: 0.92, flatShading: true });
+      const sakuraPinkMat = new THREE.MeshStandardMaterial({ color: 0xf9a8d4, roughness: 0.84 });
+      const cedarLeafMat = new THREE.MeshStandardMaterial({ color: 0x1e462d, roughness: 0.88 });
+      const hillMat = new THREE.MeshStandardMaterial({ color: 0x264834, roughness: 0.92, flatShading: true });
       const pagodaRoofMat = new THREE.MeshStandardMaterial({ color: 0x262b33, roughness: 0.78 });
       const pagodaWallMat = new THREE.MeshStandardMaterial({ color: 0xf1e6d2, roughness: 0.84 });
-
-      // Grand Vermilion Torii Gate spanning across the -X Kyoto stone lane
-      const toriiX = -42;
-      [-3.1, 3.1].forEach((dz) => {
-        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 7.6, 10), toriiRedMat);
-        pillar.position.set(toriiX, 3.8, -12.5 + dz);
-        ctxGroup.add(pillar);
-        const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.75, 10), stoneStepMat);
-        plinth.position.set(toriiX, 0.35, -12.5 + dz);
-        ctxGroup.add(plinth);
+      const pagodaLanternMat = new THREE.MeshStandardMaterial({
+        color: 0xffedd5,
+        emissive: 0xf97316,
+        emissiveIntensity: 1.4,
+        roughness: 0.3,
       });
-      const kasagi = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.55, 9.2), toriiRedMat);
-      kasagi.position.set(toriiX, 7.55, -12.5);
-      ctxGroup.add(kasagi);
-      const kasagiCap = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.25, 9.6), pagodaRoofMat);
-      kasagiCap.position.set(toriiX, 7.9, -12.5);
-      ctxGroup.add(kasagiCap);
-      const nuki = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 7.8), toriiRedMat);
-      nuki.position.set(toriiX, 6.2, -12.5);
-      ctxGroup.add(nuki);
+      warmWindowMats.push(pagodaLanternMat);
 
-      // Ascending stone shrine steps beyond Torii gate
-      for (let st = 0; st < 7; st++) {
-        const step = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 8.6), stoneStepMat);
-        step.position.set(toriiX - 3.5 - st * 1.5, 0.25 + st * 0.45, -12.5);
+      // Stone cross-lane plaza at x = -34 and x = +34
+      [-34.0, 34.0].forEach((ix) => {
+        const crossLane = new THREE.Mesh(new THREE.PlaneGeometry(7.4, 34), extSidewalkMat);
+        crossLane.rotation.x = -Math.PI / 2;
+        crossLane.position.set(ix, ROAD_ELEVATION_LAYERS.asphaltY + 0.004, -12.5);
+        ctxGroup.add(crossLane);
+      });
+
+      // Grand Vermilion Torii Gate spanning across the -X Kyoto stone approach
+      const toriiX = -39.5;
+      [-3.3, 3.3].forEach((dz) => {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.39, 8.0, 10), toriiRedMat);
+        pillar.position.set(toriiX, 4.0, -12.5 + dz);
+        ctxGroup.add(pillar);
+        const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.56, 0.85, 10), stoneStepMat);
+        plinth.position.set(toriiX, 0.4, -12.5 + dz);
+        ctxGroup.add(plinth);
+        // Guardian stone komainu plinth + sculpted stone silhouette flanking Torii entrance
+        const guardBase = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.0, 0.85), stoneStepMat);
+        guardBase.position.set(toriiX + 2.2, 0.5, -12.5 + dz * 1.15);
+        ctxGroup.add(guardBase);
+        const guardStatue = new THREE.Mesh(new THREE.DodecahedronGeometry(0.38, 1), stoneStepMat);
+        guardStatue.scale.set(0.95, 1.35, 0.85);
+        guardStatue.position.set(toriiX + 2.2, 1.32, -12.5 + dz * 1.15);
+        ctxGroup.add(guardStatue);
+      });
+      const kasagi = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.58, 9.8), toriiRedMat);
+      kasagi.position.set(toriiX, 7.95, -12.5);
+      ctxGroup.add(kasagi);
+      const kasagiCap = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.28, 10.4), pagodaRoofMat);
+      kasagiCap.position.set(toriiX, 8.32, -12.5);
+      ctxGroup.add(kasagiCap);
+      const nuki = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.38, 8.2), toriiRedMat);
+      nuki.position.set(toriiX, 6.5, -12.5);
+      ctxGroup.add(nuki);
+      const plaque = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.65), pagodaRoofMat);
+      plaque.position.set(toriiX, 7.22, -12.5);
+      ctxGroup.add(plaque);
+
+      // Ascending stone shrine steps + glowing stone lantern posts flanking steps
+      for (let st = 0; st < 8; st++) {
+        const step = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.52, 8.8), stoneStepMat);
+        step.position.set(toriiX - 2.6 - st * 1.45, 0.24 + st * 0.44, -12.5);
         ctxGroup.add(step);
+        if (st % 3 === 1) {
+          [-4.8, 4.8].forEach((lz) => {
+            const toroP = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 1.45, 6), stoneStepMat);
+            toroP.position.set(toriiX - 2.6 - st * 1.45, 0.85 + st * 0.44, -12.5 + lz);
+            ctxGroup.add(toroP);
+            const toroL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), pagodaLanternMat);
+            toroL.position.set(toriiX - 2.6 - st * 1.45, 1.65 + st * 0.44, -12.5 + lz);
+            ctxGroup.add(toroL);
+            const toroRoof = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.28, 4), stoneStepMat);
+            toroRoof.rotation.y = Math.PI / 4;
+            toroRoof.position.set(toriiX - 2.6 - st * 1.45, 1.94 + st * 0.44, -12.5 + lz);
+            ctxGroup.add(toroRoof);
+          });
+        }
       }
 
-      // Multi-tiered Kyoto wooden pagoda rising behind the Torii gate
+      // Warm Festival Yatai Food Stalls tucked neatly beside the -X Torii plaza
+      const yataiWoodMat = new THREE.MeshStandardMaterial({ color: 0x4b2e1c, roughness: 0.85 });
+      const yataiCurtainMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.82 });
+      [
+        [-35.5, -18.8, 0.1],
+        [-35.5, -6.2, -0.1],
+      ].forEach(([yx, yz, yrot]) => {
+        const yg = new THREE.Group();
+        const counter = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.0, 1.25), yataiWoodMat);
+        counter.position.y = 0.5;
+        yg.add(counter);
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.16, 1.65), pagodaRoofMat);
+        roof.rotation.x = 0.14;
+        roof.position.y = 2.35;
+        yg.add(roof);
+        const noren = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.42, 0.06), yataiCurtainMat);
+        noren.position.set(0, 2.02, 0.62);
+        yg.add(noren);
+        [-0.85, 0.85].forEach((lx) => {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.09, 2.3, 0.09), yataiWoodMat);
+          post.position.set(lx, 1.15, 0.55);
+          yg.add(post);
+          const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 7), pagodaLanternMat);
+          lantern.scale.set(0.85, 1.3, 0.85);
+          lantern.position.set(lx, 1.85, 0.72);
+          yg.add(lantern);
+        });
+        yg.position.set(yx, 0.06, yz);
+        yg.rotation.y = yrot;
+        ctxGroup.add(yg);
+      });
+
+      // Illuminated 5-Tier Kyoto Wooden Pagoda rising behind the Torii gate & stone steps
       const pagodaGroup = new THREE.Group();
-      for (let t = 0; t < 4; t++) {
-        const sz = 4.6 - t * 0.65;
-        const ty = 2.8 + t * 2.55;
-        const tierCore = new THREE.Mesh(new THREE.BoxGeometry(sz, 1.85, sz), pagodaWallMat);
+      for (let t = 0; t < 5; t++) {
+        const sz = 5.0 - t * 0.62;
+        const ty = 2.6 + t * 2.45;
+        const tierCore = new THREE.Mesh(new THREE.BoxGeometry(sz, 1.78, sz), pagodaWallMat);
         tierCore.position.y = ty;
         pagodaGroup.add(tierCore);
-        const tierRoof = new THREE.Mesh(new THREE.ConeGeometry(sz * 0.96, 1.05, 4), pagodaRoofMat);
+        const glowBand = new THREE.Mesh(new THREE.BoxGeometry(sz + 0.06, 0.42, sz + 0.06), pagodaLanternMat);
+        glowBand.position.y = ty;
+        pagodaGroup.add(glowBand);
+        const tierRoof = new THREE.Mesh(new THREE.ConeGeometry(sz * 0.98, 1.05, 4), pagodaRoofMat);
         tierRoof.rotation.y = Math.PI / 4;
-        tierRoof.position.y = ty + 1.18;
+        tierRoof.position.y = ty + 1.16;
         pagodaGroup.add(tierRoof);
       }
-      const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.16, 3.2, 7), toriiRedMat);
-      spire.position.y = 14.5;
+      const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.16, 3.6, 7), toriiRedMat);
+      spire.position.y = 16.6;
       pagodaGroup.add(spire);
-      pagodaGroup.position.set(-57, 2.2, -12.5);
+      pagodaGroup.position.set(-55.5, 2.8, -12.5);
       ctxGroup.add(pagodaGroup);
 
-      // Lush Higashiyama forested hills + blooming sakura trees closing BOTH -X and +X lane ends
+      // RIGHT (+X) ROAD END: Arched Kyoto Wooden Canal Bridge over shimmering stream,
+      // weeping willows + sakura, stone toro lanterns, warm teahouses & lantern-lit hillside rooftops!
+      const canalWaterMat = new THREE.MeshStandardMaterial({
+        color: 0x1e4e68,
+        emissive: 0x0c2438,
+        emissiveIntensity: 0.35,
+        roughness: 0.14,
+        metalness: 0.42,
+      });
+      const canalStream = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 48), canalWaterMat);
+      canalStream.rotation.x = -Math.PI / 2;
+      canalStream.position.set(41.5, -0.04, -12.5);
+      ctxGroup.add(canalStream);
+
+      // Stone canal embankments lining both sides of the shimmering Kyoto stream
+      [38.5, 44.5].forEach((bx) => {
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 46), stoneStepMat);
+        wall.position.set(bx, 0.05, -12.5);
+        ctxGroup.add(wall);
+      });
+
+      // Arched vermilion-and-cedar Kyoto canal bridge spanning x = 38.2..44.8
+      const bridgeGroup = new THREE.Group();
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.32, 6.4), yataiWoodMat);
+      deck.position.set(41.5, 0.62, -12.5);
+      bridgeGroup.add(deck);
+      // Curved bridge ramp approaches
+      [-4.1, 4.1].forEach((dx) => {
+        const ramp = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.25, 6.4), yataiWoodMat);
+        ramp.position.set(41.5 + dx, 0.34, -12.5);
+        ramp.rotation.z = dx < 0 ? 0.24 : -0.24;
+        bridgeGroup.add(ramp);
+      });
+      // Vermilion arched bridge railings with giboshi brass finials
+      const brassMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.3, metalness: 0.75 });
+      [-3.05, 3.05].forEach((rz) => {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.14, 0.14), toriiRedMat);
+        rail.position.set(41.5, 1.55, -12.5 + rz);
+        bridgeGroup.add(rail);
+        for (let bp = -3.6; bp <= 3.6; bp += 1.8) {
+          const bPost = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.15, 0.18), toriiRedMat);
+          bPost.position.set(41.5 + bp, 1.15, -12.5 + rz);
+          bridgeGroup.add(bPost);
+          const finial = new THREE.Mesh(new THREE.SphereGeometry(0.11, 7, 6), brassMat);
+          finial.position.set(41.5 + bp, 1.78, -12.5 + rz);
+          bridgeGroup.add(finial);
+        }
+      });
+      ctxGroup.add(bridgeGroup);
+
+      // Warm lit Kyoto teahouses & stepped lantern-lit hillside rooftops beyond the canal (+X = 48..66)
+      [
+        { x: 49.5, y: 0.0, z: -12.5, w: 6.4, h: 6.2, d: 13.5, rot: 0.08 },
+        { x: 52.0, y: 0.2, z: -23.5, w: 6.0, h: 5.8, d: 8.5, rot: -0.14 },
+        { x: 52.0, y: 0.2, z: -2.0, w: 6.0, h: 5.8, d: 8.5, rot: 0.14 },
+        { x: 58.0, y: 3.4, z: -12.5, w: 7.4, h: 6.6, d: 16.0, rot: -0.05 },
+        { x: 63.5, y: 7.2, z: -15.5, w: 7.8, h: 7.0, d: 14.0, rot: 0.06 },
+      ].forEach((th) => {
+        const house = new THREE.Mesh(new THREE.BoxGeometry(th.w, th.h, th.d), blockMat);
+        house.position.set(th.x, th.y + th.h / 2 - 0.1, th.z);
+        house.rotation.y = th.rot;
+        ctxGroup.add(house);
+        const hRoof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(th.w, th.d) * 0.72, 2.3, 4), pagodaRoofMat);
+        hRoof.rotation.y = Math.PI / 4 + th.rot;
+        hRoof.scale.set(th.w / Math.max(th.w, th.d) * 1.1, 1, th.d / Math.max(th.w, th.d) * 1.1);
+        hRoof.position.set(th.x, th.y + th.h + 0.95, th.z);
+        ctxGroup.add(hRoof);
+        // Warm eave lantern glowing down toward the canal
+        const eaveL = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 7), pagodaLanternMat);
+        eaveL.scale.set(0.85, 1.3, 0.85);
+        eaveL.position.set(th.x - th.w * 0.54, th.y + 2.4, th.z);
+        ctxGroup.add(eaveL);
+      });
+
+      // Lush Higashiyama forested hills closing BOTH -X and +X horizons
       [
         [-72, -12, 34, 24],
         [-64, -36, 30, 20],
-        [68, -12, 32, 22],
-        [62, -34, 28, 19],
+        [72, -12, 34, 24],
+        [66, -34, 30, 20],
       ].forEach(([hx, hz, hr, hh]) => {
         const hill = new THREE.Mesh(new THREE.ConeGeometry(hr, hh, 8), hillMat);
         hill.position.set(hx, hh * 0.42 - 2, hz);
         ctxGroup.add(hill);
       });
 
-      // Blooming sakura trees flanking Torii & opposite (+X) stone canal curve
+      // Dense blooming sakura, weeping willow & cedar grove flanking both Torii and canal bridge
+      const trunkBarkMat = new THREE.MeshStandardMaterial({ color: 0x4b3121, roughness: 0.9 });
       [
-        [-38, -7.8],
-        [-38, -17.2],
-        [-47, -6.5],
-        [-47, -18.5],
-        [44, -8.4],
-        [44, -16.8],
-      ].forEach(([sx, sz]) => {
-        const tr = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.18, 0.28, 3.4, 6),
-          new THREE.MeshStandardMaterial({ color: 0x4b3121, roughness: 0.9 })
-        );
-        tr.position.set(sx, 1.7, sz);
+        [-37, -7.8, 'sakura'],
+        [-37, -17.2, 'sakura'],
+        [-45, -6.2, 'cedar'],
+        [-45, -18.8, 'sakura'],
+        [-51, -21.0, 'cedar'],
+        [-51, -4.5, 'cedar'],
+        [37.2, -7.8, 'sakura'],
+        [37.2, -17.4, 'willow'],
+        [45.8, -7.2, 'willow'],
+        [45.8, -18.2, 'sakura'],
+      ].forEach(([sx, sz, kind]) => {
+        const px = sx as number;
+        const pz = sz as number;
+        const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 3.6, 6), trunkBarkMat);
+        tr.position.set(px, 1.8, pz);
         ctxGroup.add(tr);
-        const bl = new THREE.Mesh(new THREE.DodecahedronGeometry(2.4, 1), sakuraPinkMat);
-        bl.scale.set(1.2, 0.78, 1.1);
-        bl.position.set(sx, 4.1, sz);
-        ctxGroup.add(bl);
+        if (kind === 'cedar') {
+          const c1 = new THREE.Mesh(new THREE.ConeGeometry(2.1, 4.8, 7), cedarLeafMat);
+          c1.position.set(px, 5.2, pz);
+          ctxGroup.add(c1);
+        } else {
+          const canopyMat = kind === 'willow' ? cedarLeafMat : sakuraPinkMat;
+          const bl = new THREE.Mesh(new THREE.DodecahedronGeometry(2.3, 1), canopyMat);
+          bl.scale.set(1.2, kind === 'willow' ? 1.15 : 0.78, 1.1);
+          bl.position.set(px, 4.1, pz);
+          ctxGroup.add(bl);
+        }
       });
-
-      // Opposite (+X) lane bend: curving machiya facade + canal bridge railing closing off +X
-      const curveHouse = new THREE.Mesh(new THREE.BoxGeometry(9, 7.2, 18), blockMat);
-      curveHouse.position.set(51, 3.5, -12.5);
-      curveHouse.rotation.y = 0.22;
-      ctxGroup.add(curveHouse);
-      const curveRoof = new THREE.Mesh(new THREE.ConeGeometry(12, 2.8, 4), pagodaRoofMat);
-      curveRoof.rotation.y = Math.PI / 4 + 0.22;
-      curveRoof.scale.set(0.65, 1, 1.18);
-      curveRoof.position.set(51, 8.4, -12.5);
-      ctxGroup.add(curveRoof);
     } else if (sceneryId === 'eiffel_tower') {
       // Grand Parisian Haussmann corner apartments & mansard blocks closing both -X and +X street ends
       [-52, 52].forEach((endX) => {
@@ -1534,8 +1770,313 @@ export function addSurrounding360Context(
     }
   }
 
+  // =========================================================================
+  // PHASE 2.3: THEMATIC BILATERAL STREETLIGHTS (BOTH SIDES OF THE STREET!)
+  // =========================================================================
+  const lampSpec = getSceneryStreetlightSpec(sceneryId);
+  const poleDarkSteelMat = new THREE.MeshStandardMaterial({ color: 0x1e242c, roughness: 0.45, metalness: 0.65 });
+  const poleGalvanizedMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.42, metalness: 0.62 });
+  const poleParisGreenMat = new THREE.MeshStandardMaterial({ color: 0x1b3a30, roughness: 0.48, metalness: 0.55 });
+  const poleConcreteMat = new THREE.MeshStandardMaterial({ color: 0x8b8e93, roughness: 0.92, metalness: 0.04 });
+  const poleTimberMat = new THREE.MeshStandardMaterial({ color: 0x4e321e, roughness: 0.88 });
+  const poleCyberTitaniumMat = new THREE.MeshStandardMaterial({ color: 0x141a29, roughness: 0.32, metalness: 0.78 });
+  const solarPanelMat = new THREE.MeshStandardMaterial({ color: 0x172554, roughness: 0.22, metalness: 0.55 });
+  const snowCapMat = new THREE.MeshStandardMaterial({ color: 0xf1f7ff, roughness: 0.85 });
+
+  const primaryBulbMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: lampSpec.primaryGlowHex,
+    emissiveIntensity: sceneryId === 'cyberpunk_neon' ? 2.2 : 1.15,
+    roughness: 0.18,
+  });
+  const secondaryBulbMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: lampSpec.secondaryGlowHex,
+    emissiveIntensity: sceneryId === 'cyberpunk_neon' ? 2.1 : 1.05,
+    roughness: 0.18,
+  });
+  lampBulbMats.push(primaryBulbMat, secondaryBulbMat);
+
+  const glowPoolMat = new THREE.MeshBasicMaterial({
+    color: lampSpec.primaryGlowHex,
+    transparent: true,
+    opacity: sceneryId === 'cyberpunk_neon' ? 0.24 : 0.08,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  lampGlowPoolMats.push(glowPoolMat);
+  const poolDiskGeo = new THREE.CircleGeometry(1.75, 14);
+  poolDiskGeo.rotateX(-Math.PI / 2);
+
+  const buildThemedStreetlight = (isFarCurb: boolean, idx: number): THREE.Group => {
+    const g = new THREE.Group();
+    // Arm points inward toward the street center (-Z for near curb, +Z for far curb)
+    const armZDir = isFarCurb ? 1 : -1;
+    const bulbMat = idx % 2 === 0 ? primaryBulbMat : secondaryBulbMat;
+
+    // Elevated cliffside overlook exemption: low railing/bollard lanterns on the far edge
+    // so Hilltop City Lights & Switzerland Hilltop mountain/valley vistas stay 100% unobstructed!
+    if (isFarCurb && lampSpec.farSideLowOverlookBollards) {
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(0.28, 0.72, 0.28),
+        sceneryId === 'switzerland_hilltop' ? poleConcreteMat : poleTimberMat
+      );
+      base.position.y = 0.36;
+      g.add(base);
+      const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.24, 8), bulbMat);
+      lantern.position.y = 0.84;
+      g.add(lantern);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.14, 4), poleDarkSteelMat);
+      cap.rotation.y = Math.PI / 4;
+      cap.position.y = 1.02;
+      g.add(cap);
+      if (sceneryId === 'switzerland_hilltop') {
+        const snow = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.09, 4), snowCapMat);
+        snow.rotation.y = Math.PI / 4;
+        snow.position.y = 1.09;
+        g.add(snow);
+      }
+      return g;
+    }
+
+    switch (lampSpec.style) {
+      case 'urban_cobra': {
+        const baseFlange = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 0.36, 8), poleDarkSteelMat);
+        baseFlange.position.y = 0.18;
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.082, 4.15, 8), poleDarkSteelMat);
+        pole.position.y = 2.08;
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 1.05), poleDarkSteelMat);
+        arm.position.set(0, 4.12, armZDir * 0.48);
+        arm.rotation.x = armZDir * -0.08;
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.48), poleDarkSteelMat);
+        head.position.set(0, 4.16, armZDir * 0.96);
+        const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.38), bulbMat);
+        diffuser.position.set(0, 4.1, armZDir * 0.96);
+        g.add(baseFlange, pole, arm, head, diffuser);
+        // Subtle vertical street banner bracket on alternating lamps
+        if (idx % 2 === 0) {
+          const bannerMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.78 });
+          const banner = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.95, 0.34), bannerMat);
+          banner.position.set(0, 2.95, armZDir * 0.24);
+          g.add(banner);
+        }
+        break;
+      }
+      case 'ph_solar_highway': {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.09, 4.3, 8), poleGalvanizedMat);
+        pole.position.y = 2.15;
+        const batteryBox = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.36, 0.18), poleDarkSteelMat);
+        batteryBox.position.set(0, 3.2, -armZDir * 0.1);
+        const solarPanel = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.04, 0.46), solarPanelMat);
+        solarPanel.position.set(0, 4.44, 0);
+        solarPanel.rotation.x = 0.28;
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.88), poleGalvanizedMat);
+        arm.position.set(0, 4.12, armZDir * 0.42);
+        const ledBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.44), bulbMat);
+        ledBar.position.set(0, 4.06, armZDir * 0.84);
+        g.add(pole, batteryBox, solarPanel, arm, ledBar);
+        break;
+      }
+      case 'highland_bollard': {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.75, 0.15), poleTimberMat);
+        post.position.y = 1.38;
+        const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.48), poleDarkSteelMat);
+        bracket.position.set(0, 2.62, armZDir * 0.22);
+        const shade = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.16, 8), poleDarkSteelMat);
+        shade.position.set(0, 2.58, armZDir * 0.44);
+        const edison = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), bulbMat);
+        edison.position.set(0, 2.44, armZDir * 0.44);
+        g.add(post, bracket, shade, edison);
+        break;
+      }
+      case 'kyoto_andon': {
+        // Traditional dark-cedar Kyoto andon wooden lantern with warm glowing washi panels
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.24, 0.38), poleConcreteMat);
+        plinth.position.y = 0.12;
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.95, 0.14), poleTimberMat);
+        post.position.y = 1.2;
+        const boxFrame = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.56, 0.34), poleTimberMat);
+        boxFrame.position.y = 2.25;
+        const washiCore = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.42, 0.36), bulbMat);
+        washiCore.position.y = 2.25;
+        const kawaraRoof = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.26, 4), poleDarkSteelMat);
+        kawaraRoof.rotation.y = Math.PI / 4;
+        kawaraRoof.position.y = 2.66;
+        g.add(plinth, post, boxFrame, washiCore, kawaraRoof);
+        break;
+      }
+      case 'rio_utility_pole': {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.13, 4.8, 8), poleConcreteMat);
+        pole.position.y = 2.4;
+        const crossArm = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.09, 0.09), poleTimberMat);
+        crossArm.position.set(0, 4.45, 0);
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.92), poleGalvanizedMat);
+        neck.position.set(0, 4.02, armZDir * 0.45);
+        neck.rotation.x = armZDir * -0.18;
+        const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.2, 0.12, 8), poleGalvanizedMat);
+        hood.position.set(0, 3.96, armZDir * 0.88);
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 7), bulbMat);
+        bulb.position.set(0, 3.86, armZDir * 0.88);
+        g.add(pole, crossArm, neck, hood, bulb);
+        if (idx % 3 === 0) {
+          const transformer = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.58, 8), poleGalvanizedMat);
+          transformer.position.set(0, 3.4, -armZDir * 0.24);
+          g.add(transformer);
+        }
+        break;
+      }
+      case 'cyber_pylon': {
+        // Sleek angular dark-titanium Neo-Tokyo Cyber Light Pylon with vertical cyan/magenta LED strips
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.45, 0.32), poleCyberTitaniumMat);
+        plinth.position.y = 0.22;
+        const mast = new THREE.Mesh(new THREE.BoxGeometry(0.16, 4.35, 0.22), poleCyberTitaniumMat);
+        mast.position.y = 2.35;
+        const ledStrip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 3.4, 0.05), bulbMat);
+        ledStrip.position.set(0, 2.35, armZDir * 0.12);
+        const topCantilever = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 1.25), poleCyberTitaniumMat);
+        topCantilever.position.set(0, 4.42, armZDir * 0.56);
+        topCantilever.rotation.x = armZDir * -0.14;
+        const lightBlade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.96), bulbMat);
+        lightBlade.position.set(0, 4.34, armZDir * 0.62);
+        // Angled holographic district-number plate
+        const holoMat = new THREE.MeshBasicMaterial({
+          color: idx % 2 === 0 ? 0x22d3ee : 0xec4899,
+          transparent: true,
+          opacity: 0.82,
+          side: THREE.DoubleSide,
+        });
+        neonAccentMats.push(holoMat);
+        const holoTag = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.62), holoMat);
+        holoTag.rotation.y = Math.PI / 2;
+        holoTag.position.set(0.16, 3.25, armZDir * 0.18);
+        g.add(plinth, mast, ledStrip, topCantilever, lightBlade, holoTag);
+        break;
+      }
+      case 'paris_haussmann': {
+        // Ornate Parisian Haussmann dark-green cast-iron réverbère with milk-glass globe
+        const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.19, 0.95, 10), poleParisGreenMat);
+        pedestal.position.y = 0.48;
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.085, 3.0, 10), poleParisGreenMat);
+        shaft.position.y = 2.4;
+        const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.08, 0.18, 10), poleParisGreenMat);
+        collar.position.y = 3.85;
+        const globe = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), bulbMat);
+        globe.scale.set(0.92, 1.15, 0.92);
+        globe.position.y = 4.14;
+        const crown = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.24, 8), poleParisGreenMat);
+        crown.position.y = 4.46;
+        g.add(pedestal, shaft, collar, globe, crown);
+        break;
+      }
+      case 'swiss_forged_lantern': {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.085, 3.1, 8), poleDarkSteelMat);
+        post.position.y = 1.55;
+        const crook = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.56), poleDarkSteelMat);
+        crook.position.set(0, 3.05, armZDir * 0.26);
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.22, 6), poleDarkSteelMat);
+        cap.position.set(0, 2.86, armZDir * 0.5);
+        const snowCap = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.11, 6), snowCapMat);
+        snowCap.position.set(0, 2.95, armZDir * 0.5);
+        const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 0.28, 6), bulbMat);
+        lantern.position.set(0, 2.64, armZDir * 0.5);
+        g.add(post, crook, cap, snowCap, lantern);
+        break;
+      }
+      case 'everest_storm_post': {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.095, 2.65, 7), poleTimberMat);
+        post.position.y = 1.32;
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.44), poleTimberMat);
+        arm.position.set(0, 2.52, armZDir * 0.2);
+        const hood = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.16, 6), poleDarkSteelMat);
+        hood.position.set(0, 2.38, armZDir * 0.38);
+        const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.11, 0.26, 7), bulbMat);
+        glass.position.set(0, 2.2, armZDir * 0.38);
+        g.add(post, arm, hood, glass);
+        // Tiny colorful expedition prayer-flag tie on post
+        const flagHexes = [0x2563eb, 0xf8fafc, 0xdc2626, 0x16a34a, 0xeab308];
+        const flagMat = new THREE.MeshStandardMaterial({ color: flagHexes[idx % flagHexes.length], roughness: 0.85 });
+        const flag = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.18, 0.26), flagMat);
+        flag.position.set(0, 1.95, armZDir * 0.16);
+        g.add(flag);
+        break;
+      }
+    }
+    return g;
+  };
+
+  // Bilateral placement coordinates along BOTH sides of the street (skipping x = 0 cafe doorway)
+  const lampXs =
+    lampSpec.spacingMode === 'balanced_cozy'
+      ? [-22.5, -10.8, 10.8, 22.5]
+      : [-24.5, -15.5, -6.2, 6.2, 15.5, 24.5];
+
+  const lampCurbZNear = -8.95;
+  const lampCurbZFar = -16.15;
+
+  lampXs.forEach((lx, idx) => {
+    const nearLamp = buildThemedStreetlight(false, idx);
+    nearLamp.position.set(lx, 0.08, lampCurbZNear);
+    ctxGroup.add(nearLamp);
+
+    const nearPool = new THREE.Mesh(poolDiskGeo, glowPoolMat);
+    nearPool.position.set(lx, ROAD_ELEVATION_LAYERS.sidewalkTopY + 0.008, lampCurbZNear - 0.55);
+    ctxGroup.add(nearPool);
+
+    if (lampSpec.bilateral) {
+      const farLamp = buildThemedStreetlight(true, idx + 1);
+      farLamp.position.set(lx, 0.08, lampCurbZFar);
+      ctxGroup.add(farLamp);
+
+      if (!lampSpec.farSideLowOverlookBollards) {
+        const farPool = new THREE.Mesh(poolDiskGeo, glowPoolMat);
+        farPool.position.set(lx, ROAD_ELEVATION_LAYERS.sidewalkTopY + 0.008, lampCurbZFar + 0.55);
+        ctxGroup.add(farPool);
+      }
+    }
+  });
+
+  // Overhead utility wires for Brazilian Favela & fiber-optic neon cables/banners for Cyberpunk Neon
+  if (sceneryId === 'brazilian_favela' || sceneryId === 'cyberpunk_neon') {
+    const cableMat = new THREE.MeshBasicMaterial({
+      color: sceneryId === 'cyberpunk_neon' ? 0x0ea5e9 : 0x18181b,
+    });
+    for (let i = 0; i < lampXs.length - 1; i++) {
+      const x1 = lampXs[i];
+      const x2 = lampXs[i + 1];
+      const span = Math.abs(x2 - x1);
+      const midX = (x1 + x2) * 0.5;
+      [lampCurbZNear, lampCurbZFar].forEach((cz) => {
+        const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, span, 4), cableMat);
+        wire.rotation.z = Math.PI / 2;
+        wire.position.set(midX, 4.35, cz);
+        ctxGroup.add(wire);
+      });
+    }
+    if (sceneryId === 'cyberpunk_neon') {
+      // Overhead fiber-optic street-spanning cables & holographic banners between bilateral pylons
+      [-15.5, 15.5].forEach((bx, bIdx) => {
+        const crossWire = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 7.2, 4), cableMat);
+        crossWire.rotation.x = Math.PI / 2;
+        crossWire.position.set(bx, 4.45, -12.55);
+        ctxGroup.add(crossWire);
+
+        const bannerMat = new THREE.MeshBasicMaterial({
+          color: bIdx === 0 ? 0x22d3ee : 0xec4899,
+          transparent: true,
+          opacity: 0.78,
+          side: THREE.DoubleSide,
+        });
+        neonAccentMats.push(bannerMat);
+        const banner = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 1.35), bannerMat);
+        banner.rotation.y = Math.PI / 2;
+        banner.position.set(bx, 3.7, -12.55);
+        ctxGroup.add(banner);
+      });
+    }
+  }
+
   return {
-    update: (isNight: boolean, climateState: ClimateState) => {
+    update: (isNight: boolean, climateState: ClimateState, elapsed?: number) => {
       horizonBandMat.color.setHex(isNight ? gSpec.horizonNight : gSpec.horizonDay);
       for (const wm of warmWindowMats) {
         wm.emissiveIntensity = isNight ? 0.72 : 0.2;
@@ -1544,6 +2085,28 @@ export function addSurrounding360Context(
         fm.emissiveIntensity = sceneryId === 'cyberpunk_neon'
           ? isNight ? 1.15 : 0.68
           : isNight ? 1.05 : 0.18;
+      }
+      for (const lm of lampBulbMats) {
+        lm.emissiveIntensity = sceneryId === 'cyberpunk_neon'
+          ? isNight ? 2.8 : 1.7
+          : isNight ? 2.2 : 0.45;
+      }
+      for (const gm of lampGlowPoolMats) {
+        gm.opacity = sceneryId === 'cyberpunk_neon'
+          ? isNight ? 0.34 : 0.16
+          : isNight ? 0.22 : 0.0;
+      }
+      if (trafficSignalSets.length > 0) {
+        const t = typeof elapsed === 'number' ? elapsed : performance.now() * 0.001;
+        for (const sig of trafficSignalSets) {
+          const cycle = (t + sig.phaseOffset) % 15;
+          const isGreen = cycle < 7.5;
+          const isYellow = cycle >= 7.5 && cycle < 9.5;
+          const isRed = cycle >= 9.5;
+          sig.greenMat.color.setHex(isGreen ? 0x22c55e : 0x0b2e19);
+          sig.yellowMat.color.setHex(isYellow ? 0xfacc15 : 0x3a2e08);
+          sig.redMat.color.setHex(isRed ? 0xef4444 : 0x3b0f0f);
+        }
       }
       for (const item of winterGroundMats) {
         item.mat.color.setHex(climateState === 'winter' ? item.winterHex : item.summerHex);

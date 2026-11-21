@@ -349,10 +349,235 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   skyway2.position.set(0, 14.8, -36);
   root.add(skyway2);
 
-  // Rising animated street-grate steam particles along far sidewalk
-  const steamCount = 90;
+  // === STREET-LEVEL CYBERPUNK HAPPENINGS (Hologram Noodle Bar, Cyberware/Arcade Storefront, Vending Kiosks, Neon Rain Puddles, Floating Holo Koi & Ad Drones) ===
+  const darkMetalMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.38, metalness: 0.78 });
+  const neonAmberMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+  const neonPurpleMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
+
+  // 1. Open-front Glowing Hologram Noodle / Ramen Bar (x = -6.8, z = -18.25)
+  const ramenBar = new THREE.Group();
+  ramenBar.position.set(-6.8, 0, -18.25);
+  const rbFrame = new THREE.Mesh(new THREE.BoxGeometry(4.6, 3.2, 2.2), darkMetalMat);
+  rbFrame.position.set(0, 1.6, -0.45);
+  ramenBar.add(rbFrame);
+  const rbInteriorGlow = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.1, 2.3),
+    new THREE.MeshBasicMaterial({ color: 0xffedd5 })
+  );
+  rbInteriorGlow.position.set(0, 1.45, 0.56);
+  ramenBar.add(rbInteriorGlow);
+  // Glowing neon-trimmed serving counter + 4 round bar stools
+  const rbCounter = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.96, 0.72), darkMetalMat);
+  rbCounter.position.set(0, 0.48, 0.85);
+  const rbEdgeStrip = new THREE.Mesh(new THREE.BoxGeometry(4.24, 0.08, 0.08), conduitCyanMat);
+  rbEdgeStrip.position.set(0, 0.94, 1.22);
+  ramenBar.add(rbCounter, rbEdgeStrip);
+  [-1.35, -0.45, 0.45, 1.35].forEach((sx) => {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.58, 6), darkMetalMat);
+    leg.position.set(sx, 0.29, 1.48);
+    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.07, 10), conduitMagMat);
+    seat.position.set(sx, 0.6, 1.48);
+    ramenBar.add(leg, seat);
+  });
+  // Hanging cyberpunk red-neon noren curtains + glowing hologram ramen sign
+  const ramenSignTex = createCyberBillboardTexture('#f97316', '#06b6d4', '拉麺屋', 'HOLO RAMEN 24H');
+  const ramenSignMat = new THREE.MeshBasicMaterial({
+    map: ramenSignTex ?? undefined,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.94,
+  });
+  const ramenSign = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 1.05), ramenSignMat);
+  ramenSign.position.set(0, 2.95, 1.08);
+  ramenBar.add(ramenSign);
+  // Floating holo ramen bowl hologram above the awning
+  const holoBowlGroup = new THREE.Group();
+  holoBowlGroup.position.set(0, 3.85, 1.15);
+  const holoBowlMat = new THREE.MeshBasicMaterial({
+    color: 0x06b6d4,
+    transparent: true,
+    opacity: 0.72,
+    wireframe: true,
+  });
+  const bowlMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 10, 6, 0, Math.PI * 2, Math.PI * 0.5, Math.PI * 0.5),
+    holoBowlMat
+  );
+  const chop1 = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.95, 5), neonAmberMat);
+  chop1.position.set(0.12, 0.25, 0);
+  chop1.rotation.z = -0.35;
+  const chop2 = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.95, 5), neonAmberMat);
+  chop2.position.set(0.24, 0.25, 0);
+  chop2.rotation.z = -0.22;
+  holoBowlGroup.add(bowlMesh, chop1, chop2);
+  ramenBar.add(holoBowlGroup);
+  root.add(ramenBar);
+
+  // 2. Cyberware / Neon Arcade Storefront (x = 7.4, z = -18.35)
+  const arcadeShop = new THREE.Group();
+  arcadeShop.position.set(7.4, 0, -18.35);
+  const arcBody = new THREE.Mesh(new THREE.BoxGeometry(4.8, 3.4, 2.2), darkMetalMat);
+  arcBody.position.set(0, 1.7, -0.35);
+  const arcWin = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.8, 2.1),
+    new THREE.MeshBasicMaterial({ color: 0x1e1b4b })
+  );
+  arcWin.position.set(0, 1.25, 0.77);
+  // Glowing arcade cabinet screens visible inside the shopfront window
+  [-1.2, -0.4, 0.4, 1.2].forEach((ax, idx) => {
+    const scr = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.72),
+      idx % 2 === 0 ? conduitCyanMat : conduitMagMat
+    );
+    scr.position.set(ax, 1.32, 0.79);
+    arcadeShop.add(scr);
+  });
+  const arcSignTex = createCyberBillboardTexture('#ec4899', '#38bdf8', '電脳遊戯', 'CYBER ARCADE');
+  const arcSignMat = new THREE.MeshBasicMaterial({
+    map: arcSignTex ?? undefined,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.92,
+  });
+  const arcSign = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 1.1), arcSignMat);
+  arcSign.position.set(0, 3.05, 0.92);
+  arcadeShop.add(arcBody, arcWin, arcSign);
+  root.add(arcadeShop);
+
+  // 3. Futuristic Glowing Vending Kiosks flanking the cyber sidewalk
+  [
+    { x: -14.8, z: -17.65, mat: conduitCyanMat },
+    { x: 15.2, z: -17.65, mat: conduitMagMat },
+    { x: 0.6, z: -17.75, mat: neonAmberMat },
+  ].forEach((vk) => {
+    const kiosk = new THREE.Group();
+    kiosk.position.set(vk.x, 0, vk.z);
+    const ch = new THREE.Mesh(new THREE.BoxGeometry(1.15, 2.15, 0.72), darkMetalMat);
+    ch.position.y = 1.075;
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.84, 1.22), vk.mat);
+    scr.position.set(0, 1.32, 0.37);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.08, 0.08), vk.mat);
+    bar.position.set(0, 2.12, 0.36);
+    kiosk.add(ch, scr, bar);
+    root.add(kiosk);
+  });
+
+  // 4. Glossy Reflective Neon Rain Puddles shimmering on the wet cyber avenue
+  const puddleCyanMat = new THREE.MeshStandardMaterial({
+    color: 0x0e7490,
+    emissive: 0x06b6d4,
+    emissiveIntensity: 0.65,
+    roughness: 0.06,
+    metalness: 0.85,
+    transparent: true,
+    opacity: 0.52,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
+  });
+  const puddleMagMat = new THREE.MeshStandardMaterial({
+    color: 0x831843,
+    emissive: 0xec4899,
+    emissiveIntensity: 0.62,
+    roughness: 0.06,
+    metalness: 0.85,
+    transparent: true,
+    opacity: 0.5,
+    polygonOffset: true,
+    polygonOffsetFactor: -3,
+    polygonOffsetUnits: -3,
+  });
+  [
+    { x: -11.5, z: -15.4, rx: 2.3, rz: 0.9, mat: puddleCyanMat },
+    { x: -3.2, z: -11.8, rx: 2.8, rz: 1.05, mat: puddleMagMat },
+    { x: 5.8, z: -15.1, rx: 2.4, rz: 0.85, mat: puddleCyanMat },
+    { x: 13.5, z: -12.4, rx: 2.2, rz: 0.95, mat: puddleMagMat },
+  ].forEach((pd) => {
+    const puddle = new THREE.Mesh(new THREE.CircleGeometry(1, 14), pd.mat);
+    puddle.rotation.x = -Math.PI / 2;
+    puddle.scale.set(pd.rx, pd.rz, 1);
+    puddle.position.set(pd.x, 0.042, pd.z);
+    root.add(puddle);
+  });
+
+  // 5. Floating Animated Holographic Koi Fish & Neon Ad Drones drifting over the avenue!
+  interface HoloFloater {
+    group: THREE.Group;
+    tail?: THREE.Mesh;
+    baseX: number;
+    baseY: number;
+    baseZ: number;
+    radiusX: number;
+    speed: number;
+    phase: number;
+  }
+  const holoFloaters: HoloFloater[] = [];
+  const holoKoiMats = [
+    new THREE.MeshBasicMaterial({ color: 0x06b6d4, transparent: true, opacity: 0.72 }),
+    new THREE.MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.72 }),
+    new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.72 }),
+  ];
+  [
+    { x: -6.5, y: 5.8, z: -15.2, rx: 7.5, speed: 0.36, mat: holoKoiMats[0] },
+    { x: 7.2, y: 6.4, z: -16.8, rx: 8.2, speed: -0.32, mat: holoKoiMats[1] },
+    { x: 0.0, y: 4.9, z: -14.0, rx: 6.4, speed: 0.42, mat: holoKoiMats[2] },
+  ].forEach((hk, idx) => {
+    const koi = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.45, 7), hk.mat);
+    body.rotation.z = -Math.PI / 2;
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.65, 4), hk.mat);
+    tail.rotation.z = Math.PI / 2;
+    tail.position.x = -0.88;
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.06, 0.85), hk.mat);
+    fin.position.set(0.1, 0, 0);
+    koi.add(body, tail, fin);
+    root.add(koi);
+    holoFloaters.push({
+      group: koi,
+      tail,
+      baseX: hk.x,
+      baseY: hk.y,
+      baseZ: hk.z,
+      radiusX: hk.rx,
+      speed: hk.speed,
+      phase: idx * 2.1,
+    });
+  });
+
+  // Neon Ad Drones hovering & bobbing gently near storefronts
+  [
+    { x: -13.0, y: 3.4, z: -16.8, rx: 2.2, speed: 0.55 },
+    { x: 12.6, y: 3.7, z: -16.6, rx: 2.4, speed: -0.48 },
+  ].forEach((dr, idx) => {
+    const drone = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), darkMetalMat);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.42, 0.04, 6, 14),
+      idx === 0 ? conduitCyanMat : neonPurpleMat
+    );
+    ring.rotation.x = Math.PI / 2;
+    const holoScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.95, 0.42),
+      idx === 0 ? conduitMagMat : conduitCyanMat
+    );
+    holoScreen.position.y = -0.48;
+    drone.add(core, ring, holoScreen);
+    root.add(drone);
+    holoFloaters.push({
+      group: drone,
+      baseX: dr.x,
+      baseY: dr.y,
+      baseZ: dr.z,
+      radiusX: dr.rx,
+      speed: dr.speed,
+      phase: idx * 1.7 + 0.8,
+    });
+  });
+
+  // Rising animated street-grate & ramen-bar steam particles along far sidewalk
+  const steamCount = 96;
   const steamPos = new Float32Array(steamCount * 3);
-  const steamVentXs = [-14.0, -5.0, 5.2, 14.5];
+  const steamVentXs = [-14.0, -6.8, -5.0, 5.2, 14.5];
   for (let i = 0; i < steamCount; i++) {
     const vx = steamVentXs[i % steamVentXs.length];
     steamPos[i * 3] = vx + (Math.random() - 0.5) * 1.1;
@@ -457,9 +682,31 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
       neonRain: true,
     },
     update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       towerMat.emissiveIntensity = isNight ? 1.35 : 0.72;
       groundMat.roughness = weather === 'rainy' ? 0.12 : 0.24;
+      puddleCyanMat.emissiveIntensity = isNight ? 0.92 : 0.45;
+      puddleMagMat.emissiveIntensity = isNight ? 0.88 : 0.42;
+      holoBowlGroup.rotation.y = elapsed * 0.9;
+      holoBowlGroup.position.y = 3.85 + Math.sin(elapsed * 2.2) * 0.1;
+
+      for (let i = 0; i < holoFloaters.length; i++) {
+        const hf = holoFloaters[i];
+        const ang = elapsed * hf.speed + hf.phase;
+        const nextX = hf.baseX + Math.sin(ang) * hf.radiusX;
+        const dx = Math.cos(ang) * hf.speed;
+        hf.group.position.set(
+          nextX,
+          hf.baseY + Math.sin(elapsed * 1.8 + hf.phase) * 0.35,
+          hf.baseZ + Math.cos(ang * 0.7) * 0.8
+        );
+        if (hf.tail) {
+          hf.group.rotation.y = dx >= 0 ? 0 : Math.PI;
+          hf.tail.rotation.y = Math.sin(elapsed * 6.5 + hf.phase) * 0.38;
+        } else {
+          hf.group.rotation.y = elapsed * 0.7 + hf.phase;
+        }
+      }
 
       for (let i = 0; i < holoMats.length; i++) {
         const pulse = 0.8 + Math.sin(elapsed * (2.2 + i * 0.45) + i) * 0.16;
@@ -627,8 +874,8 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
   balusters.instanceMatrix.needsUpdate = true;
   root.add(balusters);
 
-  // Classic Parisian vintage double-globe green iron lamp posts along promenade
-  [-14, -5.2, 5.2, 14].forEach((lx) => {
+  // Classic Parisian vintage double-globe green iron lamp posts framing terrace margins (wide-open center view!)
+  [-18.5, -10.5, 10.5, 18.5].forEach((lx) => {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.11, 3.4, 8), ironMat);
     post.position.set(lx, 1.7, -17.5);
     root.add(post);
@@ -720,24 +967,347 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
   parisChimneys.instanceMatrix.needsUpdate = true;
   root.add(parisBodies, parisMansards, parisChimneys);
 
-  // Tree-lined Champs-de-Mars promenade flanking the grand approach to the Eiffel Tower
-  const parisTreeCount = 24;
+  // === LUSH GREEN CHAMP DE MARS PARK DIRECTLY BENEATH THE EIFFEL TOWER ===
+  const parkY = -14.35;
+  const parkLawnMat = new THREE.MeshStandardMaterial({ color: 0x3b8640, roughness: 0.9 });
+  const parkGravelMat = new THREE.MeshStandardMaterial({ color: 0xd6cab8, roughness: 0.92 });
+  const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x225c2c, roughness: 0.88 });
+  const benchWoodMat = new THREE.MeshStandardMaterial({ color: 0x6f4728, roughness: 0.82 });
+  const fountainWaterMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.25,
+    roughness: 0.16,
+    metalness: 0.35,
+  });
+
+  // Expansive central manicured emerald green park lawns & crisscrossing gravel promenades
+  const champLawn = new THREE.Mesh(new THREE.PlaneGeometry(24.0, 50.0), parkLawnMat);
+  champLawn.rotation.x = -Math.PI / 2;
+  champLawn.position.set(0.5, parkY, -44.0);
+  root.add(champLawn);
+
+  // Main central gravel esplanade + 2 lateral walkways + cross paths
+  const mainEsplanade = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 48.0), parkGravelMat);
+  mainEsplanade.rotation.x = -Math.PI / 2;
+  mainEsplanade.position.set(0.5, parkY + 0.03, -44.0);
+  root.add(mainEsplanade);
+
+  [-8.6, 9.6].forEach((px) => {
+    const sidePath = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 46.0), parkGravelMat);
+    sidePath.rotation.x = -Math.PI / 2;
+    sidePath.position.set(px, parkY + 0.03, -44.0);
+    root.add(sidePath);
+  });
+  [-28.5, -42.5, -56.0].forEach((cz) => {
+    const crossPath = new THREE.Mesh(new THREE.PlaneGeometry(22.0, 2.6), parkGravelMat);
+    crossPath.rotation.x = -Math.PI / 2;
+    crossPath.position.set(0.5, parkY + 0.04, cz);
+    root.add(crossPath);
+  });
+
+  // Trimmed Parisian topiary hedges & manicured emerald parterres with refined rose/tulip accent borders
+  const flowerColors = [0xe11d48, 0xf59e0b, 0xec4899, 0x8b5cf6];
+  const flowerMats = flowerColors.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 }));
+  const parterreLawnMat = new THREE.MeshStandardMaterial({ color: 0x2f7d44, roughness: 0.9 });
+  [-35.5, -49.2].forEach((hz, hIdx) => {
+    [-4.8, 5.8].forEach((hx, sideIdx) => {
+      const hedge = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.58, 10.2), hedgeMat);
+      hedge.position.set(hx, parkY + 0.29, hz);
+      root.add(hedge);
+      const innerLawn = new THREE.Mesh(new THREE.BoxGeometry(3.85, 0.14, 9.4), parterreLawnMat);
+      innerLawn.position.set(hx, parkY + 0.62, hz);
+      root.add(innerLawn);
+      const flowerStrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.95, 0.16, 6.8),
+        flowerMats[(hIdx * 2 + sideIdx) % flowerMats.length]
+      );
+      flowerStrip.position.set(hx, parkY + 0.72, hz);
+      root.add(flowerStrip);
+    });
+  });
+
+  // Central Parisian Stone Fountain with animated shimmering water plume at z = -42.5
+  const fountainGroup = new THREE.Group();
+  fountainGroup.position.set(0.5, parkY, -42.5);
+  const fBasin = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 3.1, 0.65, 16), stoneMat);
+  fBasin.position.y = 0.32;
+  const fPool = new THREE.Mesh(new THREE.CircleGeometry(2.55, 16), fountainWaterMat);
+  fPool.rotation.x = -Math.PI / 2;
+  fPool.position.y = 0.62;
+  const fPedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.55, 10), stoneMat);
+  fPedestal.position.y = 1.05;
+  const fBowl = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 0.48, 0.38, 12), stoneMat);
+  fBowl.position.y = 1.85;
+  const fJetMat = new THREE.MeshBasicMaterial({
+    color: 0xe0f2fe,
+    transparent: true,
+    opacity: 0.72,
+  });
+  const fJet = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.9, 10, 1, true), fJetMat);
+  fJet.position.y = 2.85;
+  fountainGroup.add(fBasin, fPool, fPedestal, fBowl, fJet);
+  root.add(fountainGroup);
+
+  // Wooden Parisian Park Benches & Checkered Picnic Blankets on the Champ de Mars lawns
+  const benchSpots: Array<[number, number, number]> = [
+    [-2.8, -31.5, Math.PI / 2],
+    [3.8, -31.5, -Math.PI / 2],
+    [-2.8, -47.0, Math.PI / 2],
+    [3.8, -47.0, -Math.PI / 2],
+    [-2.8, -53.0, Math.PI / 2],
+    [3.8, -53.0, -Math.PI / 2],
+  ];
+  benchSpots.forEach(([bx, bz, brot]) => {
+    const bg = new THREE.Group();
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.09, 0.48), benchWoodMat);
+    seat.position.y = 0.46;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.45, 0.07), benchWoodMat);
+    back.position.set(0, 0.74, -0.2);
+    [-0.72, 0.72].forEach((lx) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.46, 0.44), ironMat);
+      leg.position.set(lx, 0.23, 0);
+      bg.add(leg);
+    });
+    bg.add(seat, back);
+    bg.position.set(bx, parkY, bz);
+    bg.rotation.y = brot;
+    root.add(bg);
+  });
+
+  // Checkered picnic blankets on open lawns
+  const picnicRedMat = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.88 });
+  const picnicCreamMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.88 });
+  const picnicSpots: Array<[number, number]> = [
+    [-5.8, -25.8],
+    [6.6, -26.2],
+    [-6.0, -39.2],
+    [6.4, -52.5],
+  ];
+  picnicSpots.forEach(([px, pz], idx) => {
+    const pg = new THREE.Group();
+    const cloth = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.3, 2.3),
+      idx % 2 === 0 ? picnicRedMat : picnicCreamMat
+    );
+    cloth.rotation.x = -Math.PI / 2;
+    cloth.position.y = 0.04;
+    const inner = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 1.4),
+      idx % 2 === 0 ? picnicCreamMat : picnicRedMat
+    );
+    inner.rotation.x = -Math.PI / 2;
+    inner.position.y = 0.05;
+    const basket = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.32, 0.34), benchWoodMat);
+    basket.position.set(0.48, 0.18, -0.32);
+    pg.add(cloth, inner, basket);
+    pg.position.set(px, parkY, pz);
+    pg.rotation.y = idx * 0.4;
+    root.add(pg);
+  });
+
+  // Classic Dark-Green Parisian Morris Columns flanking the entrance to Champ de Mars
+  [-9.5, 10.5].forEach((mx) => {
+    const colG = new THREE.Group();
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.58, 3.2, 10), ironMat);
+    cyl.position.y = 1.6;
+    const poster = new THREE.Mesh(new THREE.CylinderGeometry(0.57, 0.57, 1.9, 10), winWarmMat);
+    poster.position.y = 1.65;
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.62, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.55), ironMat);
+    dome.position.y = 3.15;
+    colG.add(cyl, poster, dome);
+    colG.position.set(mx, parkY, -25.5);
+    root.add(colG);
+  });
+
+  // Helper: Articulated Full-Rigged Park NPC (Head, Hair, Torso, 2 Arms, 2 Legs — Zero Limbless Blocks!)
+  const parkSkinMat = new THREE.MeshStandardMaterial({ color: 0xe8bc9e, roughness: 0.72 });
+  const parkHairMat = new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 0.85 });
+  const parkPantsMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
+  const createParkPerson = (coatHex: number, seated: boolean, holdingHandSide: -1 | 0 | 1) => {
+    const g = new THREE.Group();
+    const coatMat = new THREE.MeshStandardMaterial({ color: coatHex, roughness: 0.78 });
+    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.68, 0.16), parkPantsMat);
+    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.68, 0.16), parkPantsMat);
+    if (seated) {
+      legL.rotation.x = -Math.PI / 2.2;
+      legR.rotation.x = -Math.PI / 2.2;
+      legL.position.set(-0.1, 0.44, 0.25);
+      legR.position.set(0.1, 0.44, 0.25);
+    } else {
+      legL.position.set(-0.1, 0.34, 0);
+      legR.position.set(0.1, 0.34, 0);
+    }
+    const torsoY = seated ? 0.82 : 0.96;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.58, 0.22), coatMat);
+    torso.position.y = torsoY;
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, 0.12), coatMat);
+    armL.position.set(-0.25, torsoY - 0.02, 0);
+    if (holdingHandSide === -1) armL.rotation.z = -0.35;
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, 0.12), coatMat);
+    armR.position.set(0.25, torsoY - 0.02, 0);
+    if (holdingHandSide === 1) armR.rotation.z = 0.35;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 7), parkSkinMat);
+    head.position.y = torsoY + 0.44;
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.58), parkHairMat);
+    hair.position.y = torsoY + 0.47;
+    g.add(legL, legR, torso, armL, armR, head, hair);
+    return { group: g, legL, legR, armL, armR, head };
+  };
+
+  // Animated Dating Couples Strolling Hand-in-Hand along the Champ de Mars Esplanade!
+  interface StrollingCouple {
+    group: THREE.Group;
+    pA: ReturnType<typeof createParkPerson>;
+    pB: ReturnType<typeof createParkPerson>;
+    baseX: number;
+    zMin: number;
+    zMax: number;
+    z: number;
+    dir: 1 | -1;
+    speed: number;
+    phase: number;
+  }
+  const strollingCouples: StrollingCouple[] = [];
+  const coupleSpecs = [
+    { x: -0.9, z: -29.0, zMin: -54, zMax: -24, dir: -1 as const, speed: 1.15, cA: 0xb91c1c, cB: 0x1d4ed8 },
+    { x: 1.8, z: -48.0, zMin: -56, zMax: -25, dir: 1 as const, speed: 1.05, cA: 0x0f766e, cB: 0xbe185d },
+    { x: -8.5, z: -36.0, zMin: -55, zMax: -24, dir: -1 as const, speed: 1.25, cA: 0x7c3aed, cB: 0xd97706 },
+    { x: 9.5, z: -44.0, zMin: -55, zMax: -24, dir: 1 as const, speed: 1.1, cA: 0x334155, cB: 0xe11d48 },
+  ];
+  coupleSpecs.forEach((cs, idx) => {
+    const cg = new THREE.Group();
+    const pA = createParkPerson(cs.cA, false, 1);
+    pA.group.position.x = -0.32;
+    const pB = createParkPerson(cs.cB, false, -1);
+    pB.group.position.x = 0.32;
+    cg.add(pA.group, pB.group);
+    cg.position.set(cs.x, parkY + 0.03, cs.z);
+    cg.rotation.y = cs.dir === 1 ? 0 : Math.PI;
+    root.add(cg);
+    strollingCouples.push({
+      group: cg,
+      pA,
+      pB,
+      baseX: cs.x,
+      zMin: cs.zMin,
+      zMax: cs.zMax,
+      z: cs.z,
+      dir: cs.dir,
+      speed: cs.speed,
+      phase: idx * 1.6,
+    });
+  });
+
+  // Dating Couples Seated Together on Park Benches & Checkered Picnic Blankets
+  const seatedHeads: THREE.Mesh[] = [];
+  [
+    { x: -2.8, z: -31.5, rot: Math.PI / 2, cA: 0x9f1239, cB: 0x1e40af },
+    { x: 3.8, z: -47.0, rot: -Math.PI / 2, cA: 0x047857, cB: 0xb45309 },
+  ].forEach((sb) => {
+    const pair = new THREE.Group();
+    const a = createParkPerson(sb.cA, true, 1);
+    a.group.position.set(-0.34, 0, 0.05);
+    const b = createParkPerson(sb.cB, true, -1);
+    b.group.position.set(0.34, 0, 0.05);
+    pair.add(a.group, b.group);
+    pair.position.set(sb.x, parkY, sb.z);
+    pair.rotation.y = sb.rot;
+    root.add(pair);
+    seatedHeads.push(a.head, b.head);
+  });
+
+  picnicSpots.slice(0, 2).forEach(([px, pz], idx) => {
+    const pA = createParkPerson(idx === 0 ? 0xdb2777 : 0x2563eb, true, 0);
+    pA.group.position.set(px - 0.55, parkY - 0.25, pz + 0.2);
+    pA.group.rotation.y = 0.8;
+    const pB = createParkPerson(idx === 0 ? 0x1e293b : 0xd97706, true, 0);
+    pB.group.position.set(px + 0.55, parkY - 0.25, pz + 0.2);
+    pB.group.rotation.y = -0.8;
+    root.add(pA.group, pB.group);
+    seatedHeads.push(pA.head, pB.head);
+  });
+
+  // Parisian Artist painting at a wooden easel facing the Eiffel Tower
+  const artistGroup = new THREE.Group();
+  artistGroup.position.set(-4.2, parkY + 0.03, -27.5);
+  artistGroup.rotation.y = Math.PI - 0.2;
+  const artist = createParkPerson(0x1f2937, false, 0);
+  artist.armR.rotation.x = -1.05;
+  artistGroup.add(artist.group);
+  const easelStand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.55, 0.08), benchWoodMat);
+  easelStand.position.set(0.05, 0.78, 0.72);
+  easelStand.rotation.x = -0.18;
+  const canvasBoard = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.54, 0.05), picnicCreamMat);
+  canvasBoard.position.set(0.05, 1.25, 0.66);
+  canvasBoard.rotation.x = -0.18;
+  artistGroup.add(easelStand, canvasBoard);
+  root.add(artistGroup);
+
+  // Shimmering Seine River Curve behind the Eiffel Tower with gliding Bateaux Mouches riverboat lights!
+  const seineMat = new THREE.MeshStandardMaterial({
+    color: 0x1d4e68,
+    emissive: 0x0c2438,
+    emissiveIntensity: 0.25,
+    roughness: 0.16,
+    metalness: 0.42,
+  });
+  const seineRiver = new THREE.Mesh(new THREE.PlaneGeometry(180, 12.5), seineMat);
+  seineRiver.rotation.x = -Math.PI / 2;
+  seineRiver.rotation.z = 0.06;
+  seineRiver.position.set(0, parkY - 0.08, -84.0);
+  root.add(seineRiver);
+
+  const riverBoats: Array<{ group: THREE.Group; x: number; dir: 1 | -1; speed: number }> = [];
+  const boatHullMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.55 });
+  const boatGlowMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+  [
+    { x: -34, z: -82.5, dir: 1 as const, speed: 2.6 },
+    { x: 28, z: -86.0, dir: -1 as const, speed: 2.2 },
+  ].forEach((rb) => {
+    const bg = new THREE.Group();
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.55, 1.35), boatHullMat);
+    hull.position.y = 0.28;
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.52, 1.05), boatGlowMat);
+    cabin.position.y = 0.72;
+    bg.add(hull, cabin);
+    bg.position.set(rb.x, parkY - 0.05, rb.z);
+    root.add(bg);
+    riverBoats.push({ group: bg, x: rb.x, dir: rb.dir, speed: rb.speed });
+  });
+
+  // Tree-lined Champs-de-Mars manicured avenue trees flanking the green park
+  const parisTreeCount = 28;
   const parisTrees = new THREE.InstancedMesh(
-    new THREE.DodecahedronGeometry(1.5, 1),
+    new THREE.DodecahedronGeometry(1.45, 1),
     boulevardTreeMat,
+    parisTreeCount
+  );
+  const parisTrunks = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.14, 0.2, 2.1, 6),
+    benchWoodMat,
     parisTreeCount
   );
   for (let i = 0; i < parisTreeCount; i++) {
     const side = i % 2 === 0 ? -1 : 1;
     const step = Math.floor(i / 2);
-    dummy.position.set(0.5 + side * 7.8, -12.6, -28 - step * 3.2);
+    const tx = 0.5 + side * 10.6;
+    const tz = -24.5 - step * 3.1;
+    dummy.position.set(tx, parkY + 1.0, tz);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    parisTrunks.setMatrixAt(i, dummy.matrix);
+
+    dummy.position.set(tx, parkY + 2.8, tz);
     dummy.rotation.set(0, i * 0.7, 0);
-    dummy.scale.set(1.1, 1.3, 1.1);
+    dummy.scale.set(1.12, 1.25, 1.12);
     dummy.updateMatrix();
     parisTrees.setMatrixAt(i, dummy.matrix);
   }
+  parisTrunks.instanceMatrix.needsUpdate = true;
   parisTrees.instanceMatrix.needsUpdate = true;
-  root.add(parisTrees);
+  root.add(parisTrunks, parisTrees);
 
   // Iconic Illuminated Eiffel Tower centered in the grand Parisian metropolis
   const tower = new THREE.Group();
@@ -851,14 +1421,52 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
       fogDensityScale: 0.72,
     },
     update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       eiffelMat.emissiveIntensity = isNight ? 0.92 : 0.07;
       winWarmMat.emissiveIntensity = isNight ? 1.9 : 0.22;
       haussmannMat.emissiveIntensity = isNight ? 1.35 : 0.1;
       snowCoping.visible = climateState === 'winter';
       slateRoofMat.color.setHex(climateState === 'winter' ? 0xdbeafe : 0x3b4858);
       boulevardTreeMat.color.setHex(climateState === 'winter' ? 0xd8e6f2 : 0x3a6b35);
+      parkLawnMat.color.setHex(climateState === 'winter' ? 0xdce8f4 : 0x3b8640);
+      seineMat.color.setHex(isNight ? 0x0b2545 : 0x1d4e68);
       cobbleMat.roughness = weather === 'rainy' ? 0.25 : 0.82;
+
+      // Animate central Parisian fountain shimmer
+      fJet.scale.y = 0.88 + Math.sin(elapsed * 5.4) * 0.14;
+      fJet.rotation.y += dt * 1.4;
+
+      // Animate Champ de Mars dating couples strolling hand-in-hand
+      for (const sc of strollingCouples) {
+        sc.z += sc.dir * sc.speed * dt;
+        if (sc.dir === -1 && sc.z < sc.zMin) {
+          sc.dir = 1;
+          sc.group.rotation.y = 0;
+        } else if (sc.dir === 1 && sc.z > sc.zMax) {
+          sc.dir = -1;
+          sc.group.rotation.y = Math.PI;
+        }
+        sc.group.position.z = sc.z;
+        const swing = Math.sin(elapsed * 4.8 + sc.phase) * 0.42;
+        sc.pA.legL.rotation.x = swing;
+        sc.pA.legR.rotation.x = -swing;
+        sc.pA.armL.rotation.x = -swing * 0.7;
+        sc.pB.legL.rotation.x = -swing;
+        sc.pB.legR.rotation.x = swing;
+        sc.pB.armR.rotation.x = swing * 0.7;
+      }
+      for (let i = 0; i < seatedHeads.length; i++) {
+        seatedHeads[i].rotation.y = Math.sin(elapsed * 1.1 + i * 1.9) * 0.22;
+      }
+      artist.armR.rotation.z = Math.sin(elapsed * 3.8) * 0.16;
+
+      // Glide Bateaux Mouches riverboats along the Seine
+      for (const rb of riverBoats) {
+        rb.x += rb.dir * rb.speed * dt;
+        if (rb.dir === 1 && rb.x > 64) rb.x = -64;
+        if (rb.dir === -1 && rb.x < -64) rb.x = 64;
+        rb.group.position.x = rb.x;
+      }
 
       beaconPivot.rotation.y += dt * 0.42;
       beaconMat.opacity = isNight ? 0.16 : 0.0;
@@ -972,27 +1580,116 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   swissFlag.add(crossH);
   root.add(swissFlag);
 
-  // Steep Rocky Alpine Cliffside plunging from terrace (y = -0.3) straight down into the deep glacial valley (y = -28)!
-  const steepCliff = new THREE.Mesh(new THREE.PlaneGeometry(180, 42), rockMat);
-  steepCliff.rotation.x = -Math.PI * 0.26;
-  steepCliff.position.set(0, -14.2, -31.8);
+  // Stacked split alpine firewood bundle beside the terrace corner
+  for (let row = 0; row < 3; row++) {
+    for (let log = 0; log < 4 - row; log++) {
+      const fLog = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.085, 0.72, 6), chaletWoodMat);
+      fLog.rotation.x = Math.PI / 2;
+      fLog.position.set(-10.8 + log * 0.17 + row * 0.08, 0.1 + row * 0.15, -17.0);
+      root.add(fLog);
+    }
+  }
+
+  // Sculpted Steep Snow-Dusted Rocky Alpine Cliff plunging cleanly DOWN from z = -17.6 (y = -0.35)
+  // to the deep glacial valley floor (y = -28.0 at z = -50.6) — upward-facing normals, zero flat gray wall!
+  const swissCliffGeo = new THREE.PlaneGeometry(196, 33, 24, 6);
+  swissCliffGeo.rotateX(-Math.PI / 2);
+  const swPos = swissCliffGeo.attributes.position as THREE.BufferAttribute;
+  const swCols = new Float32Array(swPos.count * 3);
+  const swRockCol = new THREE.Color(0x525d6b);
+  const swSnowCol = new THREE.Color(0xe6f0fa);
+  const swMeadowCol = new THREE.Color(0x3a6a42);
+  const swTmp = new THREE.Color();
+  for (let i = 0; i < swPos.count; i++) {
+    const vx = swPos.getX(i);
+    const vz = swPos.getZ(i); // +16.5 (near rim) .. -16.5 (valley floor)
+    const t = Math.max(0, Math.min(1, (16.5 - vz) / 33));
+    const crag =
+      Math.sin(vx * 0.16 + t * 4.2) * 1.45 * Math.sin(t * Math.PI) +
+      Math.cos(vx * 0.32 - t * 2.6) * 0.75 * Math.sin(t * Math.PI);
+    const vy = -0.35 - Math.pow(t, 1.08) * 27.7 + crag;
+    swPos.setY(i, vy);
+    if (t < 0.25) {
+      swTmp.lerpColors(swSnowCol, swRockCol, t / 0.25);
+    } else if (t < 0.78) {
+      swTmp.lerpColors(swRockCol, swSnowCol, crag > 0.35 ? 0.65 : 0.12);
+    } else {
+      swTmp.lerpColors(swRockCol, swMeadowCol, (t - 0.78) / 0.22);
+    }
+    swCols[i * 3] = swTmp.r;
+    swCols[i * 3 + 1] = swTmp.g;
+    swCols[i * 3 + 2] = swTmp.b;
+  }
+  swissCliffGeo.translate(0, 0, -34.1);
+  swissCliffGeo.setAttribute('color', new THREE.BufferAttribute(swCols, 3));
+  swissCliffGeo.computeVertexNormals();
+  const steepCliff = new THREE.Mesh(
+    swissCliffGeo,
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true })
+  );
   root.add(steepCliff);
 
+  // Cascading Cliffside Glacial Waterfalls / Ice Falls plunging down the escarpment!
+  const waterfallMat = new THREE.MeshBasicMaterial({
+    color: 0xbaf2ff,
+    transparent: true,
+    opacity: 0.78,
+    side: THREE.DoubleSide,
+  });
+  const waterfallFoamMat = new THREE.SpriteMaterial({
+    map: getSharedGlowSpriteTexture(),
+    color: 0xe0f2fe,
+    transparent: true,
+    opacity: 0.45,
+    depthWrite: false,
+  });
+  const waterfallFoams: THREE.Sprite[] = [];
+  [-18.5, 22.0].forEach((wx) => {
+    const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 29.0), waterfallMat);
+    ribbon.position.set(wx, -13.5, -31.5);
+    ribbon.rotation.x = -0.64;
+    root.add(ribbon);
+    const mist = new THREE.Sprite(waterfallFoamMat);
+    mist.position.set(wx, -26.2, -45.5);
+    mist.scale.set(7.5, 4.5, 1);
+    root.add(mist);
+    waterfallFoams.push(mist);
+  });
+
   // Deep Alpine Valley Floor far below (y = -28.0) with shimmering turquoise glacial lake!
-  const valleyMeadow = new THREE.Mesh(new THREE.PlaneGeometry(250, 175), alpineMeadowMat);
+  const valleyMeadow = new THREE.Mesh(new THREE.PlaneGeometry(260, 180), alpineMeadowMat);
   valleyMeadow.rotation.x = -Math.PI / 2;
-  valleyMeadow.position.set(0, -28.0, -102);
+  valleyMeadow.position.set(0, -28.0, -104);
   root.add(valleyMeadow);
 
   const lakeMat = new THREE.MeshStandardMaterial({
-    color: 0x0284c7,
-    roughness: 0.18,
-    metalness: 0.28,
+    color: 0x06b6d4,
+    emissive: 0x0e7490,
+    emissiveIntensity: 0.18,
+    roughness: 0.14,
+    metalness: 0.36,
   });
-  const lake = new THREE.Mesh(new THREE.PlaneGeometry(92, 42), lakeMat);
+  const lake = new THREE.Mesh(new THREE.CircleGeometry(46, 28), lakeMat);
   lake.rotation.x = -Math.PI / 2;
-  lake.position.set(-14, -27.7, -78);
+  lake.scale.set(1.35, 0.62, 1);
+  lake.position.set(-8, -27.68, -78);
   root.add(lake);
+
+  // Tiny Animated Wooden Swiss Glacial Lake Ferry Boat + White Wake drifting smoothly across the turquoise lake!
+  const lakeBoat = new THREE.Group();
+  const ferryHull = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.65, 1.35), chaletWoodMat);
+  ferryHull.position.y = 0.3;
+  const ferryCabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.75, 1.05), whiteMat);
+  ferryCabin.position.set(-0.2, 0.85, 0);
+  const ferryWin = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.32, 1.1), chaletWinMat);
+  ferryWin.position.set(-0.2, 0.92, 0);
+  const wakeMat = new THREE.MeshBasicMaterial({ color: 0xe0f2fe, transparent: true, opacity: 0.65 });
+  const ferryWake = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 0.85), wakeMat);
+  ferryWake.rotation.x = -Math.PI / 2;
+  ferryWake.position.set(-4.2, 0.08, 0);
+  lakeBoat.add(ferryHull, ferryCabin, ferryWin, ferryWake);
+  lakeBoat.position.set(-24, -27.64, -74);
+  root.add(lakeBoat);
 
   // Winding valley alpine ribbon road far below
   const valleyRoad = new THREE.Mesh(
@@ -1004,20 +1701,21 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   valleyRoad.position.set(8, -27.72, -55);
   root.add(valleyRoad);
 
-  // Grounded cliffside rock shoulders framing left & right slopes
-  const rightCliffMass = new THREE.Mesh(new THREE.ConeGeometry(28, 28, 8), rockMat);
-  rightCliffMass.scale.set(1.3, 1.0, 0.9);
-  rightCliffMass.position.set(22, -14, -30);
+  // Grounded cliffside rock shoulders framing left & right slopes (outside center vista)
+  const rightCliffMass = new THREE.Mesh(new THREE.ConeGeometry(26, 26, 8), rockMat);
+  rightCliffMass.scale.set(1.2, 1.0, 0.9);
+  rightCliffMass.position.set(32, -14.5, -32);
   root.add(rightCliffMass);
-  const leftCliffMass = new THREE.Mesh(new THREE.ConeGeometry(28, 26, 8), rockMat);
-  leftCliffMass.scale.set(1.3, 0.95, 0.9);
-  leftCliffMass.position.set(-28, -14.5, -34);
+  const leftCliffMass = new THREE.Mesh(new THREE.ConeGeometry(26, 25, 8), rockMat);
+  leftCliffMass.scale.set(1.2, 0.95, 0.9);
+  leftCliffMass.position.set(-34, -15.0, -34);
   root.add(leftCliffMass);
 
-  // Miniature Swiss Valley Village Chalets nestled far below along the glacial lake!
+  // Miniature Swiss Valley Village Chalets + Tiny Alpine Church Spire nestled along the glacial lake!
   const valleyChaletSpots: Array<[number, number, number]> = [
     [-26, -54, 0.22], [-18, -56, -0.14], [-8, -52, 0.32], [4, -56, -0.2],
     [16, -54, 0.18], [26, -58, -0.3], [-32, -64, 0.4], [24, -68, -0.25],
+    [12, -62, 0.12], [-2, -60, -0.18],
   ];
   valleyChaletSpots.forEach(([vx, vz, ry]) => {
     const cg = new THREE.Group();
@@ -1035,6 +1733,22 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     cg.rotation.y = ry;
     root.add(cg);
   });
+
+  // Iconic White Swiss Village Church with tall pointed steeple by the lakeshore
+  const church = new THREE.Group();
+  church.position.set(11.5, -28.0, -68.0);
+  const nave = new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.2, 6.2), whiteMat);
+  nave.position.y = 1.6;
+  const naveRoof = new THREE.Mesh(new THREE.ConeGeometry(4.4, 2.2, 4), chaletRoofMat);
+  naveRoof.rotation.y = Math.PI / 4;
+  naveRoof.position.y = 4.1;
+  const steeple = new THREE.Mesh(new THREE.BoxGeometry(1.5, 6.8, 1.5), whiteMat);
+  steeple.position.set(0, 3.4, 2.4);
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(1.25, 4.4, 4), rockMat);
+  spire.rotation.y = Math.PI / 4;
+  spire.position.set(0, 8.9, 2.4);
+  church.add(nave, naveRoof, steeple, spire);
+  root.add(church);
 
   // Majestic snow-capped Swiss Alpine peaks towering across the 180-degree front horizon
   const peakSpecs: Array<[number, number, number, number]> = [
@@ -1054,35 +1768,58 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     root.add(cap);
   });
 
-  // Multi-tier Snow-Dusted Swiss Spruce Trees seated cleanly along the upper cliff margin
-  const spruceCount = 36;
+  // Distant Animated High-Altitude Alpine Ski Gondola / Cable Car spanning between snowy peaks!
+  const gondolaStart = new THREE.Vector3(-42, 8.5, -96);
+  const gondolaEnd = new THREE.Vector3(24, 15.5, -102);
+  const gondolaCable = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([gondolaStart, gondolaEnd]),
+    new THREE.LineBasicMaterial({ color: 0x334155 })
+  );
+  root.add(gondolaCable);
+  const gondolaCar = new THREE.Group();
+  const gHanger = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.4, 5), rockMat);
+  gHanger.position.y = -0.7;
+  const gCabin = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 1.6, 1.6),
+    new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35 })
+  );
+  gCabin.position.y = -2.0;
+  gondolaCar.add(gHanger, gCabin);
+  gondolaCar.position.copy(gondolaStart);
+  root.add(gondolaCar);
+
+  // Multi-tier Snow-Dusted Swiss Spruce Trees strictly framing left & right cliff edges (|x| > 9.0!)
+  const spruceCoords: Array<[number, number, number, number]> = [];
+  for (let i = 0; i < 42; i++) {
+    const x = -38 + i * 1.85 + (i % 2 === 0 ? -0.3 : 0.3);
+    if (Math.abs(x) < 9.2) continue; // Keep glacial lake & valley center vista 100% open!
+    const z = -19.8 - (i % 4) * 3.1;
+    const slopeT = Math.max(0, Math.min(1, (-17.6 - z) / 33.0));
+    const groundY = -0.5 - Math.pow(slopeT, 1.08) * 27.5;
+    const sc = 0.85 + (i % 3) * 0.22;
+    spruceCoords.push([x, groundY, z, sc]);
+  }
   const spTrunks = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(0.11, 0.18, 2.6, 6),
     chaletWoodMat,
-    spruceCount
+    spruceCoords.length
   );
   const spLower = new THREE.InstancedMesh(
     new THREE.ConeGeometry(1.45, 3.0, 7),
     spruceMatA,
-    spruceCount
+    spruceCoords.length
   );
   const spUpper = new THREE.InstancedMesh(
     new THREE.ConeGeometry(1.05, 2.7, 7),
     spruceMatB,
-    spruceCount
+    spruceCoords.length
   );
   const spSnowCaps = new THREE.InstancedMesh(
     new THREE.ConeGeometry(0.76, 1.75, 7),
     snowPeakMat,
-    spruceCount
+    spruceCoords.length
   );
-  for (let i = 0; i < spruceCount; i++) {
-    const x = -34 + i * 1.95 + (i % 2 === 0 ? -0.35 : 0.35);
-    const z = -19.8 - (i % 4) * 3.0;
-    const slopeT = Math.max(0, Math.min(1, (-18.0 - z) / 26.0));
-    const groundY = -0.65 - slopeT * 17.5;
-    const sc = 0.85 + (i % 3) * 0.22;
-
+  spruceCoords.forEach(([x, groundY, z, sc], i) => {
     dummy.position.set(x, groundY + 1.0 * sc, z);
     dummy.rotation.set(0, i * 0.7, 0);
     dummy.scale.set(sc, sc, sc);
@@ -1100,7 +1837,7 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     dummy.position.set(x, groundY + 4.95 * sc, z);
     dummy.updateMatrix();
     spSnowCaps.setMatrixAt(i, dummy.matrix);
-  }
+  });
   spTrunks.instanceMatrix.needsUpdate = true;
   spLower.instanceMatrix.needsUpdate = true;
   spUpper.instanceMatrix.needsUpdate = true;
@@ -1223,15 +1960,36 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
       fogDensityScale: 0.68,
     },
     update: (dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       alpineMeadowMat.color.setHex(climateState === 'winter' ? 0xeef5fc : 0x3f7d44);
       spruceMatA.color.setHex(climateState === 'winter' ? 0x3b6e5c : 0x1b4d36);
       spruceMatB.color.setHex(climateState === 'winter' ? 0x4b7f6e : 0x255e43);
       chaletRoofMat.color.setHex(climateState === 'winter' ? 0xf1f7ff : 0x7c2d12);
-      chaletWinMat.emissiveIntensity = isNight ? 1.8 : 0.25;
+      chaletWinMat.emissiveIntensity = isNight ? 1.85 : 0.25;
       cabinGlassMat.emissiveIntensity = isNight ? 1.85 : 0.28;
-      lakeMat.color.setHex(isNight ? 0x0b2545 : 0x0284c7);
+      lakeMat.color.setHex(isNight ? 0x0b3454 : 0x06b6d4);
       swissFlag.rotation.y = Math.sin(elapsed * 2.8) * 0.22;
+
+      // Animate wooden Swiss ferry drifting peacefully across the glacial lake
+      const boatCycle = (Math.sin(elapsed * 0.14) + 1) * 0.5;
+      const boatDir = Math.cos(elapsed * 0.14) >= 0 ? 1 : -1;
+      lakeBoat.position.x = -34 + boatCycle * 46;
+      lakeBoat.position.z = -75 + Math.sin(elapsed * 0.28) * 3.5;
+      lakeBoat.rotation.y = boatDir === 1 ? 0 : Math.PI;
+
+      // Animate high-altitude alpine ski gondola gliding between mountain peaks
+      const gondolaT = (Math.sin(elapsed * 0.22) + 1) * 0.5;
+      gondolaCar.position.lerpVectors(gondolaStart, gondolaEnd, gondolaT);
+
+      // Gentle waterfall mist pulse
+      waterfallFoamMat.opacity = 0.36 + Math.sin(elapsed * 3.2) * 0.1;
+      for (let i = 0; i < waterfallFoams.length; i++) {
+        waterfallFoams[i].scale.set(
+          7.2 + Math.sin(elapsed * 2.1 + i) * 0.8,
+          4.4 + Math.cos(elapsed * 2.4 + i) * 0.5,
+          1
+        );
+      }
 
       funicularTimer += dt;
       let t = 0;
@@ -1592,6 +2350,306 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   firSnow.instanceMatrix.needsUpdate = true;
   root.add(firTrunks, firLower, firUpper, firSnow);
 
+  // === BASE-CAMP HAPPENINGS: Articulated Climbers at Expedition Map Table, Glowing Camp Brazier + Embers, Ice Axes/Ladders, Himalayan Yak, Khumbu Icefall Seracs & Night Ridge Headlamps ===
+
+  // 1. Wooden Expedition Map Table + 2 Articulated Full-Rigged Mountaineers planning summit route
+  const mapTableGroup = new THREE.Group();
+  mapTableGroup.position.set(-4.8, 0, -21.2);
+  const tblTop = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.08, 0.92), woodMat);
+  tblTop.position.y = 0.84;
+  mapTableGroup.add(tblTop);
+  [
+    [-0.65, -0.35],
+    [0.65, -0.35],
+    [-0.65, 0.35],
+    [0.65, 0.35],
+  ].forEach(([lx, lz]) => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.84, 0.08), woodMat);
+    leg.position.set(lx, 0.42, lz);
+    mapTableGroup.add(leg);
+  });
+  const mapSheet = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.18, 0.68),
+    new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.85 })
+  );
+  mapSheet.rotation.x = -Math.PI / 2;
+  mapSheet.position.set(0, 0.89, 0);
+  mapTableGroup.add(mapSheet);
+  const tableLantern = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.22, 6), lanternMat);
+  tableLantern.position.set(0.56, 0.99, -0.22);
+  mapTableGroup.add(tableLantern);
+  root.add(mapTableGroup);
+
+  interface BaseCampClimber {
+    group: THREE.Group;
+    headGroup: THREE.Group;
+    rightArm: THREE.Group;
+    phase: number;
+  }
+  const climbers: BaseCampClimber[] = [];
+  const climberSkinMat = new THREE.MeshStandardMaterial({ color: 0xdcb092, roughness: 0.72 });
+  const bootMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 });
+  const goggleMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.18, metalness: 0.7 });
+  [
+    { x: -5.45, z: -20.55, ry: 0.65, parka: 0xdc2626, pants: 0x1e293b, helmet: 0xfacc15 },
+    { x: -4.15, z: -20.6, ry: -0.7, parka: 0x2563eb, pants: 0x334155, helmet: 0xf97316 },
+  ].forEach((cl, idx) => {
+    const cg = new THREE.Group();
+    const parkaMat = new THREE.MeshStandardMaterial({ color: cl.parka, roughness: 0.72 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: cl.pants, roughness: 0.82 });
+    const helmetMat = new THREE.MeshStandardMaterial({ color: cl.helmet, roughness: 0.42 });
+
+    // Separate insulated legs + crampon boots
+    [-0.11, 0.11].forEach((lx) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.068, 0.72, 7), pantsMat);
+      leg.position.set(lx, 0.4, 0);
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.11, 0.24), bootMat);
+      boot.position.set(lx, 0.055, 0.04);
+      cg.add(leg, boot);
+    });
+    // Insulated down puffer parka torso + climbing pack
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.56, 0.3), parkaMat);
+    torso.position.y = 1.04;
+    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.48, 0.18), crateMat);
+    pack.position.set(0, 1.08, -0.22);
+    cg.add(torso, pack);
+
+    // Separate articulated arms leaning toward the map table
+    const leftArm = new THREE.Group();
+    leftArm.position.set(-0.28, 1.24, 0);
+    const lUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.06, 0.48, 7), parkaMat);
+    lUpper.position.y = -0.22;
+    const lGlove = new THREE.Mesh(new THREE.SphereGeometry(0.062, 6, 5), bootMat);
+    lGlove.position.y = -0.48;
+    leftArm.add(lUpper, lGlove);
+    leftArm.rotation.x = -0.58;
+    cg.add(leftArm);
+
+    const rightArm = new THREE.Group();
+    rightArm.position.set(0.28, 1.24, 0);
+    const rUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.06, 0.48, 7), parkaMat);
+    rUpper.position.y = -0.22;
+    const rGlove = new THREE.Mesh(new THREE.SphereGeometry(0.062, 6, 5), bootMat);
+    rGlove.position.y = -0.48;
+    rightArm.add(rUpper, rGlove);
+    rightArm.rotation.x = -0.82;
+    cg.add(rightArm);
+
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.38, 0);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 9, 8), climberSkinMat);
+    head.position.y = 0.12;
+    const helmet = new THREE.Mesh(
+      new THREE.SphereGeometry(0.168, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      helmetMat
+    );
+    helmet.position.y = 0.14;
+    const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.08), goggleMat);
+    goggles.position.set(0, 0.15, 0.13);
+    headGroup.add(head, helmet, goggles);
+    cg.add(headGroup);
+
+    cg.position.set(cl.x, 0, cl.z);
+    cg.rotation.y = cl.ry;
+    root.add(cg);
+    climbers.push({ group: cg, headGroup, rightArm, phase: idx * 2.3 });
+  });
+
+  // 2. Glowing Expedition Camp Brazier / Firepit with Flickering Coals + Animated Rising Orange Ember Sparks
+  const fireGroup = new THREE.Group();
+  fireGroup.position.set(5.4, 0, -21.0);
+  for (let s = 0; s < 10; s++) {
+    const a = (s / 10) * Math.PI * 2;
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.2, 0), slateMat);
+    rock.position.set(Math.cos(a) * 0.68, 0.14, Math.sin(a) * 0.68);
+    fireGroup.add(rock);
+  }
+  const emberCoreMat = new THREE.MeshStandardMaterial({
+    color: 0xf97316,
+    emissive: 0xea580c,
+    emissiveIntensity: 2.2,
+    roughness: 0.4,
+  });
+  const flameMat = new THREE.MeshBasicMaterial({
+    color: 0xfbbf24,
+    transparent: true,
+    opacity: 0.88,
+  });
+  const coalBed = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.18, 9), emberCoreMat);
+  coalBed.position.y = 0.1;
+  const flameCone = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.72, 6), flameMat);
+  flameCone.position.y = 0.48;
+  fireGroup.add(coalBed, flameCone);
+  // 2 timber camp log seats beside the brazier
+  [
+    { x: -1.35, z: 0.45, ry: 0.45 },
+    { x: 1.35, z: 0.35, ry: -0.55 },
+  ].forEach((lg) => {
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 1.35, 7), woodMat);
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = lg.ry;
+    log.position.set(lg.x, 0.19, lg.z);
+    fireGroup.add(log);
+  });
+  root.add(fireGroup);
+
+  const emberCount = 42;
+  const emberPos = new Float32Array(emberCount * 3);
+  for (let i = 0; i < emberCount; i++) {
+    emberPos[i * 3] = 5.4 + (Math.random() - 0.5) * 0.7;
+    emberPos[i * 3 + 1] = 0.35 + Math.random() * 2.8;
+    emberPos[i * 3 + 2] = -21.0 + (Math.random() - 0.5) * 0.7;
+  }
+  const emberGeo = new THREE.BufferGeometry();
+  emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+  const emberMat = new THREE.PointsMaterial({
+    size: 0.26,
+    color: 0xfb923c,
+    map: getSharedGlowSpriteTexture(),
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  root.add(new THREE.Points(emberGeo, emberMat));
+
+  // 3. Expedition Aluminum Crevasse Climbing Ladder, Crossed Ice Axes & Stacked Gear Duffels
+  const aluMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.32, metalness: 0.8 });
+  const duffelMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.8 });
+  const ladder = new THREE.Group();
+  ladder.position.set(8.2, 0.08, -20.8);
+  ladder.rotation.y = -0.35;
+  [-0.22, 0.22].forEach((rx) => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 2.8), aluMat);
+    rail.position.x = rx;
+    ladder.add(rail);
+  });
+  for (let r = -5; r <= 5; r++) {
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.44, 5), aluMat);
+    rung.rotation.z = Math.PI / 2;
+    rung.position.z = r * 0.25;
+    ladder.add(rung);
+  }
+  root.add(ladder);
+
+  // Stacked bright expedition duffels + crossed ice axes planted in snow
+  const duffel1 = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.36, 0.42), duffelMat);
+  duffel1.position.set(-8.2, 0.18, -20.4);
+  duffel1.rotation.y = 0.25;
+  const duffel2 = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.32, 0.38), tentYellowMat);
+  duffel2.position.set(-8.1, 0.5, -20.45);
+  duffel2.rotation.y = -0.18;
+  root.add(duffel1, duffel2);
+  [-1, 1].forEach((side) => {
+    const axe = new THREE.Group();
+    axe.position.set(-7.35, 0.48, -20.3);
+    axe.rotation.z = side * 0.28;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.92, 5), aluMat);
+    const pick = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.05, 0.03), slateMat);
+    pick.position.y = 0.44;
+    axe.add(shaft, pick);
+    root.add(axe);
+  });
+
+  // 4. Friendly Low-Poly Himalayan Yak standing beside a timber hitching post!
+  const yakGroup = new THREE.Group();
+  yakGroup.position.set(-12.6, 0, -19.8);
+  yakGroup.rotation.y = 0.52;
+  const yakFurMat = new THREE.MeshStandardMaterial({ color: 0x2b211b, roughness: 0.94 });
+  const yakHornMat = new THREE.MeshStandardMaterial({ color: 0xe7e5e4, roughness: 0.6 });
+  const blanketMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.85 });
+  const saddleTrimMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.82 });
+
+  // Yak legs
+  [
+    [-0.26, -0.48],
+    [0.26, -0.48],
+    [-0.26, 0.45],
+    [0.26, 0.45],
+  ].forEach(([lx, lz]) => {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.075, 0.68, 6), yakFurMat);
+    leg.position.set(lx, 0.34, lz);
+    yakGroup.add(leg);
+  });
+  // Shaggy torso + shoulder hump + colorful Tibetan woven pack blanket + twin panniers
+  const yakBody = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.68, 1.48), yakFurMat);
+  yakBody.position.set(0, 0.92, 0);
+  const yakHump = new THREE.Mesh(new THREE.DodecahedronGeometry(0.36, 0), yakFurMat);
+  yakHump.position.set(0, 1.28, 0.32);
+  const yakBlanket = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.42, 0.78), blanketMat);
+  yakBlanket.position.set(0, 1.02, -0.04);
+  const yakTrim = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.08, 0.8), saddleTrimMat);
+  yakTrim.position.set(0, 0.84, -0.04);
+  [-0.5, 0.5].forEach((px) => {
+    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 0.58), crateMat);
+    pack.position.set(px, 0.98, -0.05);
+    yakGroup.add(pack);
+  });
+  const yakHeadGroup = new THREE.Group();
+  yakHeadGroup.position.set(0, 1.08, 0.78);
+  const yakHead = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.4, 0.46), yakFurMat);
+  yakHead.position.set(0, -0.05, 0.14);
+  [-1, 1].forEach((side) => {
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.42, 6), yakHornMat);
+    horn.position.set(side * 0.26, 0.18, 0.14);
+    horn.rotation.z = -side * 0.65;
+    horn.rotation.x = 0.25;
+    yakHeadGroup.add(horn);
+  });
+  yakHeadGroup.add(yakHead);
+  yakGroup.add(yakBody, yakHump, yakBlanket, yakTrim, yakHeadGroup);
+  root.add(yakGroup);
+
+  // Hitching post beside the Yak
+  const hitchPost = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.15, 6), woodMat);
+  hitchPost.position.set(-11.4, 0.57, -18.8);
+  root.add(hitchPost);
+
+  // 5. Jagged Translucent-Cyan Khumbu Icefall Glacial Seracs flanking upper valley
+  const seracMat = new THREE.MeshStandardMaterial({
+    color: 0xbae6fd,
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.22,
+    roughness: 0.26,
+    metalness: 0.12,
+    flatShading: true,
+  });
+  [
+    { x: -20, z: -50, r: 5.5, h: 11.5, rz: 0.14 },
+    { x: -13, z: -56, r: 4.8, h: 9.8, rz: -0.1 },
+    { x: 14, z: -54, r: 5.2, h: 10.6, rz: -0.15 },
+    { x: 22, z: -58, r: 6.2, h: 13.0, rz: 0.12 },
+    { x: -6, z: -64, r: 4.2, h: 8.5, rz: 0.08 },
+    { x: 7, z: -62, r: 4.4, h: 9.0, rz: -0.09 },
+  ].forEach((sr) => {
+    const serac = new THREE.Mesh(new THREE.ConeGeometry(sr.r, sr.h, 5), seracMat);
+    serac.position.set(sr.x, sr.h * 0.42, sr.z);
+    serac.rotation.z = sr.rz;
+    root.add(serac);
+  });
+
+  // 6. Distant Twinkling Night Ridge Climber Headlamp Dots ascending Everest's Southeast Ridge!
+  const headlampCount = 14;
+  const headlampPos = new Float32Array(headlampCount * 3);
+  for (let i = 0; i < headlampCount; i++) {
+    const t = i / (headlampCount - 1);
+    headlampPos[i * 3] = 24 - t * 23 + Math.sin(t * 9) * 0.9;
+    headlampPos[i * 3 + 1] = 16 + t * 34;
+    headlampPos[i * 3 + 2] = -76 - t * 14;
+  }
+  const headlampGeo = new THREE.BufferGeometry();
+  headlampGeo.setAttribute('position', new THREE.BufferAttribute(headlampPos, 3));
+  const headlampMat = new THREE.PointsMaterial({
+    size: 1.15,
+    color: 0xfef9c3,
+    map: getSharedGlowSpriteTexture(),
+    transparent: true,
+    opacity: 0.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  root.add(new THREE.Points(headlampGeo, headlampMat));
+
   const ctx = addSurrounding360Context(root, 'mt_everest');
   disableShadowsRecursive(root);
 
@@ -1606,10 +2664,39 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
       alwaysWinter: true,
     },
     update: (dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState);
+      ctx.update(isNight, climateState, elapsed);
       lanternMat.emissiveIntensity = isNight ? 2.2 : 1.15;
       tentYellowMat.emissiveIntensity = isNight ? 0.72 : 0.14;
       tentOrangeMat.emissiveIntensity = isNight ? 0.72 : 0.14;
+      seracMat.emissiveIntensity = isNight ? 0.42 : 0.14;
+
+      // Flickering expedition camp brazier & rising orange ember sparks
+      const flicker = 1 + Math.sin(elapsed * 11.5) * 0.16 + Math.cos(elapsed * 7.2) * 0.1;
+      emberCoreMat.emissiveIntensity = (isNight ? 2.8 : 1.85) * flicker;
+      flameCone.scale.set(0.95 + Math.sin(elapsed * 9) * 0.1, flicker, 0.95 + Math.cos(elapsed * 8) * 0.1);
+      const eAttr = emberGeo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < emberCount; i++) {
+        let ey = eAttr.getY(i) + dt * (0.95 + (i % 4) * 0.25);
+        let ex = eAttr.getX(i) + Math.sin(elapsed * 2.8 + i) * dt * 0.22;
+        if (ey > 3.2) {
+          ey = 0.35;
+          ex = 5.4 + (((i * 13) % 10) - 5) * 0.08;
+        }
+        eAttr.setXY(i, ex, ey);
+      }
+      eAttr.needsUpdate = true;
+
+      // Animated climbers pointing over map & Yak gentle grazing head nod
+      for (const cl of climbers) {
+        cl.headGroup.rotation.y = Math.sin(elapsed * 0.9 + cl.phase) * 0.24;
+        cl.headGroup.rotation.x = 0.22 + Math.sin(elapsed * 1.4 + cl.phase) * 0.06;
+        cl.rightArm.rotation.x = -0.82 + Math.sin(elapsed * 1.8 + cl.phase) * 0.14;
+      }
+      yakHeadGroup.rotation.x = Math.sin(elapsed * 0.85) * 0.16;
+      yakHeadGroup.rotation.y = Math.cos(elapsed * 0.5) * 0.12;
+
+      // Distant summit-push climber headlamps twinkle gently on the ridge at night
+      headlampMat.opacity = isNight ? 0.75 + Math.sin(elapsed * 2.2) * 0.18 : 0.0;
 
       // Stream spindrift snow off Everest's summit in the high-altitude jet stream
       const attr = spinGeo.attributes.position as THREE.BufferAttribute;

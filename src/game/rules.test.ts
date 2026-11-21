@@ -127,16 +127,20 @@ import {
   computeAvoidedSidewalkZ,
 } from './sidewalkAvoidance';
 import {
+  PEDESTRIAN_CORNER_BOUND,
   ROAD_ELEVATION_LAYERS,
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
   computeLeashTransform,
+  evaluateCornerTurnPath,
   getOutdoorLodBudgets,
   getSceneryOutdoorBehaviors,
+  getSceneryStreetlightSpec,
   hasStreetTrafficScenery,
   isUrbanStreetScenery,
   stepTwoLaneTraffic,
 } from './outdoorLod';
+import { resolveOutdoorVantageForScenery } from './OutdoorOverlookController';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
   const recipe = getRecipeById('vanilla-oat-latte');
@@ -1919,6 +1923,68 @@ test('Polish Phases 4 & 5: Cyberpunk Neon disables wheeled ground traffic for fl
     'https://ice1.somafm.com/groovesalad-128-mp3',
     'https://ice2.somafm.com/groovesalad-128-mp3',
   ]);
+});
+
+test('Scenery Detail Overhaul Phases 2–5: smooth 90-degree corner turns, 9 unique bilateral streetlight themes, and unobstructed elevated overlook pitch', () => {
+  // 1. C1-continuous 90-degree intersection corner turning behind corner buildings (no mid-road popping)
+  assert.ok(TRAFFIC_X_BOUND >= 44.0);
+  assert.ok(PEDESTRIAN_CORNER_BOUND >= 35.0);
+
+  const straightPose = evaluateCornerTurnPath(10, -11.2, 1, 31.0, 2.8, -1);
+  assert.equal(straightPose.x, 10);
+  assert.equal(straightPose.z, -11.2);
+  assert.equal(straightPose.isOnCrossStreet, false);
+  assert.ok(Math.abs(straightPose.vehicleYaw) < 1e-6);
+
+  const midTurnPose = evaluateCornerTurnPath(31.0 + Math.PI * 0.7, -11.2, 1, 31.0, 2.8, -1);
+  assert.ok(midTurnPose.x > 31.0 && midTurnPose.z < -11.2);
+  assert.equal(midTurnPose.isOnCrossStreet, false);
+
+  const crossStreetPose = evaluateCornerTurnPath(40.0, -11.2, 1, 31.0, 2.8, -1);
+  assert.equal(crossStreetPose.isOnCrossStreet, true);
+  assert.ok(Math.abs(crossStreetPose.x - 33.8) < 1e-6);
+  assert.ok(crossStreetPose.z < -14.0);
+  assert.ok(Math.abs(crossStreetPose.vx) < 1e-6 && crossStreetPose.vz === -1);
+  assert.ok(Math.abs(crossStreetPose.vehicleYaw - Math.PI / 2) < 1e-6);
+
+  // Opposite (-X) corner turns cleanly as well
+  const westCrossPose = evaluateCornerTurnPath(-40.0, -14.1, -1, 31.0, 2.8, -1);
+  assert.equal(westCrossPose.isOnCrossStreet, true);
+  assert.ok(Math.abs(westCrossPose.x - -33.8) < 1e-6);
+  assert.ok(westCrossPose.z < -16.9);
+
+  // 2. All 9 sceneries define distinct bilateral streetlight themes with cliffside low-bollard exemptions
+  const styles = new Set<string>();
+  for (const item of SCENERY_CATALOG) {
+    const spec = getSceneryStreetlightSpec(item.id);
+    assert.equal(spec.bilateral, true, `${item.id} must have bilateral streetlights`);
+    styles.add(spec.style);
+  }
+  assert.equal(styles.size, SCENERY_CATALOG.length, 'Every scenery must have a unique streetlight style');
+  assert.equal(getSceneryStreetlightSpec('hilltop_city_lights').farSideLowOverlookBollards, true);
+  assert.equal(getSceneryStreetlightSpec('switzerland_hilltop').farSideLowOverlookBollards, true);
+  assert.equal(getSceneryStreetlightSpec('busy_street').farSideLowOverlookBollards, false);
+  assert.equal(getSceneryStreetlightSpec('japanese_tranquility').spacingMode, 'balanced_cozy');
+
+  // 3. Elevated cliffside overlooks step to the unobstructed viewing rail pitched gently downward into the valley
+  const hilltopOverlook = resolveOutdoorVantageForScenery('overlook', 'hilltop_city_lights');
+  const swissOverlook = resolveOutdoorVantageForScenery('overlook', 'switzerland_hilltop');
+  const eiffelOverlook = resolveOutdoorVantageForScenery('overlook', 'eiffel_tower');
+  const busyOverlook = resolveOutdoorVantageForScenery('overlook', 'busy_street');
+  assert.ok(hilltopOverlook.basePitch < -0.15, 'Hilltop overlook must pitch downward into valley');
+  assert.ok(swissOverlook.basePitch < -0.12, 'Switzerland overlook must pitch downward into glacial valley');
+  assert.ok(eiffelOverlook.basePitch < 0, 'Eiffel overlook must pitch gently toward Champ de Mars park');
+  assert.ok(hilltopOverlook.pos[2] <= -17.15 && swissOverlook.pos[2] <= -17.15);
+  assert.ok(busyOverlook.basePitch > 0);
+  // Porch and Look Back presets remain unchanged across sceneries
+  assert.deepEqual(
+    resolveOutdoorVantageForScenery('porch', 'hilltop_city_lights'),
+    resolveOutdoorVantageForScenery('porch', 'busy_street')
+  );
+  assert.deepEqual(
+    resolveOutdoorVantageForScenery('lookback', 'switzerland_hilltop'),
+    resolveOutdoorVantageForScenery('lookback', 'busy_street')
+  );
 });
 
 
