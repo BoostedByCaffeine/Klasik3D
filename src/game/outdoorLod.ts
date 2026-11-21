@@ -648,3 +648,35 @@ export function getSceneryOutdoorBehaviors(
       ];
   }
 }
+
+/**
+ * Deterministic sculpted Rio favela hillside terrain height `y(x, z)`.
+ * Starts flush at y = 0 along the street edge (z >= -17.5), climbs steadily
+ * northward into the hillside (z < -17.5), and dips subtly in the scenic
+ * Guanabara Bay viewing corridor (x in [9, 23]) so Sugarloaf & Christ stay framed.
+ */
+export function getFavelaHillHeight(x: number, z: number): number {
+  if (z >= -17.5) return 0;
+  const depth = Math.min(34, -17.5 - z);
+  const t = depth / 34; // 0 at curb .. 1 at upper ridge (z = -51.5)
+  const baseRise = depth * 0.52 + Math.pow(t, 1.35) * 3.8;
+  const ridgeWave =
+    Math.sin(x * 0.085 + depth * 0.06) * 0.95 * Math.min(1, depth / 6) +
+    Math.cos(x * 0.16 - depth * 0.09) * 0.45 * Math.min(1, depth / 8);
+  // Gentle saddle dip in the scenic bay corridor (x ≈ 15.5) on upper tiers
+  const bayDx = (x - 15.5) / 8.5;
+  const baySaddle = Math.exp(-bayDx * bayDx) * Math.max(0, t - 0.18) * 5.2;
+  return Math.max(0, baseRise + ridgeWave - baySaddle);
+}
+
+/**
+ * Computes exact grounded main-floor elevation for a terraced favela house
+ * seated at `(x, z)` with depth `d`, preventing both floating and slope burial
+ * when paired with a `-4.5` concrete retaining-wall foundation plinth.
+ */
+export function computeFavelaHouseFloorY(x: number, z: number, depth: number): number {
+  const frontH = getFavelaHillHeight(x, z + depth * 0.5);
+  const backH = getFavelaHillHeight(x, z - depth * 0.5);
+  return Math.max(frontH, backH - 0.85) + 0.15;
+}
+

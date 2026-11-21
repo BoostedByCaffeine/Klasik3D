@@ -433,6 +433,9 @@ interface PooledPedestrian {
 interface PooledTrafficVehicle {
   group: THREE.Group;
   wheels: THREE.Object3D[];
+  bodyMat: THREE.MeshStandardMaterial;
+  baseColorHex: number;
+  cyberTrimGroup: THREE.Group;
   laneZ: number;
   laneY: number;
   x: number;
@@ -4685,9 +4688,21 @@ export class KlasikCafeScene3D {
       sceneryId: sc,
     });
 
-    // 3. Apply Traffic Pool LOD Budget (alternating indices preserve balanced Eastbound/Westbound lanes!)
+    // 3. Apply Traffic Pool LOD Budget + Cyberpunk Neon Sleek Cyber-Coupe Styling!
+    const isCyberScenery = sc === 'cyberpunk_neon';
     this.trafficPool.forEach((v, idx) => {
       v.group.visible = idx < budgets.maxTraffic;
+      if (isCyberScenery) {
+        v.bodyMat.color.setHex(idx % 2 === 0 ? 0x0f172a : 0x1e293b);
+        v.bodyMat.metalness = 0.74;
+        v.bodyMat.roughness = 0.18;
+        v.cyberTrimGroup.visible = true;
+      } else {
+        v.bodyMat.color.setHex(v.baseColorHex);
+        v.bodyMat.metalness = 0.32;
+        v.bodyMat.roughness = 0.28;
+        v.cyberTrimGroup.visible = false;
+      }
     });
 
     // 4. Apply Pedestrian Pool LOD Budget & Outdoor-Only Scenery Behaviors
@@ -9061,7 +9076,12 @@ export class KlasikCafeScene3D {
     const createStylizedVehicle = (
       variant: 'hatchback' | 'keivan' | 'sedan' | 'coupe',
       bodyHex: number
-    ): { group: THREE.Group; wheels: THREE.Object3D[] } => {
+    ): {
+      group: THREE.Group;
+      wheels: THREE.Object3D[];
+      bodyMat: THREE.MeshStandardMaterial;
+      cyberTrimGroup: THREE.Group;
+    } => {
       const group = new THREE.Group();
       const bodyMat = new THREE.MeshStandardMaterial({
         color: bodyHex,
@@ -9172,13 +9192,28 @@ export class KlasikCafeScene3D {
         wheels.push(wheelPivot);
       });
 
+      // Sleek Cyberpunk Neon Trim Strips & Rear Lightbar (hidden on non-cyber sceneries!)
+      const cyberTrimGroup = new THREE.Group();
+      const cyberNeonHex = bodyHex === 0x3b82f6 || bodyHex === 0x10b981 || bodyHex === 0x94a3b8 ? 0x22d3ee : 0xec4899;
+      const cyberNeonMat = new THREE.MeshBasicMaterial({ color: cyberNeonHex });
+      [-dims.w / 2 - 0.015, dims.w / 2 + 0.015].forEach((sz) => {
+        const sideSkirt = new THREE.Mesh(new THREE.BoxGeometry(dims.len * 0.86, 0.055, 0.025), cyberNeonMat);
+        sideSkirt.position.set(0, 0.34, sz);
+        cyberTrimGroup.add(sideSkirt);
+      });
+      const rearBar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.065, dims.w * 0.88), cyberNeonMat);
+      rearBar.position.set(-dims.len / 2 - 0.02, 0.27 + dims.hullH * 0.72, 0);
+      cyberTrimGroup.add(rearBar);
+      cyberTrimGroup.visible = false;
+      group.add(cyberTrimGroup);
+
       group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           child.castShadow = false;
         }
       });
 
-      return { group, wheels };
+      return { group, wheels, bodyMat, cyberTrimGroup };
     };
 
     const trafficDefs: Array<{
@@ -9209,6 +9244,9 @@ export class KlasikCafeScene3D {
       this.trafficPool.push({
         group: built.group,
         wheels: built.wheels,
+        bodyMat: built.bodyMat,
+        baseColorHex: def.color,
+        cyberTrimGroup: built.cyberTrimGroup,
         laneZ: def.laneZ,
         laneY: def.laneY,
         x: def.x,

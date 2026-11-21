@@ -685,7 +685,7 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     update: (dt, elapsed, isNight, climateState, weather) => {
       ctx.update(isNight, climateState, elapsed);
       towerMat.emissiveIntensity = isNight ? 1.35 : 0.72;
-      groundMat.roughness = weather === 'rainy' ? 0.12 : 0.24;
+      groundMat.roughness = weather.startsWith('rainy') ? 0.12 : 0.24;
       puddleCyanMat.emissiveIntensity = isNight ? 0.92 : 0.45;
       puddleMagMat.emissiveIntensity = isNight ? 0.88 : 0.42;
       holoBowlGroup.rotation.y = elapsed * 0.9;
@@ -1487,7 +1487,7 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
       boulevardTreeMat.color.setHex(climateState === 'winter' ? 0xd8e6f2 : 0x3a6b35);
       parkLawnMat.color.setHex(climateState === 'winter' ? 0xdce8f4 : 0x3b8640);
       seineMat.color.setHex(isNight ? 0x0b2545 : 0x1d4e68);
-      const isRain = weather === 'rainy' || weather === 'storm';
+      const isRain = weather.startsWith('rainy');
       cobbleMat.roughness = isRain ? 0.25 : 0.82;
       parkGravelMat.roughness = isRain ? 0.36 : 0.92;
       picnicRainHideGroup.visible = !isRain;
@@ -1663,6 +1663,66 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     }
   }
 
+  // Authentic Yellow Swiss Wanderweg Hiking Diamond Signpost at right overlook corner
+  const wanderMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.55 });
+  const redTipMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.58 });
+  const wanderPost = new THREE.Group();
+  wanderPost.position.set(8.6, 0, -17.18);
+  const wPole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 2.55, 6), chaletWoodMat);
+  wPole.position.y = 1.28;
+  wanderPost.add(wPole);
+  [
+    { y: 2.32, ry: 0.25, dir: 1 },
+    { y: 2.02, ry: -0.35, dir: -1 },
+  ].forEach((b) => {
+    const bg = new THREE.Group();
+    bg.position.y = b.y;
+    bg.rotation.y = b.ry;
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.2, 0.035), wanderMat);
+    blade.position.x = b.dir * 0.42;
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.205, 0.04), redTipMat);
+    tip.position.x = b.dir * 0.82;
+    bg.add(blade, tip);
+    wanderPost.add(bg);
+  });
+  const diamond = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.045), wanderMat);
+  diamond.position.set(0, 1.72, 0.05);
+  diamond.rotation.z = Math.PI / 4;
+  wanderPost.add(diamond);
+  root.add(wanderPost);
+
+  // Wooden Alpine Ski & Snowboard Racks beside overlook corners
+  const skiMats = [
+    new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.32, metalness: 0.25 }),
+    new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.32, metalness: 0.25 }),
+    new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.34, metalness: 0.22 }),
+    new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.34, metalness: 0.22 }),
+  ];
+  [-12.6, 10.6].forEach((rx, rIdx) => {
+    const rack = new THREE.Group();
+    rack.position.set(rx, 0, -17.02);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 0.34), chaletWoodMat);
+    frame.position.y = 0.05;
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.07, 0.08), chaletWoodMat);
+    bar.position.set(0, 0.92, -0.1);
+    [-0.68, 0.68].forEach((px) => {
+      const sidePost = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, 0.08), chaletWoodMat);
+      sidePost.position.set(px, 0.5, -0.1);
+      rack.add(sidePost);
+    });
+    for (let s = 0; s < 4; s++) {
+      const ski = new THREE.Mesh(
+        new THREE.BoxGeometry(s === 3 ? 0.24 : 0.1, s === 3 ? 1.48 : 1.65, 0.03),
+        skiMats[(s + rIdx) % skiMats.length]
+      );
+      ski.position.set(-0.46 + s * 0.31, 0.82, 0.02);
+      ski.rotation.x = -0.14;
+      rack.add(ski);
+    }
+    rack.add(frame, bar);
+    root.add(rack);
+  });
+
   // Sculpted Steep Snow-Dusted Rocky Alpine Cliff plunging cleanly DOWN from z = -17.6 (y = -0.35)
   // to the deep glacial valley floor (y = -28.0 at z = -50.6) — upward-facing normals, zero flat gray wall!
   const swissCliffGeo = new THREE.PlaneGeometry(196, 33, 24, 6);
@@ -1823,27 +1883,156 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   church.add(nave, naveRoof, steeple, spire);
   root.add(church);
 
-  // Majestic snow-capped Swiss Alpine peaks towering across the 180-degree front horizon
-  const peakSpecs: Array<[number, number, number, number]> = [
-    [-88, -104, 38, 62],
-    [-54, -122, 34, 68],
-    [-18, -132, 38, 76],
-    [18, -126, 36, 72],
-    [54, -118, 34, 64],
-    [88, -102, 38, 58],
+  // Classic Swiss Stone Arch Valley Viaduct Bridge spanning the glacial valley floor (Landwasser style!)
+  const viaductGroup = new THREE.Group();
+  viaductGroup.position.set(6, -28.0, -58.5);
+  viaductGroup.rotation.y = 0.07;
+  const vDeck = new THREE.Mesh(new THREE.BoxGeometry(66, 1.15, 2.8), stoneRetainingMat);
+  vDeck.position.y = 8.4;
+  viaductGroup.add(vDeck);
+  const vParapetF = new THREE.Mesh(new THREE.BoxGeometry(66, 0.52, 0.24), stoneRetainingMat);
+  vParapetF.position.set(0, 9.2, 1.28);
+  const vParapetB = new THREE.Mesh(new THREE.BoxGeometry(66, 0.52, 0.24), stoneRetainingMat);
+  vParapetB.position.set(0, 9.2, -1.28);
+  viaductGroup.add(vParapetF, vParapetB);
+  for (let p = 0; p < 8; p++) {
+    const px = -28 + p * 8.0;
+    const pier = new THREE.Mesh(new THREE.BoxGeometry(2.1, 8.6, 2.5), stoneRetainingMat);
+    pier.position.set(px, 4.1, 0);
+    viaductGroup.add(pier);
+    if (p < 7) {
+      const arch = new THREE.Mesh(
+        new THREE.TorusGeometry(2.95, 0.65, 6, 10, Math.PI),
+        stoneRetainingMat
+      );
+      arch.position.set(px + 4.0, 5.1, 0);
+      viaductGroup.add(arch);
+    }
+  }
+  root.add(viaductGroup);
+
+  // Layered Multi-Ridge Rugged Swiss Alpine Massifs deeply grounded below valley floor (baseY = -36, ZERO uniform floating cones!)
+  const alpineSkirt = new THREE.Mesh(
+    new THREE.BoxGeometry(310, 14, 52),
+    new THREE.MeshStandardMaterial({ color: 0x3b4859, roughness: 0.94, flatShading: true })
+  );
+  alpineSkirt.position.set(0, -33.0, -124);
+  alpineSkirt.userData.alwaysVisibleBackdrop = true;
+  root.add(alpineSkirt);
+
+  const alpineMassifMat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.88,
+    flatShading: true,
+  });
+  const graniteBaseColor = new THREE.Color(0x3f4a5a);
+  const slateMidColor = new THREE.Color(0x5b6b7f);
+  const snowSummitColor = new THREE.Color(0xf1f7ff);
+  const tmpAlpineColor = new THREE.Color();
+
+  // Build organic single-mesh vertex-colored faceted alpine massif (zero sharp cone-on-cone cutoff seams!)
+  const createAlpinePeakMesh = (
+    radius: number,
+    height: number,
+    radialSegs: number,
+    heightSegs: number,
+    seed: number,
+    snowStartRatio: number
+  ): THREE.Mesh => {
+    const geo = new THREE.ConeGeometry(radius, height, radialSegs, heightSegs);
+    const posAttr = geo.attributes.position as THREE.BufferAttribute;
+    const colors = new Float32Array(posAttr.count * 3);
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = posAttr.getX(i);
+      const vy = posAttr.getY(i);
+      const vz = posAttr.getZ(i);
+      const normH = (vy + height * 0.5) / height; // 0 at base, 1 at apex
+      const angle = Math.atan2(vz, vx);
+      // Organic angular crag displacement (preserve apex & base cleanly)
+      const cragFactor = Math.sin(normH * Math.PI);
+      const radialWarp =
+        1 +
+        cragFactor *
+          (0.14 * Math.sin(angle * 3 + seed * 1.7) + 0.08 * Math.cos(angle * 5 - seed * 2.3));
+      posAttr.setXYZ(i, vx * radialWarp, vy, vz * radialWarp);
+
+      // Irregular jagged natural snowline blending dark granite -> mid slate -> gleaming snow
+      const snowLine =
+        snowStartRatio +
+        0.09 * Math.sin(angle * 3 + seed) +
+        0.05 * Math.cos(angle * 4 - seed * 1.4);
+      if (normH < snowLine - 0.14) {
+        const t = Math.max(0, normH / Math.max(0.1, snowLine - 0.14));
+        tmpAlpineColor.lerpColors(graniteBaseColor, slateMidColor, t);
+      } else if (normH < snowLine + 0.08) {
+        const t = (normH - (snowLine - 0.14)) / 0.22;
+        tmpAlpineColor.lerpColors(slateMidColor, snowSummitColor, Math.max(0, Math.min(1, t)));
+      } else {
+        tmpAlpineColor.copy(snowSummitColor);
+      }
+      colors[i * 3] = tmpAlpineColor.r;
+      colors[i * 3 + 1] = tmpAlpineColor.g;
+      colors[i * 3 + 2] = tmpAlpineColor.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, alpineMassifMat);
+  };
+
+  const peakSpecs: Array<{
+    x: number;
+    z: number;
+    r: number;
+    h: number;
+    shoulderDx: number;
+    shoulderScale: number;
+    snowStart: number;
+  }> = [
+    { x: -94, z: -112, r: 44, h: 72, shoulderDx: 18, shoulderScale: 0.68, snowStart: 0.44 },
+    { x: -56, z: -124, r: 42, h: 82, shoulderDx: -16, shoulderScale: 0.72, snowStart: 0.42 },
+    { x: -18, z: -134, r: 46, h: 92, shoulderDx: 19, shoulderScale: 0.74, snowStart: 0.4 },
+    { x: 20, z: -128, r: 44, h: 88, shoulderDx: -17, shoulderScale: 0.7, snowStart: 0.43 },
+    { x: 58, z: -120, r: 42, h: 78, shoulderDx: 16, shoulderScale: 0.68, snowStart: 0.45 },
+    { x: 96, z: -110, r: 44, h: 70, shoulderDx: -18, shoulderScale: 0.66, snowStart: 0.46 },
   ];
-  peakSpecs.forEach(([px, pz, r, h]) => {
-    const base = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), rockMat);
-    base.position.set(px, h * 0.34 - 24, pz);
-    root.add(base);
-    const cap = new THREE.Mesh(new THREE.ConeGeometry(r * 0.56, h * 0.56, 7), snowPeakMat);
-    cap.position.set(px, h * 0.62 - 24, pz);
-    root.add(cap);
+  peakSpecs.forEach((pk, idx) => {
+    const massif = new THREE.Group();
+    const mainPeak = createAlpinePeakMesh(pk.r, pk.h, 7, 6, idx * 1.9 + 0.4, pk.snowStart);
+    mainPeak.scale.set(1.18, 1.0, 0.82);
+    mainPeak.rotation.y = idx * 0.55;
+    mainPeak.position.set(pk.x, -36.0 + pk.h * 0.5, pk.z);
+    massif.add(mainPeak);
+
+    const shH = pk.h * pk.shoulderScale;
+    const shoulder = createAlpinePeakMesh(
+      pk.r * 0.72,
+      shH,
+      6,
+      5,
+      idx * 2.7 + 1.3,
+      pk.snowStart + 0.08
+    );
+    shoulder.scale.set(1.22, 1.0, 0.78);
+    shoulder.rotation.y = idx * 0.9 + 0.6;
+    shoulder.position.set(pk.x + pk.shoulderDx, -36.0 + shH * 0.5, pk.z + 10);
+    massif.add(shoulder);
+
+    massif.userData.alwaysVisibleBackdrop = true;
+    root.add(massif);
   });
 
-  // Distant Animated High-Altitude Alpine Ski Gondola / Cable Car spanning between snowy peaks!
+  // Distant Animated High-Altitude Alpine Ski Gondola anchored cleanly to twin mountain pylons!
   const gondolaStart = new THREE.Vector3(-42, 8.5, -96);
   const gondolaEnd = new THREE.Vector3(24, 15.5, -102);
+  const gondolaPylonMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7, metalness: 0.45 });
+  [gondolaStart, gondolaEnd].forEach((pt) => {
+    const pylonH = pt.y + 30;
+    const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.72, pylonH, 6), gondolaPylonMat);
+    pylon.position.set(pt.x, pt.y - pylonH * 0.5, pt.z);
+    const crossArm = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.35, 0.45), gondolaPylonMat);
+    crossArm.position.copy(pt);
+    root.add(pylon, crossArm);
+  });
   const gondolaCable = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([gondolaStart, gondolaEnd]),
     new THREE.LineBasicMaterial({ color: 0x334155 })
@@ -2268,13 +2457,13 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
     roughness: 0.78,
   });
   [
-    [-6.4, -18.4],
-    [6.4, -18.4],
-    [-2.6, -26.5],
-    [3.8, -32.0],
-  ].forEach(([px, pz], idx) => {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.75, 7), woodMat);
-    post.position.set(px, 1.38, pz);
+    [-6.4, -18.4, 3.85],
+    [6.4, -18.4, 3.85],
+    [-2.6, -26.5, 2.75],
+    [3.8, -32.0, 2.75],
+  ].forEach(([px, pz, postH], idx) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, postH, 7), woodMat);
+    post.position.set(px, postH * 0.5, pz);
     root.add(post);
     if (idx === 1) {
       const signBoard = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.68, 0.08), signMat);
@@ -2283,24 +2472,24 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
       root.add(signBoard);
     }
     const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.28, 6), lanternMat);
-    lantern.position.set(px, 2.74, pz);
+    lantern.position.set(px, postH, pz);
     root.add(lantern);
   });
 
-  // Fluttering Colorful Tibetan Prayer Flag Lines anchored to the Chorten & Trail Poles
+  // Fluttering Colorful Tibetan Prayer Flag Lines anchored overhead so Everest's central summit stays cleanly framed!
   const flagColors = [0x2563eb, 0xf8fafc, 0xdc2626, 0x16a34a, 0xeab308];
   const prayerFlags: Array<{ mesh: THREE.Mesh; baseRotX: number; phase: number }> = [];
   const lineRuns: Array<[THREE.Vector3, THREE.Vector3]> = [
-    [new THREE.Vector3(-6.4, 2.6, -18.4), new THREE.Vector3(6.4, 2.6, -18.4)],
-    [new THREE.Vector3(-6.4, 2.45, -18.4), new THREE.Vector3(-2.6, 2.45, -26.5)],
-    [new THREE.Vector3(6.4, 2.45, -18.4), new THREE.Vector3(3.8, 2.45, -32.0)],
+    [new THREE.Vector3(-6.4, 3.68, -18.4), new THREE.Vector3(6.4, 3.68, -18.4)],
+    [new THREE.Vector3(-6.4, 3.2, -18.4), new THREE.Vector3(-2.6, 2.52, -26.5)],
+    [new THREE.Vector3(6.4, 3.2, -18.4), new THREE.Vector3(3.8, 2.52, -32.0)],
   ];
   const ropeMat = new THREE.LineBasicMaterial({ color: 0x1e293b });
-  const flagGeo = new THREE.PlaneGeometry(0.38, 0.48);
+  const flagGeo = new THREE.PlaneGeometry(0.36, 0.44);
 
   lineRuns.forEach(([a, b], runIdx) => {
     const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-    mid.y -= 0.42;
+    mid.y -= runIdx === 0 ? 0.28 : 0.38;
     const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
     root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(16)), ropeMat));
 
@@ -2313,7 +2502,7 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
         side: THREE.DoubleSide,
       });
       const flag = new THREE.Mesh(flagGeo, fMat);
-      flag.position.set(pt.x, pt.y - 0.24, pt.z);
+      flag.position.set(pt.x, pt.y - 0.22, pt.z);
       root.add(flag);
       prayerFlags.push({ mesh: flag, baseRotX: 0.14, phase: f * 0.7 + runIdx * 1.9 });
     }
@@ -2678,28 +2867,68 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   hitchPost.position.set(-11.4, 0.57, -18.8);
   root.add(hitchPost);
 
-  // 5. Jagged Translucent-Cyan Khumbu Icefall Glacial Seracs flanking upper valley
-  const seracMat = new THREE.MeshStandardMaterial({
-    color: 0xbae6fd,
-    emissive: 0x0284c7,
-    emissiveIntensity: 0.22,
-    roughness: 0.26,
-    metalness: 0.12,
+  // 5. Distant Snow-Covered Himalayan Alpine Conifer Forest Belt spanning continuously across the base of all 3 peaks!
+  // Replaces the awkward scattered pale triangles with a lush far-away pine tree line tinted in cool atmospheric blue-white haze.
+  const distantFoothillGeo = new THREE.PlaneGeometry(188, 26, 24, 5);
+  distantFoothillGeo.rotateX(-Math.PI / 2);
+  const dfPos = distantFoothillGeo.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < dfPos.count; i++) {
+    const vx = dfPos.getX(i);
+    const vz = dfPos.getZ(i); // +13 (closer) .. -13 (mountain foot)
+    const t = Math.max(0, Math.min(1, (13 - vz) / 26));
+    const hillY = t * 4.2 + Math.sin(vx * 0.08 + t * 2.4) * 1.15 * Math.sin(t * Math.PI);
+    dfPos.setY(i, hillY);
+  }
+  distantFoothillGeo.translate(0, -0.05, -66.0);
+  distantFoothillGeo.computeVertexNormals();
+  const distantFoothillMesh = new THREE.Mesh(
+    distantFoothillGeo,
+    new THREE.MeshStandardMaterial({ color: 0xcbdff0, roughness: 0.9, flatShading: true })
+  );
+  distantFoothillMesh.userData.alwaysVisibleBackdrop = true;
+  root.add(distantFoothillMesh);
+
+  const farWoodsCount = 240;
+  const farPineMat = new THREE.MeshStandardMaterial({
+    color: 0x3b5968, // Cool atmospheric blue-tinted distant evergreen pine
+    roughness: 0.9,
     flatShading: true,
   });
-  [
-    { x: -20, z: -50, r: 5.5, h: 11.5, rz: 0.14 },
-    { x: -13, z: -56, r: 4.8, h: 9.8, rz: -0.1 },
-    { x: 14, z: -54, r: 5.2, h: 10.6, rz: -0.15 },
-    { x: 22, z: -58, r: 6.2, h: 13.0, rz: 0.12 },
-    { x: -6, z: -64, r: 4.2, h: 8.5, rz: 0.08 },
-    { x: 7, z: -62, r: 4.4, h: 9.0, rz: -0.09 },
-  ].forEach((sr) => {
-    const serac = new THREE.Mesh(new THREE.ConeGeometry(sr.r, sr.h, 5), seracMat);
-    serac.position.set(sr.x, sr.h * 0.42, sr.z);
-    serac.rotation.z = sr.rz;
-    root.add(serac);
+  const farSnowCapMat = new THREE.MeshStandardMaterial({
+    color: 0xdcebf7, // Soft cool distance-tinted snow blankets on distant pine crowns
+    roughness: 0.88,
+    flatShading: true,
   });
+  const farPineInst = new THREE.InstancedMesh(new THREE.ConeGeometry(1.1, 3.6, 5), farPineMat, farWoodsCount);
+  const farSnowInst = new THREE.InstancedMesh(new THREE.ConeGeometry(0.84, 2.25, 5), farSnowCapMat, farWoodsCount);
+  for (let i = 0; i < farWoodsCount; i++) {
+    const h1 = Math.abs(Math.sin(i * 12.9898 + 2.3) * 43758.5453) % 1;
+    const h2 = Math.abs(Math.cos(i * 78.233 + 1.1) * 19341.23) % 1;
+    const h3 = Math.abs(Math.sin(i * 45.164 + 4.7) * 28461.17) % 1;
+    // Span continuously from x = -86 to +86 across left Nuptse, central Everest, and right Lhotse bases
+    const tx = -86 + (i / (farWoodsCount - 1)) * 172 + (h1 - 0.5) * 4.5;
+    const tz = -54.5 - h2 * 22.0;
+    const depthFrac = Math.max(0, Math.min(1, (-53.0 - tz) / 26.0));
+    const groundY = depthFrac * 4.2 + Math.sin(tx * 0.08 + depthFrac * 2.4) * 1.15 * Math.sin(depthFrac * Math.PI);
+    // Keep miniature distant scale (0.58..1.05) so the 3 peaks tower dramatically above the tree line
+    const sc = (0.58 + h3 * 0.44) * (1.0 - depthFrac * 0.22);
+
+    dummy.position.set(tx, groundY + 1.55 * sc, tz);
+    dummy.rotation.set(0, h1 * Math.PI * 2, 0);
+    dummy.scale.set(sc * 1.12, sc, sc * 1.12);
+    dummy.updateMatrix();
+    farPineInst.setMatrixAt(i, dummy.matrix);
+
+    dummy.position.set(tx, groundY + 2.35 * sc, tz);
+    dummy.scale.set(sc * 1.06, sc, sc * 1.06);
+    dummy.updateMatrix();
+    farSnowInst.setMatrixAt(i, dummy.matrix);
+  }
+  farPineInst.instanceMatrix.needsUpdate = true;
+  farSnowInst.instanceMatrix.needsUpdate = true;
+  farPineInst.userData.alwaysVisibleBackdrop = true;
+  farSnowInst.userData.alwaysVisibleBackdrop = true;
+  root.add(farPineInst, farSnowInst);
 
   // 6. Distant Twinkling Night Ridge Climber Headlamp Dots ascending Everest's Southeast Ridge!
   const headlampCount = 14;
@@ -2741,7 +2970,6 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
       lanternMat.emissiveIntensity = isNight ? 2.2 : 1.15;
       tentYellowMat.emissiveIntensity = isNight ? 0.72 : 0.14;
       tentOrangeMat.emissiveIntensity = isNight ? 0.72 : 0.14;
-      seracMat.emissiveIntensity = isNight ? 0.42 : 0.14;
 
       // Flickering expedition camp brazier & rising orange ember sparks
       const flicker = 1 + Math.sin(elapsed * 11.5) * 0.16 + Math.cos(elapsed * 7.2) * 0.1;

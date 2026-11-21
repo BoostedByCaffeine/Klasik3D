@@ -9,6 +9,10 @@ import {
   addSurrounding360Context,
   createProceduralFacadeTextures,
 } from './surroundingContext';
+import {
+  computeFavelaHouseFloorY,
+  getFavelaHillHeight,
+} from '../outdoorLod';
 
 // ============================================================================
 // PHASE 3: OUTDOOR SCENERIES 1–5 (HIGH-DETAIL MOBILE-OPTIMIZED OVERHAUL)
@@ -1101,19 +1105,84 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     });
   });
 
-  // Winding sandy Bicol plains dirt trail connecting viewing plaza past Cagsawa Ruins toward rice fields
-  const trailMat = new THREE.MeshStandardMaterial({ color: 0xb99b72, roughness: 0.94 });
-  [
-    { x: -1.5, z: -27.5, w: 3.4, l: 10, ry: -0.18 },
-    { x: 1.4, z: -35.5, w: 2.8, l: 11, ry: 0.28 },
-    { x: -1.8, z: -44.0, w: 2.3, l: 10, ry: -0.22 },
-  ].forEach((seg) => {
-    const p = new THREE.Mesh(new THREE.PlaneGeometry(seg.w, seg.l), trailMat);
-    p.rotation.x = -Math.PI / 2;
-    p.rotation.z = seg.ry;
-    p.position.set(seg.x, 0.025, seg.z);
-    root.add(p);
+  // Single smooth continuous curved dirt-and-stone trail winding organically from viewing terrace past Cagsawa Ruins
+  const trailMat = new THREE.MeshStandardMaterial({
+    color: 0xb99b72,
+    roughness: 0.94,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
   });
+  const trailCurbMat = new THREE.MeshStandardMaterial({
+    color: 0x7c7465,
+    roughness: 0.96,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  const trailCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-1.4, 0.028, -21.2),
+    new THREE.Vector3(-2.1, 0.028, -26.8),
+    new THREE.Vector3(0.4, 0.028, -32.6),
+    new THREE.Vector3(1.5, 0.028, -38.8),
+    new THREE.Vector3(-1.1, 0.028, -45.5),
+    new THREE.Vector3(-2.6, 0.028, -52.5),
+  ]);
+  const buildTrailRibbon = (halfWidthStart: number, halfWidthEnd: number, yVal: number, segs: number) => {
+    const pos: number[] = [];
+    const norm: number[] = [];
+    const indices: number[] = [];
+    const p = new THREE.Vector3();
+    const tang = new THREE.Vector3();
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      trailCurve.getPoint(t, p);
+      trailCurve.getTangent(t, tang);
+      const rx = -tang.z;
+      const rz = tang.x;
+      const len = Math.hypot(rx, rz) || 1;
+      const hw = halfWidthStart + (halfWidthEnd - halfWidthStart) * t;
+      pos.push(p.x - (rx / len) * hw, yVal, p.z - (rz / len) * hw);
+      pos.push(p.x + (rx / len) * hw, yVal, p.z + (rz / len) * hw);
+      norm.push(0, 1, 0, 0, 1, 0);
+      if (i < segs) {
+        const b = i * 2;
+        indices.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    g.setIndex(indices);
+    return g;
+  };
+  const trailBorderRibbon = new THREE.Mesh(buildTrailRibbon(2.02, 1.32, 0.022, 28), trailCurbMat);
+  const trailCenterRibbon = new THREE.Mesh(buildTrailRibbon(1.68, 1.04, 0.032, 28), trailMat);
+  root.add(trailBorderRibbon, trailCenterRibbon);
+
+  // Embedded river-stone stepping pavers following the curved trail (1 InstancedMesh)
+  const paverCount = 26;
+  const pavers = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.42, 0.46, 0.04, 7), trailCurbMat, paverCount);
+  const paverDummy = new THREE.Object3D();
+  const paverPt = new THREE.Vector3();
+  const paverTan = new THREE.Vector3();
+  for (let i = 0; i < paverCount; i++) {
+    const t = (i + 0.5) / paverCount;
+    trailCurve.getPoint(t, paverPt);
+    trailCurve.getTangent(t, paverTan);
+    const sideOffset = (i % 2 === 0 ? -1 : 1) * 0.34;
+    paverDummy.position.set(
+      paverPt.x - paverTan.z * sideOffset,
+      0.036,
+      paverPt.z + paverTan.x * sideOffset
+    );
+    paverDummy.rotation.set(0, i * 1.1, 0);
+    paverDummy.scale.set(0.92 + (i % 3) * 0.14, 1, 0.72 + (i % 2) * 0.18);
+    paverDummy.updateMatrix();
+    pavers.setMatrixAt(i, paverDummy.matrix);
+  }
+  pavers.instanceMatrix.needsUpdate = true;
+  root.add(pavers);
 
   // Colorful Fiesta Banderitas (festive pennant strings across viewing plaza bamboo poles)
   const banderitaColors = [0xef4444, 0xfacc15, 0x3b82f6, 0x22c55e, 0xf97316, 0xec4899];
@@ -1372,7 +1441,7 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
       stallBulbMat.emissiveIntensity = isNight ? 2.1 : 0.3;
       kuboWinMat.emissiveIntensity = isNight ? 1.75 : 0.14;
       waterStripMat.color.setHex(isNight ? 0x164e63 : 0x38bdf8);
-      const isRain = weather === 'rainy' || weather === 'storm';
+      const isRain = weather.startsWith('rainy');
 
       for (let i = 0; i < tourists.length; i++) {
         const t = tourists[i];
@@ -1559,23 +1628,24 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
 
   // Sculpted Descending Tagaytay / Baguio Mountain Cliff Escarpment
   // Starts flush underneath the z = -17.5 stone parapet (y = -0.35) and plunges smoothly
-  // down to the deep valley floor (y = -32.0 at z = -51.6) with upward-facing normals (zero flat wall glitch!).
-  const cliffGeo = new THREE.PlaneGeometry(196, 34, 24, 6);
+  // down to the grounded valley floor (y = -24.0 at z = -48.6) with upward-facing normals.
+  const valleyY = -24.0;
+  const cliffGeo = new THREE.PlaneGeometry(196, 31, 24, 6);
   cliffGeo.rotateX(-Math.PI / 2);
   const cliffPosAttr = cliffGeo.attributes.position as THREE.BufferAttribute;
   const cliffColors = new Float32Array(cliffPosAttr.count * 3);
   const cliffTopCol = new THREE.Color(0x284331);
-  const cliffMidCol = new THREE.Color(0x1f2d2c);
-  const cliffBotCol = new THREE.Color(0x111a24);
+  const cliffMidCol = new THREE.Color(0x1e2c2b);
+  const cliffBotCol = new THREE.Color(0x101924);
   const tmpCliffC = new THREE.Color();
   for (let i = 0; i < cliffPosAttr.count; i++) {
     const vx = cliffPosAttr.getX(i);
-    const vz = cliffPosAttr.getZ(i); // +17 (near rim) .. -17 (valley bottom)
-    const t = Math.max(0, Math.min(1, (17 - vz) / 34));
+    const vz = cliffPosAttr.getZ(i); // +15.5 (near rim) .. -15.5 (valley bottom)
+    const t = Math.max(0, Math.min(1, (15.5 - vz) / 31));
     const ridgeNoise =
-      Math.sin(vx * 0.12 + t * 3.8) * 1.35 * Math.sin(t * Math.PI) +
-      Math.cos(vx * 0.27 - t * 2.2) * 0.65 * Math.sin(t * Math.PI);
-    const vy = -0.38 - Math.pow(t, 1.12) * 31.65 + ridgeNoise;
+      Math.sin(vx * 0.12 + t * 3.8) * 1.1 * Math.sin(t * Math.PI) +
+      Math.cos(vx * 0.27 - t * 2.2) * 0.55 * Math.sin(t * Math.PI);
+    const vy = -0.38 - Math.pow(t, 1.1) * 23.68 + ridgeNoise;
     cliffPosAttr.setY(i, vy);
     if (t < 0.45) {
       tmpCliffC.lerpColors(cliffTopCol, cliffMidCol, t / 0.45);
@@ -1586,7 +1656,7 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     cliffColors[i * 3 + 1] = tmpCliffC.g;
     cliffColors[i * 3 + 2] = tmpCliffC.b;
   }
-  cliffGeo.translate(0, 0, -34.6); // Near edge at z = -17.6, far edge at z = -51.6
+  cliffGeo.translate(0, 0, -33.1); // Near edge at z = -17.6, far edge at z = -48.6
   cliffGeo.setAttribute('color', new THREE.BufferAttribute(cliffColors, 3));
   cliffGeo.computeVertexNormals();
   const sculptedCliffMat = new THREE.MeshStandardMaterial({
@@ -1597,35 +1667,47 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   const cliffFace = new THREE.Mesh(cliffGeo, sculptedCliffMat);
   root.add(cliffFace);
 
+  // Continuous dark urban valley floor + subtle district arterial street bands
   const valleyFloor = new THREE.Mesh(
-    new THREE.PlaneGeometry(260, 175),
-    new THREE.MeshStandardMaterial({ color: 0x0c1420, roughness: 0.96 })
+    new THREE.PlaneGeometry(310, 190),
+    new THREE.MeshStandardMaterial({ color: 0x0b121e, roughness: 0.95 })
   );
   valleyFloor.rotation.x = -Math.PI / 2;
-  valleyFloor.position.set(0, -32.0, -104);
+  valleyFloor.position.set(0, valleyY, -112);
+  valleyFloor.userData.alwaysVisibleBackdrop = true;
   root.add(valleyFloor);
 
-  // Layered misty rolling foothills flanking the distant basin rim
-  const foothillMat = new THREE.MeshStandardMaterial({ color: 0x172534, roughness: 0.95, flatShading: true });
-  [
-    [-68, -96, 36, 20],
-    [-28, -118, 42, 24],
-    [22, -120, 44, 25],
-    [66, -98, 38, 22],
-  ].forEach(([fx, fz, fr, fh]) => {
-    const fhMesh = new THREE.Mesh(new THREE.ConeGeometry(fr, fh, 8), foothillMat);
-    fhMesh.position.set(fx, -32 + fh * 0.42, fz);
-    root.add(fhMesh);
-  });
+  // Deeply Grounded Mountain Range Backdrop & Horizon Skirt (baseY <= -38, ZERO floating cones!)
+  const horizonSkirtMat = new THREE.MeshStandardMaterial({ color: 0x111c2b, roughness: 0.96, flatShading: true });
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x162436, roughness: 0.95, flatShading: true });
+  const foothillMat = new THREE.MeshStandardMaterial({ color: 0x1b2b3d, roughness: 0.95, flatShading: true });
 
-  // Distant Cordillera / Tagaytay volcanic ridge silhouettes across the far horizon
-  const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x152232, roughness: 0.95, flatShading: true });
-  [-84, -46, -10, 26, 62, 94].forEach((rx, idx) => {
-    const peak = new THREE.Mesh(
-      new THREE.ConeGeometry(38 + (idx % 2) * 10, 40 + (idx % 3) * 9, 7),
-      ridgeMat
-    );
-    peak.position.set(rx, -14.5, -146 - (idx % 2) * 14);
+  // Solid continuous dark mountain-base apron merging far ridge peaks seamlessly into the valley floor
+  const mountainApron = new THREE.Mesh(new THREE.BoxGeometry(340, 16, 56), horizonSkirtMat);
+  mountainApron.position.set(0, valleyY - 4.0, -142);
+  mountainApron.userData.alwaysVisibleBackdrop = true;
+  root.add(mountainApron);
+
+  // Multi-faceted layered ridge peaks with bases sunk far below valleyY (-38 to -42)
+  [
+    { x: -112, z: -140, r: 52, h: 48, mat: ridgeMat },
+    { x: -70, z: -146, r: 56, h: 58, mat: ridgeMat },
+    { x: -24, z: -152, r: 60, h: 64, mat: ridgeMat },
+    { x: 26, z: -150, r: 58, h: 60, mat: ridgeMat },
+    { x: 74, z: -144, r: 54, h: 54, mat: ridgeMat },
+    { x: 116, z: -138, r: 50, h: 46, mat: ridgeMat },
+    { x: -88, z: -124, r: 44, h: 36, mat: foothillMat },
+    { x: -42, z: -130, r: 46, h: 38, mat: foothillMat },
+    { x: 4, z: -134, r: 48, h: 40, mat: foothillMat },
+    { x: 52, z: -128, r: 46, h: 38, mat: foothillMat },
+    { x: 94, z: -122, r: 42, h: 34, mat: foothillMat },
+  ].forEach((pk, idx) => {
+    const peak = new THREE.Mesh(new THREE.ConeGeometry(pk.r, pk.h, 8), pk.mat);
+    peak.scale.set(1.25, 1.0, 0.78);
+    peak.rotation.y = idx * 0.45;
+    // Base is at -38.0 (14 units below valleyFloor!) so zero floating silhouette edges ever appear
+    peak.position.set(pk.x, -38.0 + pk.h * 0.5, pk.z);
+    peak.userData.alwaysVisibleBackdrop = true;
     root.add(peak);
   });
 
@@ -1635,9 +1717,9 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     const x = -38 + i * 2.15 + Math.sin(i * 2.7) * 0.55;
     if (Math.abs(x) < 9.5) continue;
     const tier = i % 4;
-    const z = -19.2 - tier * 3.0;
-    const tSlope = Math.max(0, Math.min(1, (-17.6 - z) / 34));
-    const y = -0.5 - Math.pow(tSlope, 1.12) * 31.6;
+    const z = -19.2 - tier * 2.8;
+    const tSlope = Math.max(0, Math.min(1, (-17.6 - z) / 31));
+    const y = -0.5 - Math.pow(tSlope, 1.1) * 23.6;
     pineCoords.push([x, y, z]);
   }
   const pineTrunks = new THREE.InstancedMesh(
@@ -1678,7 +1760,7 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   pineUpper.instanceMatrix.needsUpdate = true;
   root.add(pineTrunks, pineLower, pineUpper);
 
-  // Cozy Glowing Hillside Resort Cabins perched along mid-cliff terraces below (left & right shoulders)
+  // Cozy Glowing Hillside Resort Cabins anchored cleanly into cliff slopes with concrete retaining plinths
   const resortWinMat = new THREE.MeshStandardMaterial({
     color: 0xfef3c7,
     emissive: 0xf59e0b,
@@ -1686,14 +1768,18 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     roughness: 0.25,
   });
   [
-    [-22, -10.5, -28.5],
-    [-16, -15.8, -34.0],
-    [17, -11.2, -29.2],
-    [25, -16.4, -35.5],
-    [-30, -18.5, -38.0],
-    [32, -19.2, -39.0],
-  ].forEach(([cx, cy, cz]) => {
+    [-22, -28.0],
+    [-16, -33.0],
+    [17, -28.6],
+    [25, -34.2],
+    [-30, -36.5],
+    [32, -37.2],
+  ].forEach(([cx, cz]) => {
+    const tSlope = Math.max(0, Math.min(1, (-17.6 - cz) / 31));
+    const cy = -0.38 - Math.pow(tSlope, 1.1) * 23.68;
     const cg = new THREE.Group();
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(3.3, 4.2, 2.7), stoneParapetMat);
+    plinth.position.y = -2.1;
     const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.0, 2.6), woodMat);
     body.position.y = 1.0;
     const roof = new THREE.Mesh(new THREE.ConeGeometry(2.7, 1.3, 4), ridgeStoneMat);
@@ -1701,146 +1787,288 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     roof.position.y = 2.6;
     const win = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.72), resortWinMat);
     win.position.set(0, 1.15, 1.33);
-    cg.add(body, roof, win);
+    cg.add(plinth, body, roof, win);
     cg.position.set(cx, cy, cz);
+    cg.userData.outdoorOnly = true;
     root.add(cg);
   });
 
-  // Clustered Valley Metropolis Silhouette Districts below (1 InstancedMesh)
-  const valleyTex = createProceduralFacadeTextures('urban', '#1e293b', '#fbbf24');
-  const valleyBlockMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: valleyTex?.map,
-    emissive: 0xfde68a,
-    emissiveMap: valleyTex?.emissiveMap,
-    emissiveIntensity: 0.95,
-    roughness: 0.85,
+  // === CLEAN CURVED VALLEY VIADUCT EXPRESSWAY (routed strictly between city districts!) ===
+  const getViaductZ = (x: number) => -66.5 + Math.sin(x * 0.036) * 6.5;
+  const getViaductDzDx = (x: number) => Math.cos(x * 0.036) * 6.5 * 0.036;
+  const viaductY = valleyY + 3.4; // Elevated 3.4m above valley floor, supported on solid concrete piers
+
+  const viaductDeckMat = new THREE.MeshStandardMaterial({ color: 0x2a313c, roughness: 0.76 });
+  const viaductBarrierMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.84 });
+  const viaductStripeMat = new THREE.MeshStandardMaterial({
+    color: 0xfde68a,
+    emissive: 0xf59e0b,
+    emissiveIntensity: 0.65,
+    roughness: 0.5,
   });
-  const blockCount = 150;
-  const valleyBlocks = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    valleyBlockMat,
-    blockCount
-  );
-  for (let i = 0; i < blockCount; i++) {
-    const district = (i % 7) - 3;
-    const bx = district * 22 + Math.sin(i * 19.3) * 14;
-    const bz = -50 - ((i * 13) % 78);
-    const bw = 2.6 + (i % 4) * 1.15;
-    const bh = 2.4 + ((i * 7) % 11) * 1.05;
-    const bd = 2.6 + ((i * 3) % 4) * 0.95;
-    dummy.position.set(bx, -32.0 + bh / 2, bz);
-    dummy.rotation.set(0, (i % 4) * 0.22, 0);
-    dummy.scale.set(bw, bh, bd);
+
+  const buildViaductStrip = (halfWidth: number, yOff: number, segs: number, xSpan = 210) => {
+    const pos: number[] = [];
+    const norm: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const x = -xSpan * 0.5 + t * xSpan;
+      const z = getViaductZ(x);
+      const dzdx = getViaductDzDx(x);
+      const len = Math.hypot(1, dzdx);
+      const nx = -dzdx / len;
+      const nz = 1 / len;
+      pos.push(x - nx * halfWidth, viaductY + yOff, z - nz * halfWidth);
+      pos.push(x + nx * halfWidth, viaductY + yOff, z + nz * halfWidth);
+      norm.push(0, 1, 0, 0, 1, 0);
+      if (i < segs) {
+        const b = i * 2;
+        indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    g.setIndex(indices);
+    return g;
+  };
+  const viaductDeck = new THREE.Mesh(buildViaductStrip(2.85, 0.0, 44), viaductDeckMat);
+  const viaductCenterLine = new THREE.Mesh(buildViaductStrip(0.16, 0.06, 44), viaductStripeMat);
+  viaductDeck.userData.outdoorOnly = true;
+  viaductCenterLine.userData.outdoorOnly = true;
+  root.add(viaductDeck, viaductCenterLine);
+
+  // Solid Concrete Viaduct Piers & Guardrail Parapets anchored cleanly down to valleyY - 1.5
+  const pierCount = 21;
+  const pierColumns = new THREE.InstancedMesh(new THREE.BoxGeometry(1.15, 5.2, 3.8), viaductBarrierMat, pierCount);
+  const barrierCapL = new THREE.InstancedMesh(new THREE.BoxGeometry(10.2, 0.72, 0.34), viaductBarrierMat, pierCount);
+  const barrierCapR = new THREE.InstancedMesh(new THREE.BoxGeometry(10.2, 0.72, 0.34), viaductBarrierMat, pierCount);
+  const streetPoleInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.08, 0.1, 2.8, 5), darkSteelMat, pierCount);
+  const highwayLampMat = new THREE.MeshStandardMaterial({
+    color: 0xffedd5,
+    emissive: 0xfbbf24,
+    emissiveIntensity: 1.5,
+  });
+  const streetBulbInst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.24, 6, 5), highwayLampMat, pierCount);
+  for (let i = 0; i < pierCount; i++) {
+    const px = -100 + i * 10;
+    const pz = getViaductZ(px);
+    const angle = -Math.atan(getViaductDzDx(px));
+    dummy.position.set(px, viaductY - 2.6, pz);
+    dummy.rotation.set(0, angle, 0);
+    dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
-    valleyBlocks.setMatrixAt(i, dummy.matrix);
+    pierColumns.setMatrixAt(i, dummy.matrix);
+
+    const perpX = Math.sin(angle);
+    const perpZ = Math.cos(angle);
+    dummy.position.set(px - perpX * 2.85, viaductY + 0.18, pz - perpZ * 2.85);
+    dummy.updateMatrix();
+    barrierCapL.setMatrixAt(i, dummy.matrix);
+
+    dummy.position.set(px + perpX * 2.85, viaductY + 0.18, pz + perpZ * 2.85);
+    dummy.updateMatrix();
+    barrierCapR.setMatrixAt(i, dummy.matrix);
+
+    dummy.position.set(px, viaductY + 1.4, pz);
+    dummy.rotation.set(0, 0, 0);
+    dummy.updateMatrix();
+    streetPoleInst.setMatrixAt(i, dummy.matrix);
+
+    dummy.position.set(px, viaductY + 2.85, pz);
+    dummy.updateMatrix();
+    streetBulbInst.setMatrixAt(i, dummy.matrix);
   }
-  valleyBlocks.instanceMatrix.needsUpdate = true;
-  root.add(valleyBlocks);
+  pierColumns.instanceMatrix.needsUpdate = true;
+  barrierCapL.instanceMatrix.needsUpdate = true;
+  barrierCapR.instanceMatrix.needsUpdate = true;
+  streetPoleInst.instanceMatrix.needsUpdate = true;
+  streetBulbInst.instanceMatrix.needsUpdate = true;
+  pierColumns.userData.outdoorOnly = true;
+  barrierCapL.userData.outdoorOnly = true;
+  barrierCapR.userData.outdoorOnly = true;
+  streetPoleInst.userData.outdoorOnly = true;
+  streetBulbInst.userData.outdoorOnly = true;
+  root.add(pierColumns, barrierCapL, barrierCapR, streetPoleInst, streetBulbInst);
 
-  // Winding glowing valley highway ribbons + animated moving white headlights & red taillights!
-  const highwayGlowMat = new THREE.MeshBasicMaterial({
-    color: 0xf59e0b,
-    transparent: true,
-    opacity: 0.44,
-  });
-  [-56, -78, -104].forEach((hz, idx) => {
-    const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(185, 1.45), highwayGlowMat);
-    ribbon.rotation.x = -Math.PI / 2;
-    ribbon.rotation.z = idx === 1 ? 0.08 : -0.05;
-    ribbon.position.set(0, -31.82, hz);
-    root.add(ribbon);
-  });
-
-  const carStreakCount = 48;
+  // Subtle Low-Profile Moving Headlights & Taillights hugging the curved viaduct highway deck
+  const carStreakCount = 36;
   const carHeadMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
   const carTailMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
   const carHeadStreaks = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1.45, 0.28, 0.42),
+    new THREE.BoxGeometry(0.95, 0.18, 0.28),
     carHeadMat,
     carStreakCount / 2
   );
   const carTailStreaks = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1.45, 0.28, 0.42),
+    new THREE.BoxGeometry(0.95, 0.18, 0.28),
     carTailMat,
     carStreakCount / 2
   );
+  carHeadStreaks.userData.outdoorOnly = true;
+  carTailStreaks.userData.outdoorOnly = true;
   const streakData = Array.from({ length: carStreakCount }, (_, i) => ({
-    x: -85 + ((i * 17) % 170),
-    z: (i % 3 === 0 ? -56 : i % 3 === 1 ? -78 : -104) + (i % 2 === 0 ? -0.45 : 0.45),
+    x: -98 + ((i * 17.3) % 196),
+    laneOffset: i % 2 === 0 ? -1.15 : 1.15,
     dir: (i % 2 === 0 ? 1 : -1) as 1 | -1,
-    speed: 4.8 + (i % 4) * 1.7,
+    speed: 5.5 + (i % 4) * 1.9,
   }));
   root.add(carHeadStreaks, carTailStreaks);
 
-  // 3,600+ Shimmering Valley & Hillside City Lights in ONE THREE.Points draw call!
-  const lightCount = 3600;
-  const positions = new Float32Array(lightCount * 3);
-  const colors = new Float32Array(lightCount * 3);
-  const palette = [
-    new THREE.Color(0xfbbf24), // Sodium gold
-    new THREE.Color(0xfde68a), // Warm incandescent
-    new THREE.Color(0xf97316), // Amber streetlamp
-    new THREE.Color(0x7dd3fc), // Cool LED avenue
-    new THREE.Color(0xffffff), // Crisp tower beacon
-    new THREE.Color(0xfda4af), // Warm coral taillight
-  ];
-  for (let i = 0; i < lightCount; i++) {
-    const h1 = Math.abs(Math.sin(i * 12.9898 + 1.7) * 43758.5453) % 1;
-    const h2 = Math.abs(Math.cos(i * 78.233 + 3.1) * 19341.23) % 1;
-    const h3 = Math.abs(Math.sin(i * 45.164 + 0.9) * 28461.17) % 1;
-
-    let lx: number;
-    let lz: number;
-    let ly: number;
-    if (i < 750) {
-      // Dense golden lights along the 3 winding valley highways
-      const lane = i % 3;
-      lx = (h1 - 0.5) * 190;
-      lz = (lane === 0 ? -56 : lane === 1 ? -78 : -104) + (h2 - 0.5) * 4.2;
-      ly = -31.4 + h3 * 0.6;
-    } else if (i < 1150) {
-      // Twinkling winding mountain-road & hillside resort lights descending the cliff slope
-      const tSlope = 0.22 + h2 * 0.72;
-      lx = (h1 - 0.5) * 140;
-      lz = -17.6 - tSlope * 34;
-      ly = -0.2 - Math.pow(tSlope, 1.12) * 31.4 + 0.8;
-    } else if (i < 2450) {
-      // Clustered metropolitan districts spreading across the entire deep basin floor
-      const cluster = (i % 9) - 4;
-      lx = cluster * 21 + (h1 - 0.5) * 36;
-      lz = -46 - h2 * 82;
-      ly = -31.3 + h3 * 7.2;
-    } else {
-      // Rising Baguio / Tagaytay across-the-valley terraced hillside city lights (visible even from Cafe Porch!)
-      const ridgeClimb = h2; // 0 = lower foothills, 1 = upper ridge slopes
-      lx = (h1 - 0.5) * 210;
-      lz = -78 - ridgeClimb * 62;
-      ly = -16.0 + ridgeClimb * 21.5 + Math.sin(lx * 0.08) * 2.2 + (h3 - 0.5) * 2.4;
-    }
-    positions[i * 3] = lx;
-    positions[i * 3 + 1] = ly;
-    positions[i * 3 + 2] = lz;
-
-    const col = palette[i % palette.length];
-    colors[i * 3] = col.r;
-    colors[i * 3 + 1] = col.g;
-    colors[i * 3 + 2] = col.b;
-  }
-  const lightsGeo = new THREE.BufferGeometry();
-  lightsGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  lightsGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const cityLightsMat = new THREE.PointsMaterial({
-    size: 2.35,
-    vertexColors: true,
-    map: getSharedGlowSpriteTexture(),
-    transparent: true,
-    opacity: 0.94,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  // === DENSE GROUNDED LOW-POLY VALLEY METROPOLIS (3 InstancedMesh batches, ZERO floating dots!) ===
+  const valleyLowTex = createProceduralFacadeTextures('urban', '#1e293b', '#f59e0b');
+  const valleyLowMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: valleyLowTex?.map,
+    emissive: 0xfde68a,
+    emissiveMap: valleyLowTex?.emissiveMap,
+    emissiveIntensity: 0.92,
+    roughness: 0.86,
   });
-  const valleyLights = new THREE.Points(lightsGeo, cityLightsMat);
-  root.add(valleyLights);
+  const valleyTowerTex = createProceduralFacadeTextures('urban', '#172133', '#fbbf24');
+  const valleyTowerMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: valleyTowerTex?.map,
+    emissive: 0xfef3c7,
+    emissiveMap: valleyTowerTex?.emissiveMap,
+    emissiveIntensity: 1.15,
+    roughness: 0.72,
+    metalness: 0.22,
+  });
+  const beaconRedMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
+
+  interface ValleyBlockSpec {
+    x: number;
+    z: number;
+    w: number;
+    h: number;
+    d: number;
+    rot: number;
+  }
+  const lowSpecs: ValleyBlockSpec[] = [];
+  const midSpecs: ValleyBlockSpec[] = [];
+  const tallSpecs: ValleyBlockSpec[] = [];
+
+  // Deterministic pseudo-random helper
+  const hRand = (seed: number) => Math.abs(Math.sin(seed * 12.9898 + 4.1414) * 43758.5453) % 1;
+
+  // Populate dense residential & commercial low-rise blocks cleanly around (never on) the viaduct highway
+  for (let i = 0; i < 240; i++) {
+    const r1 = hRand(i * 3.1 + 1);
+    const r2 = hRand(i * 7.3 + 2);
+    const r3 = hRand(i * 11.7 + 3);
+    const bx = (r1 - 0.5) * 195;
+    const bz = -50.5 - r2 * 64.0;
+    // Keep highway corridor 100% clear of buildings
+    if (Math.abs(bz - getViaductZ(bx)) < 6.8) continue;
+    const bw = 2.8 + r3 * 2.6;
+    const bd = 2.6 + ((i * 5) % 4) * 0.75;
+    const bh = 2.6 + hRand(i * 17.1) * 4.2;
+    lowSpecs.push({ x: bx, z: bz, w: bw, h: bh, d: bd, rot: ((i % 5) - 2) * 0.08 });
+  }
+
+  // Mid-rise districts grouped into 5 natural urban neighborhoods
+  const districtCenters = [
+    [-58, -86],
+    [-22, -82],
+    [14, -84],
+    [50, -88],
+    [-4, -104],
+  ];
+  for (let i = 0; i < 110; i++) {
+    const [dcx, dcz] = districtCenters[i % districtCenters.length];
+    const r1 = hRand(i * 5.7 + 41) - 0.5;
+    const r2 = hRand(i * 9.1 + 73) - 0.5;
+    const bx = dcx + r1 * 30;
+    const bz = dcz + r2 * 24;
+    if (bz > -51 || bz < -118 || Math.abs(bz - getViaductZ(bx)) < 7.5) continue;
+    const bw = 3.2 + hRand(i * 2.9) * 2.5;
+    const bd = 3.0 + hRand(i * 4.3) * 2.2;
+    const bh = 7.2 + hRand(i * 13.7) * 7.5;
+    midSpecs.push({ x: bx, z: bz, w: bw, h: bh, d: bd, rot: ((i % 3) - 1) * 0.06 });
+  }
+
+  // Landmark Downtown Skyscraper Clusters (grounded cleanly on valleyY, visible silhouette through cafe windows!)
+  const skylineCenters = [
+    [-38, -94],
+    [-8, -92],
+    [22, -96],
+    [56, -98],
+  ];
+  for (let i = 0; i < 42; i++) {
+    const [scx, scz] = skylineCenters[i % skylineCenters.length];
+    const r1 = hRand(i * 6.3 + 97) - 0.5;
+    const r2 = hRand(i * 8.9 + 113) - 0.5;
+    const bx = scx + r1 * 22;
+    const bz = scz + r2 * 18;
+    if (Math.abs(bz - getViaductZ(bx)) < 8.5) continue;
+    const bw = 3.6 + hRand(i * 3.7) * 2.8;
+    const bd = 3.6 + hRand(i * 5.1) * 2.6;
+    const bh = 15.5 + hRand(i * 19.3) * 14.5;
+    tallSpecs.push({ x: bx, z: bz, w: bw, h: bh, d: bd, rot: 0 });
+  }
+
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const valleyLowMesh = new THREE.InstancedMesh(unitBox, valleyLowMat, lowSpecs.length);
+  lowSpecs.forEach((b, idx) => {
+    const totalH = b.h + 1.2; // 1.2m sunken plinth below valleyY so ZERO floating!
+    dummy.position.set(b.x, valleyY - 1.2 + totalH * 0.5, b.z);
+    dummy.rotation.set(0, b.rot, 0);
+    dummy.scale.set(b.w, totalH, b.d);
+    dummy.updateMatrix();
+    valleyLowMesh.setMatrixAt(idx, dummy.matrix);
+  });
+  valleyLowMesh.instanceMatrix.needsUpdate = true;
+  valleyLowMesh.userData.outdoorOnly = true;
+
+  const valleyMidMesh = new THREE.InstancedMesh(unitBox, valleyTowerMat, midSpecs.length);
+  midSpecs.forEach((b, idx) => {
+    const totalH = b.h + 1.2;
+    dummy.position.set(b.x, valleyY - 1.2 + totalH * 0.5, b.z);
+    dummy.rotation.set(0, b.rot, 0);
+    dummy.scale.set(b.w, totalH, b.d);
+    dummy.updateMatrix();
+    valleyMidMesh.setMatrixAt(idx, dummy.matrix);
+  });
+  valleyMidMesh.instanceMatrix.needsUpdate = true;
+  valleyMidMesh.userData.outdoorOnly = true;
+
+  const valleyTallMesh = new THREE.InstancedMesh(unitBox, valleyTowerMat, tallSpecs.length);
+  const towerBeacons = new THREE.InstancedMesh(new THREE.SphereGeometry(0.32, 6, 5), beaconRedMat, tallSpecs.length);
+  tallSpecs.forEach((b, idx) => {
+    const totalH = b.h + 1.4;
+    dummy.position.set(b.x, valleyY - 1.4 + totalH * 0.5, b.z);
+    dummy.rotation.set(0, b.rot, 0);
+    dummy.scale.set(b.w, totalH, b.d);
+    dummy.updateMatrix();
+    valleyTallMesh.setMatrixAt(idx, dummy.matrix);
+
+    dummy.position.set(b.x, valleyY + b.h + 0.35, b.z);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    towerBeacons.setMatrixAt(idx, dummy.matrix);
+  });
+  valleyTallMesh.instanceMatrix.needsUpdate = true;
+  towerBeacons.instanceMatrix.needsUpdate = true;
+  valleyTallMesh.userData.alwaysVisibleBackdrop = true;
+  towerBeacons.userData.alwaysVisibleBackdrop = true;
+  root.add(valleyLowMesh, valleyMidMesh, valleyTallMesh, towerBeacons);
+
+  // Subtle street-grid glow bands strictly flush on the valley floor between neighborhoods
+  const avenueGlowMat = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b,
+    transparent: true,
+    opacity: 0.24,
+  });
+  [-54, -84, -102].forEach((az) => {
+    const ave = new THREE.Mesh(new THREE.PlaneGeometry(188, 0.95), avenueGlowMat);
+    ave.rotation.x = -Math.PI / 2;
+    ave.position.set(0, valleyY + 0.08, az);
+    ave.userData.outdoorOnly = true;
+    root.add(ave);
+  });
 
   // Drifting cool highland mist wisps below the lookout parapet
   const mistSprites: THREE.Sprite[] = [];
@@ -1848,13 +2076,14 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     map: getSharedGlowSpriteTexture(),
     color: 0xdbeafe,
     transparent: true,
-    opacity: 0.12,
+    opacity: 0.1,
     depthWrite: false,
   });
-  for (let m = 0; m < 10; m++) {
+  for (let m = 0; m < 8; m++) {
     const sp = new THREE.Sprite(mistMat);
-    sp.position.set(-30 + m * 7.0, -7.5 - (m % 3) * 3.0, -28 - (m % 4) * 11);
-    sp.scale.set(18, 5.2, 1);
+    sp.position.set(-28 + m * 8.2, -6.5 - (m % 3) * 2.5, -26 - (m % 4) * 10);
+    sp.scale.set(17, 4.8, 1);
+    sp.userData.outdoorOnly = true;
     root.add(sp);
     mistSprites.push(sp);
   }
@@ -1872,25 +2101,29 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     },
     update: (dt, elapsed, isNight, climateState) => {
       ctx.update(isNight, climateState, elapsed);
-      cityLightsMat.opacity = isNight
-        ? 0.94 + Math.sin(elapsed * 2.2) * 0.06
-        : 0.42;
-      cityLightsMat.size = isNight ? 2.45 : 1.35;
       stringBulbMat.emissiveIntensity = isNight ? 2.25 : 0.45;
       resortWinMat.emissiveIntensity = isNight ? 2.1 : 0.45;
-      valleyBlockMat.emissiveIntensity = isNight ? 1.55 : 0.18;
-      highwayGlowMat.opacity = isNight ? 0.52 : 0.16;
-      mistMat.opacity = isNight ? 0.09 : 0.15;
+      valleyLowMat.emissiveIntensity = isNight ? 1.55 : 0.18;
+      valleyTowerMat.emissiveIntensity = isNight ? 1.85 : 0.24;
+      highwayLampMat.emissiveIntensity = isNight ? 2.1 : 0.35;
+      viaductStripeMat.emissiveIntensity = isNight ? 0.95 : 0.2;
+      avenueGlowMat.opacity = isNight ? 0.32 : 0.08;
+      mistMat.opacity = isNight ? 0.08 : 0.12;
+      beaconRedMat.color.setHex(Math.sin(elapsed * 2.8) > 0 ? 0xf87171 : 0x7f1d1d);
 
       let hIdx = 0;
       let tIdx = 0;
       for (let i = 0; i < carStreakCount; i++) {
         const s = streakData[i];
         s.x += s.dir * s.speed * dt;
-        if (s.x > 92) s.x = -92;
-        if (s.x < -92) s.x = 92;
-        dummy.position.set(s.x, -31.5, s.z);
-        dummy.rotation.set(0, 0, 0);
+        if (s.x > 100) s.x = -100;
+        if (s.x < -100) s.x = 100;
+        const vz = getViaductZ(s.x);
+        const angle = -Math.atan(getViaductDzDx(s.x));
+        const perpX = Math.sin(angle);
+        const perpZ = Math.cos(angle);
+        dummy.position.set(s.x + perpX * s.laneOffset, viaductY + 0.18, vz + perpZ * s.laneOffset);
+        dummy.rotation.set(0, angle, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
         if (s.dir === 1) {
@@ -1967,10 +2200,10 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   stoneLane.position.set(0, 0.074, -12.6);
   root.add(stoneLane);
 
-  // Granite side drainage curb strips along the Kyoto lane
+  // Granite side drainage curb strips clipped cleanly to main span (x ∈ [-29.2, +29.2], zero T-junction overlap!)
   const drainMat = new THREE.MeshStandardMaterial({ color: 0x4b525a, roughness: 0.86 });
   [-17.3, -7.8].forEach((dz) => {
-    const drain = new THREE.Mesh(new THREE.BoxGeometry(74, 0.06, 0.38), drainMat);
+    const drain = new THREE.Mesh(new THREE.BoxGeometry(58.4, 0.06, 0.38), drainMat);
     drain.position.set(0, 0.072, dz);
     root.add(drain);
   });
@@ -2119,45 +2352,215 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   lanterns.instanceMatrix.needsUpdate = true;
   root.add(lanterns);
 
-  // Carved Granite Toro Stone Lanterns flanking the temple alley opening
+  // === DETAILED KYOTO SHRINE APPROACH LANE LEADING TO THE RED PAGODA ===
+  const vermilionMat = new THREE.MeshStandardMaterial({ color: 0xc8231d, roughness: 0.56 });
+  const basaltMat = new THREE.MeshStandardMaterial({ color: 0x292d33, roughness: 0.88 });
+  const mossyStoneMat = new THREE.MeshStandardMaterial({ color: 0x5c6a5c, roughness: 0.94 });
+  const mapleCrimsonMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.82 });
+  const noboriRedMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.78, side: THREE.DoubleSide });
+  const noboriCreamMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.8, side: THREE.DoubleSide });
+
+  // Staggered Carved Granite Toro Stone Lanterns lining BOTH flanks all the way to the Pagoda (InstancedMesh)
   const toroFlameMat = new THREE.MeshStandardMaterial({
     color: 0xfef3c7,
     emissive: 0xf59e0b,
     emissiveIntensity: 1.4,
   });
+  const toroCoords: Array<[number, number]> = [
+    [-2.55, -18.2], [2.75, -18.2],
+    [-2.65, -22.8], [2.85, -22.8],
+    [-2.65, -26.8], [2.85, -26.8],
+    [-2.65, -31.8], [2.85, -31.8],
+    [-2.65, -36.8], [2.85, -36.8],
+    [-2.65, -41.5], [2.85, -41.5],
+  ];
+  const toroBaseInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.24, 0.62), stoneMat, toroCoords.length);
+  const toroPillarInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.18, 0.95, 6), stoneMat, toroCoords.length);
+  const toroFireInst = new THREE.InstancedMesh(new THREE.BoxGeometry(0.38, 0.36, 0.38), toroFlameMat, toroCoords.length);
+  const toroCapInst = new THREE.InstancedMesh(new THREE.ConeGeometry(0.55, 0.32, 6), stoneMat, toroCoords.length);
+  toroCoords.forEach(([tx, tz], idx) => {
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.position.set(tx, 0.12, tz);
+    dummy.updateMatrix();
+    toroBaseInst.setMatrixAt(idx, dummy.matrix);
+    dummy.position.set(tx, 0.72, tz);
+    dummy.updateMatrix();
+    toroPillarInst.setMatrixAt(idx, dummy.matrix);
+    dummy.position.set(tx, 1.38, tz);
+    dummy.updateMatrix();
+    toroFireInst.setMatrixAt(idx, dummy.matrix);
+    dummy.position.set(tx, 1.72, tz);
+    dummy.updateMatrix();
+    toroCapInst.setMatrixAt(idx, dummy.matrix);
+  });
+  toroBaseInst.instanceMatrix.needsUpdate = true;
+  toroPillarInst.instanceMatrix.needsUpdate = true;
+  toroFireInst.instanceMatrix.needsUpdate = true;
+  toroCapInst.instanceMatrix.needsUpdate = true;
+  root.add(toroBaseInst, toroPillarInst, toroFireInst, toroCapInst);
+
+  // Mossy stone curb borders + low carved granite Tamagaki shrine railings flanking BOTH sides of the approach
+  [-2.35, 2.55].forEach((cx) => {
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 27.6), mossyStoneMat);
+    curb.position.set(cx, 0.11, -31.6);
+    root.add(curb);
+  });
+  const tamagakiPostSpots: Array<[number, number]> = [];
+  const tamagakiSpanZs = [-20.4, -24.8, -34.2, -39.2];
+  [-2.82, 3.02].forEach((rx) => {
+    tamagakiSpanZs.forEach((sz) => {
+      const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 3.4), stoneMat);
+      topRail.position.set(rx, 0.92, sz);
+      const midRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 3.4), stoneMat);
+      midRail.position.set(rx, 0.56, sz);
+      root.add(topRail, midRail);
+      tamagakiPostSpots.push([rx, sz - 1.6], [rx, sz], [rx, sz + 1.6]);
+    });
+  });
+  const tamagakiPosts = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.2, 1.08, 0.2),
+    stoneMat,
+    tamagakiPostSpots.length
+  );
+  tamagakiPostSpots.forEach(([px, pz], idx) => {
+    dummy.position.set(px, 0.54, pz);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    tamagakiPosts.setMatrixAt(idx, dummy.matrix);
+  });
+  tamagakiPosts.instanceMatrix.needsUpdate = true;
+  root.add(tamagakiPosts);
+
+  // Framed Vermilion Torii Gate spanning cleanly across the mid-approach road (z = -29.2)
+  const torii = new THREE.Group();
+  torii.position.set(0.1, 0, -29.2);
+  [-2.45, 2.45].forEach((px) => {
+    const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.4, 0.58, 10), basaltMat);
+    plinth.position.set(px, 0.29, 0);
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.27, 4.95, 10), vermilionMat);
+    col.position.set(px, 2.75, 0);
+    torii.add(plinth, col);
+  });
+  const nukiBeam = new THREE.Mesh(new THREE.BoxGeometry(6.3, 0.3, 0.28), vermilionMat);
+  nukiBeam.position.set(0, 4.18, 0);
+  const kasagiBase = new THREE.Mesh(new THREE.BoxGeometry(6.9, 0.34, 0.42), vermilionMat);
+  kasagiBase.position.set(0, 5.05, 0);
+  const kasagiCap = new THREE.Mesh(new THREE.BoxGeometry(7.25, 0.16, 0.52), basaltMat);
+  kasagiCap.position.set(0, 5.26, 0);
+  [-3.35, 3.35].forEach((tx) => {
+    const upturn = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.2, 0.48), basaltMat);
+    upturn.position.set(tx, 5.36, 0);
+    upturn.rotation.z = tx < 0 ? -0.26 : 0.26;
+    torii.add(upturn);
+  });
+  const centerStrut = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.82, 0.24), vermilionMat);
+  centerStrut.position.set(0, 4.62, 0);
+  const toriiPlaque = new THREE.Mesh(
+    new THREE.BoxGeometry(0.64, 0.84, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0xf59e0b, emissiveIntensity: 0.22, roughness: 0.5 })
+  );
+  toriiPlaque.position.set(0, 4.64, 0.16);
+  torii.add(nukiBeam, kasagiBase, kasagiCap, centerStrut, toriiPlaque);
+  torii.userData.alwaysVisibleBackdrop = true;
+  root.add(torii);
+
+  // Vertical Red & Cream Shrine Banners (Nobori) fluttering along both sides of the approach
+  const noboriBanners: THREE.Mesh[] = [];
   [
-    [-2.5, -18.2],
-    [2.7, -18.2],
-    [-2.6, -24.5],
-    [2.8, -24.5],
-  ].forEach(([tx, tz]) => {
-    const toro = new THREE.Group();
-    toro.position.set(tx, 0, tz);
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.24, 0.62), stoneMat);
-    base.position.y = 0.12;
-    toro.add(base);
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.95, 6), stoneMat);
-    pillar.position.y = 0.72;
-    toro.add(pillar);
-    const firebox = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.36, 0.38), toroFlameMat);
-    firebox.position.y = 1.38;
-    toro.add(firebox);
-    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.32, 6), stoneMat);
-    cap.position.y = 1.72;
-    toro.add(cap);
-    root.add(toro);
+    [-3.35, -21.2, 0], [3.55, -21.2, 1],
+    [-3.35, -26.0, 1], [3.55, -26.0, 0],
+    [-3.35, -32.8, 0], [3.55, -32.8, 1],
+    [-3.35, -38.0, 1], [3.55, -38.0, 0],
+  ].forEach(([nx, nz, colorIdx]) => {
+    const bg = new THREE.Group();
+    bg.position.set(nx, 0, nz);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 3.1, 6), bambooMat);
+    pole.position.y = 1.55;
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.62, 5), bambooMat);
+    arm.rotation.z = Math.PI / 2;
+    arm.position.set(nx < 0 ? 0.28 : -0.28, 2.98, 0);
+    const cloth = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.54, 1.82),
+      colorIdx === 0 ? noboriRedMat : noboriCreamMat
+    );
+    cloth.position.set(nx < 0 ? 0.28 : -0.28, 2.02, 0);
+    bg.add(pole, arm, cloth);
+    root.add(bg);
+    noboriBanners.push(cloth);
   });
 
-  // Blooming Cherry Blossom (Sakura) Trees with multi-cluster canopies arching over the lane
+  // Compact Incense & Omikuji Fortune Kiosk + Second Ema Wish Stand tucked cleanly beside the approach
+  const kiosk = new THREE.Group();
+  kiosk.position.set(4.65, 0, -25.4);
+  kiosk.rotation.y = -Math.PI / 2;
+  const kBase = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.96, 1.35), darkCedarMat);
+  kBase.position.y = 0.48;
+  const kCounter = new THREE.Mesh(new THREE.BoxGeometry(2.68, 0.12, 1.55), warmWoodMat);
+  kCounter.position.y = 0.98;
+  const kBack = new THREE.Mesh(new THREE.BoxGeometry(2.45, 2.15, 0.16), plasterMat);
+  kBack.position.set(0, 1.62, -0.58);
+  const kWindow = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 0.85), shojiMat);
+  kWindow.position.set(0, 1.65, -0.48);
+  [-1.15, 1.15].forEach((px) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2.45, 0.11), darkCedarMat);
+    p.position.set(px, 1.25, 0.58);
+    kiosk.add(p);
+  });
+  const kRoof = new THREE.Mesh(new THREE.ConeGeometry(2.25, 0.92, 4), roofTileMat);
+  kRoof.rotation.y = Math.PI / 4;
+  kRoof.scale.set(1.22, 1, 0.85);
+  kRoof.position.set(0, 2.95, 0);
+  // Bronze incense cauldron (Jokoro) right beside the kiosk
+  const cauldron = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.28, 0.52, 8), basaltMat);
+  cauldron.position.set(-1.68, 0.56, 0.35);
+  const cauldronLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, 0.36, 8), basaltMat);
+  cauldronLeg.position.set(-1.68, 0.18, 0.35);
+  kiosk.add(kBase, kCounter, kBack, kWindow, kRoof, cauldron, cauldronLeg);
+  root.add(kiosk);
+
+  // Low Bamboo & Crimson Japanese Maple (Momiji) Stone Planters flanking the approach
+  [
+    [-4.1, -23.5, true], [4.3, -30.5, false],
+    [-4.1, -34.2, false], [4.3, -36.5, true],
+    [-4.1, -40.2, true], [4.3, -41.0, false],
+  ].forEach(([px, pz, isMaple]) => {
+    const pg = new THREE.Group();
+    pg.position.set(px as number, 0, pz as number);
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.44, 1.15), mossyStoneMat);
+    box.position.y = 0.22;
+    pg.add(box);
+    if (isMaple) {
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 1.35, 6), darkCedarMat);
+      trunk.position.y = 1.05;
+      const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(0.75, 1), mapleCrimsonMat);
+      crown.scale.set(1.25, 0.72, 1.15);
+      crown.position.y = 1.85;
+      pg.add(trunk, crown);
+    } else {
+      for (let b = -1; b <= 1; b++) {
+        const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.042, 2.45, 6), bambooMat);
+        stalk.position.set(b * 0.22, 1.45, (b % 2) * 0.14);
+        stalk.rotation.z = b * 0.06;
+        pg.add(stalk);
+      }
+    }
+    root.add(pg);
+  });
+
+  // Blooming Cherry Blossom (Sakura) Trees with multi-cluster canopies arching cleanly outside the approach lane
   const sakuraBloomMatA = new THREE.MeshStandardMaterial({ color: 0xf9a8d4, roughness: 0.78 });
   const sakuraBloomMatB = new THREE.MeshStandardMaterial({ color: 0xfbcfe8, roughness: 0.8 });
   [
-    [-2.1, -21.8],
-    [2.5, -23.5],
+    [-5.1, -24.2],
+    [5.2, -25.0],
     [-19.6, -22.5],
     [20.2, -22.5],
-    [-7.5, -27.5],
-    [8.2, -28.0],
+    [-7.6, -30.5],
+    [8.1, -31.0],
+    [-6.2, -38.5],
+    [6.6, -39.0],
   ].forEach(([sx, sz], idx) => {
     const tree = new THREE.Group();
     tree.position.set(sx, 0, sz);
@@ -2166,13 +2569,14 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
     trunk.rotation.z = sx < 0 ? -0.1 : 0.1;
     tree.add(trunk);
 
-    const c1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.7, 1), sakuraBloomMatA);
-    c1.scale.set(1.28, 0.76, 1.1);
-    c1.position.set(sx < 0 ? 0.35 : -0.35, 3.7, 0);
+    const canopyScale = idx < 2 ? 0.86 : 1.0;
+    const c1 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.7 * canopyScale, 1), sakuraBloomMatA);
+    c1.scale.set(1.24, 0.76, 1.08);
+    c1.position.set(sx < 0 ? 0.32 : -0.32, 3.7, 0);
     tree.add(c1);
-    const c2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.25, 1), sakuraBloomMatB);
-    c2.scale.set(1.2, 0.75, 1.05);
-    c2.position.set(sx < 0 ? -0.75 : 0.75, 3.25, 0.45 * (idx % 2 === 0 ? 1 : -1));
+    const c2 = new THREE.Mesh(new THREE.DodecahedronGeometry(1.25 * canopyScale, 1), sakuraBloomMatB);
+    c2.scale.set(1.16, 0.75, 1.04);
+    c2.position.set(sx < 0 ? -0.68 : 0.68, 3.25, 0.45 * (idx % 2 === 0 ? 1 : -1));
     tree.add(c2);
     root.add(tree);
   });
@@ -2354,14 +2758,17 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
       machiyaWallMat.emissiveIntensity = isNight ? 1.35 : 0.16;
       lanternMat.emissiveIntensity = isNight ? 2.2 : 0.72;
       toroFlameMat.emissiveIntensity = isNight ? 2.1 : 0.4;
-      stoneLaneMat.roughness = weather === 'rainy' ? 0.24 : 0.78;
+      stoneLaneMat.roughness = weather.startsWith('rainy') ? 0.24 : 0.78;
       sakuraFireflyMat.color.setHex(isNight ? 0xfde047 : 0xf9a8d4);
       sakuraFireflyMat.size = isNight ? 0.38 : 0.28;
       sakuraFireflyMat.opacity = isNight ? 0.76 + Math.sin(elapsed * 3.5) * 0.2 : 0.86;
 
-      // Gentle breeze swaying wind chimes + periodic Shishi-Odoshi bamboo tip
+      // Gentle breeze swaying wind chimes, Nobori shrine banners & periodic Shishi-Odoshi bamboo tip
       for (let i = 0; i < chimeStrips.length; i++) {
         chimeStrips[i].rotation.z = Math.sin(elapsed * 2.2 + i * 1.1) * 0.18;
+      }
+      for (let i = 0; i < noboriBanners.length; i++) {
+        noboriBanners[i].rotation.y = Math.sin(elapsed * 1.85 + i * 0.9) * 0.18;
       }
       const tipCycle = elapsed % 5.5;
       shishiPivot.rotation.z =
@@ -2431,22 +2838,41 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   const root = new THREE.Group();
   root.name = 'scenery_brazilian_favela';
 
-  // Sculpted lush green & terracotta-earth terraced Rio hillside (zero flat brown box!)
-  const lushHillMat = new THREE.MeshStandardMaterial({ color: 0x2f6838, roughness: 0.92 });
-  const warmEarthMat = new THREE.MeshStandardMaterial({ color: 0x7c5338, roughness: 0.94 });
-  const hillsideMounds = [
-    { x: -34, y: 7.5, z: -36, rx: 32, ry: 16, rz: 18, mat: lushHillMat },
-    { x: -10, y: 6.2, z: -38, rx: 24, ry: 14, rz: 16, mat: warmEarthMat },
-    { x: -24, y: 12.5, z: -50, rx: 36, ry: 22, rz: 20, mat: lushHillMat },
-    { x: 38, y: 5.5, z: -35, rx: 24, ry: 12, rz: 16, mat: lushHillMat },
-    { x: 54, y: 10.0, z: -48, rx: 28, ry: 18, rz: 18, mat: lushHillMat },
-  ];
-  hillsideMounds.forEach((m) => {
-    const mound = new THREE.Mesh(new THREE.DodecahedronGeometry(1, 1), m.mat);
-    mound.scale.set(m.rx, m.ry, m.rz);
-    mound.position.set(m.x, m.y - m.ry * 0.45, m.z);
-    root.add(mound);
-  });
+  // Continuous Sculpted Multi-Tiered Rio Hillside Terrain Mesh matching getFavelaHillHeight(x, z)
+  // Guarantees 100% deterministic house grounding (zero floating homes, zero buried windows/doors!)
+  const favelaTerrainGeo = new THREE.PlaneGeometry(118, 36, 36, 14);
+  favelaTerrainGeo.rotateX(-Math.PI / 2);
+  const fPos = favelaTerrainGeo.attributes.position as THREE.BufferAttribute;
+  const fCols = new Float32Array(fPos.count * 3);
+  const lushCol = new THREE.Color(0x2f6838);
+  const earthCol = new THREE.Color(0x7c5338);
+  const rockSlopeCol = new THREE.Color(0x57534e);
+  const tmpFc = new THREE.Color();
+  for (let i = 0; i < fPos.count; i++) {
+    const vx = fPos.getX(i);
+    const localZ = fPos.getZ(i); // +18 (curb side) .. -18 (far ridge)
+    const worldZ = localZ - 35.5; // -17.5 .. -53.5
+    const vy = getFavelaHillHeight(vx, worldZ);
+    fPos.setY(i, vy);
+    const blend = Math.max(0, Math.min(1, vy / 16));
+    if (blend < 0.32) {
+      tmpFc.lerpColors(rockSlopeCol, earthCol, blend / 0.32);
+    } else {
+      tmpFc.lerpColors(earthCol, lushCol, (blend - 0.32) / 0.68);
+    }
+    fCols[i * 3] = tmpFc.r;
+    fCols[i * 3 + 1] = tmpFc.g;
+    fCols[i * 3 + 2] = tmpFc.b;
+  }
+  favelaTerrainGeo.translate(0, 0, -35.5);
+  favelaTerrainGeo.setAttribute('color', new THREE.BufferAttribute(fCols, 3));
+  favelaTerrainGeo.computeVertexNormals();
+  const hillsideTerrain = new THREE.Mesh(
+    favelaTerrainGeo,
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, flatShading: true })
+  );
+  hillsideTerrain.userData.alwaysVisibleBackdrop = true;
+  root.add(hillsideTerrain);
 
   // Shimmering Guanabara Bay ocean vista on right-center horizon
   const bayMat = new THREE.MeshStandardMaterial({
@@ -2457,9 +2883,10 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   const bay = new THREE.Mesh(new THREE.PlaneGeometry(210, 140), bayMat);
   bay.rotation.x = -Math.PI / 2;
   bay.position.set(16, -6.0, -96);
+  bay.userData.alwaysVisibleBackdrop = true;
   root.add(bay);
 
-  // Authentic Textured Favela Homes (with plaster/brick + glowing evening windows!)
+  // Authentic Textured Favela Homes (with plaster/brick + glowing evening windows + -4.5 concrete retaining plinths!)
   const favelaTex = createProceduralFacadeTextures('favela', '#f1f5f9', '#fbbf24');
   const houseMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -2468,6 +2895,10 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     emissiveMap: favelaTex?.emissiveMap,
     emissiveIntensity: 0.22,
     roughness: 0.86,
+  });
+  const plinthMat = new THREE.MeshStandardMaterial({
+    color: 0x6b7075,
+    roughness: 0.94,
   });
   const roofMat = new THREE.MeshStandardMaterial({
     color: 0x78716c,
@@ -2499,11 +2930,12 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
       // Fill lower slopes densely across the entire ridge; keep ONLY an upper scenic window
       // (tier >= 2 and hx between 8.5 and 22.5) open to Guanabara Bay, Sugarloaf & Christ!
       if (tier >= 2 && hx > 8.5 && hx < 22.5) continue;
-      const hz = -18.8 - tier * 3.45 - ((idx * 3) % 3) * 0.42;
-      const hy = tier * 2.05 + ((idx * 5) % 4) * 0.26;
+      const hz = -19.2 - tier * 3.65 - ((idx * 3) % 3) * 0.35;
       const w = 2.75 + (idx % 3) * 0.62;
-      const h = 2.35 + (idx % 4) * 0.54;
+      const h = 2.45 + (idx % 4) * 0.54;
       const d = 2.55 + (idx % 2) * 0.52;
+      // Exact terrain elevation snap at downhill corner + anti-burial floor elevation
+      const hy = computeFavelaHouseFloorY(hx, hz, d);
       houseSpecs.push({
         x: hx,
         y: hy,
@@ -2511,7 +2943,7 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
         w,
         h,
         d,
-        rotY: ((idx % 3) - 1) * 0.08,
+        rotY: ((idx % 3) - 1) * 0.06,
         colorIdx: idx,
         hasTank: idx % 3 === 0,
       });
@@ -2529,8 +2961,10 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     new THREE.Color(0xb45309), // Exposed red brick
   ];
 
-  const houses = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), houseMat, houseSpecs.length);
-  const roofs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), roofMat, houseSpecs.length);
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const houses = new THREE.InstancedMesh(unitBox, houseMat, houseSpecs.length);
+  const plinths = new THREE.InstancedMesh(unitBox, plinthMat, houseSpecs.length);
+  const roofs = new THREE.InstancedMesh(unitBox, roofMat, houseSpecs.length);
   const tankCount = houseSpecs.filter((hs) => hs.hasTank).length;
   const waterTanks = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(0.42, 0.36, 0.62, 8),
@@ -2540,7 +2974,15 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
 
   const dummy = new THREE.Object3D();
   let tankIdx = 0;
+  const plinthDepth = 4.5;
   houseSpecs.forEach((hs, idx) => {
+    // Concrete retaining-wall / stilt foundation skirt reaching -4.5 units straight into the hillside
+    dummy.position.set(hs.x, hs.y - plinthDepth * 0.5 + 0.04, hs.z);
+    dummy.rotation.set(0, hs.rotY, 0);
+    dummy.scale.set(hs.w * 0.98, plinthDepth, hs.d * 0.98);
+    dummy.updateMatrix();
+    plinths.setMatrixAt(idx, dummy.matrix);
+
     dummy.position.set(hs.x, hs.y + hs.h / 2, hs.z);
     dummy.rotation.set(0, hs.rotY, 0);
     dummy.scale.set(hs.w, hs.h, hs.d);
@@ -2563,13 +3005,16 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
       waterTanks.setMatrixAt(tankIdx++, dummy.matrix);
     }
   });
+  plinths.instanceMatrix.needsUpdate = true;
   houses.instanceMatrix.needsUpdate = true;
   if (houses.instanceColor) houses.instanceColor.needsUpdate = true;
   roofs.instanceMatrix.needsUpdate = true;
   waterTanks.instanceMatrix.needsUpdate = true;
-  root.add(houses, roofs, waterTanks);
+  houses.userData.alwaysVisibleBackdrop = true;
+  plinths.userData.alwaysVisibleBackdrop = true;
+  root.add(plinths, houses, roofs, waterTanks);
 
-  // Vibrant Selarón-style colorful mosaic staircases (Escadarias) & neighborhood mural walls
+  // Vibrant Selarón-style colorful mosaic staircases (Escadarias) snapped cleanly onto hillside elevation
   const mosaicMats = [
     new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.65 }),
     new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.65 }),
@@ -2578,15 +3023,14 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   ];
   [-18.5, -5.2, 6.2, 26.8].forEach((sx, sIdx) => {
     for (let step = 0; step < 18; step++) {
+      const tx = sx + Math.sin(step * 0.38) * 1.15;
+      const tz = -18.0 - step * 0.95;
+      const ty = getFavelaHillHeight(tx, tz) + 0.2;
       const tread = new THREE.Mesh(
-        new THREE.BoxGeometry(1.5, 0.36, 0.72),
+        new THREE.BoxGeometry(1.5, 0.55, 0.78),
         mosaicMats[(sIdx + step) % mosaicMats.length]
       );
-      tread.position.set(
-        sx + Math.sin(step * 0.38) * 1.15,
-        0.18 + step * 0.56,
-        -18.0 - step * 0.9
-      );
+      tread.position.set(tx, ty, tz);
       root.add(tread);
     }
   });
@@ -2631,7 +3075,7 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), wireMat));
   }
 
-  // Rooftop colorful laundry clotheslines
+  // Rooftop colorful laundry clotheslines anchored relative to actual hillside height
   const laundryMats = [
     new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }),
     new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.85 }),
@@ -2640,11 +3084,12 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   ];
   const laundryFlaps: THREE.Mesh[] = [];
   [
-    [-14.5, 4.4, -21.2],
-    [-2.5, 4.1, -21.0],
-    [11.5, 3.2, -20.2],
-    [29.5, 4.6, -21.4],
-  ].forEach(([lx, ly, lz]) => {
+    [-14.5, -21.2],
+    [-2.5, -21.0],
+    [11.5, -20.2],
+    [29.5, -21.4],
+  ].forEach(([lx, lz]) => {
+    const ly = getFavelaHillHeight(lx, lz) + 3.4;
     const linePts = [
       new THREE.Vector3(lx - 1.6, ly, lz),
       new THREE.Vector3(lx, ly - 0.18, lz),
@@ -2662,25 +3107,26 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     }
   });
 
-  // Tropical foliage, palms & magenta bougainvillea clusters tucked between terraces
+  // Tropical foliage, palms & magenta bougainvillea clusters seated cleanly onto hillside elevation
   const palmFoliageMat = new THREE.MeshStandardMaterial({ color: 0x257034, roughness: 0.84 });
   const bougMat = new THREE.MeshStandardMaterial({ color: 0xdb2777, roughness: 0.82 });
   [
-    [-20.5, 2.2, -19.8, false],
-    [-8.4, 4.6, -23.0, true],
-    [4.2, 2.8, -20.5, true],
-    [9.8, 2.6, -20.6, false],
-    [19.2, 3.0, -21.2, true],
-    [24.5, 3.2, -20.8, false],
-    [-14.2, 7.6, -27.5, true],
-    [32.5, 5.8, -24.5, false],
-  ].forEach(([fx, fy, fz, isBoug]) => {
+    [-20.5, -19.8, false],
+    [-8.4, -23.0, true],
+    [4.2, -20.5, true],
+    [9.8, -20.6, false],
+    [19.2, -21.2, true],
+    [24.5, -20.8, false],
+    [-14.2, -27.5, true],
+    [32.5, -24.5, false],
+  ].forEach(([fx, fz, isBoug]) => {
     const bush = new THREE.Mesh(
       new THREE.DodecahedronGeometry(isBoug ? 1.15 : 1.45, 0),
       isBoug ? bougMat : palmFoliageMat
     );
     bush.scale.set(1.2, 0.85, 1.1);
-    bush.position.set(fx as number, fy as number, fz as number);
+    const fy = getFavelaHillHeight(fx as number, fz as number) + 0.7;
+    bush.position.set(fx as number, fy, fz as number);
     root.add(bush);
   });
 

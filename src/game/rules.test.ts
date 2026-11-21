@@ -132,14 +132,21 @@ import {
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
   computeLeashTransform,
+  computeFavelaHouseFloorY,
+  evaluateAerialTurnPath,
   evaluateCornerTurnPath,
+  getEiffelRoadPose,
+  getFavelaHillHeight,
+  getJunctionTurnOutZSign,
   getOutdoorLodBudgets,
   getSceneryOutdoorBehaviors,
+  getSceneryRoadTopology,
   getSceneryStreetlightSpec,
   hasStreetTrafficScenery,
   isUrbanStreetScenery,
   stepTwoLaneTraffic,
 } from './outdoorLod';
+import { resolveSecretNpcHairVisibility } from './secretNpc3d';
 import { resolveOutdoorVantageForScenery } from './OutdoorOverlookController';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
@@ -1876,9 +1883,9 @@ test('Bugfix Phase C & Polish Phase 1: Scenic Overlook hidden on 4 street-corrid
   assert.ok(wrapWestGap >= TRAFFIC_MIN_LANE_SPACING - 0.1, `Westbound gap too tight: ${wrapWestGap}`);
 });
 
-test('Polish Phases 4 & 5: Cyberpunk Neon disables wheeled ground traffic for flying spinners, and every curated radio station provides verified multi-mirror HTTPS failover', () => {
-  // 1. Cyberpunk Neon MUST have zero wheeled ground cars (uses 3-altitude flying spinners instead)
-  assert.equal(hasStreetTrafficScenery('cyberpunk_neon'), false);
+test('Polish Phases 4 & 5: Cyberpunk Neon runs sleek ground cyber-cars alongside aerial hover-cars with indoor hard-cull, and every curated radio station provides verified multi-mirror HTTPS failover', () => {
+  // 1. Cyberpunk Neon runs sleek ground cyber-cars on its T-road outside, and hard-culls to 0 indoors
+  assert.equal(hasStreetTrafficScenery('cyberpunk_neon'), true);
   const cyberOutside = getOutdoorLodBudgets({
     isPlayerOutside: true,
     graphicsQuality: 'max',
@@ -1891,11 +1898,13 @@ test('Polish Phases 4 & 5: Cyberpunk Neon disables wheeled ground traffic for fl
     isSoftwareGl: false,
     sceneryId: 'cyberpunk_neon',
   });
-  assert.equal(cyberOutside.maxTraffic, 0);
+  assert.ok(cyberOutside.maxTraffic > 0);
   assert.equal(cyberInside.maxTraffic, 0);
-  // Busy Street and Eiffel Tower still keep ground street traffic
+  assert.equal(cyberInside.maxPedestrians, 0);
+  // Busy Street, Eiffel Tower, and Brazilian Favela all support ground street traffic
   assert.equal(hasStreetTrafficScenery('busy_street'), true);
   assert.equal(hasStreetTrafficScenery('eiffel_tower'), true);
+  assert.equal(hasStreetTrafficScenery('brazilian_favela'), true);
 
   // 2. Every curated radio station has >= 2 verified HTTPS mirrors for automatic backup failover
   assert.ok(CURATED_RADIO_STATIONS.length >= 8);
@@ -1986,6 +1995,93 @@ test('Scenery Detail Overhaul Phases 2–5: smooth 90-degree corner turns, 9 uni
     resolveOutdoorVantageForScenery('lookback', 'busy_street')
   );
 });
+
+test('Detail Polishing & Performance Optimization Plan (Phases 1–5): indoor hard-cull, T/L road network, Eiffel downhill slope, Cyberpunk aerial 90-degree banking turns, Anton cap-safe hair, and Favela grounding', () => {
+  // 1. Phase 1: Every scenery hard-culls traffic, pedestrians, sky/birds & rich NPC props while indoors
+  for (const item of SCENERY_CATALOG) {
+    const indoor = getOutdoorLodBudgets({
+      isPlayerOutside: false,
+      graphicsQuality: 'max',
+      isSoftwareGl: false,
+      sceneryId: item.id,
+    });
+    assert.equal(indoor.maxTraffic, 0, `${item.id} must cull indoor traffic to 0`);
+    assert.equal(indoor.maxPedestrians, 0, `${item.id} must cull indoor pedestrians to 0`);
+    assert.equal(indoor.showCloudsAndBirds, false);
+    assert.equal(indoor.enableRichNpcBehaviors, false);
+  }
+
+  // 2. Phase 2: Standardized road topologies (T-roads, Eiffel downhill T-road, backward +Z L-junctions)
+  assert.equal(getSceneryRoadTopology('busy_street'), 't_road');
+  assert.equal(getSceneryRoadTopology('japanese_tranquility'), 't_road');
+  assert.equal(getSceneryRoadTopology('brazilian_favela'), 't_road');
+  assert.equal(getSceneryRoadTopology('cyberpunk_neon'), 't_road');
+  assert.equal(getSceneryRoadTopology('eiffel_tower'), 'downhill_t_road');
+  assert.equal(getSceneryRoadTopology('mayon_volcano'), 'l_junction');
+  assert.equal(getSceneryRoadTopology('hilltop_city_lights'), 'l_junction');
+  assert.equal(getSceneryRoadTopology('switzerland_hilltop'), 'l_junction');
+  assert.equal(getSceneryRoadTopology('mt_everest'), 'l_junction');
+
+  // L-junctions strictly bend backward (+1 -> +Z away from vista); T-roads turn forward (-1 -> -Z on far lane)
+  assert.equal(getJunctionTurnOutZSign('mayon_volcano', -13.75), 1);
+  assert.equal(getJunctionTurnOutZSign('hilltop_city_lights', -13.75), 1);
+  assert.equal(getJunctionTurnOutZSign('switzerland_hilltop', -13.75), 1);
+  assert.equal(getJunctionTurnOutZSign('mt_everest', -13.75), 1);
+  assert.equal(getJunctionTurnOutZSign('busy_street', -13.75), -1);
+  assert.equal(getJunctionTurnOutZSign('eiffel_tower', -13.75), -1);
+  assert.equal(getJunctionTurnOutZSign('eiffel_tower', -11.05), 1);
+
+  // 3. Phase 2: Eiffel Tower Montmartre downhill slope is flat on main street & smoothly descends northward
+  const flatMain = getEiffelRoadPose(-12.0, 1, 0);
+  assert.equal(flatMain.y, 0);
+  assert.equal(flatMain.pitch, 0);
+  assert.equal(flatMain.isOnDownhillBranch, false);
+
+  const descending = getEiffelRoadPose(-24.0, 0, -1);
+  assert.ok(descending.y < -1.5, `Expected negative elevation on Montmartre ramp, got ${descending.y}`);
+  assert.ok(descending.pitch < -0.1, `Expected nose-down pitch descending ramp, got ${descending.pitch}`);
+  assert.equal(descending.isOnDownhillBranch, true);
+
+  const ascending = getEiffelRoadPose(-24.0, 0, 1);
+  assert.ok(ascending.y < -1.5);
+  assert.ok(ascending.pitch > 0.1, `Expected nose-up pitch climbing ramp, got ${ascending.pitch}`);
+
+  // 4. Phase 2: Cyberpunk aerial hover-cars bank during 90-degree turn and turn into perpendicular sky-canyon
+  const aerialMid = evaluateAerialTurnPath(0, -32, 16, 1, 30, 5.0, -1);
+  assert.equal(aerialMid.bankRoll, 0);
+  assert.equal(aerialMid.z, -32);
+  const aerialBanking = evaluateAerialTurnPath(33.5, -32, 16, 1, 30, 5.0, -1);
+  assert.ok(Math.abs(aerialBanking.bankRoll) > 0.15, `Expected aerial banking roll during turn, got ${aerialBanking.bankRoll}`);
+  const aerialCanyon = evaluateAerialTurnPath(48.0, -32, 16, 1, 30, 5.0, -1);
+  assert.ok(aerialCanyon.z < -38, `Expected hover-car to continue down perpendicular -Z canyon, got z=${aerialCanyon.z}`);
+
+  // 5. Phase 3: Anton / Beb / Duminiki cap-safe dual-state hair hides crown hair under cap or hood
+  assert.deepEqual(resolveSecretNpcHairVisibility({ wearsCap: true, hoodUp: false }), {
+    showHairCrown: false,
+    showUnderCapTrim: true,
+  });
+  assert.deepEqual(resolveSecretNpcHairVisibility({ wearsCap: false, hoodUp: true }), {
+    showHairCrown: false,
+    showUnderCapTrim: true,
+  });
+  assert.deepEqual(resolveSecretNpcHairVisibility({ wearsCap: false, hoodUp: false }), {
+    showHairCrown: true,
+    showUnderCapTrim: true,
+  });
+
+  // 6. Phase 5: Brazilian Favela terrain elevation & house grounding (zero floating or buried homes)
+  assert.equal(getFavelaHillHeight(0, -15.0), 0);
+  const midHill = getFavelaHillHeight(-15, -28);
+  const highHill = getFavelaHillHeight(-15, -42);
+  assert.ok(midHill > 3 && highHill > midHill, `Expected rising favela terrain: mid=${midHill}, high=${highHill}`);
+  const houseFloor = computeFavelaHouseFloorY(-15, -30, 2.8);
+  const frontGround = getFavelaHillHeight(-15, -30 + 1.4);
+  const backGround = getFavelaHillHeight(-15, -30 - 1.4);
+  assert.ok(houseFloor >= frontGround + 0.14, 'House main floor must sit cleanly above downhill slope');
+  assert.ok(houseFloor - 4.5 <= frontGround, 'Retaining plinth (-4.5) must anchor deeply below downhill terrain');
+  assert.ok(houseFloor >= backGround - 0.72, 'House main floor must avoid burying windows inside uphill slope');
+});
+
 
 
 
