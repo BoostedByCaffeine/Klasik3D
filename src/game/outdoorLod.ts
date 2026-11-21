@@ -38,6 +38,60 @@ export const TRAFFIC_MIN_LANE_SPACING = 10.5;
 export const TRAFFIC_X_BOUND = 23.5;
 
 /**
+ * Strict vertical Y-elevation hierarchy across all 9 sceneries to guarantee zero
+ * coplanar z-fighting between terrain, road asphalt, gutters, markings, and sidewalks.
+ */
+export const ROAD_ELEVATION_LAYERS = {
+  outerTerrainY: -0.08,
+  asphaltY: 0.0,
+  gutterY: 0.012,
+  crosswalkY: 0.024,
+  natureApronTopY: 0.065,
+  sidewalkTopY: 0.09,
+  curbTopY: 0.11,
+} as const;
+
+export interface Vec3Tuple {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface LeashSegmentTransform {
+  midpoint: Vec3Tuple;
+  length: number;
+  direction: Vec3Tuple; // Unit vector strictly pointing from start (NPC hand) toward end (dog collar)
+}
+
+/**
+ * Computes exact midpoint, length, and unit direction from `handPos` to `collarPos`
+ * so the dog leash always extends cleanly forward & downward from the walker's hand
+ * straight to the dog's collar (never reversed diagonally).
+ */
+export function computeLeashTransform(
+  handPos: Vec3Tuple,
+  collarPos: Vec3Tuple
+): LeashSegmentTransform {
+  const dx = collarPos.x - handPos.x;
+  const dy = collarPos.y - handPos.y;
+  const dz = collarPos.z - handPos.z;
+  const length = Math.hypot(dx, dy, dz) || 0.001;
+  return {
+    midpoint: {
+      x: (handPos.x + collarPos.x) * 0.5,
+      y: (handPos.y + collarPos.y) * 0.5,
+      z: (handPos.z + collarPos.z) * 0.5,
+    },
+    length,
+    direction: {
+      x: dx / length,
+      y: dy / length,
+      z: dz / length,
+    },
+  };
+}
+
+/**
  * Returns true for sceneries that use the urban two-lane asphalt street,
  * zebra crosswalk, and city streetlamps.
  */
@@ -52,13 +106,10 @@ export function isUrbanStreetScenery(sceneryId: SceneryId): boolean {
 
 /**
  * Returns true for sceneries where animated two-lane street traffic drives along the avenue.
+ * Cyberpunk Neon uses elevated multi-altitude flying hover-cars (spinners) instead of wheeled cars.
  */
 export function hasStreetTrafficScenery(sceneryId: SceneryId): boolean {
-  return (
-    sceneryId === 'busy_street' ||
-    sceneryId === 'cyberpunk_neon' ||
-    sceneryId === 'eiffel_tower'
-  );
+  return sceneryId === 'busy_street' || sceneryId === 'eiffel_tower';
 }
 
 /**

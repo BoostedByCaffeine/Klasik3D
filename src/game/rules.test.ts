@@ -115,16 +115,22 @@ import {
   BERET_REVENUE_MILESTONE,
 } from './catCosmeticsData';
 import {
+  CURATED_RADIO_STATIONS,
   filterVerifiedRadioStations,
+  resolveStationMirrorUrls,
   cleanAudioFileName,
 } from './audio/MusicPlayerController';
 import {
+  DEFAULT_SIDEWALK_BOUNDS,
+  EVEREST_FAR_TRAIL_BOUNDS,
   getSidewalkObstacles,
   computeAvoidedSidewalkZ,
 } from './sidewalkAvoidance';
 import {
+  ROAD_ELEVATION_LAYERS,
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
+  computeLeashTransform,
   getOutdoorLodBudgets,
   getSceneryOutdoorBehaviors,
   hasStreetTrafficScenery,
@@ -1765,16 +1771,57 @@ test('Bugfix Phase B: Conformal Cat Cloth & Skeleton T-Rex spline sampling stay 
   }
 });
 
-test('Bugfix Phase C: Scenic Overlook hidden on Busy Street, biome prop hygiene isolates alpine maps, strict two-lane traffic prevents overlaps, and Inside/Outside LOD scales cleanly', () => {
-  // 1. Scenic Overlook flag
-  assert.equal(getScenerySpec('busy_street').hasScenicOverlook, false);
+test('Bugfix Phase C & Polish Phase 1: Scenic Overlook hidden on 4 street-corridor maps, leash points hand-to-collar, road Y-layers prevent z-fighting, Everest trail avoids snowbanks, and two-lane traffic stays spaced', () => {
+  // 1. Scenic Overlook flag: disabled on 4 enclosed street-corridor maps, enabled on 5 open-vista maps
+  const enclosedMaps = new Set([
+    'busy_street',
+    'cyberpunk_neon',
+    'brazilian_favela',
+    'japanese_tranquility',
+  ]);
   for (const scId of ALL_SCENERY_IDS) {
-    if (scId !== 'busy_street') {
-      assert.equal(getScenerySpec(scId).hasScenicOverlook, true, `Expected scenic overlook enabled on ${scId}`);
-    }
+    assert.equal(
+      getScenerySpec(scId).hasScenicOverlook,
+      !enclosedMaps.has(scId),
+      `Unexpected hasScenicOverlook for ${scId}`
+    );
   }
 
-  // 2. Biome prop hygiene (Switzerland & Everest are non-urban & have zero street traffic)
+  // 2. Dog leash orientation: strictly extends forward (+Z) and downward (-Y) from walker hand to dog collar
+  const leashTf = computeLeashTransform(
+    { x: 0.21, y: 0.78, z: 0.21 },
+    { x: 0.26, y: 0.29, z: 0.85 }
+  );
+  assert.ok(leashTf.direction.z > 0.65, `Leash must point forward (+Z), got ${leashTf.direction.z}`);
+  assert.ok(leashTf.direction.y < -0.45, `Leash must angle downward (-Y), got ${leashTf.direction.y}`);
+  assert.ok(leashTf.length > 0.7 && leashTf.length < 0.95);
+
+  // 3. Road/Gutter/Sidewalk vertical Y-separation >= 0.012 prevents coplanar z-fighting
+  assert.ok(ROAD_ELEVATION_LAYERS.asphaltY - ROAD_ELEVATION_LAYERS.outerTerrainY >= 0.05);
+  assert.ok(ROAD_ELEVATION_LAYERS.gutterY - ROAD_ELEVATION_LAYERS.asphaltY >= 0.012);
+  assert.ok(ROAD_ELEVATION_LAYERS.crosswalkY - ROAD_ELEVATION_LAYERS.gutterY >= 0.012);
+  assert.ok(ROAD_ELEVATION_LAYERS.sidewalkTopY - ROAD_ELEVATION_LAYERS.crosswalkY >= 0.05);
+  assert.ok(ROAD_ELEVATION_LAYERS.curbTopY - ROAD_ELEVATION_LAYERS.sidewalkTopY >= 0.015);
+
+  // 4. Mt. Everest snowbank avoidance keeps every hiker strictly on the cleared stone trail (never buried at z <= -14.6)
+  const everestObstacles = getSidewalkObstacles(false, false, 'mt_everest');
+  assert.ok(everestObstacles.some((o) => o.id === 'everest-snowbank-west'));
+  for (const testX of [-15, -10, 0, 10, 15]) {
+    const safeTrailZ = computeAvoidedSidewalkZ(
+      testX,
+      -16.5,
+      everestObstacles,
+      DEFAULT_SIDEWALK_BOUNDS,
+      'mt_everest'
+    );
+    assert.ok(
+      safeTrailZ >= EVEREST_FAR_TRAIL_BOUNDS.outerZ && safeTrailZ <= EVEREST_FAR_TRAIL_BOUNDS.innerZ,
+      `Everest hiker at x=${testX} drifted off cleared trail: z=${safeTrailZ}`
+    );
+    assert.ok(safeTrailZ > -14.5, `Everest hiker must clear snowbank wall (z=${safeTrailZ})`);
+  }
+
+  // 5. Biome prop hygiene (Switzerland & Everest are non-urban & have zero street traffic)
   assert.equal(isUrbanStreetScenery('busy_street'), true);
   assert.equal(isUrbanStreetScenery('cyberpunk_neon'), true);
   assert.equal(isUrbanStreetScenery('switzerland_hilltop'), false);
@@ -1783,7 +1830,7 @@ test('Bugfix Phase C: Scenic Overlook hidden on Busy Street, biome prop hygiene 
   assert.equal(hasStreetTrafficScenery('mt_everest'), false);
   assert.equal(hasStreetTrafficScenery('busy_street'), true);
 
-  // 3. Inside vs. Outside Adaptive Performance LOD budgets
+  // 6. Inside vs. Outside Adaptive Performance LOD budgets
   const inside = getOutdoorLodBudgets({
     isPlayerOutside: false,
     graphicsQuality: 'max',
@@ -1807,7 +1854,7 @@ test('Bugfix Phase C: Scenic Overlook hidden on Busy Street, biome prop hygiene 
   assert.ok(getSceneryOutdoorBehaviors('mt_everest').includes('everest_hiker'));
   assert.ok(getSceneryOutdoorBehaviors('japanese_tranquility').includes('lantern_stroll'));
 
-  // 4. Two-lane traffic spacing prevents overlapping even when vehicles start close together
+  // 7. Two-lane traffic spacing prevents overlapping even when vehicles start close together
   const vehicles = [
     { x: 0.0, dir: 1 as const, speed: 4.5, visible: true },
     { x: -2.0, dir: 1 as const, speed: 6.0, visible: true },
@@ -1824,5 +1871,55 @@ test('Bugfix Phase C: Scenic Overlook hidden on Busy Street, biome prop hygiene 
   assert.ok(wrapEastGap >= TRAFFIC_MIN_LANE_SPACING - 0.1, `Eastbound gap too tight: ${wrapEastGap}`);
   assert.ok(wrapWestGap >= TRAFFIC_MIN_LANE_SPACING - 0.1, `Westbound gap too tight: ${wrapWestGap}`);
 });
+
+test('Polish Phases 4 & 5: Cyberpunk Neon disables wheeled ground traffic for flying spinners, and every curated radio station provides verified multi-mirror HTTPS failover', () => {
+  // 1. Cyberpunk Neon MUST have zero wheeled ground cars (uses 3-altitude flying spinners instead)
+  assert.equal(hasStreetTrafficScenery('cyberpunk_neon'), false);
+  const cyberOutside = getOutdoorLodBudgets({
+    isPlayerOutside: true,
+    graphicsQuality: 'max',
+    isSoftwareGl: false,
+    sceneryId: 'cyberpunk_neon',
+  });
+  const cyberInside = getOutdoorLodBudgets({
+    isPlayerOutside: false,
+    graphicsQuality: 'max',
+    isSoftwareGl: false,
+    sceneryId: 'cyberpunk_neon',
+  });
+  assert.equal(cyberOutside.maxTraffic, 0);
+  assert.equal(cyberInside.maxTraffic, 0);
+  // Busy Street and Eiffel Tower still keep ground street traffic
+  assert.equal(hasStreetTrafficScenery('busy_street'), true);
+  assert.equal(hasStreetTrafficScenery('eiffel_tower'), true);
+
+  // 2. Every curated radio station has >= 2 verified HTTPS mirrors for automatic backup failover
+  assert.ok(CURATED_RADIO_STATIONS.length >= 8);
+  for (const st of CURATED_RADIO_STATIONS) {
+    const mirrors = resolveStationMirrorUrls(st);
+    assert.ok(
+      mirrors.length >= 2,
+      `Curated station ${st.id} must have >= 2 HTTPS mirrors, got ${mirrors.length}`
+    );
+    for (const url of mirrors) {
+      assert.ok(url.startsWith('https://'), `Station mirror must be HTTPS: ${url}`);
+    }
+  }
+
+  // 3. resolveStationMirrorUrls deduplicates and strips insecure HTTP URLs
+  const filtered = resolveStationMirrorUrls({
+    streamUrl: 'http://insecure.example/stream',
+    backupUrls: [
+      'https://ice1.somafm.com/groovesalad-128-mp3',
+      'https://ice1.somafm.com/groovesalad-128-mp3',
+      'https://ice2.somafm.com/groovesalad-128-mp3',
+    ],
+  });
+  assert.deepEqual(filtered, [
+    'https://ice1.somafm.com/groovesalad-128-mp3',
+    'https://ice2.somafm.com/groovesalad-128-mp3',
+  ]);
+});
+
 
 

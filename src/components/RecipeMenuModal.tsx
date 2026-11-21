@@ -44,21 +44,21 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       key: 'grind',
       label: 'Grind',
       stationTag: 'St.3',
-      toneClass: 'bg-amber-500/20 border-amber-400/45 text-amber-100',
+      toneClass: 'bg-white/[0.07] border-white/18 text-[#F4F4F5]',
     });
     chips.push({
       stepNum: stepNum++,
       key: 'tamp',
       label: 'Tamp',
       stationTag: 'St.3',
-      toneClass: 'bg-amber-500/20 border-amber-400/45 text-amber-100',
+      toneClass: 'bg-white/[0.07] border-white/18 text-[#F4F4F5]',
     });
     chips.push({
       stepNum: stepNum++,
       key: 'shot',
       label: 'Pull Shot',
       stationTag: 'St.3',
-      toneClass: 'bg-orange-500/25 border-orange-400/55 text-orange-100',
+      toneClass: 'bg-white/[0.11] border-white/28 text-white',
     });
   }
 
@@ -68,7 +68,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       key: 'tea',
       label: 'Steep Tea',
       stationTag: 'St.4',
-      toneClass: 'bg-lime-500/20 border-lime-400/50 text-lime-100',
+      toneClass: 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200',
     });
   }
 
@@ -79,7 +79,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       key: 'syrup',
       label: `+${flavorName}`,
       stationTag: 'St.4',
-      toneClass: 'bg-amber-700/30 border-amber-300/45 text-amber-100',
+      toneClass: 'bg-white/[0.09] border-white/24 text-[#E4E4E7]',
     });
   }
 
@@ -89,7 +89,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       key: 'ice',
       label: '+Ice',
       stationTag: 'St.4',
-      toneClass: 'bg-sky-500/20 border-sky-400/50 text-sky-100',
+      toneClass: 'bg-sky-500/15 border-sky-300/40 text-[#BAE6FD]',
     });
   }
 
@@ -99,7 +99,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
       key: 'milk',
       label: 'Steam Milk',
       stationTag: 'St.4',
-      toneClass: 'bg-stone-200/15 border-amber-200/40 text-stone-100',
+      toneClass: 'bg-zinc-200/12 border-white/22 text-[#F4F4F5]',
     });
   }
 
@@ -108,7 +108,7 @@ export function buildStepPipeline(recipe: DrinkRecipe): StepChip[] {
     key: 'serve',
     label: 'Serve',
     stationTag: 'St.5',
-    toneClass: 'bg-emerald-500/25 border-emerald-400/55 text-emerald-100',
+    toneClass: 'bg-emerald-500/20 border-emerald-400/45 text-emerald-200',
   });
 
   return chips;
@@ -171,25 +171,25 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
       id: 'hot_coffee',
       label: 'Hot Coffee',
       count: counts.hot_coffee,
-      icon: <Flame className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />,
+      icon: <Flame className="w-4 h-4 shrink-0" strokeWidth={2.2} />,
     },
     {
       id: 'iced_coffee',
       label: 'Iced Coffee',
       count: counts.iced_coffee,
-      icon: <Snowflake className="w-4 h-4 text-sky-300 shrink-0" strokeWidth={2.2} />,
+      icon: <Snowflake className="w-4 h-4 shrink-0" strokeWidth={2.2} />,
     },
     {
       id: 'tea',
       label: 'Artisanal Tea',
       count: counts.tea,
-      icon: <Leaf className="w-4 h-4 text-lime-300 shrink-0" strokeWidth={2.2} />,
+      icon: <Leaf className="w-4 h-4 shrink-0" strokeWidth={2.2} />,
     },
     {
       id: 'cold_drink',
       label: 'Cold Drinks',
       count: counts.cold_drink,
-      icon: <CupSoda className="w-4 h-4 text-rose-300 shrink-0" strokeWidth={2.2} />,
+      icon: <CupSoda className="w-4 h-4 shrink-0" strokeWidth={2.2} />,
     },
   ];
 
@@ -212,7 +212,7 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
     <div
       data-testid="pos-codex-overlay"
       onClick={onClose}
-      className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4 bg-black/25"
+      className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4 bg-black/45 backdrop-blur-sm"
     >
       {/* Diegetic Klasik 3D Roastery POS Tablet Frame */}
       <div
@@ -221,20 +221,20 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
         className="w-full max-w-[86vw] sm:max-w-[80vw] max-h-[82dvh] h-[78dvh] pos-terminal-bezel rounded-2xl overflow-hidden flex flex-col"
       >
         {/* Top Roastery POS Header Bar */}
-        <div className="px-3 sm:px-5 py-2.5 border-b border-amber-500/30 bg-[#1a100b]/95 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-3 sm:px-5 py-2.5 border-b border-white/12 bg-[#09090B]/95 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <KlasikGameLogo className="w-9 h-9 sm:w-10 sm:h-10 shrink-0" />
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-display font-bold text-[#FAF5EE] tracking-tight truncate">
+                <h2 className="text-base sm:text-lg font-display font-bold text-white tracking-tight truncate">
                   KLASIK RECIPE BOOK
                 </h2>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/40 text-[10px] font-mono font-bold text-amber-300 uppercase tracking-wider">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.08] border border-white/18 text-[10px] font-mono font-bold text-[#E4E4E7] uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   ROASTERY POS
                 </span>
               </div>
-              <p className="text-xs text-[#E7D7C1] truncate">
+              <p className="text-xs text-[#A1A1AA] truncate">
                 {pinnedRecipe && pinnedCustomerName
                   ? `Active Order (${pinnedCustomerName}): ${pinnedRecipe.name}`
                   : '16 Specialty Hot & Iced Coffees, Artisanal Teas & Cold Refreshers · Pin any recipe to HUD'}
@@ -246,21 +246,21 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
             type="button"
             data-testid="btn-close-codex"
             onClick={onClose}
-            className="px-3 sm:px-4 py-2 min-h-[40px] rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] text-xs sm:text-sm font-bold cursor-pointer inline-flex items-center gap-1.5 shadow-md shrink-0"
+            className="px-3 sm:px-4 py-2 min-h-[40px] rounded-xl hud-platinum-pill text-xs sm:text-sm font-bold cursor-pointer inline-flex items-center gap-1.5 shrink-0"
           >
             <ArrowLeft className="w-4 h-4 shrink-0" strokeWidth={2.5} />
             <span>Return to Counter</span>
           </button>
         </div>
 
-        {/* Main POS Display Area: Warm Walnut Left Category Rail + Roastery Recipe Cards */}
+        {/* Main POS Display Area: Matte Obsidian Left Category Rail + Recipe Cards */}
         <div className="flex-1 min-h-0 flex pos-terminal-screen overflow-hidden">
           {/* Left Vertical Rail */}
           <nav
             aria-label="Drink Categories"
-            className="w-40 sm:w-52 shrink-0 border-r border-amber-500/25 bg-[#120b08]/90 p-2 sm:p-3 flex flex-col gap-1.5 overflow-y-auto"
+            className="w-40 sm:w-52 shrink-0 border-r border-white/12 bg-[#09090B]/92 p-2 sm:p-3 flex flex-col gap-1.5 overflow-y-auto"
           >
-            <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-widest text-amber-300/75">
+            <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-widest text-[#71717A]">
               Roastery Menu
             </div>
             {tabs.map((tab) => {
@@ -273,8 +273,8 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                   onClick={() => setFilter(tab.id)}
                   className={`w-full min-h-[42px] px-2.5 sm:px-3 py-2 rounded-xl border text-left text-xs sm:text-sm font-semibold cursor-pointer transition-all flex items-center justify-between gap-1.5 ${
                     isActive
-                      ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow-[0_4px_14px_-4px_rgba(245,158,11,0.55)] font-bold'
-                      : 'bg-amber-950/25 hover:bg-amber-500/15 border-amber-400/20 text-[#F5EBE1]'
+                      ? 'hud-platinum-pill font-bold'
+                      : 'bg-[#18181B]/70 hover:bg-white/[0.08] border-white/10 text-[#D4D4D8]'
                   }`}
                 >
                   <span className="flex items-center gap-1.5 min-w-0 truncate">
@@ -283,7 +283,7 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                   </span>
                   <span
                     className={`px-1.5 py-0.5 rounded-md text-[11px] font-mono font-bold shrink-0 ${
-                      isActive ? 'bg-black/20 text-[#160E09]' : 'bg-black/45 text-amber-300'
+                      isActive ? 'bg-black/15 text-[#09090B]' : 'bg-[#09090B]/70 text-[#D4D4D8]'
                     }`}
                   >
                     {tab.count}
@@ -312,31 +312,31 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                     data-testid={`codex-recipe-${recipe.id}`}
                     className={`rounded-xl p-3.5 sm:p-4 border transition-all flex flex-col gap-2.5 ${
                       isPinnedActive
-                        ? 'bg-amber-500/15 border-amber-400/80 shadow-[0_0_24px_-6px_rgba(245,158,11,0.45)]'
+                        ? 'bg-white/[0.1] border-white/55 shadow-[0_0_24px_-6px_rgba(255,255,255,0.22)]'
                         : isHudPinned
-                        ? 'bg-[#261810]/95 border-amber-400/65 shadow-[0_0_18px_-6px_rgba(245,158,11,0.35)]'
+                        ? 'bg-[#18181B]/95 border-white/40 shadow-[0_0_18px_-6px_rgba(255,255,255,0.16)]'
                         : locked
-                        ? 'bg-black/40 border-white/10 opacity-70'
-                        : 'bg-[#1f140e]/90 border-amber-500/25 hover:border-amber-400/55'
+                        ? 'bg-[#09090B]/60 border-white/8 opacity-70'
+                        : 'bg-[#18181B]/85 border-white/12 hover:border-white/30'
                     }`}
                   >
                     {/* Card Header: Color Dot + Bold Title + Vessel Badge + Pin Button + Price */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <span
-                          className="w-4 h-4 rounded-full border-2 border-amber-200/45 shrink-0 shadow-sm"
+                          className="w-4 h-4 rounded-full border-2 border-white/35 shrink-0 shadow-sm"
                           style={{ backgroundColor: recipe.colorHex }}
                         />
                         <div className="min-w-0">
-                          <h3 className="text-base sm:text-lg font-display font-bold text-[#FAF5EE] leading-snug">
+                          <h3 className="text-base sm:text-lg font-display font-bold text-white leading-snug">
                             {recipe.name}
                           </h3>
                           <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                             <span
                               className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-semibold ${
                                 isCold
-                                  ? 'bg-sky-500/15 border-sky-400/35 text-sky-200'
-                                  : 'bg-amber-500/15 border-amber-400/35 text-amber-200'
+                                  ? 'bg-sky-500/15 border-sky-300/35 text-[#BAE6FD]'
+                                  : 'bg-white/[0.08] border-white/20 text-[#E4E4E7]'
                               }`}
                             >
                               {isCold ? (
@@ -352,7 +352,7 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                               )}
                             </span>
                             {isPinnedActive && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400 text-[#160E09] text-[10px] font-mono font-extrabold uppercase tracking-wider">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full hud-platinum-pill text-[10px] font-mono font-extrabold uppercase tracking-wider">
                                 <Sparkles className="w-3 h-3" strokeWidth={2.4} />
                                 Active Order{pinnedCustomerName ? ` · ${pinnedCustomerName}` : ''}
                               </span>
@@ -370,8 +370,8 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                               onClick={() => onTogglePinRecipe(recipe.id)}
                               className={`px-2 py-1 rounded-lg border text-[11px] font-bold cursor-pointer transition-all inline-flex items-center gap-1 ${
                                 isHudPinned
-                                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow-sm'
-                                  : 'bg-amber-950/60 hover:bg-amber-500/20 border-amber-400/35 text-amber-200'
+                                  ? 'hud-platinum-pill shadow-sm'
+                                  : 'bg-[#09090B]/70 hover:bg-white/[0.1] border-white/18 text-[#E4E4E7]'
                               }`}
                               title={isHudPinned ? 'Unpin from HUD' : 'Pin recipe steps onto HUD'}
                             >
@@ -388,12 +388,12 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                               )}
                             </button>
                           )}
-                          <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/45 text-amber-200 font-mono font-extrabold text-sm sm:text-base tabular-nums">
+                          <span className="px-2.5 py-0.5 rounded-lg bg-emerald-950/60 border border-emerald-400/35 text-emerald-300 font-mono font-extrabold text-sm sm:text-base tabular-nums">
                             ${recipe.price}
                           </span>
                         </div>
                         {locked && (
-                          <span className="text-[10px] font-mono text-amber-300 inline-flex items-center gap-1">
+                          <span className="text-[10px] font-mono text-[#A1A1AA] inline-flex items-center gap-1">
                             <Lock className="w-3 h-3" strokeWidth={2.2} />
                             Day {recipe.unlockDay}
                           </span>
@@ -401,12 +401,12 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                       </div>
                     </div>
 
-                    <p className="text-xs sm:text-sm text-[#E7D7C1]/90 leading-relaxed">
+                    <p className="text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
                       {recipe.tagline}
                     </p>
 
-                    {/* Scannable Color-Coded Visual Step Pipeline Chips */}
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-amber-500/15">
+                    {/* Scannable Monochrome + Semantic Visual Step Pipeline Chips */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/10">
                       {steps.map((chip, idx) => (
                         <React.Fragment key={`${recipe.id}-step-${chip.stepNum}`}>
                           <span
@@ -416,12 +416,12 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
                               {chip.stepNum}.
                             </span>
                             <span>{chip.label}</span>
-                            <span className="text-[10px] font-mono opacity-75 bg-black/35 px-1 rounded">
+                            <span className="text-[10px] font-mono opacity-75 bg-black/40 px-1 rounded">
                               {chip.stationTag}
                             </span>
                           </span>
                           {idx < steps.length - 1 && (
-                            <ChevronRight className="w-3.5 h-3.5 text-amber-300/60 shrink-0" />
+                            <ChevronRight className="w-3.5 h-3.5 text-[#71717A] shrink-0" />
                           )}
                         </React.Fragment>
                       ))}

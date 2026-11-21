@@ -266,17 +266,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   };
 
   const renderCategoryIcon = () => {
-    if (!targetRecipe) return <Coffee className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />;
+    if (!targetRecipe) return <Coffee className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />;
     if (targetRecipe.category === 'tea') {
-      return <Leaf className="w-3 h-3 text-lime-300 shrink-0" strokeWidth={2.2} />;
+      return <Leaf className="w-3 h-3 text-[#34D399] shrink-0" strokeWidth={2.2} />;
     }
     if (targetRecipe.category === 'cold_drink') {
-      return <CupSoda className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.2} />;
+      return <CupSoda className="w-3 h-3 text-[#BAE6FD] shrink-0" strokeWidth={2.2} />;
     }
     if (targetRecipe.category === 'iced_coffee' || pinnedOrder?.customNeedsIce) {
-      return <Snowflake className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.2} />;
+      return <Snowflake className="w-3 h-3 text-[#BAE6FD] shrink-0" strokeWidth={2.2} />;
     }
-    return <Flame className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />;
+    return <Flame className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />;
   };
 
   const displayBannerText = stripKeyboardShortcutsForApk(
@@ -293,19 +293,19 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           <button
             type="button"
             onClick={handlePrevStation}
-            className="glass-btn-inner p-0.5 rounded-full text-amber-200 cursor-pointer flex items-center justify-center"
+            className="glass-btn-inner p-0.5 rounded-full text-[#E4E4E7] cursor-pointer flex items-center justify-center"
             title={isApkVersion ? 'Previous Station' : 'Previous Station [A]'}
             aria-label="Previous Station"
           >
             <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.2} />
           </button>
-          <span className="text-[10px] font-mono font-bold text-[#FAF5EE] glass-text-crisp whitespace-nowrap">
+          <span className="text-[10px] font-mono font-bold text-white glass-text-crisp whitespace-nowrap">
             {currentStationMeta.name}
           </span>
           <button
             type="button"
             onClick={handleNextStation}
-            className="glass-btn-inner p-0.5 rounded-full text-amber-200 cursor-pointer flex items-center justify-center"
+            className="glass-btn-inner p-0.5 rounded-full text-[#E4E4E7] cursor-pointer flex items-center justify-center"
             title={isApkVersion ? 'Next Station' : 'Next Station [D]'}
             aria-label="Next Station"
           >
@@ -320,26 +320,26 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => onCupAction('quick_brew_step')}
               className={`relative overflow-hidden px-2 py-0.5 rounded-full font-bold text-[10px] whitespace-nowrap flex items-center gap-1 shadow ${
                 isStepLocked
-                  ? 'bg-[#21150e] border border-amber-400/60 text-amber-100 cursor-not-allowed'
+                  ? 'bg-[#18181B] border border-white/25 text-white cursor-not-allowed'
                   : drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-500 text-[#160E09] cursor-pointer'
+                  ? 'bg-[#F87171] text-[#09090B] cursor-pointer'
                   : isDrinkReadyToServe
-                  ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-[#160E09] cursor-pointer'
-                  : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] cursor-pointer'
+                  ? 'bg-[#34D399] text-[#09090B] cursor-pointer'
+                  : 'hud-platinum-pill cursor-pointer'
               }`}
               title={stripKeyboardShortcutsForApk(nextStep.instruction, isApkVersion)}
             >
               {isStepLocked && (
                 <span
                   aria-hidden="true"
-                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-500/75 to-orange-500/75 transition-all duration-75"
+                  className="absolute inset-y-0 left-0 hud-platinum-bar opacity-40 transition-all duration-75"
                   style={{ width: `${lockFillPct}%` }}
                 />
               )}
               <span className="relative z-10 inline-flex items-center gap-1">
                 {isStepLocked ? (
                   <>
-                    <Zap className="w-3 h-3 shrink-0 text-amber-200" strokeWidth={2.2} />
+                    <Zap className="w-3 h-3 shrink-0 text-[#E4E4E7]" strokeWidth={2.2} />
                     <span>{activeLockLabel}</span>
                   </>
                 ) : drinkValidation.hasWrongIngredient ? (
@@ -366,7 +366,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="btn-show-hud"
             onClick={() => setHudHidden(false)}
-            className="glass-btn-inner px-2 py-0.5 rounded-full !border-amber-400/50 text-[10px] font-bold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
+            className="glass-btn-inner px-2 py-0.5 rounded-full !border-white/25 text-[10px] font-bold text-white cursor-pointer whitespace-nowrap flex items-center gap-1"
             title={isApkVersion ? 'Restore Full Barista HUD' : 'Restore Full Barista HUD [H]'}
           >
             <Eye className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -377,12 +377,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         {/* Tiny progress pill at top-center only while actively executing a timed step */}
         {stepProgress !== null && displayBannerText && (
           <div className="fixed top-2 left-1/2 -translate-x-1/2 glass-pill rounded-full px-3 py-0.5 flex items-center gap-2">
-            <span className="text-[10px] font-semibold text-[#FAF5EE] glass-text-crisp whitespace-nowrap">
+            <span className="text-[10px] font-semibold text-white glass-text-crisp whitespace-nowrap">
               {displayBannerText}
             </span>
-            <div className="w-16 h-1.5 rounded-full bg-black/50 overflow-hidden">
+            <div className="w-16 h-1.5 rounded-full bg-[#27272A] overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-75"
+                className="h-full hud-platinum-bar transition-all duration-75"
                 style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
               />
             </div>
@@ -405,14 +405,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="hud-station-indicator"
             onClick={() => setTicketsCollapsed((prev) => !prev)}
-            className="px-2 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/45 text-[10px] sm:text-[11px] font-bold text-amber-200 glass-text-crisp whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+            className="px-2 py-0.5 rounded-md bg-white/[0.08] hover:bg-white/[0.15] border border-white/20 text-[10px] sm:text-[11px] font-bold text-white glass-text-crisp whitespace-nowrap shrink-0 cursor-pointer transition-colors"
             title="Toggle Order Strip"
           >
             {currentStationMeta.badge}
           </button>
 
           {isGoldenEquipped && (
-            <span className="px-1.5 py-0.5 rounded-md bg-amber-400/25 border border-amber-400 text-[9px] font-mono font-bold text-amber-200 whitespace-nowrap shrink-0 inline-flex items-center gap-1">
+            <span className="px-1.5 py-0.5 rounded-md hud-platinum-pill text-[9px] font-mono font-bold whitespace-nowrap shrink-0 inline-flex items-center gap-1">
               <Trophy className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
               <span>2x</span>
             </span>
@@ -421,7 +421,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           {isLiloActive && (
             <span
               data-testid="hud-lilo-passive-badge"
-              className="px-1.5 py-0.5 rounded-md bg-sky-500/25 border border-sky-400/70 text-[9px] font-mono font-bold text-sky-200 whitespace-nowrap shrink-0 inline-flex items-center gap-1"
+              className="px-1.5 py-0.5 rounded-md bg-[#BAE6FD]/15 border border-[#BAE6FD]/40 text-[9px] font-mono font-bold text-[#BAE6FD] whitespace-nowrap shrink-0 inline-flex items-center gap-1"
               title="Lilo Passive: Customer Mood Meter Disabled"
             >
               <InfinityIcon className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
@@ -432,7 +432,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
           {isMikmikActive && (
             <span
               data-testid="hud-mikmik-passive-badge"
-              className="px-1.5 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/70 text-[9px] font-mono font-bold text-amber-200 whitespace-nowrap shrink-0 inline-flex items-center gap-1"
+              className="px-1.5 py-0.5 rounded-md bg-white/[0.10] border border-white/30 text-[9px] font-mono font-bold text-white whitespace-nowrap shrink-0 inline-flex items-center gap-1"
               title="Mikmik Passive: +30% Drink Revenue & +30% Mood Drain"
             >
               <Cat className="w-2.5 h-2.5 shrink-0" strokeWidth={2.3} />
@@ -472,12 +472,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     onClick={() => (isAccepted ? onPinOrder(cust.id) : onAcceptOrder(cust.id))}
                     className={`relative flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] transition-colors cursor-pointer shrink-0 max-w-[235px] overflow-hidden glass-text-crisp ${
                       !isAccepted
-                        ? 'bg-amber-500/30 hover:bg-amber-500/40 border-amber-300/80 text-amber-100 font-bold'
+                        ? 'bg-white/[0.14] hover:bg-white/[0.22] border-white/45 text-white font-bold'
                         : isImpatient
-                        ? 'bg-rose-500/30 border-rose-400 text-rose-100 font-bold'
+                        ? 'bg-[#F87171]/25 border-[#F87171] text-white font-bold'
                         : isPinned
-                        ? 'bg-amber-500/25 border-amber-400 text-[#FAF5EE] font-semibold'
-                        : 'glass-btn-inner text-[#E7D7C1]'
+                        ? 'bg-white/[0.12] border-[#E4E4E7] text-white font-semibold'
+                        : 'glass-btn-inner text-[#A1A1AA]'
                     }`}
                     title={
                       !isAccepted
@@ -504,40 +504,40 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       <Bike
                         className={`w-3 h-3 shrink-0 ${
                           cust.riderVariant === 'blue'
-                            ? 'text-sky-300'
+                            ? 'text-[#BAE6FD]'
                             : cust.riderVariant === 'red'
-                            ? 'text-rose-300'
-                            : 'text-emerald-300'
+                            ? 'text-[#F87171]'
+                            : 'text-[#34D399]'
                         }`}
                         strokeWidth={2.4}
                         aria-label="Delivery Rider"
                       />
                     ) : isTakeout ? (
                       <ShoppingBag
-                        className="w-2.5 h-2.5 text-emerald-300 shrink-0"
+                        className="w-2.5 h-2.5 text-[#34D399] shrink-0"
                         strokeWidth={2.4}
                         aria-label="Takeout"
                       />
                     ) : (
                       <Store
-                        className="w-2.5 h-2.5 text-amber-300/80 shrink-0"
+                        className="w-2.5 h-2.5 text-[#A1A1AA] shrink-0"
                         strokeWidth={2.2}
                         aria-label="Dine-In"
                       />
                     )}
                     {custPastry && (
                       <Croissant
-                        className="w-2.5 h-2.5 text-amber-300 shrink-0"
+                        className="w-2.5 h-2.5 text-[#E4E4E7] shrink-0"
                         strokeWidth={2.4}
                         aria-label={custPastry.name}
                       />
                     )}
-                    <span className="font-mono tabular-nums text-emerald-300 font-bold shrink-0">
+                    <span className="font-mono tabular-nums text-[#34D399] font-bold shrink-0">
                       ${displayPrice}
                     </span>
 
                     {!isAccepted ? (
-                      <span className="inline-flex items-center gap-0.5 font-mono text-[9px] font-bold shrink-0 px-1 rounded bg-amber-400 text-[#160E09]">
+                      <span className="inline-flex items-center gap-0.5 font-mono text-[9px] font-bold shrink-0 px-1 rounded hud-platinum-pill">
                         <Hand className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
                         <span>Take Order</span>
                       </span>
@@ -546,12 +546,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                         data-testid={`hud-order-mood-${cust.id}`}
                         className={`inline-flex items-center gap-0.5 font-mono tabular-nums text-[9px] font-bold shrink-0 px-1 rounded ${
                           isLiloActive || isZenMode
-                            ? 'bg-sky-500/25 text-sky-200'
+                            ? 'bg-[#BAE6FD]/18 text-[#BAE6FD]'
                             : isImpatient
-                            ? 'bg-rose-500/45 text-rose-100 animate-pulse'
+                            ? 'bg-[#F87171]/35 text-white animate-pulse'
                             : isNeutral
-                            ? 'bg-amber-500/30 text-amber-200'
-                            : 'bg-emerald-500/25 text-emerald-200'
+                            ? 'bg-white/15 text-[#E4E4E7]'
+                            : 'bg-[#34D399]/20 text-[#34D399]'
                         }`}
                       >
                         {isLiloActive ? (
@@ -586,14 +586,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     <span
                       className={`absolute bottom-0 left-0 h-[2px] transition-all ${
                         !isAccepted
-                          ? 'bg-amber-300'
+                          ? 'bg-white'
                           : isLiloActive || isZenMode
-                          ? 'bg-sky-400'
+                          ? 'bg-[#BAE6FD]'
                           : isImpatient
-                          ? 'bg-rose-500'
+                          ? 'bg-[#F87171]'
                           : isNeutral
-                          ? 'bg-amber-400'
-                          : 'bg-emerald-400'
+                          ? 'bg-[#A1A1AA]'
+                          : 'bg-[#34D399]'
                       }`}
                       style={{ width: `${!isAccepted || isLiloActive || isZenMode ? 100 : moodVal}%` }}
                     />
@@ -618,7 +618,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             liveClockLabel={liveClockLabel}
           />
 
-          {/* Right Cluster: Consolidated Single Menu Button (Contains GFX, Realism, Music, Codex, Upgrades, Decor, Sound & Hide HUD) */}
+          {/* Right Cluster: Consolidated Single Menu Button */}
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
@@ -627,10 +627,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               aria-label="Open Cafe Menu"
               title="All Cafe Navigation: Graphics, Realism Mode, Music, Recipe Book, Upgrades, Decor, Sound & Hide HUD"
               onClick={() => setTopMenuOpen((prev) => !prev)}
-              className={`relative h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap transition-all ${
+              className={`relative h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-xs font-bold cursor-pointer whitespace-nowrap transition-transform ${
                 topMenuOpen
-                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow-[0_4px_14px_-3px_rgba(245,158,11,0.55)]'
-                  : 'glass-btn-inner !border-amber-400/50 text-amber-200'
+                  ? 'hud-platinum-pill'
+                  : 'glass-btn-inner !border-white/25 text-white'
               }`}
             >
               {topMenuOpen ? (
@@ -640,13 +640,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               )}
               <span>Menu</span>
               {unclaimedLoginCount > 0 && !topMenuOpen && (
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping absolute -top-0.5 -right-0.5" />
+                <span className="w-2 h-2 rounded-full bg-white animate-ping absolute -top-0.5 -right-0.5" />
               )}
             </button>
           </div>
         </div>
 
-        {/* Consolidated Top Navigation Menu Drawer (Holds GFX Toggle, Realism Mode, Music, Codex, Upgrades, Decor, Sound, Hide HUD & Pause) */}
+        {/* Consolidated Top Navigation Menu Drawer */}
         {topMenuOpen && (
           <div
             data-testid="top-navigation-menu-drawer"
@@ -659,11 +659,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => {
                 handleToggleGraphics();
               }}
-              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-all ${
+              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-transform ${
                 gameState.graphicsQuality === 'max'
-                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow'
+                  ? 'hud-platinum-pill'
                   : gameState.graphicsQuality === 'medium'
-                  ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-[#0c1220] border-sky-300 shadow'
+                  ? 'bg-white/[0.14] border-white/35 text-white shadow'
                   : 'glass-btn-inner'
               }`}
             >
@@ -672,9 +672,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <div className="truncate">GFX: {qualityLabel}</div>
                 <div
                   className={`text-[10px] font-mono ${
-                    gameState.graphicsQuality !== 'low'
-                      ? 'text-[#160E09]/80 font-bold'
-                      : 'text-emerald-300'
+                    gameState.graphicsQuality === 'max'
+                      ? 'text-[#09090B]/80 font-bold'
+                      : 'text-[#34D399]'
                   }`}
                 >
                   {Math.min(60, Math.max(30, fps))} FPS · Cycle
@@ -682,17 +682,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 2. Realism Mode Toggle (Hides Step-by-Step Shortcuts & Relies on 3D Tools + Codex) */}
+            {/* 2. Realism Mode Toggle */}
             <button
               type="button"
               data-testid="btn-toggle-realism"
               onClick={() => {
                 onToggleRealismMode();
               }}
-              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-all ${
+              className={`px-2.5 py-2 rounded-lg border font-bold text-xs text-left cursor-pointer flex items-center gap-2 transition-transform ${
                 isRealismMode
-                  ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] border-amber-300 shadow'
-                  : 'glass-btn-inner !border-amber-400/40 text-amber-200'
+                  ? 'hud-platinum-pill'
+                  : 'glass-btn-inner text-white'
               }`}
             >
               <Compass className="w-4 h-4 shrink-0" strokeWidth={2.2} />
@@ -700,7 +700,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <div className="truncate">Realism: {isRealismMode ? 'ON' : 'OFF'}</div>
                 <div
                   className={`text-[10px] truncate ${
-                    isRealismMode ? 'text-[#160E09]/80 font-semibold' : 'text-[#E7D7C1]'
+                    isRealismMode ? 'text-[#09090B]/75 font-semibold' : 'text-[#A1A1AA]'
                   }`}
                 >
                   {isRealismMode ? 'Touch 3D Tools & Recipe Book' : 'Guided HUD & Shortcuts'}
@@ -708,7 +708,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               </div>
             </button>
 
-            {/* 3. Unified Counter Audio Deck (Vinyl / Live Radio / External Hologram) */}
+            {/* 3. Unified Counter Audio Deck */}
             <button
               type="button"
               data-testid="btn-menu-spotify"
@@ -716,17 +716,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('spotify');
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg text-amber-200 !border-amber-400/45 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
               <Disc3
-                className={`w-4 h-4 text-amber-300 shrink-0 ${
+                className={`w-4 h-4 text-[#E4E4E7] shrink-0 ${
                   audioSnapshot.isPlaying || spotifyState.isPlaying ? 'animate-spin' : ''
                 }`}
                 strokeWidth={2.2}
               />
               <div className="min-w-0">
                 <div className="truncate">Audio Deck</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate capitalize">
+                <div className="text-[10px] text-[#A1A1AA] truncate capitalize">
                   {audioSnapshot.mode} · {audioSnapshot.isPlaying ? 'Playing' : 'Ready'}
                 </div>
               </div>
@@ -740,12 +740,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('recipes');
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <BookOpen className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <BookOpen className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Recipe Book</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">Coffee &amp; Tea</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">Coffee &amp; Tea</div>
               </div>
             </button>
 
@@ -757,17 +757,17 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('upgrades');
               }}
-              className="relative glass-btn-inner px-2.5 py-2 rounded-lg text-amber-200 !border-amber-400/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="relative glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <Zap className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <Zap className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Upgrades &amp; Cats</div>
-                <div className="text-[10px] text-amber-300 truncate">
+                <div className="text-[10px] text-[#A1A1AA] truncate">
                   {equippedCat.name} · 50K &amp; Skins
                 </div>
               </div>
               {unclaimedLoginCount > 0 && (
-                <span className="w-2 h-2 rounded-full bg-amber-400 absolute top-1.5 right-1.5" />
+                <span className="w-2 h-2 rounded-full bg-white absolute top-1.5 right-1.5" />
               )}
             </button>
 
@@ -779,12 +779,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onOpenModal('customize');
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <Sprout className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
+              <Sprout className="w-4 h-4 text-[#34D399] shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Decor &amp; Weather</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">3D Previews &amp; Snow</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">3D Previews &amp; Snow</div>
               </div>
             </button>
 
@@ -795,16 +795,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => {
                 onToggleMute();
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
               {isMuted ? (
-                <VolumeX className="w-4 h-4 text-rose-400 shrink-0" strokeWidth={2.2} />
+                <VolumeX className="w-4 h-4 text-[#F87171] shrink-0" strokeWidth={2.2} />
               ) : (
-                <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2.2} />
+                <Volume2 className="w-4 h-4 text-[#34D399] shrink-0" strokeWidth={2.2} />
               )}
               <div className="min-w-0">
                 <div className="truncate">{isMuted ? 'Sound: Off' : 'Sound: On'}</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">Granular Audio</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">Granular Audio</div>
               </div>
             </button>
 
@@ -816,14 +816,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 setHudHidden(true);
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg text-amber-200 !border-amber-400/40 font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <EyeOff className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <EyeOff className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">
                   {isApkVersion ? 'Hide HUD' : 'Hide HUD [H]'}
                 </div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">Pure 3D View</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">Pure 3D View</div>
               </div>
             </button>
 
@@ -834,12 +834,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onRequestFullscreenLandscape();
               }}
-              className="glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
             >
-              <Maximize2 className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <Maximize2 className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <div className="min-w-0">
                 <div className="truncate">Fullscreen</div>
-                <div className="text-[10px] text-[#E7D7C1] truncate">Landscape Lock</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">Landscape Lock</div>
               </div>
             </button>
 
@@ -851,12 +851,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   setTopMenuOpen(false);
                   onOpenModal('pwa');
                 }}
-                className="px-2.5 py-2 rounded-lg bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 hover:brightness-105 text-[#160E09] font-bold text-xs text-left cursor-pointer flex items-center gap-2 shadow"
+                className="px-2.5 py-2 rounded-lg hud-platinum-pill font-bold text-xs text-left cursor-pointer flex items-center gap-2"
               >
                 <Download className="w-4 h-4 shrink-0" strokeWidth={2.2} />
                 <div className="min-w-0">
                   <div className="truncate">Install APK</div>
-                  <div className="text-[10px] text-[#160E09]/80 font-semibold truncate">APK &amp; PWA</div>
+                  <div className="text-[10px] text-[#09090B]/75 font-semibold truncate">APK &amp; PWA</div>
                 </div>
               </button>
             ) : null}
@@ -868,11 +868,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 setTopMenuOpen(false);
                 onTogglePause();
               }}
-              className={`glass-btn-inner px-2.5 py-2 rounded-lg font-semibold text-xs text-left cursor-pointer flex items-center justify-center gap-2 ${
+              className={`glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center justify-center gap-2 ${
                 isApkVersion ? 'col-span-2 sm:col-span-3' : 'col-span-1 sm:col-span-2'
               }`}
             >
-              <SlidersHorizontal className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <SlidersHorizontal className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <span>
                 {isApkVersion
                   ? 'Pause Shift & Save Backup'
@@ -892,13 +892,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] font-bold uppercase tracking-wider shrink-0 ${
                   pinnedOrder.isDeliveryRider
                     ? pinnedOrder.riderVariant === 'blue'
-                      ? 'bg-sky-500/25 border-sky-400/65 text-sky-200'
+                      ? 'bg-[#BAE6FD]/18 border-[#BAE6FD]/45 text-[#BAE6FD]'
                       : pinnedOrder.riderVariant === 'red'
-                      ? 'bg-rose-500/25 border-rose-400/65 text-rose-200'
-                      : 'bg-emerald-500/25 border-emerald-400/65 text-emerald-200'
+                      ? 'bg-[#F87171]/18 border-[#F87171]/45 text-[#F87171]'
+                      : 'bg-[#34D399]/18 border-[#34D399]/45 text-[#34D399]'
                     : pinnedOrder.orderType === 'takeout'
-                    ? 'bg-emerald-500/25 border-emerald-400/55 text-emerald-200'
-                    : 'bg-amber-500/20 border-amber-400/45 text-amber-200'
+                    ? 'bg-[#34D399]/18 border-[#34D399]/45 text-[#34D399]'
+                    : 'bg-white/[0.08] border-white/20 text-[#E4E4E7]'
                 }`}
               >
                 {pinnedOrder.isDeliveryRider ? (
@@ -918,10 +918,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   </>
                 )}
               </span>
-              <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 glass-text-crisp shrink-0">
+              <span className="text-[10px] sm:text-[11px] font-bold text-[#E4E4E7] glass-text-crisp shrink-0">
                 {pinnedOrder.customerName}:
               </span>
-              <span className="text-[10px] sm:text-[11px] font-semibold text-[#FAF5EE] glass-text-crisp truncate">
+              <span className="text-[10px] sm:text-[11px] font-semibold text-white glass-text-crisp truncate">
                 {targetRecipe.name}
               </span>
               {requestedPastrySpec && (
@@ -931,8 +931,8 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   onClick={() => onSelectStation(1)}
                   className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded border text-[9px] font-bold shrink-0 cursor-pointer transition-colors ${
                     isPastrySatisfied
-                      ? 'bg-emerald-500/30 border-emerald-400/70 text-emerald-200'
-                      : 'bg-amber-500/25 hover:bg-amber-500/40 border-amber-300/70 text-amber-100'
+                      ? 'bg-[#34D399]/20 border-[#34D399]/55 text-[#34D399]'
+                      : 'bg-white/[0.12] hover:bg-white/[0.2] border-white/35 text-white'
                   }`}
                   title={
                     isPastrySatisfied
@@ -953,12 +953,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               {pinnedOrder.customAddons?.map((addon) => (
                 <span
                   key={addon}
-                  className="px-1 py-0 rounded bg-amber-500/20 border border-amber-400/40 text-[9px] font-mono font-semibold text-amber-200 shrink-0"
+                  className="px-1 py-0 rounded bg-white/[0.08] border border-white/20 text-[9px] font-mono font-semibold text-[#E4E4E7] shrink-0"
                 >
                   {addon}
                 </span>
               ))}
-              <span className="px-1 py-0 rounded bg-emerald-500/25 border border-emerald-400/35 text-[9px] font-mono font-bold text-emerald-300 shrink-0">
+              <span className="px-1 py-0 rounded bg-[#34D399]/18 border border-[#34D399]/40 text-[9px] font-mono font-bold text-[#34D399] shrink-0">
                 +${isGoldenEquipped ? pinnedOrder.customBonusTip * 2 : pinnedOrder.customBonusTip}
               </span>
               {(() => {
@@ -969,7 +969,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       type="button"
                       data-testid="btn-accept-pinned-order"
                       onClick={() => onAcceptOrder(pinnedOrder.id)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-[#160E09] text-[9px] font-bold uppercase tracking-wide shrink-0 cursor-pointer shadow"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full hud-platinum-pill text-[9px] font-bold uppercase tracking-wide shrink-0 cursor-pointer"
                     >
                       <Hand className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
                       <span>Accept Order</span>
@@ -988,12 +988,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     data-testid="active-order-mood"
                     className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full border text-[9px] font-mono font-bold tabular-nums shrink-0 ${
                       isLiloActive || isZenMode
-                        ? 'bg-sky-500/20 border-sky-400/50 text-sky-200'
+                        ? 'bg-[#BAE6FD]/18 border-[#BAE6FD]/40 text-[#BAE6FD]'
                         : isImpatient
-                        ? 'bg-rose-500/35 border-rose-400 text-rose-100 animate-pulse'
+                        ? 'bg-[#F87171]/30 border-[#F87171] text-white animate-pulse'
                         : isNeutral
-                        ? 'bg-amber-500/25 border-amber-400/50 text-amber-200'
-                        : 'bg-emerald-500/20 border-emerald-400/45 text-emerald-200'
+                        ? 'bg-white/10 border-white/25 text-[#E4E4E7]'
+                        : 'bg-[#34D399]/18 border-[#34D399]/40 text-[#34D399]'
                     }`}
                   >
                     {isLiloActive ? (
@@ -1024,7 +1024,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 onClick={() => setTicketsCollapsed(true)}
-                className="ml-0.5 text-[#E7D7C1] hover:text-white cursor-pointer shrink-0 flex items-center"
+                className="ml-0.5 text-[#A1A1AA] hover:text-white cursor-pointer shrink-0 flex items-center"
                 title="Minimize Order Strip"
                 aria-label="Minimize Order Strip"
               >
@@ -1057,26 +1057,26 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   data-testid="hud-feedback-banner"
                   className={`pointer-events-none inline-flex items-center gap-2 glass-pill glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[60vw] truncate ${
                     isCheatToast
-                      ? '!bg-amber-950/90 !border-amber-300 text-amber-200 font-bold shadow-[0_0_22px_rgba(251,191,36,0.55)]'
+                      ? '!bg-[#18181B]/95 !border-white/55 text-white font-bold shadow-[0_0_22px_rgba(255,255,255,0.22)]'
                       : isExpiredAlert
-                      ? '!bg-rose-950/90 !border-rose-400/80 text-rose-100 shadow-[0_0_16px_rgba(244,63,94,0.45)]'
+                      ? '!bg-[#18181B]/95 !border-[#F87171]/70 text-[#F87171]'
                       : isCatToast
-                      ? '!border-teal-400/70 text-teal-100'
+                      ? '!border-white/30 text-white'
                       : isHappyTipToast
-                      ? '!border-emerald-400/75 text-emerald-100'
-                      : 'text-[#FAF5EE]'
+                      ? '!border-[#34D399]/60 text-[#34D399]'
+                      : 'text-white'
                   }`}
                 >
                   <span className="truncate">{displayBannerText}</span>
                   {stepDurationMs && stepProgress !== null && (
-                    <span className="text-[9px] font-mono text-amber-300 shrink-0">
+                    <span className="text-[9px] font-mono text-[#E4E4E7] shrink-0">
                       {(stepDurationMs / 1000).toFixed(1)}s
                     </span>
                   )}
                   {stepProgress !== null && (
-                    <div className="w-14 h-1.5 rounded-full bg-black/50 overflow-hidden shrink-0">
+                    <div className="w-14 h-1.5 rounded-full bg-[#27272A] overflow-hidden shrink-0">
                       <div
-                        className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-75"
+                        className="h-full hud-platinum-bar transition-all duration-75"
                         style={{ width: `${Math.min(100, Math.max(5, stepProgress))}%` }}
                       />
                     </div>
@@ -1122,43 +1122,43 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   <div
                     data-testid="pinned-recipe-pill"
                     className={`pointer-events-auto glass-pill rounded-full px-2.5 py-1 flex items-center gap-1.5 border shadow-lg ${
-                      isUrgent ? 'border-rose-400/80' : 'border-amber-400/45'
+                      isUrgent ? 'border-[#F87171]/80' : 'border-white/25'
                     }`}
                   >
                     <button
                       type="button"
                       data-testid="btn-toggle-pinned-recipe"
                       onClick={() => onToggleMinimizePinnedRecipe?.()}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#FAF5EE] hover:text-amber-200 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-white hover:text-[#E4E4E7] cursor-pointer"
                       title="Expand Pinned Recipe Steps"
                     >
-                      <Pin className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.4} />
+                      <Pin className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.4} />
                       <span className="max-w-[140px] truncate">{pinnedBookRecipe.name}</span>
                       {linkedOrder && linkedOrder.orderAccepted && (
                         <span
                           className={`text-[10px] font-mono tabular-nums font-bold ${
                             isLiloActive || isZenMode
-                              ? 'text-sky-300'
+                              ? 'text-[#BAE6FD]'
                               : isUrgent
-                              ? 'text-rose-300 animate-pulse'
+                              ? 'text-[#F87171] animate-pulse'
                               : isWarning
-                              ? 'text-amber-300'
-                              : 'text-emerald-300'
+                              ? 'text-[#E4E4E7]'
+                              : 'text-[#34D399]'
                           }`}
                         >
                           {isLiloActive ? '∞ Lilo' : isZenMode ? '∞ Zen' : `M:${moodVal}`}
                         </span>
                       )}
-                      <span className="text-[10px] font-mono text-amber-300 font-bold">
+                      <span className="text-[10px] font-mono text-[#E4E4E7] font-bold">
                         {completedCount}/{steps.length - 1}
                       </span>
-                      <ChevronDown className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.4} />
+                      <ChevronDown className="w-3 h-3 text-[#A1A1AA] shrink-0" strokeWidth={2.4} />
                     </button>
                     <button
                       type="button"
                       data-testid="btn-unpin-recipe"
                       onClick={() => onUnpinHudRecipe?.()}
-                      className="text-[#E7D7C1] hover:text-white cursor-pointer pl-0.5"
+                      className="text-[#A1A1AA] hover:text-white cursor-pointer pl-0.5"
                       title="Unpin Recipe"
                       aria-label="Unpin Recipe"
                     >
@@ -1172,13 +1172,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 <div
                   data-testid="pinned-recipe-card"
                   className={`pointer-events-auto glass-panel rounded-xl px-3 py-2 w-[245px] sm:w-[278px] border space-y-1.5 ${
-                    isUrgent ? 'border-rose-400/75' : 'border-amber-400/45'
+                    isUrgent ? 'border-[#F87171]/75' : 'border-white/20'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2 border-b border-amber-400/20 pb-1">
+                  <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Pin className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.3} />
-                      <span className="text-xs font-display font-bold text-[#FAF5EE] truncate glass-text-crisp">
+                      <Pin className="w-3.5 h-3.5 text-[#E4E4E7] shrink-0" strokeWidth={2.3} />
+                      <span className="text-xs font-bold text-white truncate glass-text-crisp">
                         {pinnedBookRecipe.name}
                       </span>
                     </div>
@@ -1188,14 +1188,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                           data-testid="pinned-recipe-mood"
                           className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums ${
                             !linkedOrder.orderAccepted
-                              ? 'bg-amber-500/25 text-amber-200'
+                              ? 'bg-white/15 text-white'
                               : isLiloActive || isZenMode
-                              ? 'bg-sky-500/25 text-sky-200'
+                              ? 'bg-[#BAE6FD]/18 text-[#BAE6FD]'
                               : isUrgent
-                              ? 'bg-rose-500/40 text-rose-100 animate-pulse'
+                              ? 'bg-[#F87171]/35 text-white animate-pulse'
                               : isWarning
-                              ? 'bg-amber-500/30 text-amber-200'
-                              : 'bg-emerald-500/25 text-emerald-200'
+                              ? 'bg-white/12 text-[#E4E4E7]'
+                              : 'bg-[#34D399]/18 text-[#34D399]'
                           }`}
                         >
                           {!linkedOrder.orderAccepted ? (
@@ -1228,7 +1228,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                         type="button"
                         data-testid="btn-toggle-pinned-recipe"
                         onClick={() => onToggleMinimizePinnedRecipe?.()}
-                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-amber-400/25 text-amber-200 flex items-center justify-center cursor-pointer"
+                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-white/20 text-[#E4E4E7] flex items-center justify-center cursor-pointer"
                         title="Minimize Pinned Recipe"
                         aria-label="Minimize Pinned Recipe"
                       >
@@ -1238,7 +1238,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                         type="button"
                         data-testid="btn-unpin-recipe"
                         onClick={() => onUnpinHudRecipe?.()}
-                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-rose-500/35 text-[#E7D7C1] hover:text-white flex items-center justify-center cursor-pointer"
+                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-[#F87171]/30 text-[#A1A1AA] hover:text-white flex items-center justify-center cursor-pointer"
                         title="Unpin Recipe"
                         aria-label="Unpin Recipe"
                       >
@@ -1247,13 +1247,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     </div>
                   </div>
                   {linkedOrder && (
-                    <div className="flex items-center flex-wrap gap-1 text-[10px] text-[#E7D7C1]">
-                      <span className="font-bold text-amber-300">{linkedOrder.customerName}</span>
+                    <div className="flex items-center flex-wrap gap-1 text-[10px] text-[#A1A1AA]">
+                      <span className="font-bold text-white">{linkedOrder.customerName}</span>
                       <span
                         className={`px-1 py-0 rounded border text-[9px] font-bold uppercase ${
                           linkedOrder.orderType === 'takeout'
-                            ? 'bg-emerald-500/20 border-emerald-400/45 text-emerald-200'
-                            : 'bg-amber-500/15 border-amber-400/40 text-amber-200'
+                            ? 'bg-[#34D399]/18 border-[#34D399]/40 text-[#34D399]'
+                            : 'bg-white/[0.08] border-white/20 text-[#E4E4E7]'
                         }`}
                       >
                         {linkedOrder.orderType === 'takeout' ? 'Takeout' : 'Dine-In'}
@@ -1261,7 +1261,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       {linkedOrder.customAddons?.map((addon) => (
                         <span
                           key={`pin-addon-${addon}`}
-                          className="px-1 py-0 rounded bg-amber-500/20 border border-amber-400/35 text-[9px] font-mono text-amber-200"
+                          className="px-1 py-0 rounded bg-white/[0.08] border border-white/20 text-[9px] font-mono text-[#E4E4E7]"
                         >
                           {addon}
                         </span>
@@ -1277,14 +1277,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                           key={`hud-pin-${chip.stepNum}`}
                           className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-semibold ${
                             done
-                              ? 'bg-emerald-500/25 border-emerald-400/55 text-emerald-200 line-through opacity-85'
+                              ? 'bg-[#34D399]/18 border-[#34D399]/45 text-[#34D399] line-through opacity-85'
                               : isCurrent
-                              ? 'bg-amber-500/30 border-amber-300 text-amber-100 shadow-[0_0_8px_rgba(245,158,11,0.45)]'
-                              : 'bg-black/35 border-white/15 text-[#E7D7C1]/85'
+                              ? 'hud-platinum-pill font-bold'
+                              : 'bg-[#18181B]/75 border-white/12 text-[#A1A1AA]'
                           }`}
                         >
                           {done ? (
-                            <Check className="w-2.5 h-2.5 text-emerald-300 shrink-0" strokeWidth={2.8} />
+                            <Check className="w-2.5 h-2.5 text-[#34D399] shrink-0" strokeWidth={2.8} />
                           ) : (
                             <span className="font-mono opacity-80">{chip.stepNum}.</span>
                           )}
@@ -1295,14 +1295,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     })}
                   </div>
                   {linkedOrder && linkedOrder.orderAccepted && !isZenMode && !isLiloActive && (
-                    <div className="w-full h-1 rounded-full bg-black/50 overflow-hidden">
+                    <div className="w-full h-1 rounded-full bg-[#27272A] overflow-hidden">
                       <div
                         className={`h-full transition-all duration-200 ${
                           isUrgent
-                            ? 'bg-rose-500'
+                            ? 'bg-[#F87171]'
                             : isWarning
-                            ? 'bg-amber-400'
-                            : 'bg-emerald-400'
+                            ? 'bg-[#A1A1AA]'
+                            : 'bg-[#34D399]'
                         }`}
                         style={{ width: `${moodVal}%` }}
                       />
@@ -1319,7 +1319,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
       <div
         className="pointer-events-auto min-h-9 sm:min-h-10 w-full glass-panel !rounded-none !border-x-0 !border-b-0 hud-bottom-safe flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0"
       >
-        {/* Left Side: Phase 7 Direct-Access Icon + Label Station Pill Bar */}
+        {/* Left Side: Direct-Access Icon + Label Station Pill Bar (Brushed Platinum Active Pill) */}
         <div
           data-testid="station-switcher-pill"
           className="inline-flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 shrink-0"
@@ -1348,12 +1348,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 type="button"
                 data-testid={st.testId}
                 onClick={() => onSelectStation(st.id)}
-                className={`relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0 ${
+                className={`relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-transform shrink-0 ${
                   isActive
-                    ? 'bg-[#090705]/95 border-[#f5a623] text-[#f5a623] shadow-[0_0_14px_-2px_rgba(245,166,35,0.65)]'
+                    ? 'hud-platinum-pill'
                     : isRecommended
-                    ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-300/75 text-amber-200'
-                    : 'bg-[#090705]/75 hover:bg-[#1a130d]/90 border-white/12 text-[#E7D7C1]/85 hover:text-[#FAF5EE]'
+                    ? 'bg-white/[0.12] hover:bg-white/[0.18] border-white/45 text-white'
+                    : 'bg-[#09090B]/78 hover:bg-[#18181B]/92 border-white/14 text-[#A1A1AA] hover:text-white'
                 }`}
                 title={`${st.label} (Station ${st.id})`}
                 aria-label={`${st.label} Station`}
@@ -1365,7 +1365,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 </span>
                 {isRecommended && (
                   <span
-                    className="w-1.5 h-1.5 rounded-full bg-amber-300 absolute top-0.5 right-0.5"
+                    className="w-1.5 h-1.5 rounded-full bg-white absolute top-0.5 right-0.5"
                     aria-hidden="true"
                   />
                 )}
@@ -1378,7 +1378,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="btn-open-cat-station"
             onClick={onOpenCatStation}
-            className="relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border bg-[#090705]/75 hover:bg-[#1a130d]/90 border-[#f5a623]/35 text-amber-200 hover:text-[#f5a623] flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0"
+            className="relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border bg-[#09090B]/78 hover:bg-[#18181B]/92 border-white/14 hover:border-white/35 text-[#A1A1AA] hover:text-white flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0"
             title={`Visit ${equippedCat.name} · Pet, Comb, Feed Treats & Customize Wardrobe`}
             aria-label={`Open Cat Station (${equippedCat.name})`}
           >
@@ -1389,7 +1389,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             {hasUnseenCatUnlock && (
               <span
                 data-testid="cat-unlock-badge-dot"
-                className="w-2 h-2 rounded-full bg-[#f5a623] border border-[#090705] absolute -top-0.5 -right-0.5"
+                className="w-2 h-2 rounded-full bg-white border border-[#09090B] absolute -top-0.5 -right-0.5"
                 aria-label="New cat or cosmetic unlocked"
               />
             )}
@@ -1400,7 +1400,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="btn-open-go-outside"
             onClick={onOpenGoOutside}
-            className="relative min-w-[44px] sm:min-w-[50px] px-1.5 py-1 rounded-xl border bg-[#090705]/75 hover:bg-[#1a130d]/90 border-sky-400/35 text-sky-200 hover:text-sky-100 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0"
+            className="relative min-w-[44px] sm:min-w-[50px] px-1.5 py-1 rounded-xl border bg-[#09090B]/78 hover:bg-[#18181B]/92 border-white/14 hover:border-white/35 text-[#A1A1AA] hover:text-white flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0"
             title="Step Outside to Scenic Overlook (Mood Paused)"
             aria-label="Go Outside Scenic Overlook"
           >
@@ -1415,10 +1415,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             type="button"
             data-testid="pill-station-6"
             onClick={() => onSelectStation(6)}
-            className={`relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all shrink-0 ${
+            className={`relative min-w-[44px] sm:min-w-[48px] px-1.5 py-1 rounded-xl border flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-transform shrink-0 ${
               gameState.activeStation === 6
-                ? 'bg-[#090705]/95 border-[#f5a623] text-[#f5a623] shadow-[0_0_14px_-2px_rgba(245,166,35,0.65)]'
-                : 'bg-[#090705]/75 hover:bg-[#1a130d]/90 border-white/12 text-[#E7D7C1]/85 hover:text-[#FAF5EE]'
+                ? 'hud-platinum-pill'
+                : 'bg-[#09090B]/78 hover:bg-[#18181B]/92 border-white/14 text-[#A1A1AA] hover:text-white'
             }`}
             title="Audio Deck (Station 6)"
             aria-label="Audio Station"
@@ -1448,12 +1448,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               if (isStepLocked) return;
               onCupAction('quick_brew_step');
             }}
-            className={`relative overflow-hidden px-2.5 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap shrink-0 flex items-center gap-1 transition-all ${
+            className={`relative overflow-hidden px-2.5 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap shrink-0 flex items-center gap-1 transition-transform ${
               isStepLocked
-                ? 'bg-[#20140d] border border-amber-400/75 text-[#FAF5EE] cursor-not-allowed shadow-inner'
+                ? 'bg-[#18181B] border border-white/30 text-white cursor-not-allowed shadow-inner'
                 : drinkValidation.hasWrongIngredient
-                ? 'bg-rose-500 hover:bg-rose-400 text-[#160E09] animate-pulse shadow cursor-pointer'
-                : 'bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/65 text-amber-200 glass-text-crisp cursor-pointer'
+                ? 'bg-[#F87171] hover:brightness-105 text-[#09090B] animate-pulse shadow cursor-pointer'
+                : 'hud-platinum-pill cursor-pointer'
             }`}
             title={stripKeyboardShortcutsForApk(
               `${targetRecipe.name}: ${nextStep.instruction}`,
@@ -1464,14 +1464,14 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <span
                 data-testid="quick-brew-progress-fill"
                 aria-hidden="true"
-                className="absolute inset-y-0 left-0 bg-gradient-to-r from-amber-500/80 via-amber-400/80 to-orange-500/80 transition-all duration-75"
+                className="absolute inset-y-0 left-0 hud-platinum-bar opacity-40 transition-all duration-75"
                 style={{ width: `${lockFillPct}%` }}
               />
             )}
-            <span className="relative z-10 inline-flex items-center gap-1 glass-text-crisp">
+            <span className="relative z-10 inline-flex items-center gap-1">
               {isStepLocked ? (
                 <>
-                  <Zap className="w-3.5 h-3.5 text-amber-200 shrink-0 animate-pulse" strokeWidth={2.2} />
+                  <Zap className="w-3.5 h-3.5 text-[#E4E4E7] shrink-0 animate-pulse" strokeWidth={2.2} />
                   <span>{activeLockLabel}</span>
                 </>
               ) : drinkValidation.hasWrongIngredient ? (
@@ -1481,7 +1481,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 </>
               ) : (
                 <>
-                  <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <Zap className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                   <span>
                     {nextStep.toolKey === 'pastry'
                       ? '+Pastry'
@@ -1512,12 +1512,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             data-testid="realism-mode-active-strip"
             className="flex items-center gap-1.5 shrink-0"
           >
-            <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/45 text-[10px] sm:text-xs font-semibold text-amber-200 glass-text-crisp whitespace-nowrap inline-flex items-center gap-1">
-              <Compass className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+            <span className="px-2 py-0.5 rounded-md bg-white/[0.08] border border-white/20 text-[10px] sm:text-xs font-semibold text-white glass-text-crisp whitespace-nowrap inline-flex items-center gap-1">
+              <Compass className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <span>Realism Mode: Touch 3D Equipment</span>
             </span>
             {preparedPastrySpec && (
-              <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/50 text-[10px] font-semibold text-emerald-200 whitespace-nowrap inline-flex items-center gap-1">
+              <span className="px-1.5 py-0.5 rounded-md bg-[#34D399]/18 border border-[#34D399]/45 text-[10px] font-semibold text-[#34D399] whitespace-nowrap inline-flex items-center gap-1">
                 <Croissant className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                 <span>{preparedPastrySpec.name}</span>
               </span>
@@ -1525,9 +1525,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             <button
               type="button"
               onClick={() => onOpenModal('recipes')}
-              className="glass-btn-inner px-2 py-1 rounded-md !border-amber-400/40 text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1"
+              className="glass-btn-inner px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold cursor-pointer whitespace-nowrap flex items-center gap-1"
             >
-              <BookOpen className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <BookOpen className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <span>Recipe Book</span>
             </button>
           </div>
@@ -1547,12 +1547,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     type="button"
                     data-testid={`btn-pastry-${pastry.id}`}
                     onClick={() => onGrabPastry(pastry.id)}
-                    className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 cursor-pointer transition-all ${
+                    className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 cursor-pointer transition-transform ${
                       isSelected
-                        ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200 shadow'
+                        ? 'bg-[#34D399]/18 border-[#34D399]/55 text-[#34D399] shadow'
                         : isRequested
-                        ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 border-amber-300 text-[#160E09] font-bold shadow'
-                        : 'glass-btn-inner text-[#FAF5EE]'
+                        ? 'hud-platinum-pill font-bold'
+                        : 'glass-btn-inner text-[#E4E4E7]'
                     }`}
                     title={`Grab ${pastry.name} (+$${pastry.price}) — never resets coffee steps!`}
                   >
@@ -1578,7 +1578,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   type="button"
                   data-testid="btn-station1-accept-order"
                   onClick={() => onAcceptOrder(firstWaitingOrder.id)}
-                  className="px-2 py-1 rounded-md bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] text-[10px] sm:text-xs font-bold cursor-pointer whitespace-nowrap flex items-center gap-1 shadow"
+                  className="px-2 py-1 rounded-md hud-platinum-pill text-[10px] sm:text-xs font-bold cursor-pointer whitespace-nowrap flex items-center gap-1"
                 >
                   <Hand className="w-3 h-3 shrink-0" strokeWidth={2.4} />
                   <span>Take {firstWaitingOrder.customerName}&apos;s Order</span>
@@ -1589,13 +1589,13 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onOpenModal('recipes')}
                 className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-medium cursor-pointer whitespace-nowrap flex items-center gap-1"
               >
-                <BookOpen className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+                <BookOpen className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
                 <span>Recipe Book</span>
               </button>
               <button
                 type="button"
                 onClick={() => onSelectStation(3)}
-                className="px-1.5 sm:px-2 py-1 rounded-md bg-amber-500/25 hover:bg-amber-500/35 border border-amber-400/50 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold text-white cursor-pointer whitespace-nowrap flex items-center gap-1 transition-colors"
               >
                 <span>Espresso Bar</span>
                 <ArrowRight className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -1614,10 +1614,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('grind')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition-colors ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : cup.hasGrounds
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
-                    : 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE] cursor-pointer'
+                    ? 'bg-[#34D399]/18 border-[#34D399]/50 text-[#34D399] cursor-pointer'
+                    : 'glass-btn-inner !border-white/25 text-white cursor-pointer'
                 }`}
               >
                 {cup.hasGrounds && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
@@ -1637,12 +1637,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('tamp')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition-colors ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : cup.isTamped
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
+                    ? 'bg-[#34D399]/18 border-[#34D399]/50 text-[#34D399] cursor-pointer'
                     : cup.hasGrounds
-                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE] cursor-pointer'
-                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45 cursor-pointer'
+                    ? 'glass-btn-inner !border-white/25 text-white cursor-pointer'
+                    : 'bg-[#18181B]/50 border-white/10 text-[#71717A] cursor-pointer'
                 }`}
                 title={!cup.hasGrounds ? 'Grind beans first before tamping!' : 'Tamp coffee puck'}
               >
@@ -1663,12 +1663,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('pull_espresso')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 transition-colors ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : cup.hasEspresso
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
+                    ? 'bg-[#34D399]/18 border-[#34D399]/50 text-[#34D399] cursor-pointer'
                     : cup.hasGrounds && cup.isTamped
-                    ? 'glass-btn-inner !border-amber-400/50 text-[#FAF5EE] cursor-pointer'
-                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45 cursor-pointer'
+                    ? 'glass-btn-inner !border-white/25 text-white cursor-pointer'
+                    : 'bg-[#18181B]/50 border-white/10 text-[#71717A] cursor-pointer'
                 }`}
                 title={
                   !cup.hasGrounds || !cup.isTamped
@@ -1693,10 +1693,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('rinse_cup')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : drinkValidation.hasWrongIngredient
-                    ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse cursor-pointer'
-                    : 'glass-btn-inner text-[#E7D7C1] cursor-pointer'
+                    ? 'bg-[#F87171] hover:brightness-105 border-white/50 text-[#09090B] animate-pulse cursor-pointer'
+                    : 'glass-btn-inner text-[#A1A1AA] cursor-pointer'
                 }`}
                 title={
                   isTakeoutVessel
@@ -1734,10 +1734,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('steep_tea')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : cup.hasSteepedTea
-                    ? 'bg-lime-500/25 border-lime-400 text-lime-200 cursor-pointer'
-                    : 'glass-btn-inner !border-lime-400/40 text-lime-200 cursor-pointer'
+                    ? 'bg-[#34D399]/18 border-[#34D399]/50 text-[#34D399] cursor-pointer'
+                    : 'glass-btn-inner text-white cursor-pointer'
                 }`}
               >
                 <Leaf className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -1750,12 +1750,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('steam_milk')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : cup.hasSteamedMilk
-                    ? 'bg-emerald-950/70 border-emerald-400/50 text-emerald-300 cursor-pointer'
+                    ? 'bg-[#34D399]/18 border-[#34D399]/50 text-[#34D399] cursor-pointer'
                     : cup.hasEspresso || cup.hasSteepedTea
-                    ? 'glass-btn-inner !border-amber-400/45 text-[#FAF5EE] cursor-pointer'
-                    : 'bg-black/25 border-white/10 text-[#E7D7C1]/45 cursor-pointer'
+                    ? 'glass-btn-inner !border-white/25 text-white cursor-pointer'
+                    : 'bg-[#18181B]/50 border-white/10 text-[#71717A] cursor-pointer'
                 }`}
               >
                 {cup.hasSteamedMilk && <Check className="w-3 h-3 shrink-0" strokeWidth={2.2} />}
@@ -1768,10 +1768,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                 onClick={() => onCupAction('add_ice')}
                 className={`px-1.5 sm:px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap ${
                   isStepLocked
-                    ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                    ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                     : cup.hasIce
-                    ? 'bg-sky-500/25 border-sky-400 text-sky-200 cursor-pointer'
-                    : 'glass-btn-inner !border-sky-400/35 text-sky-100 cursor-pointer'
+                    ? 'bg-[#BAE6FD]/20 border-[#BAE6FD]/55 text-[#BAE6FD] cursor-pointer'
+                    : 'glass-btn-inner text-[#BAE6FD] cursor-pointer'
                 }`}
               >
                 +Ice
@@ -1792,10 +1792,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   onClick={() => onCupAction('add_syrup', s.id)}
                   className={`px-1.5 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap ${
                     isStepLocked
-                      ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                      ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                       : cup.syrup === s.id
-                      ? 'bg-amber-500/25 border-amber-400 text-amber-200 cursor-pointer'
-                      : 'glass-btn-inner text-[#FAF5EE] cursor-pointer'
+                      ? 'hud-platinum-pill font-bold cursor-pointer'
+                      : 'glass-btn-inner text-[#E4E4E7] cursor-pointer'
                   }`}
                 >
                   {s.label}
@@ -1807,7 +1807,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   disabled={isStepLocked}
                   aria-busy={isStepLocked}
                   onClick={() => onCupAction('rinse_cup')}
-                  className="px-1.5 py-1 rounded-md bg-rose-600 hover:bg-rose-500 border border-rose-300 text-[10px] sm:text-xs font-bold text-white cursor-pointer whitespace-nowrap animate-pulse flex items-center gap-1"
+                  className="px-1.5 py-1 rounded-md bg-[#F87171] hover:brightness-105 border border-white/50 text-[10px] sm:text-xs font-bold text-[#09090B] cursor-pointer whitespace-nowrap animate-pulse flex items-center gap-1"
                 >
                   <AlertTriangle className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                   <span>{isTakeoutVessel ? 'Discard' : 'Rinse'}</span>
@@ -1825,10 +1825,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => onCupAction('rinse_cup')}
               className={`px-2 py-1 rounded-md border text-[10px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1 ${
                 isStepLocked
-                  ? 'opacity-50 cursor-not-allowed bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                  ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border-white/10 text-[#71717A]'
                   : drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-600 hover:bg-rose-500 border-rose-300 text-white animate-pulse cursor-pointer'
-                  : 'glass-btn-inner text-[#E7D7C1] cursor-pointer'
+                  ? 'bg-[#F87171] hover:brightness-105 border-white/50 text-[#09090B] animate-pulse cursor-pointer'
+                  : 'glass-btn-inner text-[#A1A1AA] cursor-pointer'
               }`}
             >
               {isTakeoutVessel ? (
@@ -1854,16 +1854,16 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <button
                 type="button"
                 onClick={onToggleVinyl}
-                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-amber-400/40 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
               >
                 {audioSnapshot.isPlaying ? 'Pause Audio' : 'Play Audio'}
               </button>
               <button
                 type="button"
                 onClick={() => onOpenModal('spotify')}
-                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md !border-amber-400/45 text-[10px] sm:text-xs font-semibold text-amber-200 cursor-pointer whitespace-nowrap flex items-center gap-1"
+                className="glass-btn-inner px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-xs font-semibold text-white cursor-pointer whitespace-nowrap flex items-center gap-1"
               >
-                <Disc3 className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+                <Disc3 className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
                 <span className="capitalize">Deck · {audioSnapshot.mode}</span>
               </button>
               <button
@@ -1876,7 +1876,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
             </>
           )}
 
-          {/* Phase 4 Realism Mode Serve Order Button (Always accessible at Station 5 or when Order is Ready!) */}
+          {/* Phase 4 Realism Mode Serve Order Button */}
           {isRealismMode && (gameState.activeStation === 5 || isDrinkReadyToServe) && (
             <button
               type="button"
@@ -1886,10 +1886,10 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => onServeCustomer()}
               className={`px-2.5 sm:px-3.5 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 isStepLocked
-                  ? 'opacity-50 cursor-not-allowed bg-black/30 border border-white/15 text-[#E7D7C1]/70'
+                  ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border border-white/10 text-[#71717A]'
                   : isDrinkReadyToServe
-                  ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-amber-300 hover:brightness-105 text-[#160E09] shadow-[0_0_18px_rgba(52,211,153,0.65)] animate-pulse cursor-pointer'
-                  : 'glass-btn-inner !border-amber-400/60 text-amber-200 cursor-pointer'
+                  ? 'hud-platinum-pill animate-pulse cursor-pointer'
+                  : 'glass-btn-inner text-[#E4E4E7] cursor-pointer'
               }`}
               title={
                 isDrinkReadyToServe
@@ -1924,12 +1924,12 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               onClick={() => onServeCustomer()}
               className={`px-2 sm:px-3 py-1 rounded-md font-bold text-[10px] sm:text-xs whitespace-nowrap transition-all flex items-center gap-1 ${
                 isStepLocked
-                  ? 'opacity-50 cursor-not-allowed bg-black/30 border border-white/15 text-[#E7D7C1]/70'
+                  ? 'opacity-50 cursor-not-allowed bg-[#18181B]/60 border border-white/10 text-[#71717A]'
                   : isDrinkReadyToServe
-                  ? 'bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 hover:brightness-105 text-[#160E09] shadow-[0_4px_14px_-3px_rgba(16,185,129,0.55)] cursor-pointer'
+                  ? 'hud-platinum-pill cursor-pointer'
                   : drinkValidation.hasWrongIngredient
-                  ? 'bg-rose-950/90 hover:bg-rose-900 border border-rose-400/60 text-rose-200 cursor-pointer'
-                  : 'bg-black/30 hover:bg-black/45 border border-white/15 text-[#E7D7C1]/65 cursor-pointer'
+                  ? 'bg-[#F87171]/20 hover:bg-[#F87171]/30 border border-[#F87171]/60 text-[#F87171] cursor-pointer'
+                  : 'bg-[#18181B]/60 hover:bg-[#27272A]/80 border border-white/12 text-[#71717A] cursor-pointer'
               }`}
               title={
                 isDrinkReadyToServe

@@ -116,15 +116,15 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
           type="button"
           data-testid="btn-cat-station-back"
           onClick={onClose}
-          className="pointer-events-auto px-3 py-1.5 rounded-xl bg-[#090705]/85 hover:bg-[#1a130d]/95 border border-[#f5a623]/40 text-[#FAF5EE] text-xs font-bold flex items-center gap-1.5 backdrop-blur-md cursor-pointer shadow-lg"
+          className="pointer-events-auto px-3 py-1.5 rounded-xl bg-[#09090B]/84 hover:bg-[#18181B]/95 border border-white/15 hover:border-white/35 text-white text-xs font-bold flex items-center gap-1.5 backdrop-blur-md cursor-pointer shadow-lg transition-colors"
         >
-          <ArrowLeft className="w-3.5 h-3.5 text-[#f5a623] shrink-0" strokeWidth={2.4} />
+          <ArrowLeft className="w-3.5 h-3.5 text-[#E4E4E7] shrink-0" strokeWidth={2.4} />
           <span>Back to Cafe</span>
         </button>
 
         {/* Cat Switcher Pill */}
         <div
-          className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#090705]/85 border border-[#f5a623]/40 backdrop-blur-md shadow-lg"
+          className="pointer-events-auto flex items-center gap-1.5 px-2 py-1 rounded-xl bg-[#09090B]/84 border border-white/15 backdrop-blur-md shadow-lg"
           data-testid="cat-station-switcher"
         >
           <button
@@ -132,20 +132,20 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
             data-testid="btn-cat-prev"
             disabled={unlockedCats.length <= 1}
             onClick={() => handleCycleCat(-1)}
-            className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] text-[#f5a623] disabled:opacity-35 cursor-pointer disabled:cursor-default"
+            className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] text-[#E4E4E7] hover:text-white disabled:opacity-35 cursor-pointer disabled:cursor-default transition-colors"
             aria-label="Previous Cat"
           >
             <ChevronLeft className="w-4 h-4" strokeWidth={2.4} />
           </button>
 
           <div className="px-2 text-center min-w-[110px]">
-            <div className="text-xs sm:text-sm font-bold text-[#FAF5EE] leading-tight flex items-center justify-center gap-1">
+            <div className="text-xs sm:text-sm font-bold text-white leading-tight flex items-center justify-center gap-1">
               <span>{activeCatSpec.name}</span>
               {activeCatSpec.isSecret && (
-                <Sparkles className="w-3 h-3 text-[#f5a623]" strokeWidth={2.4} />
+                <Sparkles className="w-3 h-3 text-[#E4E4E7]" strokeWidth={2.4} />
               )}
             </div>
-            <div className="text-[9px] font-mono text-[#E7D7C1]/80">
+            <div className="text-[9px] font-mono text-[#A1A1AA]">
               {currentIdx + 1} / {unlockedCats.length} · {activeCatSpec.sizeSummary}
             </div>
           </div>
@@ -155,7 +155,7 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
             data-testid="btn-cat-next"
             disabled={unlockedCats.length <= 1}
             onClick={() => handleCycleCat(1)}
-            className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] text-[#f5a623] disabled:opacity-35 cursor-pointer disabled:cursor-default"
+            className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] text-[#E4E4E7] hover:text-white disabled:opacity-35 cursor-pointer disabled:cursor-default transition-colors"
             aria-label="Next Cat"
           >
             <ChevronRight className="w-4 h-4" strokeWidth={2.4} />
@@ -164,15 +164,16 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
 
         {/* Right Status: Patience Paused + Subtle Waiting-Order Bell */}
         <div className="pointer-events-auto flex items-center gap-1.5">
-          <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-xl bg-[#090705]/80 border border-emerald-400/35 text-[10px] font-mono font-semibold text-emerald-300 backdrop-blur-md">
-            Mood Paused
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#09090B]/82 border border-white/15 text-[10px] font-mono font-semibold text-white backdrop-blur-md">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#34D399]" />
+            <span>Mood Paused</span>
           </span>
           {waitingOrdersCount > 0 && (
             <button
               type="button"
               data-testid="cat-station-waiting-bell"
               onClick={onClose}
-              className="px-2.5 py-1.5 rounded-xl bg-[#f5a623]/20 hover:bg-[#f5a623]/30 border border-[#f5a623]/70 text-[#f5a623] text-[11px] font-bold flex items-center gap-1 backdrop-blur-md cursor-pointer"
+              className="px-2.5 py-1.5 rounded-xl hud-platinum-pill text-[11px] font-bold flex items-center gap-1 cursor-pointer"
               title="Customers are waiting at the counter — tap to return to cafe"
             >
               <Bell className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
@@ -182,26 +183,31 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
         </div>
       </div>
 
-      {/* RIGHT-SIDE 40% GLASSMORPHISM CAT WARDROBE DRAWER */}
+      {/* RIGHT-SIDE 40% OBSIDIAN GLASSMORPHISM CAT WARDROBE DRAWER */}
       {customizeOpen && (
         <aside
           data-testid="cat-wardrobe-drawer"
-          className="pointer-events-auto fixed top-14 right-2.5 sm:right-4 bottom-16 w-[44%] sm:w-[40%] max-w-[380px] min-w-[240px] rounded-2xl bg-[#090705]/90 border border-[#f5a623]/40 backdrop-blur-xl shadow-[0_24px_60px_-10px_rgba(0,0,0,0.85)] p-2.5 sm:p-3 flex flex-col gap-2 text-[#FAF5EE]"
+          className="pointer-events-auto fixed top-14 right-2.5 sm:right-4 bottom-16 w-[44%] sm:w-[40%] max-w-[380px] min-w-[240px] rounded-2xl bg-[#09090B]/92 border border-white/15 backdrop-blur-xl shadow-[0_24px_60px_-10px_rgba(0,0,0,0.88)] p-2.5 sm:p-3 flex flex-col gap-2 text-white"
         >
-          <div className="flex items-center justify-between gap-2 border-b border-[#f5a623]/20 pb-1.5 shrink-0">
+          <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5 shrink-0">
             <div className="min-w-0">
-              <h3 className="text-xs sm:text-sm font-bold text-[#FAF5EE] truncate">
+              <h3 className="text-xs sm:text-sm font-bold text-white truncate">
                 {activeCatSpec.name}&apos;s Wardrobe
               </h3>
-              <p className="text-[10px] text-[#E7D7C1]/75 flex items-center gap-1">
-                <RotateCw className="w-2.5 h-2.5 text-[#f5a623]" strokeWidth={2.3} />
-                <span>Drag cat to rotate · Cash ${Math.round(gameState.cash).toLocaleString()}</span>
+              <p className="text-[10px] text-[#A1A1AA] flex items-center gap-1">
+                <RotateCw className="w-2.5 h-2.5 text-[#E4E4E7]" strokeWidth={2.3} />
+                <span>
+                  Drag cat to rotate · Cash{' '}
+                  <span className="text-[#34D399] font-mono font-semibold">
+                    ${Math.round(gameState.cash).toLocaleString()}
+                  </span>
+                </span>
               </p>
             </div>
             <button
               type="button"
               onClick={() => onToggleCustomize(false)}
-              className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] border border-[#f5a623]/25 text-[#E7D7C1] cursor-pointer"
+              className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] border border-white/15 text-[#E4E4E7] hover:text-white cursor-pointer transition-colors"
               aria-label="Close Wardrobe"
             >
               <X className="w-3.5 h-3.5" strokeWidth={2.2} />
@@ -218,10 +224,10 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                   type="button"
                   data-testid={`wardrobe-tab-${tab.id}`}
                   onClick={() => setWardrobeTab(tab.id)}
-                  className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap cursor-pointer transition-all ${
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap cursor-pointer transition-transform ${
                     active
-                      ? 'bg-[#f5a623] text-[#090705] shadow'
-                      : 'bg-white/[0.06] text-[#E7D7C1] hover:text-[#FAF5EE]'
+                      ? 'hud-platinum-pill'
+                      : 'bg-white/[0.05] text-[#A1A1AA] hover:text-white border border-transparent hover:border-white/15'
                   }`}
                 >
                   {tab.label}
@@ -232,8 +238,8 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
 
           {/* Cloth Quick Swatches Row when Cloth Tab is Active */}
           {wardrobeTab === 'body' && (
-            <div className="flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-xl bg-white/[0.04] border border-[#f5a623]/20 shrink-0">
-              <span className="text-[10px] font-semibold text-[#E7D7C1]">Knit Colors:</span>
+            <div className="flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-xl bg-[#18181B]/80 border border-white/10 shrink-0">
+              <span className="text-[10px] font-semibold text-[#A1A1AA]">Knit Colors:</span>
               <div className="flex items-center gap-1.5">
                 {tabItems.map((cloth) => {
                   const owned = unlockedCosmetics.has(cloth.id);
@@ -250,9 +256,9 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                       }
                       className={`w-6 h-6 rounded-full border-2 cursor-pointer transition-transform hover:scale-110 flex items-center justify-center ${
                         equipped
-                          ? 'border-[#FAF5EE] scale-110 shadow-[0_0_10px_rgba(245,166,35,0.8)]'
+                          ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.65)]'
                           : owned
-                          ? 'border-[#f5a623]/70'
+                          ? 'border-white/60'
                           : 'border-white/25 opacity-70'
                       }`}
                       style={{ backgroundColor: cloth.swatchHex || '#e65a4f' }}
@@ -301,8 +307,8 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                   data-testid={`cosmetic-card-${item.id}`}
                   className={`p-2 rounded-xl border flex flex-col gap-1.5 ${
                     isEquipped
-                      ? 'bg-[#f5a623]/18 border-[#f5a623]/80'
-                      : 'bg-white/[0.04] border-white/10'
+                      ? 'bg-[#18181B]/95 border-[#34D399]/50'
+                      : 'bg-[#18181B]/75 border-white/10'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -316,11 +322,11 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                         }
                         alt={item.name}
                         className="w-11 h-11 rounded-lg"
-                        fallbackColorHex={item.swatchHex || '#2a1d14'}
+                        fallbackColorHex={item.swatchHex || '#18181B'}
                       />
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-[#FAF5EE] truncate">{item.name}</div>
-                        <div className="text-[10px] text-[#E7D7C1]/75 leading-tight">
+                        <div className="text-xs font-bold text-white truncate">{item.name}</div>
+                        <div className="text-[10px] text-[#A1A1AA] leading-tight">
                           {item.description}
                         </div>
                       </div>
@@ -328,27 +334,27 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                   </div>
 
                   {isOverriddenByDino && (
-                    <div className="text-[9px] font-mono text-amber-300">
+                    <div className="text-[9px] font-mono text-[#E4E4E7]">
                       Hidden while Dinosaur Costume is worn
                     </div>
                   )}
 
                   {!isOwned && isGrossMilestone && (
                     <div className="space-y-0.5">
-                      <div className="flex justify-between text-[9px] font-mono text-[#E7D7C1]/85">
+                      <div className="flex justify-between text-[9px] font-mono text-[#A1A1AA]">
                         <span>
                           {item.unlockType === 'golden_espresso'
                             ? 'Golden Espresso Milestone'
                             : 'Revenue Milestone'}
                         </span>
-                        <span>
+                        <span className="text-[#E4E4E7]">
                           ${Math.round(gameState.lifetimeGrossIncome || 0).toLocaleString()} / $
                           {item.cost.toLocaleString()}
                         </span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-black/50 overflow-hidden">
+                      <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden">
                         <div
-                          className="h-full bg-[#f5a623]"
+                          className="h-full hud-platinum-bar"
                           style={{ width: `${grossPct}%` }}
                         />
                       </div>
@@ -357,15 +363,15 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
 
                   {!isOwned && item.unlockType === 'meta_all_9' && (
                     <div className="space-y-0.5">
-                      <div className="flex justify-between text-[9px] font-mono text-emerald-300">
+                      <div className="flex justify-between text-[9px] font-mono text-[#E4E4E7]">
                         <span>Collection Reward</span>
                         <span>
                           {ownedBaseCount} / {BASE_CAT_COSMETIC_IDS.length} Base Cosmetics
                         </span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-black/50 overflow-hidden">
+                      <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden">
                         <div
-                          className="h-full bg-emerald-400"
+                          className="h-full hud-platinum-bar"
                           style={{ width: `${dinoPct}%` }}
                         />
                       </div>
@@ -379,8 +385,8 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                       onClick={() => onToggleEquipCosmetic(activeCatId, item.id)}
                       className={`w-full py-1 px-2.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-all ${
                         isEquipped
-                          ? 'bg-emerald-500/25 border border-emerald-400/60 text-emerald-200 hover:bg-rose-500/20 hover:border-rose-400/50 hover:text-rose-200'
-                          : 'bg-[#f5a623] text-[#090705] hover:brightness-105'
+                          ? 'bg-[#34D399]/16 border border-[#34D399]/55 text-[#34D399] hover:bg-[#F87171]/16 hover:border-[#F87171]/50 hover:text-[#F87171]'
+                          : 'hud-platinum-pill'
                       }`}
                     >
                       {isEquipped ? (
@@ -400,15 +406,15 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                       onClick={() => onPurchaseCosmetic(item.id)}
                       className={`w-full py-1 px-2.5 rounded-lg text-[11px] font-bold font-mono flex items-center justify-center gap-1 transition-all ${
                         canBuyCash
-                          ? 'bg-[#f5a623] text-[#090705] hover:brightness-105 cursor-pointer shadow'
-                          : 'bg-white/[0.05] border border-white/10 text-[#E7D7C1]/45 cursor-not-allowed'
+                          ? 'hud-platinum-pill cursor-pointer'
+                          : 'bg-white/[0.04] border border-white/10 text-[#71717A] cursor-not-allowed'
                       }`}
                     >
                       <span>Buy · ${item.cost.toLocaleString()}</span>
                     </button>
                   ) : (
-                    <div className="w-full py-1 px-2.5 rounded-lg bg-black/40 border border-white/10 text-[10px] font-mono text-[#E7D7C1]/65 flex items-center justify-center gap-1">
-                      <Lock className="w-3 h-3 text-[#f5a623] shrink-0" strokeWidth={2.2} />
+                    <div className="w-full py-1 px-2.5 rounded-lg bg-[#09090B]/70 border border-white/10 text-[10px] font-mono text-[#A1A1AA] flex items-center justify-center gap-1">
+                      <Lock className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
                       <span>
                         {isGrossMilestone
                           ? `Unlock at $${item.cost.toLocaleString()} Gross`
@@ -421,15 +427,23 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
             })}
           </div>
 
-          {/* Collection Footer */}
-          <div className="pt-1.5 border-t border-[#f5a623]/20 flex items-center justify-between text-[10px] font-mono text-[#E7D7C1]/80 shrink-0">
-            <span className="flex items-center gap-1">
-              <Crown className="w-3 h-3 text-[#f5a623]" strokeWidth={2.2} />
-              <span>Dino Suit Progress</span>
-            </span>
-            <span className="text-[#f5a623] font-bold">
-              {ownedBaseCount}/{BASE_CAT_COSMETIC_IDS.length}
-            </span>
+          {/* Collection Footer with Sleek Platinum Progress Bar */}
+          <div className="pt-1.5 border-t border-white/10 flex flex-col gap-1 shrink-0">
+            <div className="flex items-center justify-between text-[10px] font-mono text-[#A1A1AA]">
+              <span className="flex items-center gap-1">
+                <Crown className="w-3 h-3 text-[#E4E4E7]" strokeWidth={2.2} />
+                <span>Dino Suit Progress</span>
+              </span>
+              <span className="text-white font-bold">
+                {ownedBaseCount}/{BASE_CAT_COSMETIC_IDS.length}
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden">
+              <div
+                className="h-full hud-platinum-bar transition-all duration-300"
+                style={{ width: `${Math.round((ownedBaseCount / BASE_CAT_COSMETIC_IDS.length) * 100)}%` }}
+              />
+            </div>
           </div>
         </aside>
       )}
@@ -440,11 +454,11 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
           customizeOpen ? 'sm:items-start sm:pl-6' : ''
         }`}
       >
-        <div className="px-3 py-0.5 rounded-full bg-[#090705]/80 border border-[#f5a623]/30 text-[10px] text-[#E7D7C1] backdrop-blur-md">
+        <div className="px-3 py-0.5 rounded-full bg-[#09090B]/80 border border-white/12 text-[10px] text-[#A1A1AA] backdrop-blur-md">
           {modeHint}
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-1.5 p-1.5 rounded-2xl bg-[#090705]/88 border border-[#f5a623]/40 backdrop-blur-xl shadow-xl">
+        <div className="pointer-events-auto flex items-center gap-1.5 p-1.5 rounded-2xl bg-[#09090B]/86 border border-white/15 backdrop-blur-xl shadow-xl">
           <button
             type="button"
             data-testid="cat-action-pet"
@@ -453,10 +467,10 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
               onChangeMode('pet');
               onPetAction();
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform ${
               !customizeOpen && mode === 'pet'
-                ? 'bg-[#f5a623] text-[#090705] shadow'
-                : 'bg-white/[0.06] text-[#FAF5EE] hover:bg-white/[0.12]'
+                ? 'hud-platinum-pill'
+                : 'bg-white/[0.05] text-[#E4E4E7] hover:text-white hover:bg-white/[0.12]'
             }`}
           >
             <Hand className="w-3.5 h-3.5 shrink-0" strokeWidth={2.3} />
@@ -470,10 +484,10 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
               onToggleCustomize(false);
               onChangeMode('comb');
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform ${
               !customizeOpen && mode === 'comb'
-                ? 'bg-[#f5a623] text-[#090705] shadow'
-                : 'bg-white/[0.06] text-[#FAF5EE] hover:bg-white/[0.12]'
+                ? 'hud-platinum-pill'
+                : 'bg-white/[0.05] text-[#E4E4E7] hover:text-white hover:bg-white/[0.12]'
             }`}
           >
             <Brush className="w-3.5 h-3.5 shrink-0" strokeWidth={2.3} />
@@ -488,10 +502,10 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
               onChangeMode('treat');
               onTossTreat();
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform ${
               !customizeOpen && mode === 'treat'
-                ? 'bg-[#f5a623] text-[#090705] shadow'
-                : 'bg-white/[0.06] text-[#FAF5EE] hover:bg-white/[0.12]'
+                ? 'hud-platinum-pill'
+                : 'bg-white/[0.05] text-[#E4E4E7] hover:text-white hover:bg-white/[0.12]'
             }`}
           >
             <Cookie className="w-3.5 h-3.5 shrink-0" strokeWidth={2.3} />
@@ -506,10 +520,10 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
               onToggleCustomize(next);
               if (next) onChangeMode('customize');
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform ${
               customizeOpen
-                ? 'bg-[#f5a623] text-[#090705] shadow'
-                : 'bg-white/[0.08] border border-[#f5a623]/40 text-[#f5a623] hover:bg-[#f5a623]/15'
+                ? 'hud-platinum-pill'
+                : 'bg-white/[0.07] border border-white/20 text-[#E4E4E7] hover:text-white hover:bg-white/[0.14]'
             }`}
           >
             {wardrobeTab === 'eyewear' ? (

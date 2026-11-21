@@ -31,19 +31,19 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-modal-title"
     >
       <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 text-center">
         <div className="space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-amber-300 glass-text-crisp">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-[#A1A1AA] glass-text-crisp">
             {isPaused ? `STORE PAUSED · DAY ${gameState.day}` : `DAILY SUMMARY · DAY ${gameState.day}`}
           </div>
           <h2
             id="status-modal-title"
-            className="text-xl font-bold font-display text-[#FAF5EE] glass-text-crisp"
+            className="text-xl font-bold font-display text-white glass-text-crisp"
           >
             {isPaused
               ? 'Take a Breather Behind the Bar'
@@ -51,7 +51,7 @@ export const StatusModal: React.FC<StatusModalProps> = ({
               ? 'Daily Owner Quota Crushed!'
               : 'Your 24h Garage Cafe Never Closes'}
           </h2>
-          <p className="text-xs text-[#E7D7C1]">
+          <p className="text-xs text-[#A1A1AA]">
             {quotaMet
               ? `You served ${Math.round(gameState.cupsServedToday)} / ${gameState.dailyOrderQuota} cups today and claimed the +$${DAILY_QUOTA_COMPLETION_BONUS} Quota Bonus! Quota resets at local midnight (${midnightLabel}).`
               : `Daily Quota: ${Math.round(gameState.cupsServedToday)} / ${gameState.dailyOrderQuota} Cups (+$${DAILY_QUOTA_COMPLETION_BONUS} Completion Bonus). Resets at local midnight (${midnightLabel}).`}
@@ -60,23 +60,23 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 
         {/* 3 Tabular-Nums Stat Tiles */}
         <div className="grid grid-cols-3 gap-2">
-          <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
-            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">TODAY&apos;S REVENUE</div>
+          <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/10">
+            <div className="text-[10px] font-bold uppercase text-[#A1A1AA]">TODAY&apos;S REVENUE</div>
             <div className="text-base font-bold font-mono tabular-nums text-emerald-300 mt-0.5 glass-text-crisp">
               ${Math.round(gameState.dailyRevenue)}
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
-            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">DAILY QUOTA</div>
-            <div className="text-base font-bold font-mono tabular-nums text-[#FAF5EE] mt-0.5 glass-text-crisp">
+          <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/10">
+            <div className="text-[10px] font-bold uppercase text-[#A1A1AA]">DAILY QUOTA</div>
+            <div className="text-base font-bold font-mono tabular-nums text-white mt-0.5 glass-text-crisp">
               {Math.round(gameState.cupsServedToday)} / {gameState.dailyOrderQuota}
             </div>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/20">
-            <div className="text-[10px] font-bold uppercase text-[#E7D7C1]">VIBE RATING</div>
-            <div className="text-base font-bold font-mono tabular-nums text-amber-300 mt-0.5 glass-text-crisp">
+          <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/10">
+            <div className="text-[10px] font-bold uppercase text-[#A1A1AA]">VIBE RATING</div>
+            <div className="text-base font-bold font-mono tabular-nums text-[#E4E4E7] mt-0.5 glass-text-crisp">
               {Math.round(gameState.satisfactionScore)}%
             </div>
           </div>
@@ -98,7 +98,7 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             type="button"
             data-start="true"
             onClick={isPaused ? onResume : onNextDayOrRetry}
-            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs sm:text-sm cursor-pointer shadow-[0_8px_22px_-6px_rgba(245,158,11,0.6)] flex items-center justify-center gap-1.5"
+            className="w-full py-2.5 px-4 rounded-xl hud-platinum-pill font-bold text-xs sm:text-sm cursor-pointer flex items-center justify-center gap-1.5"
           >
             <Play className="w-3.5 h-3.5 fill-current shrink-0" strokeWidth={2.2} />
             <span>
@@ -114,17 +114,17 @@ export const StatusModal: React.FC<StatusModalProps> = ({
             <button
               type="button"
               onClick={onOpenSaveExport}
-              className="glass-btn-inner py-2 px-3 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-1.5"
+              className="glass-btn-inner py-2 px-3 rounded-xl text-xs font-semibold text-white cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <Save className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <Save className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
               <span>Backup / Restore Save</span>
             </button>
             <button
               type="button"
               onClick={onReturnToTitle}
-              className="glass-btn-inner py-2 px-3 rounded-xl text-xs font-semibold cursor-pointer flex items-center justify-center gap-1.5"
+              className="glass-btn-inner py-2 px-3 rounded-xl text-xs font-semibold text-white cursor-pointer flex items-center justify-center gap-1.5"
             >
-              <Home className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <Home className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
               <span>Return to 3D Title</span>
             </button>
           </div>

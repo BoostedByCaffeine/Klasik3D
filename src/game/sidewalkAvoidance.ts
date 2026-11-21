@@ -1,3 +1,5 @@
+import type { SceneryId } from './sceneryData';
+
 export interface SidewalkObstacle {
   id: string;
   minX: number;
@@ -18,12 +20,28 @@ export const DEFAULT_SIDEWALK_BOUNDS: SidewalkBounds = {
   innerZ: -7.42,
 };
 
+/** Cleared shoveled cafe porch walkway on Mt. Everest (strictly free of snowdrifts) */
+export const EVEREST_NEAR_WALKWAY_BOUNDS: SidewalkBounds = {
+  outerZ: -8.78,
+  innerZ: -7.52,
+};
+
+/** Cleared stone hiker trail corridor on Mt. Everest (strictly avoids flanking deep snowbanks at z <= -14.8) */
+export const EVEREST_FAR_TRAIL_BOUNDS: SidewalkBounds = {
+  outerZ: -14.25,
+  innerZ: -12.35,
+};
+
 /**
  * Returns padded 2D sidewalk AABB obstacles for the Klasik Cafe exterior apron.
  * Includes the parked 1990 Mazda Miata MX-5 (when outside), flanking cedar planters,
- * and curb streetlamp posts with generous pedestrian clearance margins.
+ * curb streetlamp posts, and Mt. Everest deep snowdrifts/base-camp props.
  */
-export function getSidewalkObstacles(isMiataParkedOutside: boolean, isUrbanBiome = true): SidewalkObstacle[] {
+export function getSidewalkObstacles(
+  isMiataParkedOutside: boolean,
+  isUrbanBiome = true,
+  sceneryId?: SceneryId
+): SidewalkObstacle[] {
   const obstacles: SidewalkObstacle[] = [
     // Exterior flanking cedar planters (z = -6.95, halfDepth = 0.21, +0.32 padding)
     { id: 'planter-right', minX: -5.45, maxX: -2.35, minZ: -7.32, maxZ: -6.58 },
@@ -50,26 +68,56 @@ export function getSidewalkObstacles(isMiataParkedOutside: boolean, isUrbanBiome
     });
   }
 
+  if (sceneryId === 'mt_everest') {
+    // Register deep flanking snowbanks & expedition camp perimeter as strict exclusion zones
+    obstacles.push(
+      { id: 'everest-snowbank-west', minX: -26.0, maxX: -6.2, minZ: -29.0, maxZ: -14.6 },
+      { id: 'everest-snowbank-east', minX: 5.2, maxX: 26.0, minZ: -29.0, maxZ: -14.6 },
+      { id: 'everest-far-snowwall', minX: -26.0, maxX: 26.0, minZ: -36.0, maxZ: -14.8 }
+    );
+  }
+
   return obstacles;
 }
 
 /**
  * Computes a smooth, collision-free Z coordinate for an exterior pedestrian walking
  * along X at `baseLaneZ`. Pedestrians smoothly steer laterally around any obstacle
- * (such as the parked Miata or curb streetlamps) using a C1 smoothstep approach ramp,
- * without ever penetrating the obstacle box, storefront glass, or street traffic.
+ * (such as the parked Miata, curb streetlamps, or Mt. Everest snowdrifts) using a
+ * C1 smoothstep approach ramp, without ever penetrating obstacles or deep snowbanks.
  */
 export function computeAvoidedSidewalkZ(
   x: number,
   baseLaneZ: number,
   obstacles: readonly SidewalkObstacle[],
-  bounds: SidewalkBounds = DEFAULT_SIDEWALK_BOUNDS
+  bounds: SidewalkBounds = DEFAULT_SIDEWALK_BOUNDS,
+  sceneryId?: SceneryId
 ): number {
-  // Pedestrians on the far sidewalk (z < -12) are unaffected by near-sidewalk cafe obstacles
-  if (baseLaneZ < -12.0) {
+  const isFarLane = baseLaneZ < -12.0;
+
+  if (sceneryId === 'mt_everest') {
+    const activeBounds = isFarLane ? EVEREST_FAR_TRAIL_BOUNDS : EVEREST_NEAR_WALKWAY_BOUNDS;
+    // Remap far-lane pedestrians strictly onto the cleared stone hiker trail corridor
+    const clampedBase = isFarLane
+      ? Math.max(activeBounds.outerZ, Math.min(activeBounds.innerZ, baseLaneZ + 3.1))
+      : Math.max(activeBounds.outerZ, Math.min(activeBounds.innerZ, baseLaneZ));
+    return avoidObstaclesWithinBounds(x, clampedBase, obstacles, activeBounds);
+  }
+
+  // On non-Everest sceneries, pedestrians on the far sidewalk (z < -12) stay on their clear promenade
+  if (isFarLane) {
     return baseLaneZ;
   }
 
+  return avoidObstaclesWithinBounds(x, baseLaneZ, obstacles, bounds);
+}
+
+function avoidObstaclesWithinBounds(
+  x: number,
+  baseLaneZ: number,
+  obstacles: readonly SidewalkObstacle[],
+  bounds: SidewalkBounds
+): number {
   const rampDist = 1.45;
   let targetZ = baseLaneZ;
 
@@ -105,7 +153,6 @@ export function computeAvoidedSidewalkZ(
     } else if (outerFits) {
       safeZ = outerCandidate;
     } else {
-      // Fallback: pick whichever side stays closest to valid sidewalk corridor (prefer inner walkway)
       safeZ = Math.min(bounds.innerZ, Math.max(bounds.outerZ, innerCandidate));
     }
 

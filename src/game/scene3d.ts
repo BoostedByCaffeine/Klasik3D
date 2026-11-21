@@ -52,11 +52,17 @@ import { applyPatronOutfitToRig, buildPatronOutfitPreviewMesh } from './patronOu
 import { applySecretNpcLookToRig, createSecretNpcHeartSprite } from './secretNpc3d';
 import { OutdoorOverlookController, OutdoorVantageKey } from './OutdoorOverlookController';
 import { ThumbnailStudio } from './ThumbnailStudio';
-import { computeAvoidedSidewalkZ, getSidewalkObstacles } from './sidewalkAvoidance';
+import {
+  DEFAULT_SIDEWALK_BOUNDS,
+  computeAvoidedSidewalkZ,
+  getSidewalkObstacles,
+} from './sidewalkAvoidance';
 import {
   OutdoorNpcBehavior,
+  ROAD_ELEVATION_LAYERS,
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
+  computeLeashTransform,
   getOutdoorLodBudgets,
   getSceneryOutdoorBehaviors,
   isUrbanStreetScenery,
@@ -406,6 +412,7 @@ interface PooledPedestrian {
     root: THREE.Group;
     legs: THREE.Mesh[];
     tail: THREE.Mesh;
+    leash: THREE.Mesh;
   } | null;
   lanternGroup: THREE.Group | null;
   hikerGear: THREE.Group | null;
@@ -652,6 +659,7 @@ export class KlasikCafeScene3D {
   private patioFloorMat!: THREE.MeshStandardMaterial;
   private nearSidewalkMat!: THREE.MeshStandardMaterial;
   private natureApronMat!: THREE.MeshStandardMaterial;
+  private cafePorchSpillMat: THREE.MeshBasicMaterial | null = null;
   private grassPlaneMesh!: THREE.Mesh;
   private urbanBoulevardTreesGroup!: THREE.Group;
   private urbanStreetLampsGroup!: THREE.Group;
@@ -2676,18 +2684,18 @@ export class KlasikCafeScene3D {
     });
     const patioFloor = new THREE.Mesh(new THREE.PlaneGeometry(24, 3.0), this.patioFloorMat);
     patioFloor.rotation.x = -Math.PI / 2;
-    patioFloor.position.set(0, -0.01, -7.7);
+    patioFloor.position.set(0, -0.035, -7.7);
     patioFloor.receiveShadow = true;
     archGroup.add(patioFloor);
 
-    // Outer Neighborhood Ground Plane beneath sidewalk, street & highway (hidden on alpine/scenic maps with 360° skirts)
+    // Outer Neighborhood Ground Plane strictly at y = -0.08 beneath road/gutters/sidewalks (zero z-fighting)
     const grassMat = new THREE.MeshStandardMaterial({
       color: 0x1e2c21,
       roughness: 0.92,
     });
     const grassPlane = new THREE.Mesh(new THREE.PlaneGeometry(68, 36), grassMat);
     grassPlane.rotation.x = -Math.PI / 2;
-    grassPlane.position.set(0, -0.04, -22.0);
+    grassPlane.position.set(0, ROAD_ELEVATION_LAYERS.outerTerrainY, -22.0);
     this.grassPlaneMesh = grassPlane;
     archGroup.add(grassPlane);
 
@@ -4374,14 +4382,14 @@ export class KlasikCafeScene3D {
       roughness: 0.72,
     });
 
-    // Layer 1: Raised Pedestrian Sidewalk (z = -7.2 to -9.2) & Curb (tinted per biome/snow)
-    const nearSidewalk = new THREE.Mesh(new THREE.BoxGeometry(38, 0.12, 2.0), sidewalkMat);
-    nearSidewalk.position.set(0, 0.02, -8.2);
+    // Layer 1: Raised Pedestrian Sidewalk (top strictly y = 0.09, extruded thickness 0.12 down to -0.03) & Curb (top y = 0.11)
+    const nearSidewalk = new THREE.Mesh(new THREE.BoxGeometry(44, 0.12, 2.0), sidewalkMat);
+    nearSidewalk.position.set(0, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -8.2);
     nearSidewalk.receiveShadow = true;
     extGroup.add(nearSidewalk);
 
-    const nearCurb = new THREE.Mesh(new THREE.BoxGeometry(38, 0.14, 0.16), curbMat);
-    nearCurb.position.set(0, 0.03, -9.22);
+    const nearCurb = new THREE.Mesh(new THREE.BoxGeometry(44, 0.14, 0.16), curbMat);
+    nearCurb.position.set(0, ROAD_ELEVATION_LAYERS.curbTopY - 0.07, -9.22);
     extGroup.add(nearCurb);
 
     // Exterior Low Cedar Planter Borders flanking the Cafe Entrance Patio (leaving doorway x=-1.15 wide open!)
@@ -4396,6 +4404,39 @@ export class KlasikCafeScene3D {
       hedge.position.set(x, 0.5, -6.95);
       extGroup.add(hedge);
     });
+
+    // Phase 5 Atmospheric Polish: Warm amber cafe interior light spill pool outside the front storefront & doorway
+    if (typeof document !== 'undefined') {
+      const spillCanvas = document.createElement('canvas');
+      spillCanvas.width = 128;
+      spillCanvas.height = 128;
+      const sctx = spillCanvas.getContext('2d');
+      if (sctx) {
+        const grad = sctx.createRadialGradient(64, 64, 8, 64, 64, 62);
+        grad.addColorStop(0, 'rgba(255, 200, 110, 0.95)');
+        grad.addColorStop(0.45, 'rgba(245, 158, 11, 0.45)');
+        grad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+        sctx.fillStyle = grad;
+        sctx.fillRect(0, 0, 128, 128);
+      }
+      const spillTex = new THREE.CanvasTexture(spillCanvas);
+      spillTex.colorSpace = THREE.SRGBColorSpace;
+      this.cafePorchSpillMat = new THREE.MeshBasicMaterial({
+        map: spillTex,
+        color: 0xffd180,
+        transparent: true,
+        opacity: 0.08,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+        polygonOffsetUnits: -3,
+      });
+      const porchSpill = new THREE.Mesh(new THREE.PlaneGeometry(7.8, 3.6), this.cafePorchSpillMat);
+      porchSpill.rotation.x = -Math.PI / 2;
+      porchSpill.position.set(-0.35, ROAD_ELEVATION_LAYERS.sidewalkTopY + 0.012, -7.75);
+      extGroup.add(porchSpill);
+    }
 
     // Shared Additive Streetlamp Volumetric Glow Materials (Zero Extra Real-Time PointLights!)
     this.streetLampConeMat = new THREE.MeshBasicMaterial({
@@ -4474,32 +4515,54 @@ export class KlasikCafeScene3D {
       roughness: 0.85,
       metalness: 0.08,
     });
-    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(56, 6.6), this.roadAsphaltMat);
+    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(96, 6.6), this.roadAsphaltMat);
     avenueRoad.rotation.x = -Math.PI / 2;
-    avenueRoad.position.set(0, 0.0, -12.55);
+    avenueRoad.position.set(0, ROAD_ELEVATION_LAYERS.asphaltY, -12.55);
     avenueRoad.receiveShadow = true;
     this.urbanRoadAndCrosswalkGroup.add(avenueRoad);
 
-    // Pedestrian Crosswalk Stripes near Cafe Corner (x = -4.2)
-    const stripeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.72 });
+    // Phase 1.4: Dedicated Non-Flickering Road Gutters at y = 0.012 with polygonOffset
+    const gutterMat = new THREE.MeshStandardMaterial({
+      color: 0x4b5563,
+      roughness: 0.86,
+      metalness: 0.06,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    [-9.42, -15.64].forEach((gz) => {
+      const gutter = new THREE.Mesh(new THREE.PlaneGeometry(96, 0.34), gutterMat);
+      gutter.rotation.x = -Math.PI / 2;
+      gutter.position.set(0, ROAD_ELEVATION_LAYERS.gutterY, gz);
+      this.urbanRoadAndCrosswalkGroup.add(gutter);
+    });
+
+    // Pedestrian Crosswalk Stripes cleanly separated at y = 0.024 with polygonOffset
+    const stripeMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      roughness: 0.72,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
     for (let s = 0; s < 6; s++) {
       const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 0.42), stripeMat);
       stripe.rotation.x = -Math.PI / 2;
-      stripe.position.set(-4.2, 0.008, -10.0 - s * 1.0);
+      stripe.position.set(-4.2, ROAD_ELEVATION_LAYERS.crosswalkY, -10.0 - s * 1.0);
       this.urbanRoadAndCrosswalkGroup.add(stripe);
     }
 
-    // Opposite Far Sidewalk (z = -15.8 to -17.8) & Curb
-    const farCurb = new THREE.Mesh(new THREE.BoxGeometry(46, 0.14, 0.16), curbMat);
-    farCurb.position.set(0, 0.03, -15.82);
+    // Opposite Far Sidewalk (top y = 0.09, thickness 0.12) & Curb (top y = 0.11)
+    const farCurb = new THREE.Mesh(new THREE.BoxGeometry(96, 0.14, 0.16), curbMat);
+    farCurb.position.set(0, ROAD_ELEVATION_LAYERS.curbTopY - 0.07, -15.82);
     this.urbanRoadAndCrosswalkGroup.add(farCurb);
 
-    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(46, 0.12, 2.2), sidewalkMat);
-    farSidewalk.position.set(0, 0.02, -16.9);
+    const farSidewalk = new THREE.Mesh(new THREE.BoxGeometry(96, 0.12, 2.2), sidewalkMat);
+    farSidewalk.position.set(0, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
     this.urbanRoadAndCrosswalkGroup.add(farSidewalk);
     extGroup.add(this.urbanRoadAndCrosswalkGroup);
 
-    // Layer 2b: Nature / Alpine / Historic Terrace Apron (replaces urban asphalt & crosswalk on non-urban maps!)
+    // Layer 2b: Nature / Alpine / Historic Terrace Apron (top strictly y = 0.065, below nearSidewalk top 0.09 — zero z-fighting!)
     this.natureWalkwayApronGroup = new THREE.Group();
     this.natureWalkwayApronGroup.name = 'nature_walkway_apron';
     this.natureApronMat = new THREE.MeshStandardMaterial({
@@ -4507,8 +4570,8 @@ export class KlasikCafeScene3D {
       roughness: 0.9,
       metalness: 0.02,
     });
-    const natureApron = new THREE.Mesh(new THREE.BoxGeometry(62, 0.14, 9.2), this.natureApronMat);
-    natureApron.position.set(0, 0.01, -13.4);
+    const natureApron = new THREE.Mesh(new THREE.BoxGeometry(104, 0.14, 9.2), this.natureApronMat);
+    natureApron.position.set(0, ROAD_ELEVATION_LAYERS.natureApronTopY - 0.07, -13.4);
     natureApron.receiveShadow = true;
     this.natureWalkwayApronGroup.add(natureApron);
 
@@ -8800,9 +8863,16 @@ export class KlasikCafeScene3D {
         dogRoot.add(leg);
         dLegs.push(leg);
       });
-      const leash = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.78, 5), leashMat);
-      leash.position.set(0.22, 0.56, 0.44);
-      leash.rotation.x = 0.78;
+      // Phase 1.3: Dynamic Hand-to-Collar Dog Leash (unit-length cylinder scaled & quaternion-aligned strictly from NPC right hand forward to dog collar!)
+      const leash = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 1.0, 5), leashMat);
+      const initLeash = computeLeashTransform(
+        { x: 0.21, y: 0.78, z: 0.21 },
+        { x: 0.26, y: 0.29, z: 0.85 }
+      );
+      leash.position.set(initLeash.midpoint.x, initLeash.midpoint.y, initLeash.midpoint.z);
+      leash.scale.set(1, initLeash.length, 1);
+      _tempVec.set(initLeash.direction.x, initLeash.direction.y, initLeash.direction.z);
+      leash.quaternion.setFromUnitVectors(_upVec, _tempVec);
       dogRoot.add(leash);
       dogRoot.visible = false;
       actor.group.add(dogRoot);
@@ -8882,7 +8952,7 @@ export class KlasikCafeScene3D {
         pauseCooldown: 2 + idx * 1.4,
         glancePhase: idx * 0.9,
         behavior: 'plain_stroll',
-        dogRig: { root: dogRoot, legs: dLegs, tail: dTail },
+        dogRig: { root: dogRoot, legs: dLegs, tail: dTail, leash },
         lanternGroup,
         hikerGear,
         neonUmbrella,
@@ -11423,8 +11493,10 @@ export class KlasikCafeScene3D {
       if (this.goldenDustInstanced) this.goldenDustInstanced.visible = false;
       if (this.godRayMat) this.godRayMat.uniforms.uOpacity.value = 0.0;
 
-      // Mirror-wet reflective street asphalt & patio cobbles
+      // Mirror-wet reflective street asphalt, sidewalk, apron & patio cobbles
       if (this.roadAsphaltMat) this.roadAsphaltMat.roughness = isDark ? 0.16 : 0.22;
+      if (this.nearSidewalkMat) this.nearSidewalkMat.roughness = isDark ? 0.22 : 0.3;
+      if (this.natureApronMat) this.natureApronMat.roughness = isDark ? 0.28 : 0.38;
       if (this.patioFloorMat) this.patioFloorMat.roughness = isDark ? 0.18 : 0.24;
       if (this.garageGlassMat) {
         this.garageGlassMat.opacity = Math.max(this.garageGlassMat.opacity, 0.28);
@@ -11441,9 +11513,24 @@ export class KlasikCafeScene3D {
       if (this.vehicleHeadlightMat) this.vehicleHeadlightMat.emissiveIntensity = Math.max(this.vehicleHeadlightMat.emissiveIntensity, 2.45);
       if (this.vehicleTaillightMat) this.vehicleTaillightMat.emissiveIntensity = Math.max(this.vehicleTaillightMat.emissiveIntensity, 2.25);
     } else {
+      if (this.nearSidewalkMat) this.nearSidewalkMat.roughness = 0.84;
+      if (this.natureApronMat) this.natureApronMat.roughness = 0.9;
       if (this.gpuRainLines) this.gpuRainLines.visible = false;
       if (this.rainSplashInstanced) this.rainSplashInstanced.visible = false;
       if (this.glassRainStreaksGroup) this.glassRainStreaksGroup.visible = false;
+    }
+
+    // Warm amber cafe interior light spill pool on front porch at golden hour / night / rain
+    if (this.cafePorchSpillMat) {
+      const isWarmNight = timeOfDay === 'night';
+      const isWarmDusk = timeOfDay === 'golden';
+      this.cafePorchSpillMat.opacity = isWarmNight
+        ? isRaining ? 0.52 : 0.42
+        : isWarmDusk
+        ? 0.24
+        : isRaining
+        ? 0.18
+        : 0.04;
     }
 
     // 3. Phase 1 & 3: Scenery Environment Hints + Snow / Always-Winter Alpine Lighting Override
@@ -13236,7 +13323,7 @@ export class KlasikCafeScene3D {
     this.syncOutdoorBiomeAndLod(false);
     const isPlayerOutsideNow = this.outdoorOverlook.active || this.gameState.phase === 'title';
     const isUrbanNow = isUrbanStreetScenery(activeSceneryNow);
-    const sidewalkObstacles = getSidewalkObstacles(isMiataOutsideNow, isUrbanNow);
+    const sidewalkObstacles = getSidewalkObstacles(isMiataOutsideNow, isUrbanNow, activeSceneryNow);
     for (let i = 0; i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
       if (!p.actor.group.visible) continue;
@@ -13281,19 +13368,41 @@ export class KlasikCafeScene3D {
       p.x += p.dir * p.speed * dt;
       if (p.dir === 1 && p.x > 16.5) {
         p.x = -16.5;
-        p.currentZ = p.laneZ;
+        p.currentZ = computeAvoidedSidewalkZ(
+          p.x,
+          p.laneZ,
+          sidewalkObstacles,
+          DEFAULT_SIDEWALK_BOUNDS,
+          activeSceneryNow
+        );
       } else if (p.dir === -1 && p.x < -16.5) {
         p.x = 16.5;
-        p.currentZ = p.laneZ;
+        p.currentZ = computeAvoidedSidewalkZ(
+          p.x,
+          p.laneZ,
+          sidewalkObstacles,
+          DEFAULT_SIDEWALK_BOUNDS,
+          activeSceneryNow
+        );
       }
 
-      const targetZ = computeAvoidedSidewalkZ(p.x, p.laneZ, sidewalkObstacles);
+      const targetZ = computeAvoidedSidewalkZ(
+        p.x,
+        p.laneZ,
+        sidewalkObstacles,
+        DEFAULT_SIDEWALK_BOUNDS,
+        activeSceneryNow
+      );
       const prevZ = p.currentZ;
       p.currentZ += (targetZ - p.currentZ) * Math.min(1, dt * 6.5);
       const dzHeading = (p.currentZ - prevZ) / Math.max(dt, 0.001);
       const vxHeading = p.dir * p.speed;
 
-      p.actor.group.position.set(p.x, 0.08, p.currentZ);
+      const pedFootY =
+        activeSceneryNow === 'mt_everest' && p.laneZ < -12.0
+          ? ROAD_ELEVATION_LAYERS.natureApronTopY
+          : ROAD_ELEVATION_LAYERS.sidewalkTopY;
+      p.actor.group.position.set(p.x, pedFootY, p.currentZ);
       p.actor.group.rotation.y = Math.atan2(vxHeading, dzHeading);
 
       const strideMult = p.behavior === 'jogger' ? 6.8 : 5.0;
@@ -13345,6 +13454,10 @@ export class KlasikCafeScene3D {
       } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
         p.actor.rightShoulderJoint.rotation.x = s * 0.72;
         p.actor.rightElbowJoint.rotation.x = -1.18;
+      } else if (isPlayerOutsideNow && p.behavior === 'dog_walker') {
+        // Hold leash steadily forward in right hand so hand & leash stay aligned
+        p.actor.rightShoulderJoint.rotation.x = -0.36 + Math.sin(p.walkPhase) * 0.06;
+        p.actor.rightElbowJoint.rotation.x = -0.42;
       } else if (p.actor.heldCup.visible) {
         p.actor.rightShoulderJoint.rotation.x = -0.56 + Math.abs(s) * 0.04;
         p.actor.rightElbowJoint.rotation.x = -0.88;
@@ -13354,7 +13467,7 @@ export class KlasikCafeScene3D {
       }
       p.actor.neckJoint.rotation.x += (targetNeckPitch - p.actor.neckJoint.rotation.x) * Math.min(1, dt * 6);
 
-      // Animate trotting companion dog & wagging tail for dog walkers
+      // Animate trotting companion dog, wagging tail & dynamically locked hand-to-collar leash
       if (p.dogRig && p.dogRig.root.visible) {
         const trot = this.elapsed * 11.5 + i * 1.7;
         p.dogRig.legs[0].rotation.x = Math.sin(trot) * 0.52;
@@ -13362,7 +13475,17 @@ export class KlasikCafeScene3D {
         p.dogRig.legs[1].rotation.x = -Math.sin(trot) * 0.52;
         p.dogRig.legs[2].rotation.x = -Math.sin(trot) * 0.52;
         p.dogRig.tail.rotation.z = Math.sin(this.elapsed * 13 + i) * 0.42;
-        p.dogRig.root.position.y = Math.abs(Math.sin(trot)) * 0.025;
+        const dogBounce = Math.abs(Math.sin(trot)) * 0.025;
+        p.dogRig.root.position.y = dogBounce;
+        const handBob = Math.abs(s) * 0.025;
+        const leashTf = computeLeashTransform(
+          { x: 0.21, y: 0.78 + handBob - dogBounce, z: 0.21 },
+          { x: 0.26, y: 0.29, z: 0.85 }
+        );
+        p.dogRig.leash.position.set(leashTf.midpoint.x, leashTf.midpoint.y, leashTf.midpoint.z);
+        p.dogRig.leash.scale.set(1, leashTf.length, 1);
+        _tempVec.set(leashTf.direction.x, leashTf.direction.y, leashTf.direction.z);
+        p.dogRig.leash.quaternion.setFromUnitVectors(_upVec, _tempVec);
       }
 
       // Subtle glance toward the warm cafe facade when walking past

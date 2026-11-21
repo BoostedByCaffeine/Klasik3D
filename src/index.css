@@ -3,11 +3,47 @@
 
 @layer base {
   :root {
-    --font-display: 'Fraunces', Georgia, serif;
+    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
     --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
     --app-vw: 100vw;
     --app-vh: 100vh;
+
+    /* Core Monochrome Surfaces */
+    --hud-obsidian: #09090B;
+    --hud-glass-bg: rgba(9, 9, 11, 0.78);
+    --hud-glass-elevated: rgba(24, 24, 27, 0.88);
+    --hud-card-bg: rgba(18, 18, 21, 0.90);
+    --hud-card-hover: rgba(39, 39, 42, 0.86);
+
+    /* Crisp Borders & Hairlines */
+    --hud-border: rgba(255, 255, 255, 0.14);
+    --hud-border-strong: rgba(255, 255, 255, 0.34);
+    --hud-divider: rgba(255, 255, 255, 0.08);
+
+    /* Typography Hierarchy */
+    --hud-text-primary: #FFFFFF;
+    --hud-text-secondary: #E4E4E7;
+    --hud-text-muted: #A1A1AA;
+    --hud-text-dim: #71717A;
+
+    /* Brushed Platinum Metallic Finish (Active Pills, Primary CTAs, Highlights) */
+    --hud-platinum-fill:
+      repeating-linear-gradient(
+        -25deg,
+        rgba(255, 255, 255, 0.16) 0px,
+        rgba(255, 255, 255, 0.16) 1px,
+        transparent 1px,
+        transparent 4px
+      ),
+      linear-gradient(135deg, #F8FAFC 0%, #CBD5E1 48%, #FFFFFF 76%, #94A3B8 100%);
+    --hud-platinum-text: #09090B;
+    --hud-platinum-glow: 0 6px 20px rgba(255, 255, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+
+    /* Subtle Functional / Semantic Accents (High Legibility Only) */
+    --hud-status-ok: #34D399;
+    --hud-status-ice: #BAE6FD;
+    --hud-status-danger: #F87171;
   }
 
   html,
@@ -19,8 +55,8 @@
     height: 100%;
     min-height: 100%;
     font-family: var(--font-sans);
-    background-color: #090705 !important;
-    color: #f5ebe1;
+    background-color: #09090B !important;
+    color: #F4F4F5;
     overflow: hidden;
     touch-action: none;
     margin: 0;
@@ -37,6 +73,27 @@
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
+
+  /* Slim dark-graphite scrollbars with muted silver thumbs */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(161, 161, 170, 0.35) rgba(24, 24, 27, 0.6);
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: rgba(24, 24, 27, 0.65);
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(161, 161, 170, 0.38);
+    border-radius: 9999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(228, 228, 231, 0.56);
+  }
 }
 
 /* Full-bleed edge-to-edge landscape container (uses inset: 0 so Android never leaves side/bottom gaps) */
@@ -46,7 +103,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #090705 !important;
+  background-color: #09090B !important;
 }
 
 /* Strict Landscape-Only Enforcement when device is physically held in Portrait */
@@ -59,7 +116,7 @@
   top: 0;
   left: var(--app-vw, 100vw);
   overflow: hidden;
-  background-color: #090705 !important;
+  background-color: #09090B !important;
 }
 
 /* Full-bleed 3D WebGL canvas wrapper (never padded by safe-area insets) */
@@ -69,7 +126,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #090705;
+  background-color: #09090B;
 }
 
 /* Safe-area padding helper applied ONLY to HUD/Title controls so cutouts & gesture bars stay clear */
@@ -212,104 +269,169 @@
   scrollbar-width: none;
 }
 
-/* ===== KLASIK 3D RE-OPTIMIZED TIERED ESPRESSO GLASSMORPHISM (PHASE 2) ===== */
-.glass-panel {
-  background: linear-gradient(
-    165deg,
-    rgba(24, 16, 12, 0.72) 0%,
-    rgba(16, 10, 8, 0.66) 100%
-  );
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid rgba(251, 191, 36, 0.28);
-  box-shadow:
-    0 14px 36px -10px rgba(0, 0, 0, 0.66),
-    inset 0 1px 0 rgba(255, 245, 230, 0.16),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.35);
-  transform: translateZ(0);
-  contain: layout style paint;
-}
+/* ===== KLASIK 3D UNIFIED MONOCHROME OBSIDIAN + BRUSHED PLATINUM GLASSMORPHISM (PHASE 6) ===== */
+@layer components {
+  .glass-panel {
+    background: linear-gradient(
+      165deg,
+      rgba(24, 24, 27, 0.80) 0%,
+      rgba(9, 9, 11, 0.78) 100%
+    );
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border: 1px solid var(--hud-border);
+    box-shadow:
+      0 14px 36px -10px rgba(0, 0, 0, 0.72),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.40);
+    transform: translateZ(0);
+    contain: layout style paint;
+  }
 
-.glass-pill {
-  background: linear-gradient(
-    160deg,
-    rgba(24, 16, 12, 0.72) 0%,
-    rgba(15, 10, 7, 0.66) 100%
-  );
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid rgba(251, 191, 36, 0.28);
-  box-shadow:
-    0 8px 22px -6px rgba(0, 0, 0, 0.56),
-    inset 0 1px 0 rgba(255, 245, 230, 0.16);
-  transform: translateZ(0);
-  contain: layout style paint;
-}
+  .glass-pill {
+    background: linear-gradient(
+      160deg,
+      rgba(24, 24, 27, 0.82) 0%,
+      rgba(9, 9, 11, 0.78) 100%
+    );
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border: 1px solid var(--hud-border);
+    box-shadow:
+      0 8px 22px -6px rgba(0, 0, 0, 0.62),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transform: translateZ(0);
+    contain: layout style paint;
+  }
 
-.glass-modal {
-  background: linear-gradient(
-    165deg,
-    rgba(26, 17, 12, 0.86) 0%,
-    rgba(14, 9, 7, 0.85) 100%
-  );
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
-  border: 1px solid rgba(251, 191, 36, 0.32);
-  box-shadow:
-    0 24px 60px -12px rgba(0, 0, 0, 0.78),
-    inset 0 1px 0 rgba(255, 245, 230, 0.16);
-  transform: translateZ(0);
-}
+  .glass-modal {
+    background: linear-gradient(
+      165deg,
+      rgba(20, 20, 24, 0.92) 0%,
+      rgba(9, 9, 11, 0.92) 100%
+    );
+    backdrop-filter: blur(18px) saturate(125%);
+    -webkit-backdrop-filter: blur(18px) saturate(125%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow:
+      0 24px 60px -12px rgba(0, 0, 0, 0.85),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    transform: translateZ(0);
+  }
 
-/* Zero Double-Blur Rule: Nested buttons inside glass containers carry NO backdrop-filter */
-.glass-btn-inner {
-  background: rgba(255, 248, 235, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 248, 235, 0.12);
-  color: #FAF5EE;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
-  transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease;
-}
+  /* Reusable Brushed Platinum Interactive Pill / Active Tab / Primary CTA */
+  .hud-platinum-pill {
+    background: var(--hud-platinum-fill);
+    color: var(--hud-platinum-text);
+    border: 1px solid rgba(255, 255, 255, 0.82);
+    box-shadow: var(--hud-platinum-glow);
+    text-shadow: none;
+    transition: filter 150ms ease, transform 120ms ease, box-shadow 150ms ease;
+  }
 
-.glass-btn-inner:hover {
-  background: rgba(251, 191, 36, 0.18);
-  border-color: rgba(251, 191, 36, 0.48);
-}
+  .hud-platinum-pill:hover {
+    filter: brightness(1.05);
+    box-shadow:
+      0 8px 24px rgba(255, 255, 255, 0.22),
+      inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  }
 
-.glass-btn-inner:active {
-  transform: scale(0.98);
-}
+  .hud-platinum-pill:active {
+    transform: scale(0.98);
+  }
 
-/* Standalone floating HUD glass button */
-.glass-hud-btn {
-  background: linear-gradient(
-    165deg,
-    rgba(26, 17, 12, 0.72) 0%,
-    rgba(16, 11, 8, 0.68) 100%
-  );
-  backdrop-filter: blur(12px) saturate(135%);
-  -webkit-backdrop-filter: blur(12px) saturate(135%);
-  border: 1px solid rgba(251, 191, 36, 0.28);
-  color: #FAF5EE;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
-  box-shadow:
-    0 6px 18px -4px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 245, 230, 0.16);
-  transition: background-color 150ms ease, border-color 150ms ease, transform 120ms ease;
-  transform: translateZ(0);
-}
+  /* Brushed Platinum Progress Fill Bar */
+  .hud-platinum-bar {
+    background: var(--hud-platinum-fill);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
 
-.glass-hud-btn:hover {
-  background: linear-gradient(
-    165deg,
-    rgba(42, 27, 18, 0.84) 0%,
-    rgba(24, 15, 10, 0.80) 100%
-  );
-  border-color: rgba(251, 191, 36, 0.52);
-}
+  /* Monochrome Platinum Range Sliders */
+  .hud-platinum-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: rgba(39, 39, 42, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    accent-color: #E4E4E7;
+    outline: none;
+  }
 
-.glass-text-crisp {
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+  .hud-platinum-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 60%, #94A3B8 100%);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+    cursor: pointer;
+  }
+
+  .hud-platinum-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 60%, #94A3B8 100%);
+    border: 1px solid rgba(255, 255, 255, 0.95);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+    cursor: pointer;
+  }
+
+  /* Zero Double-Blur Rule: Nested buttons inside glass containers carry NO backdrop-filter */
+  .glass-btn-inner {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--hud-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+    color: #E4E4E7;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+    transition: transform 120ms ease, filter 140ms ease, box-shadow 140ms ease;
+  }
+
+  .glass-btn-inner:hover {
+    background: rgba(255, 255, 255, 0.13);
+    border-color: var(--hud-border-strong);
+    color: #FFFFFF;
+  }
+
+  .glass-btn-inner:active {
+    transform: scale(0.98);
+  }
+
+  /* Standalone floating HUD glass button */
+  .glass-hud-btn {
+    background: linear-gradient(
+      165deg,
+      rgba(24, 24, 27, 0.82) 0%,
+      rgba(9, 9, 11, 0.78) 100%
+    );
+    backdrop-filter: blur(12px) saturate(120%);
+    -webkit-backdrop-filter: blur(12px) saturate(120%);
+    border: 1px solid var(--hud-border);
+    color: #E4E4E7;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+    box-shadow:
+      0 6px 18px -4px rgba(0, 0, 0, 0.62),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition: transform 120ms ease, filter 140ms ease, box-shadow 140ms ease;
+    transform: translateZ(0);
+  }
+
+  .glass-hud-btn:hover {
+    background: linear-gradient(
+      165deg,
+      rgba(39, 39, 42, 0.88) 0%,
+      rgba(24, 24, 27, 0.86) 100%
+    );
+    border-color: var(--hud-border-strong);
+    color: #FFFFFF;
+  }
+
+  .glass-text-crisp {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -319,85 +441,85 @@
   .glass-hud-btn {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: rgba(20, 14, 11, 0.96);
+    background: rgba(15, 15, 18, 0.96);
   }
 }
 
-/* GFX: LOW — Lightweight Re-Optimized Single-Pass Frosted Glass (preserves translucent frosted aesthetic!) */
+/* GFX: LOW — Lightweight Re-Optimized Single-Pass Obsidian Frosted Glass */
 [data-gfx='low'] .glass-panel,
 [data-gfx='low'] .glass-pill,
 [data-gfx='low'] .glass-hud-btn {
-  backdrop-filter: blur(6px) saturate(115%) !important;
-  -webkit-backdrop-filter: blur(6px) saturate(115%) !important;
+  backdrop-filter: blur(6px) saturate(110%) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(110%) !important;
   background: linear-gradient(
     155deg,
-    rgba(32, 22, 16, 0.74) 0%,
-    rgba(16, 10, 7, 0.70) 100%
+    rgba(24, 24, 27, 0.82) 0%,
+    rgba(9, 9, 11, 0.78) 100%
   ) !important;
-  border-color: rgba(251, 191, 36, 0.30) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 248, 235, 0.22),
-    0 6px 18px -6px rgba(0, 0, 0, 0.54) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 6px 18px -6px rgba(0, 0, 0, 0.60) !important;
   transform: translateZ(0);
   contain: layout style paint;
 }
 
 [data-gfx='low'] .glass-modal {
-  backdrop-filter: blur(8px) saturate(118%) !important;
-  -webkit-backdrop-filter: blur(8px) saturate(118%) !important;
+  backdrop-filter: blur(8px) saturate(112%) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(112%) !important;
   background: linear-gradient(
     160deg,
-    rgba(30, 20, 14, 0.84) 0%,
-    rgba(14, 9, 7, 0.85) 100%
+    rgba(24, 24, 27, 0.90) 0%,
+    rgba(9, 9, 11, 0.92) 100%
   ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 248, 235, 0.20),
-    0 20px 46px -12px rgba(0, 0, 0, 0.74) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 20px 46px -12px rgba(0, 0, 0, 0.78) !important;
   transform: translateZ(0);
 }
 
-/* GFX: MEDIUM — Balanced Smooth Mid-Tier Frosted Glass (11px blur) */
+/* GFX: MEDIUM — Balanced Smooth Mid-Tier Obsidian Frosted Glass (11px blur) */
 [data-gfx='medium'] .glass-panel,
 [data-gfx='medium'] .glass-pill,
 [data-gfx='medium'] .glass-hud-btn {
-  backdrop-filter: blur(11px) saturate(130%) !important;
-  -webkit-backdrop-filter: blur(11px) saturate(130%) !important;
+  backdrop-filter: blur(11px) saturate(118%) !important;
+  -webkit-backdrop-filter: blur(11px) saturate(118%) !important;
   background: linear-gradient(
     160deg,
-    rgba(28, 19, 14, 0.72) 0%,
-    rgba(16, 10, 8, 0.68) 100%
+    rgba(24, 24, 27, 0.80) 0%,
+    rgba(9, 9, 11, 0.78) 100%
   ) !important;
-  border-color: rgba(251, 191, 36, 0.29) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 247, 232, 0.18),
-    0 10px 26px -8px rgba(0, 0, 0, 0.58) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 10px 26px -8px rgba(0, 0, 0, 0.64) !important;
   transform: translateZ(0);
   contain: layout style paint;
 }
 
 [data-gfx='medium'] .glass-modal {
-  backdrop-filter: blur(13px) saturate(135%) !important;
-  -webkit-backdrop-filter: blur(13px) saturate(135%) !important;
+  backdrop-filter: blur(13px) saturate(122%) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(122%) !important;
   transform: translateZ(0);
 }
 
-/* Diegetic 3D Klasik Roastery POS Tablet Bezel & Warm Espresso-Crema Surface */
+/* Diegetic 3D Klasik POS Tablet Bezel & Smoked Obsidian Surface */
 .pos-terminal-bezel {
-  background: linear-gradient(168deg, #241711 0%, #160e0a 55%, #0e0906 100%);
-  border: 2px solid rgba(245, 158, 11, 0.48);
+  background: linear-gradient(168deg, #18181B 0%, #111114 55%, #09090B 100%);
+  border: 2px solid rgba(255, 255, 255, 0.22);
   box-shadow:
-    0 26px 70px -14px rgba(0, 0, 0, 0.88),
-    0 0 0 6px rgba(24, 15, 10, 0.94),
-    0 0 0 8px rgba(217, 119, 6, 0.36),
-    inset 0 1px 0 rgba(254, 243, 199, 0.2);
+    0 26px 70px -14px rgba(0, 0, 0, 0.90),
+    0 0 0 6px rgba(18, 18, 21, 0.95),
+    0 0 0 8px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .pos-terminal-screen {
-  background-color: #160e0a;
+  background-color: #0B0B0E;
   background-image:
-    radial-gradient(circle at 14% 10%, rgba(245, 158, 11, 0.12) 0%, transparent 52%),
-    radial-gradient(circle at 88% 86%, rgba(180, 83, 9, 0.11) 0%, transparent 54%),
-    linear-gradient(180deg, rgba(32, 20, 14, 0.45) 0%, rgba(14, 9, 6, 0.72) 100%);
+    radial-gradient(circle at 14% 10%, rgba(255, 255, 255, 0.06) 0%, transparent 52%),
+    radial-gradient(circle at 88% 86%, rgba(148, 163, 184, 0.05) 0%, transparent 54%),
+    linear-gradient(180deg, rgba(24, 24, 27, 0.45) 0%, rgba(9, 9, 11, 0.78) 100%);
 }
 
 /* ===== 1-SECOND MOBILE LANDSCAPE PRE-SPLASH GATE ===== */
@@ -412,8 +534,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #090705;
-  background-image: radial-gradient(circle at center, #140F0A 0%, #090705 72%);
+  background-color: #09090B;
+  background-image: radial-gradient(circle at center, #18181B 0%, #09090B 72%);
   padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   overflow: hidden;
 }
@@ -466,7 +588,7 @@
   font-weight: 600;
   font-size: clamp(1rem, 3.6vw, 1.25rem);
   letter-spacing: 0.02em;
-  color: #F5F0E8;
+  color: #FFFFFF;
 }
 
 .landscape-intro-sub {
@@ -475,7 +597,7 @@
   font-weight: 500;
   font-size: clamp(0.75rem, 2.5vw, 0.875rem);
   letter-spacing: 0.06em;
-  color: #C8924A;
+  color: #A1A1AA;
 }
 
 @keyframes landscapePhoneRotate {

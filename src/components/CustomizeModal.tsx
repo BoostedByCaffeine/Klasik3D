@@ -73,27 +73,27 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-3"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="customize-modal-title"
     >
       <div className="w-full max-w-2xl glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 max-h-[84vh] overflow-y-auto no-scrollbar">
-        <div className="flex items-center justify-between border-b border-amber-400/20 pb-2.5">
+        <div className="flex items-center justify-between border-b border-white/12 pb-2.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-[#18181B] border border-white/20 flex items-center justify-center text-[#E4E4E7] shrink-0">
               <Palette className="w-4 h-4" strokeWidth={2.2} />
             </div>
             <div>
               <h2
                 id="customize-modal-title"
-                className="text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
+                className="text-base font-bold font-display text-white glass-text-crisp"
               >
                 Cafe Decor, 3D Previews &amp; Weather
               </h2>
-              <p className="text-[11px] text-[#E7D7C1]">
+              <p className="text-[11px] text-[#A1A1AA]">
                 Live single-context 3D studio renders · Active View:{' '}
-                <strong className="text-amber-300">{scenerySpec.name}</strong>
+                <strong className="text-white">{scenerySpec.name}</strong>
               </p>
             </div>
           </div>
@@ -101,7 +101,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             type="button"
             data-testid="btn-close-customize"
             onClick={onClose}
-            className="glass-btn-inner px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer flex items-center gap-1"
+            className="glass-btn-inner px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer flex items-center gap-1"
           >
             <X className="w-3.5 h-3.5" strokeWidth={2.2} />
             <span>Close</span>
@@ -111,8 +111,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
         <div className="space-y-3">
           {/* Countertop Timber with 3D Thumbnails */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-amber-200 flex items-center gap-1.5 glass-text-crisp">
-              <Palette className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+            <label className="text-xs font-semibold text-[#E4E4E7] flex items-center gap-1.5 glass-text-crisp">
+              <Palette className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
               <span>3D Barista Countertop Timber (5 Woods)</span>
             </label>
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
@@ -131,8 +131,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   onClick={() => onUpdateDecor({ ...decor, counterWood: opt.id })}
                   className={`p-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-all flex flex-col items-center gap-1 ${
                     decor.counterWood === opt.id
-                      ? 'bg-gradient-to-b from-amber-400/25 to-orange-500/25 text-amber-200 font-bold border border-amber-400 shadow'
-                      : 'glass-btn-inner'
+                      ? 'bg-white/[0.12] text-white font-bold border border-white/55 shadow-[0_0_16px_rgba(255,255,255,0.12)]'
+                      : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
                   <StudioPreviewThumb
@@ -154,8 +154,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
 
           {/* Porcelain Mug Glaze with 3D Thumbnails */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-amber-200 flex items-center gap-1.5 glass-text-crisp">
-              <Coffee className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+            <label className="text-xs font-semibold text-[#E4E4E7] flex items-center gap-1.5 glass-text-crisp">
+              <Coffee className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
               <span>Porcelain Mug Glaze (6 Glazes)</span>
             </label>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
@@ -175,8 +175,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   onClick={() => onUpdateDecor({ ...decor, mugColor: opt.id })}
                   className={`p-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-all flex flex-col items-center gap-1 ${
                     decor.mugColor === opt.id
-                      ? 'bg-gradient-to-b from-amber-400/25 to-orange-500/25 text-amber-200 font-bold border border-amber-400 shadow'
-                      : 'glass-btn-inner'
+                      ? 'bg-white/[0.12] text-white font-bold border border-white/55 shadow-[0_0_16px_rgba(255,255,255,0.12)]'
+                      : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
                   <StudioPreviewThumb
@@ -196,8 +196,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
 
           {/* Hanging Neon Glow with 3D Thumbnails */}
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-amber-200 flex items-center gap-1.5 glass-text-crisp">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+            <label className="text-xs font-semibold text-[#E4E4E7] flex items-center gap-1.5 glass-text-crisp">
+              <Sparkles className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
               <span>3D Hanging Sign Neon Glow (5 Colors)</span>
             </label>
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
@@ -216,8 +216,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                   onClick={() => onUpdateDecor({ ...decor, neonSignColor: opt.id })}
                   className={`p-1.5 rounded-xl text-[11px] font-medium cursor-pointer transition-all flex flex-col items-center gap-1 ${
                     decor.neonSignColor === opt.id
-                      ? 'bg-gradient-to-b from-amber-400/25 to-orange-500/25 text-amber-200 font-bold border border-amber-400 shadow'
-                      : 'glass-btn-inner'
+                      ? 'bg-white/[0.12] text-white font-bold border border-white/55 shadow-[0_0_16px_rgba(255,255,255,0.12)]'
+                      : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
                   <StudioPreviewThumb
@@ -239,7 +239,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-amber-200 flex items-center gap-1.5 glass-text-crisp">
+              <label className="text-xs font-semibold text-[#E4E4E7] flex items-center gap-1.5 glass-text-crisp">
                 <Sprout className="w-3.5 h-3.5 text-emerald-400 shrink-0" strokeWidth={2.2} />
                 <span>Botanical Canopy Density</span>
               </label>
@@ -256,8 +256,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                     onClick={() => onUpdateDecor({ ...decor, plantDensity: opt.id })}
                     className={`p-2 rounded-xl text-[11px] font-medium cursor-pointer transition-all flex items-center gap-2 ${
                       decor.plantDensity === opt.id
-                        ? 'bg-gradient-to-r from-amber-400/25 to-orange-500/25 text-amber-200 font-bold border border-amber-400 shadow'
-                        : 'glass-btn-inner'
+                        ? 'bg-white/[0.12] text-white font-bold border border-white/55 shadow-[0_0_16px_rgba(255,255,255,0.12)]'
+                        : 'glass-btn-inner text-[#D4D4D8]'
                     }`}
                   >
                     <StudioPreviewThumb
@@ -279,12 +279,12 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
 
             {/* Time of Day & Scenery-Aware Weather (Clear / Rain / Snow / Always Winter) */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-amber-200 flex items-center justify-between gap-1.5 glass-text-crisp">
+              <label className="text-xs font-semibold text-[#E4E4E7] flex items-center justify-between gap-1.5 glass-text-crisp">
                 <span className="flex items-center gap-1.5">
-                  <Sun className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <Sun className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
                   <span>Time of Day &amp; Scenery Weather</span>
                 </span>
-                <span className="text-[10px] font-mono text-[#E7D7C1]/85">
+                <span className="text-[10px] font-mono text-[#A1A1AA]">
                   {alwaysWinter
                     ? 'Always Winter · Snow'
                     : isSnowing
@@ -313,8 +313,8 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                       onClick={() => onUpdateTimeOfDay(opt.id)}
                       className={`py-1.5 px-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                         timeOfDayMode === opt.id
-                          ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold border border-amber-300 shadow'
-                          : 'glass-btn-inner'
+                          ? 'hud-platinum-pill font-bold'
+                          : 'glass-btn-inner text-[#D4D4D8]'
                       }`}
                     >
                       <Icon className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -327,18 +327,18 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
               {alwaysWinter ? (
                 <div
                   data-testid="always-winter-weather-lock"
-                  className="p-2.5 rounded-xl bg-sky-950/60 border border-sky-400/50 flex items-center justify-between gap-2 text-xs text-sky-100"
+                  className="p-2.5 rounded-xl bg-sky-950/45 border border-sky-300/35 flex items-center justify-between gap-2 text-xs text-[#BAE6FD]"
                 >
                   <div className="flex items-center gap-2">
-                    <CloudSnow className="w-4 h-4 text-sky-300 shrink-0" strokeWidth={2.2} />
+                    <CloudSnow className="w-4 h-4 text-[#BAE6FD] shrink-0" strokeWidth={2.2} />
                     <div>
-                      <div className="font-bold">Always Winter — Perpetual Himalayan Snow</div>
-                      <div className="text-[10px] text-sky-200/80">
+                      <div className="font-bold text-white">Always Winter — Perpetual Himalayan Snow</div>
+                      <div className="text-[10px] text-[#BAE6FD]/85">
                         Mt. Everest Base Camp locks precipitation to Snow &amp; Winter gear.
                       </div>
                     </div>
                   </div>
-                  <Lock className="w-4 h-4 text-sky-300 shrink-0" strokeWidth={2.2} />
+                  <Lock className="w-4 h-4 text-[#BAE6FD] shrink-0" strokeWidth={2.2} />
                 </div>
               ) : (
                 <div
@@ -360,11 +360,9 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
                       className={`py-1.5 px-2 rounded-lg text-[11px] font-medium cursor-pointer transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                         rainPreference === opt.id
                           ? opt.id === 'snow'
-                            ? 'bg-gradient-to-r from-cyan-300 to-sky-400 text-[#09131d] font-bold border border-cyan-200 shadow'
-                            : opt.id === 'rain'
-                            ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-[#0c1220] font-bold border border-sky-300 shadow'
-                            : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold border border-amber-300 shadow'
-                          : 'glass-btn-inner'
+                            ? 'bg-sky-400/22 text-[#BAE6FD] font-bold border border-sky-300/60 shadow'
+                            : 'hud-platinum-pill font-bold'
+                          : 'glass-btn-inner text-[#D4D4D8]'
                       }`}
                     >
                       {opt.id === 'rain' && (
@@ -381,33 +379,33 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
             </div>
 
             {/* Footer Quick Links to Sceneries & Cafe Cats */}
-            <div className="pt-1.5 border-t border-amber-400/20 flex flex-wrap items-center justify-between gap-2">
+            <div className="pt-1.5 border-t border-white/12 flex flex-wrap items-center justify-between gap-2">
               {onOpenSceneries && (
                 <button
                   type="button"
                   data-testid="btn-customize-open-sceneries"
                   onClick={onOpenSceneries}
-                  className="px-3 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-100 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-lg glass-btn-inner text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
                 >
-                  <Mountain className="w-3.5 h-3.5 text-sky-300 shrink-0" strokeWidth={2.2} />
+                  <Mountain className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
                   <span>Outdoor Sceneries (9)</span>
                 </button>
               )}
 
               {onOpenCafeCats && (
                 <div className="flex items-center gap-2 ml-auto">
-                  <div className="hidden sm:flex items-center gap-1.5 text-xs text-[#FAF5EE]">
-                    <Cat className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+                  <div className="hidden sm:flex items-center gap-1.5 text-xs text-white">
+                    <Cat className="w-4 h-4 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
                     <span>
-                      <strong className="text-amber-300">{equippedCatName}</strong>{' '}
-                      <span className="text-[#E7D7C1]/80">({unlockedCatsCount}/9)</span>
+                      <strong className="text-white">{equippedCatName}</strong>{' '}
+                      <span className="text-[#A1A1AA]">({unlockedCatsCount}/9)</span>
                     </span>
                   </div>
                   <button
                     type="button"
                     data-testid="btn-customize-open-cats"
                     onClick={onOpenCafeCats}
-                    className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-[#160E09] text-xs font-bold cursor-pointer shadow"
+                    className="px-3 py-1.5 rounded-lg hud-platinum-pill text-xs font-bold cursor-pointer"
                   >
                     Cafe Cats Roster
                   </button>

@@ -17,7 +17,7 @@ export const StudioPreviewThumb: React.FC<StudioPreviewThumbProps> = ({
   renderThumbnail,
   alt,
   className = 'w-14 h-14 rounded-xl',
-  fallbackColorHex = '#2a1d14',
+  fallbackColorHex = '#18181B',
 }) => {
   const [src, setSrc] = useState<string>('');
   const renderRef = useRef(renderThumbnail);
@@ -45,7 +45,7 @@ export const StudioPreviewThumb: React.FC<StudioPreviewThumbProps> = ({
 
   return (
     <div
-      className={`relative overflow-hidden shrink-0 bg-[#090705]/90 border border-[#f5a623]/30 shadow-inner flex items-center justify-center ${className}`}
+      className={`relative overflow-hidden shrink-0 bg-[#09090B]/95 border border-white/14 shadow-inner flex items-center justify-center ${className}`}
       style={!src ? { backgroundColor: fallbackColorHex } : undefined}
     >
       {src ? (

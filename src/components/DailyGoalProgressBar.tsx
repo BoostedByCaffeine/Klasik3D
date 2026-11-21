@@ -29,33 +29,36 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
   return (
     <div className="flex items-center gap-2 sm:gap-2.5 text-xs font-mono tabular-nums whitespace-nowrap shrink-0 glass-text-crisp">
       {/* Cash Readout */}
-      <div className="flex items-center gap-1 font-bold text-emerald-300" data-testid="hud-cash">
-        <Banknote className="w-3.5 h-3.5 text-emerald-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
-        <span>${Math.round(cash)}</span>
+      <div className="flex items-center gap-1 font-bold text-white" data-testid="hud-cash">
+        <Banknote className="w-3.5 h-3.5 text-[#34D399] shrink-0" strokeWidth={2.2} aria-hidden="true" />
+        <span>
+          <span className="text-[#34D399]">$</span>
+          {Math.round(cash)}
+        </span>
       </div>
 
-      <span className="text-amber-200/30" aria-hidden="true">
+      <span className="text-white/15" aria-hidden="true">
         |
       </span>
 
       {/* Daily 35-Cup Quota Progress Bar (+$120 Bonus) */}
       <div
         className={`flex items-center gap-1.5 font-semibold ${
-          quotaMet ? 'text-emerald-300' : 'text-[#FAF5EE]'
+          quotaMet ? 'text-[#34D399]' : 'text-white'
         }`}
         title={`Daily Owner Quota: ${Math.round(cupsServedToday)} / ${dailyOrderQuota} Cups (+$${DAILY_QUOTA_COMPLETION_BONUS} Bonus, resets at local midnight)`}
         data-testid="hud-cups-served"
       >
-        <span className="text-[11px] font-sans font-semibold text-[#E7D7C1] hidden md:inline">
+        <span className="text-[11px] font-sans font-semibold text-[#A1A1AA] hidden md:inline">
           D{day}
         </span>
-        <Coffee className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
-        <div className="w-12 sm:w-16 h-2 rounded-full bg-black/50 border border-amber-400/25 overflow-hidden">
+        <Coffee className="w-3.5 h-3.5 text-[#E4E4E7] shrink-0" strokeWidth={2.2} aria-hidden="true" />
+        <div className="w-12 sm:w-16 h-2 rounded-full bg-[#27272A] border border-white/15 overflow-hidden">
           <div
             className={`h-full transition-all duration-200 ${
               quotaMet
-                ? 'bg-gradient-to-r from-emerald-400 to-teal-400'
-                : 'bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500'
+                ? 'bg-gradient-to-r from-[#34D399] to-teal-300'
+                : 'hud-platinum-bar'
             }`}
             style={{ width: `${quotaPct}%` }}
           />
@@ -64,37 +67,37 @@ export const DailyGoalProgressBar: React.FC<DailyGoalProgressBarProps> = ({
           {Math.round(cupsServedToday)}/{dailyOrderQuota}
         </span>
         {quotaMet && (
-          <span className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0 rounded bg-emerald-500/25 border border-emerald-400/50 text-[9px] text-emerald-200 font-bold">
+          <span className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0 rounded bg-[#34D399]/18 border border-[#34D399]/45 text-[9px] text-[#34D399] font-bold">
             <Award className="w-2.5 h-2.5 shrink-0" strokeWidth={2.4} />
             <span>+${DAILY_QUOTA_COMPLETION_BONUS}</span>
           </span>
         )}
       </div>
 
-      <span className="text-amber-200/30 hidden sm:inline" aria-hidden="true">
+      <span className="text-white/15 hidden sm:inline" aria-hidden="true">
         |
       </span>
 
       {/* Vibe / Satisfaction */}
       <div
-        className="hidden sm:flex items-center gap-1 text-amber-300 font-semibold"
+        className="hidden sm:flex items-center gap-1 text-[#E4E4E7] font-semibold"
         title="Cafe Satisfaction Vibe"
       >
-        <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
+        <Sparkles className="w-3.5 h-3.5 text-[#A1A1AA] shrink-0" strokeWidth={2.2} aria-hidden="true" />
         <span>{Math.round(satisfactionScore)}%</span>
       </div>
 
-      <span className="text-amber-200/30" aria-hidden="true">
+      <span className="text-white/15" aria-hidden="true">
         |
       </span>
 
       {/* Live 24h Local Device Clock */}
       <div
-        className="flex items-center gap-1 text-[#FAF5EE] font-bold"
+        className="flex items-center gap-1 text-white font-bold"
         title={mode === 'zen' ? 'Zen Mode · Live Local Clock' : '24h Store Live Local Clock'}
         data-testid="hud-live-clock"
       >
-        <Clock className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} aria-hidden="true" />
+        <Clock className="w-3.5 h-3.5 text-[#A1A1AA] shrink-0" strokeWidth={2.2} aria-hidden="true" />
         <span>{mode === 'zen' ? `ZEN · ${liveClockLabel}` : liveClockLabel}</span>
       </div>
     </div>

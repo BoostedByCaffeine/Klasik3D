@@ -1561,14 +1561,14 @@ export default function App() {
       {webglError && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4">
           <div className="max-w-md w-full glass-modal rounded-2xl p-5 text-center space-y-3">
-            <h2 className="text-lg font-bold font-display text-[#FAF5EE] glass-text-crisp">
+            <h2 className="text-lg font-bold font-display text-white glass-text-crisp">
               3D Graphics Recovery Mode
             </h2>
-            <p className="text-xs text-[#E7D7C1]">{webglError}</p>
+            <p className="text-xs text-[#A1A1AA]">{webglError}</p>
             <button
               type="button"
               onClick={handleClearSwCacheAndReload}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 text-[#160E09] font-bold text-xs cursor-pointer shadow-lg"
+              className="px-4 py-2 rounded-xl hud-platinum-pill font-bold text-xs cursor-pointer"
             >
               Reset Cache &amp; Reload Cafe
             </button>
@@ -1871,11 +1871,11 @@ export default function App() {
         />
       )}
 
-      {/* Smooth 0.35s Matte Espresso Fade Curtain for Scenery Swaps & Go Outside Transitions */}
+      {/* Smooth 0.35s Matte Obsidian Fade Curtain for Scenery Swaps & Go Outside Transitions */}
       <div
         aria-hidden="true"
         data-fade-visible={sceneryFadeVisible ? '1' : '0'}
-        className={`pointer-events-none fixed inset-0 z-50 bg-[#090705] transition-opacity duration-200 ${
+        className={`pointer-events-none fixed inset-0 z-50 bg-[#09090B] transition-opacity duration-200 ${
           sceneryFadeVisible ? 'opacity-100' : 'opacity-0'
         }`}
       />

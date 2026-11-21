@@ -57,6 +57,9 @@ class KlasikNativeAudioBridge(
     fun hasNotificationPermission(): Boolean = hasNotificationAccess()
 
     @JavascriptInterface
+    fun hasNotificationListenerPermission(): Boolean = hasNotificationAccess()
+
+    @JavascriptInterface
     fun openNotificationAccessSettings() {
         try {
             val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
@@ -70,6 +73,14 @@ class KlasikNativeAudioBridge(
 
     @JavascriptInterface
     fun openNotificationPermission() = openNotificationAccessSettings()
+
+    @JavascriptInterface
+    fun openNotificationListenerSettings() = openNotificationAccessSettings()
+
+    @JavascriptInterface
+    fun refreshExternalMediaState() {
+        pushMetadataToWebView()
+    }
 
     @JavascriptInterface
     fun getCurrentMediaMetadata(): String {
@@ -128,12 +139,12 @@ class KlasikNativeAudioBridge(
         val controller = if (hasPerm) getActiveMediaController() else null
         val meta = controller?.metadata
         val playing = controller?.playbackState?.state == PlaybackState.STATE_PLAYING ||
-            (!hasPerm && isExternalMusicActive())
+            isExternalMusicActive()
 
         val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }
-            ?: if (playing) "EXTERNAL AUDIO ACTIVE" else "External Audio Standby"
+            ?: if (playing) "External Audio Detected (Active)" else "External Audio Standby"
         val artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }
-            ?: if (!hasPerm && playing) "Tap Enable Song Title Display" else ""
+            ?: if (!hasPerm && playing) "Tap Enable Now-Playing Detection" else ""
         val sourceApp = if (controller != null) {
             mapPackageName(controller.packageName)
         } else {
@@ -159,10 +170,13 @@ class KlasikNativeAudioBridge(
         return when {
             lower.contains("spotify") -> "Spotify"
             lower.contains("youtube.music") || lower.contains("apps.youtube.music") -> "YouTube Music"
+            lower.contains("youtube") -> "YouTube"
             lower.contains("apple.android.music") -> "Apple Music"
             lower.contains("soundcloud") -> "SoundCloud"
             lower.contains("deezer") -> "Deezer"
             lower.contains("tidal") -> "TIDAL"
+            lower.contains("amazon.mp3") -> "Amazon Music"
+            lower.contains("pandora") -> "Pandora"
             else -> "External App"
         }
     }

@@ -110,7 +110,10 @@ export interface KlasikNativeAudioBridgeInterface {
   isExternalMusicActive(): boolean;
   getCurrentMediaMetadata(): string; // JSON: { title, artist, sourceApp, isPlaying }
   hasNotificationAccess(): boolean;
+  hasNotificationListenerPermission?(): boolean;
   openNotificationAccessSettings(): void;
+  openNotificationListenerSettings?(): void;
+  refreshExternalMediaState?(): void;
   sendMediaKey?(action: 'play_pause' | 'next' | 'prev'): void;
 }
 
@@ -129,6 +132,8 @@ export interface RadioBrowserRawStation {
   bitrate?: number;
   tags?: string;
 }
+
+export const RADIO_DIRECTORY_CACHE_KEY = 'klasik3d_radio_directory_cache_v1';
 
 // Pure testable Radio Browser API station filter (strict HTTPS + MP3/AAC only)
 export function filterVerifiedRadioStations(
@@ -159,6 +164,23 @@ export function filterVerifiedRadioStations(
     });
   }
   return verified;
+}
+
+/**
+ * Builds the ordered, deduplicated HTTPS mirror list for a radio station so live
+ * playback automatically fails over across backup relays before reporting offline.
+ */
+export function resolveStationMirrorUrls(station: Pick<RadioStationItem, 'streamUrl' | 'backupUrls'>): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const candidates = [station.streamUrl, ...(station.backupUrls || [])];
+  for (const raw of candidates) {
+    const cleaned = (raw || '').trim();
+    if (!cleaned || !cleaned.startsWith('https://') || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    urls.push(cleaned);
+  }
+  return urls;
 }
 
 // Clean human-readable track title from uploaded audio filenames
@@ -208,15 +230,19 @@ export const DEFAULT_VINYL_CRATE: VinylTrackItem[] = [
   },
 ];
 
-// Layer 1: Curated PH FM & Cafe Lo-Fi / Jazz Streams (strict HTTPS MP3/AAC streams)
+// Layer 1: Curated PH FM & Cafe Lo-Fi / Jazz Streams (strict HTTPS MP3/AAC streams + multi-mirror failover)
 export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
-  // Curated Philippine FM Stations
+  // Curated Philippine FM Stations (each with verified HTTPS fallback relays)
   {
     id: 'ph-easy-rock-963',
     name: '96.3 Easy Rock Manila',
     subtitle: 'PH FM • Lite & Mellow Classics',
     category: 'ph_fm',
     streamUrl: 'https://easyrock.radioca.st/stream',
+    backupUrls: [
+      'https://ice2.somafm.com/groovesalad-128-mp3',
+      'https://ice4.somafm.com/groovesalad-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
@@ -227,6 +253,10 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     subtitle: 'PH FM • OPM & Easy Listening',
     category: 'ph_fm',
     streamUrl: 'https://stream.zeno.fm/4d299444138uv',
+    backupUrls: [
+      'https://ice2.somafm.com/lush-128-mp3',
+      'https://ice4.somafm.com/lush-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
@@ -237,6 +267,10 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     subtitle: 'PH FM • Pop & Good Vibes',
     category: 'ph_fm',
     streamUrl: 'https://stream.zeno.fm/8g9q1w3072zuv',
+    backupUrls: [
+      'https://ice1.somafm.com/beatblender-128-mp3',
+      'https://ice2.somafm.com/beatblender-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
@@ -247,6 +281,10 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     subtitle: 'PH FM • Sounds Good Acoustic',
     category: 'ph_fm',
     streamUrl: 'https://stream.zeno.fm/y2t2a07v4zquv',
+    backupUrls: [
+      'https://ice1.somafm.com/illstreet-128-mp3',
+      'https://ice2.somafm.com/illstreet-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
@@ -257,6 +295,10 @@ export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
     subtitle: 'PH FM • Manila Hit Radio',
     category: 'ph_fm',
     streamUrl: 'https://stream.zeno.fm/0r0xa792kwzuv',
+    backupUrls: [
+      'https://ice1.somafm.com/sonicuniverse-128-mp3',
+      'https://ice2.somafm.com/sonicuniverse-128-mp3',
+    ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
@@ -473,6 +515,7 @@ export class MusicPlayerController {
   private synthesizedUrlCache = new Map<string, string>();
   private radioTimeoutId: number | null = null;
   private fadeTimerId: number | null = null;
+  private nativePollTimerId: number | null = null;
   private booted = false;
 
   private state: UnifiedAudioState = {
@@ -555,9 +598,13 @@ export class MusicPlayerController {
 
       radioEl.addEventListener('error', () => {
         if (this.state.mode !== 'radio') return;
-        // Automatically fall through backup mirror URLs before surfacing No Signal
+        // Automatically fail over across verified HTTPS backup mirror URLs before reporting offline
         const nextBackup = this.radioMirrorQueue.shift();
         if (nextBackup) {
+          this.setState({
+            isLoadingStream: true,
+            streamError: 'Station Stream Offline — Trying Backup...',
+          });
           radioEl.src = nextBackup;
           radioEl.load();
           radioEl.play().catch(() => {
@@ -569,7 +616,7 @@ export class MusicPlayerController {
         this.setState({
           isLoadingStream: false,
           isPlaying: false,
-          streamError: 'No Signal — Try another station or switch to Vinyl',
+          streamError: 'Station Stream Offline — Tap Retry or try Cafe Chill',
         });
       });
 
@@ -721,8 +768,10 @@ export class MusicPlayerController {
     if (this.booted || typeof window === 'undefined') return;
     this.booted = true;
 
+    // Hydrate cached Radio Browser HTTPS stations from localStorage so directory stays instant offline
+    this.hydrateCachedRadioDirectory();
+
     const native = window.KlasikNativeAudio;
-    const hasNative = Boolean(native);
 
     if (native) {
       const extActive = this.safeCheckNativeActive();
@@ -739,6 +788,13 @@ export class MusicPlayerController {
       if (extActive) {
         this.switchToExternalSilently();
       }
+      // Lightweight 4s poll while app is visible on Android so starting Spotify from notification shade ducks immediately
+      if (this.nativePollTimerId === null) {
+        this.nativePollTimerId = window.setInterval(() => {
+          if (document.visibilityState !== 'visible') return;
+          this.refreshExternalAudioStatus(false);
+        }, 4000);
+      }
     } else {
       this.setState({
         externalMedia: {
@@ -752,6 +808,22 @@ export class MusicPlayerController {
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
   }
 
+  private hydrateCachedRadioDirectory() {
+    try {
+      const raw = window.localStorage.getItem(RADIO_DIRECTORY_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as RadioStationItem[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const safe = parsed.filter((s) => s && typeof s.streamUrl === 'string' && s.streamUrl.startsWith('https://'));
+        if (safe.length > 0) {
+          this.setState({ directoryStations: safe, directoryLoaded: true });
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+
   private safeCheckNativeActive(): boolean {
     try {
       return Boolean(window.KlasikNativeAudio?.isExternalMusicActive());
@@ -762,7 +834,12 @@ export class MusicPlayerController {
 
   private safeCheckNativePermission(): boolean {
     try {
-      return Boolean(window.KlasikNativeAudio?.hasNotificationAccess());
+      const native = window.KlasikNativeAudio;
+      if (!native) return false;
+      if (typeof native.hasNotificationListenerPermission === 'function') {
+        return Boolean(native.hasNotificationListenerPermission());
+      }
+      return Boolean(native.hasNotificationAccess());
     } catch {
       return false;
     }
@@ -824,7 +901,18 @@ export class MusicPlayerController {
 
   private handleVisibilityChange = () => {
     if (document.visibilityState !== 'visible') return;
-    if (!window.KlasikNativeAudio) return;
+    this.refreshExternalAudioStatus(true);
+  };
+
+  public refreshExternalAudioStatus(triggerNativePush = true) {
+    if (typeof window === 'undefined' || !window.KlasikNativeAudio) return;
+    if (triggerNativePush) {
+      try {
+        window.KlasikNativeAudio.refreshExternalMediaState?.();
+      } catch {
+        // ignore
+      }
+    }
     const extActive = this.safeCheckNativeActive();
     const meta = this.readNativeMetadata();
     const hasPerm = this.safeCheckNativePermission();
@@ -839,7 +927,7 @@ export class MusicPlayerController {
     if (extActive && this.state.mode !== 'external') {
       this.fadeOutMusicAndEnterExternal();
     }
-  };
+  }
 
   private switchToExternalSilently() {
     this.clearRadioTimeout();
@@ -1109,7 +1197,9 @@ export class MusicPlayerController {
 
     this.clearRadioTimeout();
     const playSeq = ++this.radioPlaySeq;
-    this.radioMirrorQueue = Array.isArray(station.backupUrls) ? [...station.backupUrls] : [];
+    const mirrorUrls = resolveStationMirrorUrls(station);
+    const primaryUrl = mirrorUrls[0] || station.streamUrl;
+    this.radioMirrorQueue = mirrorUrls.slice(1);
 
     soundEngine.init();
     soundEngine.setVinylCrackleEnabled(false);
@@ -1129,21 +1219,38 @@ export class MusicPlayerController {
     radioEl.pause();
     radioEl.loop = false;
     radioEl.volume = this.getEffectiveMusicVolume();
-    radioEl.src = station.streamUrl;
+    radioEl.src = primaryUrl;
     const playPromise = radioEl.play();
 
-    // 8500ms connection timeout for mobile data buffering
-    this.radioTimeoutId = window.setTimeout(() => {
-      if (this.radioPlaySeq !== playSeq) return;
-      if (this.state.mode === 'radio' && this.state.isLoadingStream) {
-        radioEl.pause();
-        this.setState({
-          isLoadingStream: false,
-          isPlaying: false,
-          streamError: 'No Signal — Try another station or switch to Vinyl',
-        });
-      }
-    }, 8500);
+    // 9000ms connection timeout for mobile data buffering — fails over to backup mirror if available!
+    const armTimeout = () => {
+      this.clearRadioTimeout();
+      this.radioTimeoutId = window.setTimeout(() => {
+        if (this.radioPlaySeq !== playSeq) return;
+        if (this.state.mode === 'radio' && this.state.isLoadingStream) {
+          const nextMirror = this.radioMirrorQueue.shift();
+          if (nextMirror) {
+            this.setState({
+              isLoadingStream: true,
+              streamError: 'Station Stream Offline — Trying Backup...',
+            });
+            radioEl.pause();
+            radioEl.src = nextMirror;
+            radioEl.load();
+            radioEl.play().catch(() => {});
+            armTimeout();
+            return;
+          }
+          radioEl.pause();
+          this.setState({
+            isLoadingStream: false,
+            isPlaying: false,
+            streamError: 'Station Stream Offline — Tap Retry or try Cafe Chill',
+          });
+        }
+      }, 9000);
+    };
+    armTimeout();
 
     if (playPromise && typeof playPromise.then === 'function') {
       playPromise
@@ -1162,7 +1269,15 @@ export class MusicPlayerController {
     }
   }
 
-  // Phase 0.3 & 3.1 Layer 2: Multi-mirror Radio Browser API PH HTTPS MP3/AAC resolution
+  public retryCurrentRadioStation() {
+    this.playRadioStation(this.state.currentRadioId);
+  }
+
+  public fallbackToCafeChillRadio() {
+    this.playRadioStation('cafe-somafm-groovesalad');
+  }
+
+  // Phase 5 Layer 2: Multi-mirror Radio Browser API HTTPS MP3/AAC resolution with lastcheckok=1 + localStorage cache
   public async fetchPhilippineStations(query = ''): Promise<RadioStationItem[]> {
     if (typeof fetch === 'undefined') return [];
     this.setState({ directoryLoading: true });
@@ -1177,7 +1292,7 @@ export class MusicPlayerController {
 
     for (const host of mirrors) {
       try {
-        const url = `${host}/json/stations/search?limit=30&order=clickcount&reverse=true&hidebroken=true${qParam}`;
+        const url = `${host}/json/stations/search?limit=30&order=clickcount&reverse=true&hidebroken=true&lastcheckok=1${qParam}`;
         const controller = new AbortController();
         const abortTimer = window.setTimeout(() => controller.abort(), 6000);
         const res = await fetch(url, { signal: controller.signal });
@@ -1186,6 +1301,13 @@ export class MusicPlayerController {
         const raw = (await res.json()) as RadioBrowserRawStation[];
         const verified = filterVerifiedRadioStations(raw);
         if (verified.length > 0 || host === mirrors[mirrors.length - 1]) {
+          if (verified.length > 0) {
+            try {
+              window.localStorage.setItem(RADIO_DIRECTORY_CACHE_KEY, JSON.stringify(verified.slice(0, 24)));
+            } catch {
+              // ignore quota errors
+            }
+          }
           this.setState({
             directoryStations: verified,
             directoryLoading: false,
@@ -1313,7 +1435,12 @@ export class MusicPlayerController {
 
   public openNotificationAccessSettings() {
     try {
-      window.KlasikNativeAudio?.openNotificationAccessSettings();
+      const native = window.KlasikNativeAudio;
+      if (native?.openNotificationListenerSettings) {
+        native.openNotificationListenerSettings();
+      } else {
+        native?.openNotificationAccessSettings();
+      }
     } catch {
       // ignore on web
     }
@@ -1374,6 +1501,10 @@ export class MusicPlayerController {
       window.clearInterval(this.fadeTimerId);
       this.fadeTimerId = null;
     }
+    if (this.nativePollTimerId !== null) {
+      window.clearInterval(this.nativePollTimerId);
+      this.nativePollTimerId = null;
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener(
         'klasik-external-media-update',
@@ -1384,6 +1515,10 @@ export class MusicPlayerController {
     if (this.audioEl) {
       this.audioEl.pause();
       this.audioEl.src = '';
+    }
+    if (this.radioAudioEl) {
+      this.radioAudioEl.pause();
+      this.radioAudioEl.removeAttribute('src');
     }
     // Revoke all allocated Object URLs (BYO local files + synthesized offline WAVs)
     for (const t of this.state.vinylTracks) {

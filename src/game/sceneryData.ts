@@ -152,7 +152,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.japanese_tranquility,
     badgeText: 'Sakura & Fireflies',
     accentHex: '#f472b6',
-    hasScenicOverlook: true,
+    hasScenicOverlook: false,
   },
   {
     id: 'brazilian_favela',
@@ -167,7 +167,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.brazilian_favela,
     badgeText: 'Rio View',
     accentHex: '#facc15',
-    hasScenicOverlook: true,
+    hasScenicOverlook: false,
   },
   {
     id: 'cyberpunk_neon',
@@ -182,7 +182,7 @@ export const SCENERY_CATALOG: readonly ScenerySpec[] = [
     weatherRule: SCENERY_WEATHER_RULES.cyberpunk_neon,
     badgeText: 'Neon Rain',
     accentHex: '#06b6d4',
-    hasScenicOverlook: true,
+    hasScenicOverlook: false,
   },
   {
     id: 'eiffel_tower',

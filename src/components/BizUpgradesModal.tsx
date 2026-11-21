@@ -152,22 +152,22 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm p-2.5 sm:p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-2.5 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="upgrades-modal-title"
     >
       <div className="w-full max-w-3xl glass-modal rounded-2xl p-3.5 sm:p-5 space-y-3 max-h-[86vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-amber-400/20 pb-2.5 shrink-0 gap-2">
+        <div className="flex items-center justify-between border-b border-white/12 pb-2.5 shrink-0 gap-2">
           <div>
             <h2
               id="upgrades-modal-title"
-              className="text-sm sm:text-base font-bold font-display text-[#FAF5EE] glass-text-crisp"
+              className="text-sm sm:text-base font-bold font-display text-white glass-text-crisp"
             >
               Cafe Upgrades, Golden 50K Skins &amp; Login Unlockables
             </h2>
-            <p className="text-[11px] text-[#E7D7C1]/85">
+            <p className="text-[11px] text-[#A1A1AA]">
               Gross Income: ${Math.round(lifetimeGrossIncome).toLocaleString()} / $
               {GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()}
               {isGoldenEquipped ? ' · 2x GOLDEN SALE INCOME ACTIVE!' : ''}
@@ -180,7 +180,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg glass-btn-inner text-xs font-semibold text-[#FAF5EE] cursor-pointer flex items-center gap-1"
+              className="px-3 py-1.5 rounded-lg glass-btn-inner text-xs font-semibold text-white cursor-pointer flex items-center gap-1"
             >
               <X className="w-3.5 h-3.5" strokeWidth={2.2} />
               <span>Close</span>
@@ -224,10 +224,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 type="button"
                 data-testid={`tab-upgrades-${t.id}`}
                 onClick={() => setActiveTab(t.id)}
-                className={`px-2 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-all flex items-center gap-1 ${
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-transform flex items-center gap-1 ${
                   activeTab === t.id
-                    ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 text-[#160E09] font-bold shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
-                    : 'glass-btn-inner text-[#E7D7C1]'
+                    ? 'hud-platinum-pill font-bold'
+                    : 'glass-btn-inner text-[#D4D4D8]'
                 }`}
               >
                 <Icon className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -245,18 +245,18 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               return (
                 <div
                   key={upg.id}
-                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-white/[0.06] border border-amber-400/20"
+                  className="flex flex-col justify-between gap-2 p-3 rounded-xl bg-[#18181B]/80 border border-white/10"
                 >
                   <div className="space-y-1">
                     <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp leading-tight">
+                      <span className="text-xs font-bold text-white glass-text-crisp leading-tight">
                         {upg.name}
                       </span>
-                      <span className="text-[10px] font-mono text-amber-300 shrink-0">
+                      <span className="text-[10px] font-mono text-[#E4E4E7] bg-white/[0.07] border border-white/12 px-1.5 py-0.5 rounded shrink-0">
                         {upg.effectLabel}
                       </span>
                     </div>
-                    <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">{upg.description}</p>
+                    <p className="text-[11px] text-[#A1A1AA] leading-snug">{upg.description}</p>
                   </div>
 
                   <button
@@ -267,8 +267,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       upg.purchased
                         ? 'bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 cursor-default'
                         : canAfford
-                        ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
-                        : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                        ? 'hud-platinum-pill cursor-pointer'
+                        : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                     }`}
                   >
                     {upg.purchased ? (
@@ -289,10 +289,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
         {/* Tab 1.5: 9 Outdoor Sceneries with Single-Context 3D Mini-Dioramas */}
         {activeTab === 'sceneries' && (
           <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="sceneries-shop-panel">
-            <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[11px] text-[#FAF5EE]">
-                <span className="font-bold text-amber-300">9 Living 3D Outdoor Views</span>
-                <span className="text-[#E7D7C1]/85 ml-1.5">
+            <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/12 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] text-white">
+                <span className="font-bold text-white">9 Living 3D Outdoor Views</span>
+                <span className="text-[#A1A1AA] ml-1.5">
                   · Preserves delivery driveway &amp; unlocks scenic weather + regional patron outfits.
                 </span>
               </div>
@@ -304,9 +304,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     onClose();
                     onOpenGoOutside();
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-sky-500/25 hover:bg-sky-500/35 border border-sky-400/60 text-sky-100 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg hud-platinum-pill text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                 >
-                  <DoorOpen className="w-3 h-3 text-sky-300 shrink-0" strokeWidth={2.3} />
+                  <DoorOpen className="w-3 h-3 shrink-0" strokeWidth={2.3} />
                   <span>Step Outside Now</span>
                 </button>
               )}
@@ -335,10 +335,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     data-testid={`scenery-card-${scenery.id}`}
                     className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                       isEquipped
-                        ? 'bg-amber-500/15 border-amber-400/80 shadow-[0_0_16px_rgba(245,158,11,0.2)]'
+                        ? 'bg-white/[0.09] border-white/50 shadow-[0_0_18px_rgba(255,255,255,0.1)]'
                         : isMilestone
-                        ? 'bg-sky-950/30 border-sky-400/35'
-                        : 'bg-white/[0.06] border-amber-400/20'
+                        ? 'bg-[#18181B]/90 border-white/22'
+                        : 'bg-[#18181B]/75 border-white/10'
                     }`}
                   >
                     <div className="flex items-start gap-2.5">
@@ -355,25 +355,25 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       />
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex items-center justify-between gap-1">
-                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                          <span className="text-xs font-bold text-white glass-text-crisp truncate">
                             {scenery.name}
                           </span>
                           {alwaysWinter ? (
-                            <span className="px-1.5 py-0.5 rounded bg-sky-500/25 border border-sky-300/60 text-[9px] font-mono font-bold text-sky-200 inline-flex items-center gap-0.5 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/18 border border-sky-300/45 text-[9px] font-mono font-bold text-[#BAE6FD] inline-flex items-center gap-0.5 shrink-0">
                               <CloudSnow className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
                               <span>Always Winter</span>
                             </span>
                           ) : snowEnabled ? (
-                            <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 border border-cyan-300/50 text-[9px] font-mono font-bold text-cyan-200 inline-flex items-center gap-0.5 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-300/40 text-[9px] font-mono font-bold text-[#BAE6FD] inline-flex items-center gap-0.5 shrink-0">
                               <CloudSnow className="w-2.5 h-2.5 shrink-0" strokeWidth={2.2} />
                               <span>Snow</span>
                             </span>
                           ) : null}
                         </div>
-                        <div className="text-[10px] font-mono text-amber-300/90 truncate">
+                        <div className="text-[10px] font-mono text-[#D4D4D8] truncate">
                           {scenery.subtitle} · {scenery.badgeText}
                         </div>
-                        <p className="text-[10px] text-[#E7D7C1]/85 leading-snug line-clamp-2">
+                        <p className="text-[10px] text-[#A1A1AA] leading-snug line-clamp-2">
                           {scenery.description}
                         </p>
                       </div>
@@ -381,9 +381,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
                     {!isUnlocked && isMilestone && (
                       <div className="space-y-0.5">
-                        <div className="flex items-center justify-between text-[10px] font-mono text-sky-200">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-[#D4D4D8]">
                           <span className="inline-flex items-center gap-1">
-                            <Trophy className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+                            <Trophy className="w-3 h-3 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
                             <span>Gross Milestone</span>
                           </span>
                           <span>
@@ -391,9 +391,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                             {milestoneReq.toLocaleString()}
                           </span>
                         </div>
-                        <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-sky-400/35">
+                        <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden border border-white/12">
                           <div
-                            className="h-full bg-gradient-to-r from-sky-400 to-amber-300"
+                            className="h-full hud-platinum-bar"
                             style={{ width: `${milestonePct}%` }}
                           />
                         </div>
@@ -409,8 +409,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         isEquipped
                           ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
                           : isUnlocked || canBuyCash
-                          ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
-                          : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                          ? 'hud-platinum-pill cursor-pointer'
+                          : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                       }`}
                     >
                       {isEquipped ? (
@@ -441,16 +441,16 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
         {/* Tab 1.6: 6 Weather-Reactive Cultural Patron Outfits with Single-Context 3D Previews */}
         {activeTab === 'patron_outfits' && (
           <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="patron-outfits-panel">
-            <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+            <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/12 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   data-testid="btn-outfit-mode-auto"
                   onClick={() => onSetPatronOutfitAutoMatch(true)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-transform ${
                     patronOutfitAutoMatch
-                      ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-[#160E09] shadow'
-                      : 'glass-btn-inner text-[#E7D7C1]'
+                      ? 'hud-platinum-pill'
+                      : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
                   Auto-Match Scenery
@@ -459,10 +459,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   type="button"
                   data-testid="btn-outfit-mode-custom"
                   onClick={() => onSetPatronOutfitAutoMatch(false)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-transform ${
                     !patronOutfitAutoMatch
-                      ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-[#160E09] shadow'
-                      : 'glass-btn-inner text-[#E7D7C1]'
+                      ? 'hud-platinum-pill'
+                      : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
                   Custom Mix
@@ -470,14 +470,14 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               </div>
 
               <div className="flex items-center gap-1 text-[10px] font-mono">
-                <span className="text-[#E7D7C1]/80">Preview:</span>
+                <span className="text-[#A1A1AA]">Preview:</span>
                 <button
                   type="button"
                   onClick={() => setOutfitPreviewClimate('summer')}
                   className={`px-2 py-0.5 rounded-md border flex items-center gap-1 cursor-pointer ${
                     outfitPreviewClimate === 'summer'
-                      ? 'bg-amber-500/25 border-amber-400 text-amber-200 font-bold'
-                      : 'bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                      ? 'hud-platinum-pill font-bold'
+                      : 'bg-[#09090B]/60 border-white/14 text-[#A1A1AA]'
                   }`}
                 >
                   <Sun className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -488,8 +488,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   onClick={() => setOutfitPreviewClimate('winter')}
                   className={`px-2 py-0.5 rounded-md border flex items-center gap-1 cursor-pointer ${
                     outfitPreviewClimate === 'winter'
-                      ? 'bg-sky-500/25 border-sky-400 text-sky-200 font-bold'
-                      : 'bg-black/30 border-white/15 text-[#E7D7C1]/70'
+                      ? 'bg-sky-500/22 border-sky-300/60 text-[#BAE6FD] font-bold'
+                      : 'bg-[#09090B]/60 border-white/14 text-[#A1A1AA]'
                   }`}
                 >
                   <CloudSnow className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -517,8 +517,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     data-testid={`patron-outfit-card-${outfit.id}`}
                     className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                       isUnlocked && (patronOutfitAutoMatch || isCustomEnabled)
-                        ? 'bg-amber-500/15 border-amber-400/75'
-                        : 'bg-white/[0.06] border-amber-400/20'
+                        ? 'bg-white/[0.08] border-white/40'
+                        : 'bg-[#18181B]/75 border-white/10'
                     }`}
                   >
                     <div className="flex items-start gap-2.5">
@@ -535,20 +535,20 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       />
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex items-center justify-between gap-1">
-                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                          <span className="text-xs font-bold text-white glass-text-crisp truncate">
                             {outfit.name}
                           </span>
                           {isWinterOnly ? (
-                            <span className="px-1.5 py-0.5 rounded bg-sky-500/25 border border-sky-300/60 text-[9px] font-mono font-bold text-sky-200 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded bg-sky-500/18 border border-sky-300/45 text-[9px] font-mono font-bold text-[#BAE6FD] shrink-0">
                               Winter Only
                             </span>
                           ) : isWeatherReactive ? (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-[9px] font-mono font-bold text-amber-200 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded bg-white/[0.09] border border-white/25 text-[9px] font-mono font-bold text-[#E4E4E7] shrink-0">
                               2-Season
                             </span>
                           ) : null}
                         </div>
-                        <p className="text-[10px] text-[#E7D7C1]/85 leading-snug">
+                        <p className="text-[10px] text-[#A1A1AA] leading-snug">
                           {outfit.description}
                         </p>
                       </div>
@@ -568,7 +568,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                           className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                             isCustomEnabled
                               ? 'bg-emerald-950/75 border border-emerald-400/60 text-emerald-200'
-                              : 'glass-btn-inner text-[#E7D7C1]'
+                              : 'glass-btn-inner text-[#D4D4D8]'
                           }`}
                         >
                           {isCustomEnabled ? (
@@ -589,8 +589,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         onClick={() => onPurchasePatronOutfit(outfit.id)}
                         className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
                           canAfford
-                            ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
-                            : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                            ? 'hud-platinum-pill cursor-pointer'
+                            : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                         }`}
                       >
                         <span>Unlock Pack · ${outfit.cost.toLocaleString()}</span>
@@ -607,32 +607,32 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
         {activeTab === 'equipment_skins' && (
           <div className="space-y-3 overflow-y-auto pr-1">
             {/* Hero Golden Espresso Machine Milestone Banner */}
-            <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/75 via-amber-900/35 to-amber-950/75 border-2 border-amber-400/70 space-y-2">
+            <div className="p-3.5 rounded-xl bg-gradient-to-r from-[#18181B] via-[#27272A]/80 to-[#18181B] border border-white/30 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-[#E4E4E7] flex items-center gap-1">
                     <Trophy className="w-3 h-3 shrink-0" strokeWidth={2.2} />
                     <span>PRESTIGE MILESTONE REWARD · 2X SALE INCOME MULTIPLIER</span>
                   </span>
-                  <h3 className="text-sm font-bold text-[#FAF5EE] glass-text-crisp">
+                  <h3 className="text-sm font-bold text-white glass-text-crisp">
                     Golden Espresso Machine (24K Solid Gold Dual-Boiler)
                   </h3>
                 </div>
-                <span className="text-xs font-mono font-bold text-amber-300 bg-black/45 px-2.5 py-1 rounded-lg border border-amber-400/40">
+                <span className="text-xs font-mono font-bold text-white bg-[#09090B]/70 px-2.5 py-1 rounded-lg border border-white/20">
                   ${Math.round(lifetimeGrossIncome).toLocaleString()} / $
                   {GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()} Gross
                 </span>
               </div>
 
-              <div className="w-full h-2.5 rounded-full bg-black/45 overflow-hidden border border-amber-400/30">
+              <div className="w-full h-2.5 rounded-full bg-[#09090B]/80 overflow-hidden border border-white/15">
                 <div
-                  className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all"
+                  className="h-full hud-platinum-bar transition-all"
                   style={{ width: `${grossPct}%` }}
                 />
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <span className="text-[11px] text-[#E7D7C1]/95">
+                <span className="text-[11px] text-[#D4D4D8]">
                   Earned by reaching ${GOLDEN_MACHINE_GROSS_THRESHOLD.toLocaleString()} gross
                   income. Doubles (2x) all drink sale income &amp; table tips once equipped!
                 </span>
@@ -640,9 +640,9 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   {!isGoldenUnlocked ? (
                     <span
                       data-testid="golden-machine-locked-badge"
-                      className="px-3 py-1.5 rounded-lg bg-black/45 border border-amber-400/35 text-[#E7D7C1]/75 font-mono font-bold text-xs inline-flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-lg bg-[#09090B]/75 border border-white/18 text-[#A1A1AA] font-mono font-bold text-xs inline-flex items-center gap-1.5"
                     >
-                      <Lock className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+                      <Lock className="w-3.5 h-3.5 text-[#D4D4D8] shrink-0" strokeWidth={2.2} />
                       <span>
                         Locked · Grind ${remainingGrossForGold.toLocaleString()} More ({grossPct}%)
                       </span>
@@ -656,7 +656,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                           isGoldenEquipped ? 'classic-steel' : 'golden-espresso-machine'
                         )
                       }
-                      className="px-3 py-1.5 rounded-lg bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] font-bold text-xs cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)] flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-lg hud-platinum-pill font-bold text-xs cursor-pointer flex items-center gap-1.5"
                     >
                       <Trophy className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                       <span>
@@ -687,8 +687,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     key={skin.id}
                     className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                       isEquipped
-                        ? 'bg-amber-500/15 border-amber-400/75'
-                        : 'bg-white/[0.06] border-amber-400/20'
+                        ? 'bg-white/[0.09] border-white/45'
+                        : 'bg-[#18181B]/75 border-white/10'
                     }`}
                   >
                     <div className="space-y-1">
@@ -698,15 +698,15 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                             className="w-3 h-3 rounded-full shrink-0 border border-white/30"
                             style={{ backgroundColor: skin.previewColorHex }}
                           />
-                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                          <span className="text-xs font-bold text-white glass-text-crisp truncate">
                             {skin.name}
                           </span>
                         </div>
-                        <span className="text-[10px] font-mono uppercase text-amber-300 shrink-0">
+                        <span className="text-[10px] font-mono uppercase text-[#A1A1AA] shrink-0">
                           {skin.slot}
                         </span>
                       </div>
-                      <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">
+                      <p className="text-[11px] text-[#A1A1AA] leading-snug">
                         {skin.description}
                       </p>
                     </div>
@@ -719,8 +719,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         isEquipped
                           ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
                           : canAfford
-                          ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
-                          : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                          ? 'hud-platinum-pill cursor-pointer'
+                          : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                       }`}
                     >
                       {isEquipped ? (
@@ -757,13 +757,13 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   key={pack.id}
                   className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                     isEquipped
-                      ? 'bg-amber-500/15 border-amber-400/75'
-                      : 'bg-white/[0.06] border-amber-400/20'
+                      ? 'bg-white/[0.09] border-white/45'
+                      : 'bg-[#18181B]/75 border-white/10'
                   }`}
                 >
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-1.5">
-                      <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp">
+                      <span className="text-xs font-bold text-white glass-text-crisp">
                         {pack.name}
                       </span>
                       <div className="flex items-center gap-1">
@@ -776,7 +776,7 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         ))}
                       </div>
                     </div>
-                    <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">{pack.description}</p>
+                    <p className="text-[11px] text-[#A1A1AA] leading-snug">{pack.description}</p>
                   </div>
 
                   <button
@@ -787,8 +787,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       isEquipped
                         ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
                         : canAfford
-                        ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
-                        : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                        ? 'hud-platinum-pill cursor-pointer'
+                        : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                     }`}
                   >
                     {isEquipped ? (
@@ -845,12 +845,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                 data-testid={`cat-card-${cat.id}`}
                 className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
                   isEquipped
-                    ? 'bg-amber-500/15 border-amber-400/80 shadow-[0_0_16px_rgba(245,158,11,0.18)]'
-                    : cat.id === 'lilo'
-                    ? 'bg-sky-950/35 border-sky-400/45'
-                    : cat.id === 'mikmik'
-                    ? 'bg-amber-950/35 border-amber-400/45'
-                    : 'bg-white/[0.06] border-amber-400/20'
+                    ? 'bg-white/[0.09] border-white/50 shadow-[0_0_16px_rgba(255,255,255,0.1)]'
+                    : cat.id === 'lilo' || cat.id === 'mikmik'
+                    ? 'bg-[#18181B]/90 border-white/24'
+                    : 'bg-[#18181B]/75 border-white/10'
                 }`}
               >
                 <div className="space-y-1.5">
@@ -865,10 +863,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp truncate">
+                          <span className="text-xs font-bold text-white glass-text-crisp truncate">
                             {cat.name}
                           </span>
-                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-black/40 border border-white/15 text-[#E7D7C1]/90 shrink-0">
+                          <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-[#09090B]/70 border border-white/15 text-[#D4D4D8] shrink-0">
                             {cat.sizeSummary}
                           </span>
                         </div>
@@ -891,21 +889,21 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         </div>
                       </div>
 
-                      <p className="text-[10px] text-[#E7D7C1]/90 leading-snug">
+                      <p className="text-[10px] text-[#A1A1AA] leading-snug">
                         {cat.coatSummary} · {cat.eyesSummary} · {cat.collarSummary}
                       </p>
                     </div>
                   </div>
 
                   {cat.id === 'mikmik' && (
-                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/60 text-[10px] font-mono font-bold text-amber-200">
-                      <Flame className="w-3 h-3 shrink-0" strokeWidth={2.3} />
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.08] border border-white/25 text-[10px] font-mono font-bold text-white">
+                      <Flame className="w-3 h-3 shrink-0 text-[#E4E4E7]" strokeWidth={2.3} />
                       <span>+30% Drink Revenue · +30% Mood Drain</span>
                     </div>
                   )}
 
                   {cat.id === 'lilo' && (
-                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/25 border border-sky-400/65 text-[10px] font-mono font-bold text-sky-200">
+                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-400/45 text-[10px] font-mono font-bold text-emerald-300">
                       <InfinityIcon className="w-3 h-3 shrink-0" strokeWidth={2.4} />
                       <span>Pure Peace: Disables Customer Mood Meter</span>
                     </div>
@@ -913,15 +911,15 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
                   {!isUnlocked && cat.unlockType === 'revenue' && (
                     <div className="space-y-0.5 pt-0.5">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-[#E7D7C1]/85">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#A1A1AA]">
                         <span>Revenue Unlock</span>
                         <span>
                           ${Math.round(lifetimeGrossIncome).toLocaleString()} / ${revReq.toLocaleString()}
                         </span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-amber-400/25">
+                      <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden border border-white/12">
                         <div
-                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-400"
+                          className="h-full hud-platinum-bar"
                           style={{ width: `${revPct}%` }}
                         />
                       </div>
@@ -930,15 +928,15 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
                   {!isUnlocked && cat.unlockType === 'master' && (
                     <div className="space-y-0.5 pt-0.5">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-sky-200">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#D4D4D8]">
                         <span>Master Unlock</span>
                         <span>
                           {liloOwnedPrereqs} / {LILO_REQUIRED_CAT_IDS.length} Cats Unlocked
                         </span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-black/45 overflow-hidden border border-sky-400/35">
+                      <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden border border-white/12">
                         <div
-                          className="h-full bg-gradient-to-r from-sky-400 to-cyan-300"
+                          className="h-full hud-platinum-bar"
                           style={{ width: `${liloPct}%` }}
                         />
                       </div>
@@ -955,8 +953,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     isEquipped
                       ? 'bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 cursor-default'
                       : isUnlocked || isShopBuyable
-                      ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.45)]'
-                      : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                      ? 'hud-platinum-pill cursor-pointer'
+                      : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                   }`}
                 >
                   {isEquipped ? (
@@ -988,17 +986,17 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
           return (
             <div className="space-y-3 overflow-y-auto pr-1" data-testid="cafe-cats-panel">
-              <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+              <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/12 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
-                  <div className="text-[11px] text-[#FAF5EE]">
+                  <Sparkles className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
+                  <div className="text-[11px] text-white">
                     <span className="font-bold">Active Counter Cat: {activeCatSpec.name}</span>
                     {activeCatSpec.passiveTitle ? (
-                      <span className="text-amber-300 ml-1.5">
+                      <span className="text-[#D4D4D8] ml-1.5">
                         · {activeCatSpec.passiveTitle}: {activeCatSpec.passiveDescription}
                       </span>
                     ) : (
-                      <span className="text-[#E7D7C1]/80 ml-1.5">· Tap on counter cushion to pet!</span>
+                      <span className="text-[#A1A1AA] ml-1.5">· Tap on counter cushion to pet!</span>
                     )}
                   </div>
                 </div>
@@ -1011,20 +1009,20 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                         onClose();
                         onOpenCatStation();
                       }}
-                      className="px-2.5 py-1 rounded-lg bg-[#f5a623] hover:brightness-105 text-[#090705] text-[10px] font-bold flex items-center gap-1 cursor-pointer shadow"
+                      className="px-2.5 py-1 rounded-lg hud-platinum-pill text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <Cat className="w-3 h-3 shrink-0" strokeWidth={2.4} />
                       <span>Visit Cat Station &amp; Wardrobe</span>
                     </button>
                   )}
-                  <span className="text-[10px] font-mono text-sky-200 bg-sky-950/60 border border-sky-400/35 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-mono text-[#D4D4D8] bg-[#09090B]/70 border border-white/15 px-2 py-0.5 rounded-md">
                     Lilo Mastery: {liloOwnedPrereqs} / {LILO_REQUIRED_CAT_IDS.length}
                   </span>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <h3 className="text-[11px] font-mono uppercase tracking-wider text-amber-300 font-bold">
+                <h3 className="text-[11px] font-mono uppercase tracking-wider text-[#E4E4E7] font-bold">
                   Cat Adoption Shop &amp; Starter
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1065,14 +1063,14 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
           return (
             <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="daily-login-panel">
-              <div className="p-2.5 rounded-xl bg-white/[0.06] border border-amber-400/25 flex flex-wrap items-center justify-between gap-2">
+              <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/12 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Gift className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
-                  <div className="text-[11px] text-[#FAF5EE]">
+                  <Gift className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
+                  <div className="text-[11px] text-white">
                     <span className="font-bold">
                       24h Daily Owner Login · Streak Day {curLogin?.streakDay ?? 1} / 7
                     </span>
-                    <span className="text-[#E7D7C1]/85 ml-1.5">
+                    <span className="text-[#A1A1AA] ml-1.5">
                       · Strictly 1 claim per real calendar day
                     </span>
                   </div>
@@ -1081,8 +1079,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                   data-testid="daily-login-countdown"
                   className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
                     canClaimToday
-                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-200'
-                      : 'bg-amber-950/60 border-amber-400/35 text-amber-200'
+                      ? 'bg-emerald-950/60 border-emerald-400/50 text-emerald-300'
+                      : 'bg-[#09090B]/70 border-white/16 text-[#D4D4D8]'
                   }`}
                 >
                   <Clock className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -1101,20 +1099,20 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                       key={item.id}
                       className={`flex flex-col justify-between gap-2 p-3 rounded-xl border transition-all ${
                         isTodayClaimable
-                          ? 'bg-amber-500/15 border-amber-400/70 shadow-[0_0_16px_rgba(245,158,11,0.22)]'
-                          : 'bg-white/[0.06] border-amber-400/20'
+                          ? 'bg-white/[0.09] border-white/45 shadow-[0_0_16px_rgba(255,255,255,0.1)]'
+                          : 'bg-[#18181B]/75 border-white/10'
                       }`}
                     >
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between gap-1">
-                          <span className="text-xs font-bold text-[#FAF5EE] glass-text-crisp">
+                          <span className="text-xs font-bold text-white glass-text-crisp">
                             {item.title}
                           </span>
                           <span className="text-[10px] font-mono text-emerald-300 shrink-0 font-bold">
                             {item.rewardLabel}
                           </span>
                         </div>
-                        <p className="text-[11px] text-[#E7D7C1]/85 leading-snug">
+                        <p className="text-[11px] text-[#A1A1AA] leading-snug">
                           {item.description}
                         </p>
                       </div>
@@ -1128,8 +1126,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                           isAlreadyClaimed
                             ? 'bg-emerald-950/60 border border-emerald-400/40 text-emerald-300 cursor-default'
                             : isTodayClaimable
-                            ? 'bg-gradient-to-b from-amber-400 via-amber-500 to-orange-500 hover:from-amber-300 hover:to-amber-500 text-[#160E09] cursor-pointer shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)]'
-                            : 'bg-black/30 border border-amber-400/15 text-[#E7D7C1]/45 cursor-not-allowed'
+                            ? 'hud-platinum-pill cursor-pointer'
+                            : 'bg-[#09090B]/60 border border-white/10 text-[#71717A] cursor-not-allowed'
                         }`}
                       >
                         {isAlreadyClaimed ? (

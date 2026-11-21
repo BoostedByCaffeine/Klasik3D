@@ -33,12 +33,12 @@ export class ThumbnailStudio {
     this.camera.position.set(2.1, 1.65, 2.35);
     this.camera.lookAt(0, 0, 0);
 
-    // Warm cozy studio 3-point lighting (key + hemisphere + cool rim)
-    this.scene.add(new THREE.HemisphereLight(0xffe8cc, 0x261a14, 1.25));
-    const keyLight = new THREE.DirectionalLight(0xffd7a3, 1.45);
+    // Clean neutral-white + cool silver rim 3-point studio lighting for monochrome obsidian cards
+    this.scene.add(new THREE.HemisphereLight(0xf8fafc, 0x18181b, 1.28));
+    const keyLight = new THREE.DirectionalLight(0xf8fafc, 1.42);
     keyLight.position.set(3, 5, 4);
     this.scene.add(keyLight);
-    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.55);
+    const rimLight = new THREE.DirectionalLight(0xcbd5e1, 0.62);
     rimLight.position.set(-3.5, 2.5, -3);
     this.scene.add(rimLight);
 
@@ -100,7 +100,7 @@ export class ThumbnailStudio {
 
     this.renderer.shadowMap.enabled = false;
     this.renderer.setRenderTarget(this.renderTarget);
-    this.renderer.setClearColor(0x090705, 0);
+    this.renderer.setClearColor(0x09090b, 0);
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
     this.renderer.readRenderTargetPixels(

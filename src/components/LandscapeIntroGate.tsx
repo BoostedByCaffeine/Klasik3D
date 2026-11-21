@@ -65,22 +65,22 @@ export const LandscapeIntroGate: React.FC<LandscapeIntroGateProps> = ({ onComple
           >
             <path
               d="M 28 42 A 38 38 0 0 1 78 24"
-              stroke="#E59A3C"
-              strokeOpacity="0.6"
+              stroke="#CBD5E1"
+              strokeOpacity="0.65"
               strokeWidth="2.4"
               strokeLinecap="round"
               strokeDasharray="4 4"
             />
             <path
               d="M 22 36 L 28 44 L 36 39"
-              stroke="#E59A3C"
+              stroke="#E4E4E7"
               strokeWidth="2.4"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
           </svg>
 
-          {/* Animated minimalist warm-brass phone outline rotating 0deg -> -90deg */}
+          {/* Animated minimalist brushed-platinum phone outline rotating 0deg -> -90deg */}
           <svg
             viewBox="0 0 64 96"
             fill="none"
@@ -93,16 +93,16 @@ export const LandscapeIntroGate: React.FC<LandscapeIntroGateProps> = ({ onComple
               width="48"
               height="84"
               rx="10"
-              stroke="#E59A3C"
+              stroke="#E4E4E7"
               strokeWidth="3.2"
-              fill="#140F0A"
+              fill="#18181B"
             />
             <line
               x1="24"
               y1="14"
               x2="40"
               y2="14"
-              stroke="#C8924A"
+              stroke="#A1A1AA"
               strokeWidth="2.4"
               strokeLinecap="round"
             />
@@ -112,11 +112,11 @@ export const LandscapeIntroGate: React.FC<LandscapeIntroGateProps> = ({ onComple
               width="36"
               height="54"
               rx="3"
-              stroke="#E59A3C"
-              strokeOpacity="0.35"
+              stroke="#E4E4E7"
+              strokeOpacity="0.32"
               strokeWidth="1.5"
             />
-            <circle cx="32" cy="82" r="2.8" fill="#E59A3C" />
+            <circle cx="32" cy="82" r="2.8" fill="#E4E4E7" />
           </svg>
         </div>
 

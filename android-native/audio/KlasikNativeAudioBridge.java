@@ -66,6 +66,11 @@ public class KlasikNativeAudioBridge {
     }
 
     @JavascriptInterface
+    public boolean hasNotificationListenerPermission() {
+        return hasNotificationAccess();
+    }
+
+    @JavascriptInterface
     public void openNotificationAccessSettings() {
         try {
             Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
@@ -79,6 +84,16 @@ public class KlasikNativeAudioBridge {
     @JavascriptInterface
     public void openNotificationPermission() {
         openNotificationAccessSettings();
+    }
+
+    @JavascriptInterface
+    public void openNotificationListenerSettings() {
+        openNotificationAccessSettings();
+    }
+
+    @JavascriptInterface
+    public void refreshExternalMediaState() {
+        pushMetadataToWebView();
     }
 
     @JavascriptInterface
@@ -157,7 +172,7 @@ public class KlasikNativeAudioBridge {
         PlaybackState state = controller != null ? controller.getPlaybackState() : null;
         boolean playing =
             (state != null && state.getState() == PlaybackState.STATE_PLAYING)
-                || (!hasPerm && isExternalMusicActive());
+                || isExternalMusicActive();
 
         String rawTitle = meta != null ? meta.getString(MediaMetadata.METADATA_KEY_TITLE) : null;
         String rawArtist = meta != null ? meta.getString(MediaMetadata.METADATA_KEY_ARTIST) : null;
@@ -165,11 +180,11 @@ public class KlasikNativeAudioBridge {
         String title =
             (rawTitle != null && !rawTitle.trim().isEmpty())
                 ? rawTitle.trim()
-                : (playing ? "EXTERNAL AUDIO ACTIVE" : "External Audio Standby");
+                : (playing ? "External Audio Detected (Active)" : "External Audio Standby");
         String artist =
             (rawArtist != null && !rawArtist.trim().isEmpty())
                 ? rawArtist.trim()
-                : (!hasPerm && playing ? "Tap Enable Song Title Display" : "");
+                : (!hasPerm && playing ? "Tap Enable Now-Playing Detection" : "");
         String sourceApp =
             controller != null ? mapPackageName(controller.getPackageName()) : "External App";
 
@@ -197,10 +212,13 @@ public class KlasikNativeAudioBridge {
         if (lower.contains("youtube.music") || lower.contains("apps.youtube.music")) {
             return "YouTube Music";
         }
+        if (lower.contains("youtube")) return "YouTube";
         if (lower.contains("apple.android.music")) return "Apple Music";
         if (lower.contains("soundcloud")) return "SoundCloud";
         if (lower.contains("deezer")) return "Deezer";
         if (lower.contains("tidal")) return "TIDAL";
+        if (lower.contains("amazon.mp3")) return "Amazon Music";
+        if (lower.contains("pandora")) return "Pandora";
         return "External App";
     }
 }

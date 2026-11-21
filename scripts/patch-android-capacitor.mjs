@@ -40,6 +40,12 @@ function patchManifest() {
       '$1\n            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"$2'
     );
   }
+  if (!xml.includes('android.permission.INTERNET')) {
+    xml = xml.replace(
+      '</manifest>',
+      '    <uses-permission android:name="android.permission.INTERNET" />\n</manifest>'
+    );
+  }
   if (!xml.includes('android.permission.VIBRATE')) {
     xml = xml.replace(
       '</manifest>',
@@ -161,8 +167,9 @@ public class MainActivity extends BridgeActivity {
         if (getBridge() == null || getBridge().getWebView() == null) return;
         WebView webView = getBridge().getWebView();
         WebSettings settings = webView.getSettings();
-        // Allow smooth Web Audio SFX & background music playback without stealing exclusive AUDIOFOCUS_GAIN
+        // Allow smooth Web Audio SFX, live internet radio streams & background music playback
         settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
 
         if (nativeAudioBridge == null) {
@@ -184,7 +191,7 @@ public class MainActivity extends BridgeActivity {
         applyImmersiveFullscreen();
         attachExternalAudioBridge();
         if (nativeAudioBridge != null) {
-            nativeAudioBridge.pushMetadataToWebView();
+            nativeAudioBridge.refreshExternalMediaState();
         }
     }
 

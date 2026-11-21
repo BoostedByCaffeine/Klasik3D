@@ -43,9 +43,15 @@ export function disposeObject3D(obj: THREE.Object3D): void {
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of mats) {
         if (!mat) continue;
-        const m = mat as THREE.MeshStandardMaterial & { map?: THREE.Texture | null };
+        const m = mat as THREE.MeshStandardMaterial & {
+          map?: THREE.Texture | null;
+          emissiveMap?: THREE.Texture | null;
+        };
         if (m.map && m.map.userData?.ownedByScenery) {
           m.map.dispose();
+        }
+        if (m.emissiveMap && m.emissiveMap.userData?.ownedByScenery) {
+          m.emissiveMap.dispose();
         }
         mat.dispose();
       }

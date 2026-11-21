@@ -270,8 +270,10 @@ function buildClothVestMesh(
   dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS
 ): THREE.Group {
   const g = new THREE.Group();
-  // Note: catRoot already carries spec.scale, so we NEVER double-scale by profile.torsoScale!
-  // Instead, every vertex is computed directly from the cat's actual torso + chest ellipsoids + positive clearance.
+  // Phase 1.2: Chest-Only Fit — cropped upper-chest & upper-shoulders cafe bib/tank
+  // spanning ONLY the upper ~42% of torso height (stopping cleanly ABOVE the front leg
+  // joints & belly) with zero dark side armhole rings, eliminating all leg/belly clipping
+  // across every cat size (Gigi, Lilo, Tisay, Champy, Amby, Mikmik, Chunky).
   const tex = getKnitClothTexture(hexColor, [profile.torsoScale[0], profile.torsoScale[1], profile.torsoScale[2]]);
   const clothMat = new THREE.MeshStandardMaterial({
     color: tex ? 0xffffff : hexColor,
@@ -281,39 +283,33 @@ function buildClothVestMesh(
     side: THREE.DoubleSide,
   });
   const trimMat = new THREE.MeshStandardMaterial({
-    color: 0x241a15, // Crisp contrasting dark espresso rib-knit trim around neckline, armholes & hem
-    roughness: 0.88,
+    color: 0x3a2a21, // Subtle slim neckline & hem piping flush with fabric
+    roughness: 0.86,
     metalness: 0.02,
   });
 
-  const heightSteps = 12;
-  const radialSteps = 28;
+  const heightSteps = 8;
+  const radialSteps = 26;
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
 
+  const fullTorsoSpan = Math.max(0.11, dims.neckY - 0.056);
+  const chestBandHeight = fullTorsoSpan * 0.42;
+
   const getTopY = (theta: number) => {
     const frontFactor = Math.max(0, Math.cos(theta));
-    return dims.neckY - 0.009 - frontFactor * 0.015;
+    // Anchored directly below collar line (neckY - 0.015), slightly scooped at front throat
+    return dims.neckY - 0.014 - frontFactor * 0.012;
   };
   const getBotY = (theta: number) => {
     const frontFactor = Math.max(0, Math.cos(theta));
-    return 0.056 + frontFactor * 0.026;
+    // Stops cleanly above the front shoulder/leg joint & belly (slightly lower in front like a cozy bib)
+    return getTopY(theta) - chestBandHeight * (0.94 + frontFactor * 0.12);
   };
 
-  // Evaluate whether a (y, theta) point lies inside either front-leg armhole cutout
-  const isInsideArmhole = (y: number, theta: number): boolean => {
-    // Wrap angle to [-PI, PI]
-    let a = theta % (Math.PI * 2);
-    if (a > Math.PI) a -= Math.PI * 2;
-    if (a < -Math.PI) a += Math.PI * 2;
-    const absA = Math.abs(a);
-    const da = (absA - 0.64) / 0.34;
-    const dy = (y - 0.112) / 0.028;
-    return da * da + dy * dy < 1.0;
-  };
-
-  // Generate grid of conformal vertices strictly outside torsoMesh + chestMesh
+  // Generate conformal chest-only band strictly outside torsoMesh + chestMesh
+  const clothClearance = Math.max(CAT_COSMETIC_CLEARANCE, 0.03);
   for (let r = 0; r <= heightSteps; r++) {
     const v = r / heightSteps;
     for (let c = 0; c <= radialSteps; c++) {
@@ -322,24 +318,15 @@ function buildClothVestMesh(
       const yTop = getTopY(theta);
       const yBot = getBotY(theta);
       const y = yBot + (yTop - yBot) * v;
-      const pt = sampleCatTorsoOuterPoint(y, theta, dims, CAT_COSMETIC_CLEARANCE);
+      const pt = sampleCatTorsoOuterPoint(y, theta, dims, clothClearance);
       positions.push(pt.x, pt.y, pt.z);
-      uvs.push(u * 2.0, v);
+      uvs.push(u * 2.0, v * 0.7);
     }
   }
 
   const cols = radialSteps + 1;
   for (let r = 0; r < heightSteps; r++) {
     for (let c = 0; c < radialSteps; c++) {
-      const uMid = (c + 0.5) / radialSteps;
-      const vMid = (r + 0.5) / heightSteps;
-      const thetaMid = uMid * Math.PI * 2;
-      const yMid =
-        getBotY(thetaMid) + (getTopY(thetaMid) - getBotY(thetaMid)) * vMid;
-
-      // Leave clean open armholes for both front legs
-      if (isInsideArmhole(yMid, thetaMid)) continue;
-
       const i00 = r * cols + c;
       const i10 = (r + 1) * cols + c;
       const i01 = r * cols + (c + 1);
@@ -357,38 +344,23 @@ function buildClothVestMesh(
   const vestShell = new THREE.Mesh(vestGeo, clothMat);
   g.add(vestShell);
 
-  // Conformal rib-knit collar neckline piping
+  // Flush slim collar & bottom hem rib piping (zero protruding side armhole rings)
   const neckPts: THREE.Vector3[] = [];
   const hemPts: THREE.Vector3[] = [];
   for (let i = 0; i < 24; i++) {
     const theta = (i / 24) * Math.PI * 2;
-    const pTop = sampleCatTorsoOuterPoint(getTopY(theta), theta, dims, CAT_COSMETIC_CLEARANCE + 0.002);
+    const pTop = sampleCatTorsoOuterPoint(getTopY(theta), theta, dims, clothClearance + 0.002);
     neckPts.push(new THREE.Vector3(pTop.x, pTop.y, pTop.z));
-    const pBot = sampleCatTorsoOuterPoint(getBotY(theta), theta, dims, CAT_COSMETIC_CLEARANCE + 0.002);
+    const pBot = sampleCatTorsoOuterPoint(getBotY(theta), theta, dims, clothClearance + 0.002);
     hemPts.push(new THREE.Vector3(pBot.x, pBot.y, pBot.z));
   }
   const neckCurve = new THREE.CatmullRomCurve3(neckPts, true);
-  const neckTrim = new THREE.Mesh(new THREE.TubeGeometry(neckCurve, 28, 0.0062, 7, true), trimMat);
+  const neckTrim = new THREE.Mesh(new THREE.TubeGeometry(neckCurve, 26, 0.0048, 6, true), trimMat);
   g.add(neckTrim);
 
   const hemCurve = new THREE.CatmullRomCurve3(hemPts, true);
-  const hemTrim = new THREE.Mesh(new THREE.TubeGeometry(hemCurve, 28, 0.0058, 7, true), trimMat);
+  const hemTrim = new THREE.Mesh(new THREE.TubeGeometry(hemCurve, 26, 0.0044, 6, true), trimMat);
   g.add(hemTrim);
-
-  // Conformal armhole rib-knit piping rings around both front-leg cutouts
-  [-1, 1].forEach((side) => {
-    const armPts: THREE.Vector3[] = [];
-    for (let i = 0; i < 16; i++) {
-      const ang = (i / 16) * Math.PI * 2;
-      const theta = side * (0.64 + Math.cos(ang) * 0.34);
-      const y = 0.112 + Math.sin(ang) * 0.028;
-      const pt = sampleCatTorsoOuterPoint(y, theta, dims, CAT_COSMETIC_CLEARANCE + 0.002);
-      armPts.push(new THREE.Vector3(pt.x, pt.y, pt.z));
-    }
-    const armCurve = new THREE.CatmullRomCurve3(armPts, true);
-    const armTrim = new THREE.Mesh(new THREE.TubeGeometry(armCurve, 18, 0.0046, 6, true), trimMat);
-    g.add(armTrim);
-  });
 
   return g;
 }
@@ -487,15 +459,9 @@ function buildDinoHeadHood(
     g.add(tooth);
   });
 
-  // Solid snug plush neck collar band anchoring the entire hood & lower jaw firmly around the neck
-  const collarStrap = new THREE.Mesh(new THREE.TorusGeometry(0.064, 0.0155, 10, 22), boneShadeMat);
-  collarStrap.rotation.x = Math.PI / 2 + 0.16;
-  collarStrap.position.set(0, -0.116, 0.002);
-  g.add(collarStrap);
-
-  // Under-chin plush gusset solidly bridging the neck collar forward to the lower jaw chin
-  const chinGusset = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.022, 0.072), boneShadeMat);
-  chinGusset.position.set(0, -0.115, 0.046);
+  // Under-chin plush gusset solidly bridging the cheek hinges forward to the lower jaw chin (no protruding neck/chest ring)
+  const chinGusset = new THREE.Mesh(new THREE.BoxGeometry(0.084, 0.02, 0.068), boneShadeMat);
+  chinGusset.position.set(0, -0.114, 0.044);
   chinGusset.rotation.x = -0.12;
   g.add(chinGusset);
 
@@ -583,18 +549,22 @@ function buildDinoTorsoSuit(
     g.add(spike);
   });
 
-  // 2. 6 pairs of curved plush bone ribs anchored directly to the external dorsal spine, wrapping STRICTLY outside the torso ellipsoid
-  const ribClearance = CAT_COSMETIC_CLEARANCE + 0.004;
-  for (let idx = 0; idx < dorsalSamples.length; idx++) {
+  // 2. Phase 1.1: Strictly 3 compact upper-chest/mid-back curved rib pairs ONLY
+  // Positioned cleanly ABOVE the front leg shoulder joint & well forward of the haunches
+  // with clearance >= 0.03 so zero ribs ever touch or intersect the legs. No chest/belly ring!
+  const ribClearance = Math.max(0.032, CAT_COSMETIC_CLEARANCE + 0.005);
+  const upperRibCount = Math.min(3, dorsalSamples.length);
+  const minRibY = Math.max(0.148, dims.neckY - 0.062);
+  for (let idx = 0; idx < upperRibCount; idx++) {
     const dorsalPt = dorsalSamples[idx];
-    const ribY = THREE.MathUtils.clamp(dorsalPt.y - 0.006, 0.072, 0.194);
-    const ribEndTheta = idx === 0 || idx === 5 ? 0.42 * Math.PI : 0.34 * Math.PI;
+    const ribY = Math.max(minRibY, dorsalPt.y - 0.004);
+    const ribEndTheta = idx === 0 ? 0.56 * Math.PI : idx === 1 ? 0.50 * Math.PI : 0.54 * Math.PI;
 
     [-1, 1].forEach((side) => {
       const p0 = new THREE.Vector3(side * 0.012, dorsalPt.y, dorsalPt.z);
-      const mid1 = sampleCatTorsoOuterPoint(ribY, side * (0.76 * Math.PI), dims, ribClearance);
-      const mid2 = sampleCatTorsoOuterPoint(ribY - 0.006, side * (0.54 * Math.PI), dims, ribClearance);
-      const tip = sampleCatTorsoOuterPoint(ribY - 0.014, side * ribEndTheta, dims, ribClearance);
+      const mid1 = sampleCatTorsoOuterPoint(ribY, side * (0.80 * Math.PI), dims, ribClearance);
+      const mid2 = sampleCatTorsoOuterPoint(ribY - 0.004, side * (0.65 * Math.PI), dims, ribClearance);
+      const tip = sampleCatTorsoOuterPoint(ribY - 0.008, side * ribEndTheta, dims, ribClearance);
 
       const ribCurve = new THREE.CatmullRomCurve3([
         p0,
@@ -602,25 +572,14 @@ function buildDinoTorsoSuit(
         new THREE.Vector3(mid2.x, mid2.y, mid2.z),
         new THREE.Vector3(tip.x, tip.y, tip.z),
       ]);
-      const ribMesh = new THREE.Mesh(new THREE.TubeGeometry(ribCurve, 12, 0.0088, 7, false), bonePlushMat);
+      const ribMesh = new THREE.Mesh(new THREE.TubeGeometry(ribCurve, 10, 0.0082, 7, false), bonePlushMat);
       g.add(ribMesh);
 
-      const ribTip = new THREE.Mesh(new THREE.SphereGeometry(0.0092, 7, 7), bonePlushMat);
+      const ribTip = new THREE.Mesh(new THREE.SphereGeometry(0.0086, 7, 7), bonePlushMat);
       ribTip.position.set(tip.x, tip.y, tip.z);
       g.add(ribTip);
     });
   }
-
-  // 3. Conformal plush belly/chest strap wrapping outside the torso to hold the ribcage snugly without hiding chest fur
-  const strapPts: THREE.Vector3[] = [];
-  for (let i = 0; i <= 14; i++) {
-    const theta = -0.62 * Math.PI + (i / 14) * (1.24 * Math.PI);
-    const pt = sampleCatTorsoOuterPoint(0.102, theta, dims, CAT_COSMETIC_CLEARANCE);
-    strapPts.push(new THREE.Vector3(pt.x, pt.y, pt.z));
-  }
-  const strapCurve = new THREE.CatmullRomCurve3(strapPts);
-  const bellyStrap = new THREE.Mesh(new THREE.TubeGeometry(strapCurve, 18, 0.0072, 6, false), boneShadeMat);
-  g.add(bellyStrap);
 
   // 4. External tapered skeletal plush tail rooted strictly OUTSIDE the rump along tailBasePos
   const lastDorsal = dorsalVecs[dorsalVecs.length - 1];

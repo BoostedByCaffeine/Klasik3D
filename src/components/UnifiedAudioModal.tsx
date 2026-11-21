@@ -87,36 +87,36 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4"
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-2 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="unified-audio-title"
       data-testid="unified-audio-modal"
     >
-      <div className="w-full max-w-2xl rounded-2xl bg-[#090705]/92 border border-[#f5a623]/35 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.85)] backdrop-blur-xl p-3 sm:p-4 flex flex-col gap-2.5 max-h-[88vh] text-[#FAF5EE]">
+      <div className="w-full max-w-2xl rounded-2xl bg-[#09090B]/94 border border-white/15 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 sm:p-4 flex flex-col gap-2.5 max-h-[88vh] text-white">
         {/* Header + Mode Selector */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#f5a623]/20 pb-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-[#f5a623]/20 border border-[#f5a623]/50 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-[#18181B] border border-white/15 flex items-center justify-center shrink-0">
               {snapshot.mode === 'vinyl' ? (
                 <Disc3
-                  className={`w-4 h-4 text-[#f5a623] ${snapshot.isPlaying ? 'animate-spin' : ''}`}
+                  className={`w-4 h-4 text-[#E4E4E7] ${snapshot.isPlaying ? 'animate-spin' : ''}`}
                   strokeWidth={2.2}
                 />
               ) : snapshot.mode === 'radio' ? (
-                <Radio className="w-4 h-4 text-[#f5a623]" strokeWidth={2.2} />
+                <Radio className="w-4 h-4 text-[#E4E4E7]" strokeWidth={2.2} />
               ) : (
-                <Waves className="w-4 h-4 text-[#f5a623]" strokeWidth={2.2} />
+                <Waves className="w-4 h-4 text-[#E4E4E7]" strokeWidth={2.2} />
               )}
             </div>
             <div className="min-w-0">
               <h2
                 id="unified-audio-title"
-                className="text-xs sm:text-sm font-bold tracking-wide text-[#FAF5EE] truncate"
+                className="text-xs sm:text-sm font-bold tracking-wide text-white truncate"
               >
                 Counter Audio Deck
               </h2>
-              <p className="text-[10px] text-[#E7D7C1]/80 truncate">
+              <p className="text-[10px] text-[#A1A1AA] truncate">
                 Changes the 3D Counter Prop live: Turntable · Vintage Radio · Hologram
               </p>
             </div>
@@ -125,7 +125,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
           <div className="flex items-center gap-1.5 shrink-0">
             {/* 3-Way Segmented Mode Selector */}
             <div
-              className="flex items-center p-0.5 rounded-lg bg-white/[0.06] border border-[#f5a623]/25"
+              className="flex items-center p-0.5 rounded-lg bg-[#18181B] border border-white/12"
               role="tablist"
               aria-label="Audio Mode"
             >
@@ -148,8 +148,8 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     onClick={() => handleModeSwitch(tab.id)}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors duration-75 ${
                       active
-                        ? 'bg-[#f5a623] text-[#090705] shadow-[0_4px_12px_-3px_rgba(245,166,35,0.6)]'
-                        : 'bg-transparent text-[#E7D7C1] hover:text-[#FAF5EE] hover:bg-white/[0.06]'
+                        ? 'hud-platinum-pill'
+                        : 'bg-transparent text-[#A1A1AA] hover:text-white hover:bg-white/[0.06]'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
@@ -163,7 +163,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
               type="button"
               data-testid="btn-close-audio-modal"
               onClick={onClose}
-              className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-[#f5a623]/25 text-[#E7D7C1] cursor-pointer"
+              className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] border border-white/15 text-[#E4E4E7] hover:text-white cursor-pointer transition-colors"
               aria-label="Close Audio Deck"
             >
               <X className="w-4 h-4" strokeWidth={2.2} />
@@ -175,14 +175,44 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
         {snapshot.statusMessage && (
           <div
             data-testid="audio-status-banner"
-            className={`px-2.5 py-1.5 rounded-lg border text-[11px] flex items-center gap-2 shrink-0 ${
+            className={`px-2.5 py-1.5 rounded-lg border text-[11px] flex flex-wrap items-center justify-between gap-2 shrink-0 ${
               snapshot.radioStatus === 'fallback' || snapshot.radioStatus === 'error'
-                ? 'bg-amber-500/15 border-amber-400/50 text-amber-200'
-                : 'bg-white/[0.05] border-[#f5a623]/25 text-[#E7D7C1]'
+                ? 'bg-[#18181B] border-[#F87171]/45 text-[#E4E4E7]'
+                : 'bg-[#18181B]/80 border-white/12 text-[#A1A1AA]'
             }`}
           >
-            <AlertCircle className="w-3.5 h-3.5 text-[#f5a623] shrink-0" strokeWidth={2.2} />
-            <span className="truncate">{snapshot.statusMessage}</span>
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <AlertCircle
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  snapshot.radioStatus === 'fallback' || snapshot.radioStatus === 'error'
+                    ? 'text-[#F87171]'
+                    : 'text-[#E4E4E7]'
+                }`}
+                strokeWidth={2.2}
+              />
+              <span className="truncate">{snapshot.statusMessage}</span>
+            </div>
+            {snapshot.mode === 'radio' &&
+              (snapshot.radioStatus === 'fallback' || snapshot.radioStatus === 'error') && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    data-testid="btn-retry-radio"
+                    onClick={() => musicPlayerController.retryCurrentRadioStation()}
+                    className="px-2 py-0.5 rounded-md bg-white/[0.08] hover:bg-white/[0.16] border border-white/20 text-white font-bold text-[10px] cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="btn-fallback-cafe-chill"
+                    onClick={() => musicPlayerController.fallbackToCafeChillRadio()}
+                    className="px-2 py-0.5 rounded-md hud-platinum-pill font-bold text-[10px] cursor-pointer"
+                  >
+                    Cafe Chill Backup
+                  </button>
+                </div>
+              )}
           </div>
         )}
 
@@ -191,7 +221,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
           {/* MODE 1: VINYL CRATE & BRING YOUR OWN VINYL */}
           {snapshot.mode === 'vinyl' && (
             <div className="space-y-2.5" data-testid="audio-panel-vinyl">
-              <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-white/[0.04] border border-[#f5a623]/20">
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[#18181B]/75 border border-white/10">
                 <div className="flex items-center gap-2">
                   <input
                     ref={fileInputRef}
@@ -205,7 +235,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     type="button"
                     data-testid="btn-add-byo-vinyl"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-2.5 py-1.5 rounded-lg bg-[#f5a623] hover:brightness-105 text-[#090705] font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shadow"
+                    className="px-2.5 py-1.5 rounded-lg hud-platinum-pill font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
                   >
                     <Upload className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
                     <span>Add Local Vinyl (.mp3 / .wav)</span>
@@ -218,8 +248,8 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     }
                     className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
                       snapshot.crackleEnabled
-                        ? 'bg-[#f5a623]/20 border-[#f5a623]/70 text-[#f5a623]'
-                        : 'bg-white/[0.04] border-white/15 text-[#E7D7C1]/80'
+                        ? 'bg-white/[0.12] border-white/35 text-white'
+                        : 'bg-white/[0.04] border-white/12 text-[#A1A1AA]'
                     }`}
                   >
                     <Sparkles className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -233,8 +263,8 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                   onClick={() => musicPlayerController.setRepeatOne(!snapshot.repeatOne)}
                   className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
                     snapshot.repeatOne
-                      ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300'
-                      : 'bg-white/[0.04] border-white/15 text-[#E7D7C1]/80'
+                      ? 'bg-[#34D399]/16 border-[#34D399]/45 text-[#34D399]'
+                      : 'bg-white/[0.04] border-white/12 text-[#A1A1AA]'
                   }`}
                 >
                   <Repeat className="w-3 h-3 shrink-0" strokeWidth={2.2} />
@@ -251,8 +281,8 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                       data-testid={`vinyl-track-${track.id}`}
                       className={`flex items-center justify-between gap-2 p-2 rounded-xl border transition-all ${
                         isCurrent
-                          ? 'bg-[#f5a623]/18 border-[#f5a623]/75'
-                          : 'bg-white/[0.04] border-white/10 hover:border-[#f5a623]/35'
+                          ? 'bg-[#27272A]/85 border-white/40'
+                          : 'bg-[#18181B]/75 border-white/10 hover:border-white/25'
                       }`}
                     >
                       <button
@@ -262,20 +292,20 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                       >
                         <span
                           className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 border border-white/25"
-                          style={{ backgroundColor: track.labelColor || '#f5a623' }}
+                          style={{ backgroundColor: track.labelColor || '#CBD5E1' }}
                         >
                           <Disc3
-                            className={`w-3.5 h-3.5 text-[#090705] ${
+                            className={`w-3.5 h-3.5 text-[#09090B] ${
                               isCurrent && snapshot.isPlaying ? 'animate-spin' : ''
                             }`}
                             strokeWidth={2.4}
                           />
                         </span>
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-[#FAF5EE] truncate">
+                          <div className="text-xs font-bold text-white truncate">
                             {track.title}
                           </div>
-                          <div className="text-[10px] text-[#E7D7C1]/75 truncate">
+                          <div className="text-[10px] text-[#A1A1AA] truncate">
                             {track.isCustom ? 'Custom Vinyl' : `${track.artist} · ${track.bpm} BPM`}
                           </div>
                         </div>
@@ -285,7 +315,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                         <button
                           type="button"
                           onClick={() => musicPlayerController.removeCustomVinylTrack(track.id)}
-                          className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 border border-rose-400/35 text-rose-300 cursor-pointer shrink-0"
+                          className="p-1.5 rounded-lg bg-[#F87171]/15 hover:bg-[#F87171]/25 border border-[#F87171]/35 text-[#F87171] cursor-pointer shrink-0"
                           title="Remove Custom Track"
                           aria-label={`Remove ${track.title}`}
                         >
@@ -305,7 +335,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
               <form onSubmit={handleRadioSearch} className="flex items-center gap-1.5">
                 <div className="relative flex-1 min-w-0">
                   <Search
-                    className="w-3.5 h-3.5 text-[#E7D7C1]/60 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    className="w-3.5 h-3.5 text-[#71717A] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
                     strokeWidth={2.2}
                   />
                   <input
@@ -313,14 +343,14 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     value={radioQuery}
                     onChange={(e) => setRadioQuery(e.target.value)}
                     placeholder="Search live stations (e.g. Manila, jazz, lo-fi, acoustic)..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white/[0.06] border border-[#f5a623]/25 text-xs text-[#FAF5EE] placeholder:text-[#E7D7C1]/45 focus:outline-none focus:border-[#f5a623]"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-[#18181B] border border-white/15 text-xs text-white placeholder:text-[#71717A] focus:outline-none focus:border-white/45"
                   />
                 </div>
                 <button
                   type="submit"
                   data-testid="btn-refresh-radio-directory"
                   disabled={isSearchingRadio}
-                  className="px-2.5 py-1.5 rounded-lg bg-[#f5a623] hover:brightness-105 text-[#090705] font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-60"
+                  className="px-2.5 py-1.5 rounded-lg hud-platinum-pill font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-60"
                 >
                   <RefreshCw
                     className={`w-3.5 h-3.5 ${isSearchingRadio ? 'animate-spin' : ''}`}
@@ -329,6 +359,10 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                   <span>{isSearchingRadio ? 'Scanning...' : 'Live Scan'}</span>
                 </button>
               </form>
+
+              <p className="text-[10px] text-[#A1A1AA] px-0.5">
+                Streams over Wi-Fi / Mobile Data (no earphones required) · Automatic HTTPS backup failover
+              </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {snapshot.radioStations.map((station) => {
@@ -341,31 +375,31 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                       onClick={() => musicPlayerController.tuneRadioStation(station.id)}
                       className={`flex items-center justify-between gap-2 p-2 rounded-xl border text-left cursor-pointer transition-all ${
                         isCurrent
-                          ? 'bg-[#f5a623]/18 border-[#f5a623]/75'
-                          : 'bg-white/[0.04] border-white/10 hover:border-[#f5a623]/35'
+                          ? 'bg-[#27272A]/85 border-white/40'
+                          : 'bg-[#18181B]/75 border-white/10 hover:border-white/25'
                       }`}
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <span
                           className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
                             station.layer === 'curated'
-                              ? 'bg-[#f5a623]/20 text-[#f5a623] border border-[#f5a623]/40'
-                              : 'bg-sky-500/20 text-sky-300 border border-sky-400/40'
+                              ? 'bg-white/[0.10] text-white border border-white/25'
+                              : 'bg-[#BAE6FD]/15 text-[#BAE6FD] border border-[#BAE6FD]/35'
                           }`}
                         >
                           {station.freqLabel || 'WEB'}
                         </span>
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-[#FAF5EE] truncate">
+                          <div className="text-xs font-bold text-white truncate">
                             {station.name}
                           </div>
-                          <div className="text-[10px] text-[#E7D7C1]/75 truncate">
+                          <div className="text-[10px] text-[#A1A1AA] truncate">
                             {station.region} · {station.genre}
                           </div>
                         </div>
                       </div>
                       {isCurrent && (
-                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shrink-0">
+                        <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#34D399]/18 text-[#34D399] border border-[#34D399]/40 shrink-0">
                           {snapshot.radioStatus === 'connecting'
                             ? 'TUNING'
                             : snapshot.isPlaying
@@ -380,61 +414,84 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
             </div>
           )}
 
-          {/* MODE 3: EXTERNAL HOLOGRAM MODE (SPOTIFY / YOUTUBE MUSIC / APPLE MUSIC + CAFE AMBIENCE) */}
+          {/* MODE 3: EXTERNAL HOLOGRAM MODE */}
           {snapshot.mode === 'external' && (
             <div className="space-y-2.5" data-testid="audio-panel-external">
-              <div className="p-3 rounded-xl bg-gradient-to-br from-[#f5a623]/15 via-[#18110c] to-[#090705] border border-[#f5a623]/45 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="p-3 rounded-xl bg-gradient-to-br from-[#27272A]/70 via-[#18181B] to-[#09090B] border border-white/18 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-[#f5a623]/20 border border-[#f5a623]/60 flex items-center justify-center shrink-0">
-                    <Music className="w-5 h-5 text-[#f5a623]" strokeWidth={2.2} />
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.08] border border-white/20 flex items-center justify-center shrink-0">
+                    <Music className="w-5 h-5 text-[#E4E4E7]" strokeWidth={2.2} />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#f5a623]">
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-[#A1A1AA]">
                       3D Counter Hologram Active
                     </div>
-                    <div className="text-sm font-bold text-[#FAF5EE] truncate">
+                    <div className="text-sm font-bold text-white truncate">
                       {snapshot.externalMedia.title}
                     </div>
-                    <div className="text-[11px] text-[#E7D7C1]/85 truncate">
+                    <div className="text-[11px] text-[#A1A1AA] truncate">
                       {snapshot.externalMedia.artist} · {snapshot.externalMedia.sourceApp}
                     </div>
                   </div>
                 </div>
 
                 {snapshot.isNativeAndroid ? (
-                  snapshot.hasNotificationAccess ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[11px] font-bold shrink-0">
-                      <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
-                      <span>Song Display Linked</span>
-                    </span>
-                  ) : (
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    {snapshot.externalMedia.isActive && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#34D399]/16 border border-[#34D399]/45 text-[#34D399] text-[10px] font-bold">
+                        <Check className="w-3 h-3 shrink-0" strokeWidth={2.4} />
+                        <span>External Audio Detected (Active)</span>
+                      </span>
+                    )}
+                    {snapshot.hasNotificationAccess ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#34D399]/16 border border-[#34D399]/45 text-[#34D399] text-[11px] font-bold">
+                        <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                        <span>Now-Playing Linked</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="btn-enable-song-display"
+                        onClick={() => musicPlayerController.openNotificationAccessSettings()}
+                        className="px-3 py-1.5 rounded-lg hud-platinum-pill font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                        <span>Enable Now-Playing Detection</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      data-testid="btn-enable-song-display"
-                      onClick={() => musicPlayerController.openNotificationAccessSettings()}
-                      className="px-3 py-1.5 rounded-lg bg-[#f5a623] hover:brightness-105 text-[#090705] font-bold text-[11px] flex items-center gap-1.5 cursor-pointer shrink-0 shadow"
+                      data-testid="btn-refresh-external-audio"
+                      onClick={() => musicPlayerController.refreshExternalAudioStatus(true)}
+                      className="p-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-[#E4E4E7] cursor-pointer"
+                      title="Refresh External Audio Status"
+                      aria-label="Refresh External Audio Status"
                     >
-                      <ExternalLink className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
-                      <span>Enable Song Title Display</span>
+                      <RefreshCw className="w-3.5 h-3.5" strokeWidth={2.2} />
                     </button>
-                  )
+                  </div>
                 ) : (
-                  <span className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-[#f5a623]/25 text-[10px] text-[#E7D7C1]/90 shrink-0">
-                    {isApkVersion
-                      ? 'Bridge Standby'
-                      : 'Web Mode · Play Spotify/YouTube in another tab'}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#34D399]/16 border border-[#34D399]/45 text-[#34D399] text-[10px] font-bold">
+                      <Check className="w-3 h-3 shrink-0" strokeWidth={2.4} />
+                      <span>
+                        {isApkVersion
+                          ? 'External Background Mode Ready'
+                          : 'External Background Mode Active'}
+                      </span>
+                    </span>
+                  </div>
                 )}
               </div>
 
-              {/* Cafe Ambience SFX Balance Slider (Coexists cleanly with External Music!) */}
-              <div className="p-2.5 rounded-xl bg-white/[0.04] border border-[#f5a623]/20 space-y-1.5">
+              {/* Cafe Ambience SFX Balance Slider */}
+              <div className="p-2.5 rounded-xl bg-[#18181B]/75 border border-white/10 space-y-1.5">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-[#FAF5EE] flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-[#f5a623]" strokeWidth={2.2} />
+                  <span className="font-bold text-white flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-[#E4E4E7]" strokeWidth={2.2} />
                     <span>Cafe Ambience &amp; Barista SFX Balance</span>
                   </span>
-                  <span className="font-mono text-[#f5a623] font-bold tabular-nums">
+                  <span className="font-mono text-white font-bold tabular-nums">
                     {Math.round(snapshot.ambienceVolume * 100)}%
                   </span>
                 </div>
@@ -447,9 +504,9 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     musicPlayerController.setAmbienceVolume(Number(e.target.value) / 100)
                   }
                   aria-label="Cafe Ambience SFX Volume"
-                  className="w-full accent-[#f5a623] cursor-pointer"
+                  className="w-full hud-platinum-slider cursor-pointer"
                 />
-                <p className="text-[10px] text-[#E7D7C1]/75">
+                <p className="text-[10px] text-[#A1A1AA]">
                   Internal music stays silent in External Mode so your Spotify, YouTube Music, or
                   Apple Music plays uninterrupted alongside warm espresso steam, rain &amp; cafe cats.
                 </p>
@@ -459,10 +516,10 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
         </div>
 
         {/* PERSISTENT BOTTOM TRANSPORT & VOLUME BAR */}
-        <div className="pt-2 border-t border-[#f5a623]/20 flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-bold text-[#FAF5EE] truncate">{nowPlayingTitle}</div>
-            <div className="text-[10px] text-[#E7D7C1]/75 truncate">{nowPlayingSubtitle}</div>
+            <div className="text-xs font-bold text-white truncate">{nowPlayingTitle}</div>
+            <div className="text-[10px] text-[#A1A1AA] truncate">{nowPlayingSubtitle}</div>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -470,7 +527,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
               type="button"
               data-testid="btn-audio-prev"
               onClick={() => musicPlayerController.prev()}
-              className="p-1.5 rounded-lg bg-white/[0.07] hover:bg-white/[0.14] border border-[#f5a623]/25 text-[#FAF5EE] cursor-pointer"
+              className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] border border-white/15 text-[#E4E4E7] hover:text-white cursor-pointer"
               aria-label="Previous"
             >
               <SkipBack className="w-3.5 h-3.5" strokeWidth={2.2} />
@@ -480,7 +537,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
               type="button"
               data-testid="btn-audio-play-pause"
               onClick={() => musicPlayerController.togglePlayPause()}
-              className="px-3 py-1.5 rounded-lg bg-[#f5a623] hover:brightness-105 text-[#090705] font-bold text-xs flex items-center gap-1 cursor-pointer shadow"
+              className="px-3 py-1.5 rounded-lg hud-platinum-pill font-bold text-xs flex items-center gap-1 cursor-pointer"
               aria-label={snapshot.isPlaying ? 'Pause' : 'Play'}
             >
               {snapshot.isPlaying ? (
@@ -500,7 +557,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
               type="button"
               data-testid="btn-audio-next"
               onClick={() => musicPlayerController.next()}
-              className="p-1.5 rounded-lg bg-white/[0.07] hover:bg-white/[0.14] border border-[#f5a623]/25 text-[#FAF5EE] cursor-pointer"
+              className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] border border-white/15 text-[#E4E4E7] hover:text-white cursor-pointer"
               aria-label="Next"
             >
               <SkipForward className="w-3.5 h-3.5" strokeWidth={2.2} />
@@ -509,7 +566,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
 
           {snapshot.mode !== 'external' && (
             <div className="flex items-center gap-1.5 shrink-0 w-28 sm:w-32">
-              <Volume2 className="w-3.5 h-3.5 text-[#f5a623] shrink-0" strokeWidth={2.2} />
+              <Volume2 className="w-3.5 h-3.5 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
               <input
                 type="range"
                 min={0}
@@ -517,7 +574,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                 value={Math.round(snapshot.volume * 100)}
                 onChange={(e) => musicPlayerController.setVolume(Number(e.target.value) / 100)}
                 aria-label="Music Volume"
-                className="w-full accent-[#f5a623] cursor-pointer"
+                className="w-full hud-platinum-slider cursor-pointer"
               />
             </div>
           )}
