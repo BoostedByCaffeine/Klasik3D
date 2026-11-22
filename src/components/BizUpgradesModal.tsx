@@ -31,6 +31,7 @@ import {
   MachineSkinId,
   PATRON_OUTFIT_CATALOG,
   PatronOutfitId,
+  PatronOutfitMode,
   PitcherSkinId,
   SCENERY_CATALOG,
   SceneryId,
@@ -65,6 +66,8 @@ interface BizUpgradesModalProps {
   onPurchaseOrEquipCafeCat: (catId: CafeCatId) => void;
   onPurchaseOrEquipScenery: (sceneryId: SceneryId) => void;
   onPurchasePatronOutfit: (outfitId: PatronOutfitId) => void;
+  onSetPatronOutfitMode?: (mode: PatronOutfitMode) => void;
+  onEquipManualPatronOutfit?: (outfitId: PatronOutfitId | null) => void;
   onSetPatronOutfitAutoMatch: (autoMatch: boolean) => void;
   onToggleCustomPatronOutfit: (outfitId: PatronOutfitId) => void;
   onOpenCatStation?: () => void;
@@ -85,6 +88,8 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
   onPurchaseOrEquipCafeCat,
   onPurchaseOrEquipScenery,
   onPurchasePatronOutfit,
+  onSetPatronOutfitMode,
+  onEquipManualPatronOutfit,
   onSetPatronOutfitAutoMatch,
   onToggleCustomPatronOutfit,
   onOpenCatStation,
@@ -130,9 +135,13 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
     activeScenery = 'busy_street',
     unlockedSceneries = ['busy_street'],
     unlockedPatronOutfits = [],
-    patronOutfitAutoMatch = true,
+    patronOutfitMode,
+    equippedPatronOutfitId = null,
+    patronOutfitAutoMatch = false,
     enabledCustomPatronOutfits = [],
   } = gameState;
+  const effectiveOutfitMode: PatronOutfitMode =
+    patronOutfitMode ?? (patronOutfitAutoMatch ? 'auto_match' : 'manual');
 
   const grossPct = Math.min(
     100,
@@ -442,30 +451,54 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
         {activeTab === 'patron_outfits' && (
           <div className="space-y-2.5 overflow-y-auto pr-1" data-testid="patron-outfits-panel">
             <div className="p-2.5 rounded-xl bg-[#18181B]/85 border border-white/12 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
-                  data-testid="btn-outfit-mode-auto"
-                  onClick={() => onSetPatronOutfitAutoMatch(true)}
+                  data-testid="btn-outfit-mode-manual"
+                  onClick={() =>
+                    onSetPatronOutfitMode
+                      ? onSetPatronOutfitMode('manual')
+                      : onSetPatronOutfitAutoMatch(false)
+                  }
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-transform ${
-                    patronOutfitAutoMatch
+                    effectiveOutfitMode === 'manual'
                       ? 'hud-platinum-pill'
                       : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
-                  Auto-Match Scenery
+                  Manual Equip
                 </button>
                 <button
                   type="button"
                   data-testid="btn-outfit-mode-custom"
-                  onClick={() => onSetPatronOutfitAutoMatch(false)}
+                  onClick={() =>
+                    onSetPatronOutfitMode
+                      ? onSetPatronOutfitMode('custom_mix')
+                      : onSetPatronOutfitAutoMatch(false)
+                  }
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-transform ${
-                    !patronOutfitAutoMatch
+                    effectiveOutfitMode === 'custom_mix'
                       ? 'hud-platinum-pill'
                       : 'glass-btn-inner text-[#D4D4D8]'
                   }`}
                 >
                   Custom Mix
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-outfit-mode-auto"
+                  onClick={() =>
+                    onSetPatronOutfitMode
+                      ? onSetPatronOutfitMode('auto_match')
+                      : onSetPatronOutfitAutoMatch(true)
+                  }
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-transform ${
+                    effectiveOutfitMode === 'auto_match'
+                      ? 'hud-platinum-pill'
+                      : 'glass-btn-inner text-[#D4D4D8]'
+                  }`}
+                >
+                  Auto-Match Scenery
                 </button>
               </div>
 
@@ -498,10 +531,42 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
               </div>
             </div>
 
+            {effectiveOutfitMode === 'manual' && (
+              <div className="p-2.5 rounded-xl bg-[#18181B]/75 border border-white/15 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white">Standard Casual (Default)</div>
+                  <div className="text-[10px] text-[#A1A1AA]">
+                    Everyday neighborhood attire for indoor customers and outdoor pedestrians.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-testid="btn-equip-outfit-standard-casual"
+                  onClick={() => onEquipManualPatronOutfit?.(null)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold font-mono shrink-0 cursor-pointer flex items-center gap-1.5 ${
+                    equippedPatronOutfitId === null
+                      ? 'bg-emerald-950/75 border border-emerald-400/60 text-emerald-200'
+                      : 'glass-btn-inner text-[#D4D4D8]'
+                  }`}
+                >
+                  {equippedPatronOutfitId === null ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                      <span>Equipped</span>
+                    </>
+                  ) : (
+                    <span>Equip Default</span>
+                  )}
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {PATRON_OUTFIT_CATALOG.map((outfit) => {
                 const isUnlocked = unlockedPatronOutfits.includes(outfit.id);
                 const isCustomEnabled = enabledCustomPatronOutfits.includes(outfit.id);
+                const isManuallyEquipped =
+                  effectiveOutfitMode === 'manual' && equippedPatronOutfitId === outfit.id;
                 const canAfford = !isUnlocked && cash >= outfit.cost;
                 const isWinterOnly = outfit.weatherMode === 'winter-only';
                 const isWeatherReactive = outfit.weatherMode === 'weather-reactive';
@@ -516,7 +581,10 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     key={outfit.id}
                     data-testid={`patron-outfit-card-${outfit.id}`}
                     className={`flex flex-col justify-between gap-2 p-3 rounded-xl border ${
-                      isUnlocked && (patronOutfitAutoMatch || isCustomEnabled)
+                      isUnlocked &&
+                      (effectiveOutfitMode === 'auto_match' ||
+                        isManuallyEquipped ||
+                        (effectiveOutfitMode === 'custom_mix' && isCustomEnabled))
                         ? 'bg-white/[0.08] border-white/40'
                         : 'bg-[#18181B]/75 border-white/10'
                     }`}
@@ -555,11 +623,31 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
                     </div>
 
                     {isUnlocked ? (
-                      patronOutfitAutoMatch ? (
+                      effectiveOutfitMode === 'auto_match' ? (
                         <div className="w-full py-1.5 px-3 rounded-lg bg-emerald-950/65 border border-emerald-400/45 text-emerald-300 text-xs font-bold font-mono flex items-center justify-center gap-1.5">
                           <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
                           <span>Unlocked · Auto-Matches Scenery</span>
                         </div>
+                      ) : effectiveOutfitMode === 'manual' ? (
+                        <button
+                          type="button"
+                          data-testid={`btn-equip-manual-outfit-${outfit.id}`}
+                          onClick={() => onEquipManualPatronOutfit?.(outfit.id)}
+                          className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                            isManuallyEquipped
+                              ? 'bg-emerald-950/75 border border-emerald-400/60 text-emerald-200'
+                              : 'hud-platinum-pill'
+                          }`}
+                        >
+                          {isManuallyEquipped ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                              <span>Equipped Globally</span>
+                            </>
+                          ) : (
+                            <span>Equip Outfit</span>
+                          )}
+                        </button>
                       ) : (
                         <button
                           type="button"

@@ -481,9 +481,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                     }`}
                     title={
                       !isAccepted
-                        ? `Tap to accept ${cust.customerName}'s order (${recipe.name}${
-                            custPastry ? ` + ${custPastry.name}` : ''
-                          })`
+                        ? `${cust.customerName} is ready to order — tap to accept`
                         : `${cust.customerName} (${
                             isRider ? 'Delivery Rider' : isTakeout ? 'Takeout' : 'Dine-In'
                           }): ${recipe.name}${custPastry ? ` + ${custPastry.name}` : ''}${
@@ -497,7 +495,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   >
                     <span
                       className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ backgroundColor: recipe.colorHex }}
+                      style={{ backgroundColor: isAccepted ? recipe.colorHex : '#E4E4E7' }}
                     />
                     <span className="font-semibold truncate">{cust.customerName}</span>
                     {isRider ? (
@@ -525,16 +523,20 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                         aria-label="Dine-In"
                       />
                     )}
-                    {custPastry && (
+                    {isAccepted && custPastry && (
                       <Croissant
                         className="w-2.5 h-2.5 text-[#E4E4E7] shrink-0"
                         strokeWidth={2.4}
                         aria-label={custPastry.name}
                       />
                     )}
-                    <span className="font-mono tabular-nums text-[#34D399] font-bold shrink-0">
-                      ${displayPrice}
-                    </span>
+                    {isAccepted ? (
+                      <span className="font-mono tabular-nums text-[#34D399] font-bold shrink-0">
+                        ${displayPrice}
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-[#D4D4D8] shrink-0">Ready to order</span>
+                    )}
 
                     {!isAccepted ? (
                       <span className="inline-flex items-center gap-0.5 font-mono text-[9px] font-bold shrink-0 px-1 rounded hud-platinum-pill">
@@ -921,46 +923,57 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               <span className="text-[10px] sm:text-[11px] font-bold text-[#E4E4E7] glass-text-crisp shrink-0">
                 {pinnedOrder.customerName}:
               </span>
-              <span className="text-[10px] sm:text-[11px] font-semibold text-white glass-text-crisp truncate">
-                {targetRecipe.name}
-              </span>
-              {requestedPastrySpec && (
-                <button
-                  type="button"
-                  data-testid="order-pastry-badge"
-                  onClick={() => onSelectStation(1)}
-                  className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded border text-[9px] font-bold shrink-0 cursor-pointer transition-colors ${
-                    isPastrySatisfied
-                      ? 'bg-[#34D399]/20 border-[#34D399]/55 text-[#34D399]'
-                      : 'bg-white/[0.12] hover:bg-white/[0.2] border-white/35 text-white'
-                  }`}
-                  title={
-                    isPastrySatisfied
-                      ? `${requestedPastrySpec.name} staged!`
-                      : `Tap to go to Station 1 & grab ${requestedPastrySpec.name} (+$${requestedPastrySpec.price})`
-                  }
-                >
-                  {isPastrySatisfied ? (
-                    <Check className="w-2.5 h-2.5 shrink-0" strokeWidth={2.8} />
-                  ) : (
-                    <Croissant className="w-2.5 h-2.5 shrink-0" strokeWidth={2.3} />
-                  )}
-                  <span>
-                    +{requestedPastrySpec.name} (${requestedPastrySpec.price})
-                  </span>
-                </button>
-              )}
-              {pinnedOrder.customAddons?.map((addon) => (
+              {!pinnedOrder.orderAccepted ? (
                 <span
-                  key={addon}
-                  className="px-1 py-0 rounded bg-white/[0.08] border border-white/20 text-[9px] font-mono font-semibold text-[#E4E4E7] shrink-0"
+                  data-testid="order-ready-to-order-label"
+                  className="text-[10px] sm:text-[11px] font-semibold text-[#D4D4D8] glass-text-crisp truncate"
                 >
-                  {addon}
+                  Ready to order
                 </span>
-              ))}
-              <span className="px-1 py-0 rounded bg-[#34D399]/18 border border-[#34D399]/40 text-[9px] font-mono font-bold text-[#34D399] shrink-0">
-                +${isGoldenEquipped ? pinnedOrder.customBonusTip * 2 : pinnedOrder.customBonusTip}
-              </span>
+              ) : (
+                <>
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-white glass-text-crisp truncate">
+                    {targetRecipe.name}
+                  </span>
+                  {requestedPastrySpec && (
+                    <button
+                      type="button"
+                      data-testid="order-pastry-badge"
+                      onClick={() => onSelectStation(1)}
+                      className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded border text-[9px] font-bold shrink-0 cursor-pointer transition-colors ${
+                        isPastrySatisfied
+                          ? 'bg-[#34D399]/20 border-[#34D399]/55 text-[#34D399]'
+                          : 'bg-white/[0.12] hover:bg-white/[0.2] border-white/35 text-white'
+                      }`}
+                      title={
+                        isPastrySatisfied
+                          ? `${requestedPastrySpec.name} staged!`
+                          : `Tap to go to Station 1 & grab ${requestedPastrySpec.name} (+$${requestedPastrySpec.price})`
+                      }
+                    >
+                      {isPastrySatisfied ? (
+                        <Check className="w-2.5 h-2.5 shrink-0" strokeWidth={2.8} />
+                      ) : (
+                        <Croissant className="w-2.5 h-2.5 shrink-0" strokeWidth={2.3} />
+                      )}
+                      <span>
+                        +{requestedPastrySpec.name} (${requestedPastrySpec.price})
+                      </span>
+                    </button>
+                  )}
+                  {pinnedOrder.customAddons?.map((addon) => (
+                    <span
+                      key={addon}
+                      className="px-1 py-0 rounded bg-white/[0.08] border border-white/20 text-[9px] font-mono font-semibold text-[#E4E4E7] shrink-0"
+                    >
+                      {addon}
+                    </span>
+                  ))}
+                  <span className="px-1 py-0 rounded bg-[#34D399]/18 border border-[#34D399]/40 text-[9px] font-mono font-bold text-[#34D399] shrink-0">
+                    +${isGoldenEquipped ? pinnedOrder.customBonusTip * 2 : pinnedOrder.customBonusTip}
+                  </span>
+                </>
+              )}
               {(() => {
                 const isZenMode = gameState.mode === 'zen';
                 if (!pinnedOrder.orderAccepted) {

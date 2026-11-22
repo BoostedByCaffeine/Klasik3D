@@ -25,6 +25,7 @@ import {
   KlasikGameState,
   PastryId,
   PatronOutfitId,
+  PatronOutfitMode,
   RECIPES,
   RainPreference,
   SceneryId,
@@ -37,6 +38,7 @@ import {
   createActiveStepLock,
   createInitialGameState,
   equipCatCosmetic,
+  equipManualPatronOutfit,
   formatLocalClock,
   getCafeCatSpec,
   getCatCosmeticSpec,
@@ -64,6 +66,7 @@ import {
   saveGraphicsQuality,
   serveCurrentCupToCustomer,
   setPatronOutfitAutoMatch,
+  setPatronOutfitMode,
   startNextDayShift,
   syncDailyQuotaForDate,
   toggleCustomPatronOutfit,
@@ -623,6 +626,30 @@ export default function App() {
     [flashAnimBanner]
   );
 
+  const handleSetPatronOutfitMode = useCallback(
+    (mode: PatronOutfitMode) => {
+      soundEngine.playCeramicClink(1.04);
+      setGameState((prev) => {
+        const next = setPatronOutfitMode(prev, mode);
+        sceneRef.current?.updateGameState(next);
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleEquipManualPatronOutfit = useCallback(
+    (outfitId: PatronOutfitId | null) => {
+      soundEngine.playCeramicClink(1.08);
+      setGameState((prev) => {
+        const next = equipManualPatronOutfit(prev, outfitId);
+        sceneRef.current?.updateGameState(next);
+        return next;
+      });
+    },
+    []
+  );
+
   const handleSetPatronOutfitAutoMatch = useCallback((autoMatch: boolean) => {
     soundEngine.playCeramicClink(1.04);
     setGameState((prev) => {
@@ -713,17 +740,25 @@ export default function App() {
       soundEngine.init();
       const spec = getPastryById(pastryId);
       if (!spec) return;
+      const now = Date.now();
+      const prev = gameStateRef.current;
+      const next = preparePastry(prev, pastryId, now);
+      const appVersion = pwaManager.getStatus().appVersion;
+      if (next.preparedPastry !== pastryId) {
+        soundEngine.playErrorThud();
+        triggerBaristaHaptic('blocked_or_error', appVersion);
+        setGameState(next);
+        flashAnimBanner(next.lastActionFeedback, 1600, false);
+        return;
+      }
       soundEngine.playPastryTong();
-      triggerBaristaHaptic('pin_ticket', pwaManager.getStatus().appVersion);
-      setGameState((prev) => {
-        const next = preparePastry(prev, pastryId);
-        sceneRef.current?.updateGameState(next);
-        return next;
-      });
+      triggerBaristaHaptic('pin_ticket', appVersion);
+      setGameState(next);
+      sceneRef.current?.updateGameState(next);
       const activeOrder =
-        gameStateRef.current.customers.find(
-          (c) => c.id === gameStateRef.current.pinnedOrderId && c.state === 'ordering'
-        ) || gameStateRef.current.customers.find((c) => c.state === 'ordering');
+        prev.customers.find(
+          (c) => c.id === prev.pinnedOrderId && c.state === 'ordering' && c.orderAccepted
+        ) || prev.customers.find((c) => c.state === 'ordering' && c.orderAccepted);
       const isTakeout =
         activeOrder?.orderType === 'takeout' || Boolean(activeOrder?.isDeliveryRider);
       flashAnimBanner(
@@ -875,11 +910,15 @@ export default function App() {
       if (action === 'quick_brew_step') {
         const pinnedOrder =
           curState.customers.find(
-            (c) => c.id === curState.pinnedOrderId && c.state === 'ordering'
-          ) || curState.customers.find((c) => c.state === 'ordering');
-        const targetRecipe = pinnedOrder
-          ? getRecipeById(pinnedOrder.recipeId)
-          : RECIPES[1];
+            (c) => c.id === curState.pinnedOrderId && c.state === 'ordering' && c.orderAccepted
+          ) || curState.customers.find((c) => c.state === 'ordering' && c.orderAccepted);
+        if (!pinnedOrder) {
+          soundEngine.playErrorThud();
+          triggerBaristaHaptic('blocked_or_error', pwaManager.getStatus().appVersion);
+          flashAnimBanner("Accept a customer's order first", 1600, false);
+          return;
+        }
+        const targetRecipe = getRecipeById(pinnedOrder.recipeId);
         const effectiveRecipe = getEffectiveRecipeForOrder(pinnedOrder, targetRecipe);
         const step = getNextRecommendedStep(
           curState.currentCup,
@@ -888,7 +927,7 @@ export default function App() {
           curState.preparedPastry
         );
         targetStation = step.station;
-        if (step.toolKey === 'pastry' && pinnedOrder?.requestedPastry) {
+        if (step.toolKey === 'pastry' && pinnedOrder.requestedPastry) {
           handleSelectStation(1);
           handleGrabPastry(pinnedOrder.requestedPastry);
           return;
@@ -1809,6 +1848,8 @@ export default function App() {
           onPurchaseOrEquipCafeCat={handlePurchaseOrEquipCafeCat}
           onPurchaseOrEquipScenery={handlePurchaseOrEquipScenery}
           onPurchasePatronOutfit={handlePurchasePatronOutfit}
+          onSetPatronOutfitMode={handleSetPatronOutfitMode}
+          onEquipManualPatronOutfit={handleEquipManualPatronOutfit}
           onSetPatronOutfitAutoMatch={handleSetPatronOutfitAutoMatch}
           onToggleCustomPatronOutfit={handleToggleCustomPatronOutfit}
           onOpenCatStation={handleOpenCatStation}

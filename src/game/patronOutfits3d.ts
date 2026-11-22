@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { ClimateState, PatronOutfitId } from './sceneryData';
 
 export interface PatronRigTargets {
+  root?: THREE.Object3D;
+  isSecretNpc?: boolean;
   pelvisGroup: THREE.Group;
   torsoGroup: THREE.Group;
   neckJoint: THREE.Group;
@@ -16,8 +18,9 @@ export interface PatronRigTargets {
 }
 
 /**
- * Phase 4: Applies one of the 6 unlockable procedural 3D Patron Outfit packs onto a customer/passerby rig.
- * Respects `climateState` ('summer' vs 'winter') for French, Swiss, and Hiker outfits.
+ * Phase 4 + Phase 2 Hardening: Applies one of the 6 unlockable procedural 3D Patron Outfit packs
+ * onto a customer/passerby rig. Layer 2 Secret NPC immunity guarantees Beb/Anton/Duminiki
+ * can never have their caramel Polo cap or signature attire overwritten.
  */
 export function applyPatronOutfitToRig(
   rig: PatronRigTargets,
@@ -25,6 +28,14 @@ export function applyPatronOutfitToRig(
   climate: ClimateState,
   seed: number
 ): void {
+  if (
+    rig.isSecretNpc === true ||
+    rig.root?.userData?.isSecretNpc === true ||
+    rig.torsoGroup?.userData?.isSecretNpc === true ||
+    rig.pelvisGroup?.userData?.isSecretNpc === true
+  ) {
+    return;
+  }
   const { torsoGroup, neckJoint, leftHipJoint, rightHipJoint, leftKneeJoint, rightKneeJoint } = rig;
 
   if (outfitId === 'filipino') {

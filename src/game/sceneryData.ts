@@ -410,61 +410,122 @@ export function isPatronOutfitAllowedInClimate(
   return true;
 }
 
+export type PatronOutfitMode = 'manual' | 'custom_mix' | 'auto_match';
+
+export const SCENERY_TO_OUTFIT_MAP: Record<SceneryId, PatronOutfitId | null> = {
+  busy_street: 'filipino',
+  mayon_volcano: 'filipino',
+  hilltop_city_lights: 'filipino',
+  japanese_tranquility: 'ancient_japanese',
+  brazilian_favela: 'brazilian',
+  cyberpunk_neon: null,
+  eiffel_tower: 'french',
+  switzerland_hilltop: 'swiss',
+  mt_everest: 'hiker',
+};
+
 export interface PatronOutfitResolution {
   outfitId: PatronOutfitId | null;
   climateVariant: ClimateState;
+  isSecretBypass?: boolean;
+}
+
+export interface ActivePatronOutfitContext {
+  activeScenery: SceneryId;
+  climateState: ClimateState;
+  unlockedPatronOutfits: readonly PatronOutfitId[];
+  mode: PatronOutfitMode;
+  equippedOutfitId?: PatronOutfitId | null;
+  enabledCustomMixIds?: readonly PatronOutfitId[];
+  isSecretNpc?: boolean;
+  rng?: () => number;
 }
 
 /**
- * Resolves which unlockable Patron Outfit (if any) a newly spawned customer or passerby wears.
- * - Secret NPCs bypass this completely (`isSecretNpc === true`).
- * - In `Auto-Match Scenery` mode, matches the active scenery's outfit if unlocked & climate-valid.
- * - In `Custom Mix` mode, randomly selects among enabled & unlocked outfits that respect climate rules
- *   (Hiker strictly only spawns when `climateState === 'winter'`).
+ * Unified Patron Outfit resolver (Phase 2):
+ * - Layer 1 Secret NPC Immunity: `isSecretNpc === true` ALWAYS short-circuits and returns null bypass.
+ * - `'manual'` (default): equips `equippedOutfitId` (or Standard Casual `null`) regardless of active scenery.
+ * - `'custom_mix'`: rolls among `enabledCustomMixIds` (unlocked & climate-valid).
+ * - `'auto_match'` (opt-in, default OFF): looks up explicit `SCENERY_TO_OUTFIT_MAP[activeScenery]`.
+ */
+export function resolveActivePatronOutfit(
+  ctx: ActivePatronOutfitContext
+): PatronOutfitResolution {
+  if (ctx.isSecretNpc === true) {
+    return { outfitId: null, climateVariant: ctx.climateState, isSecretBypass: true };
+  }
+
+  const unlockedSet = new Set(ctx.unlockedPatronOutfits.filter(isValidPatronOutfitId));
+  if (unlockedSet.size === 0) {
+    return { outfitId: null, climateVariant: ctx.climateState };
+  }
+
+  if (ctx.mode === 'manual') {
+    const equipped = ctx.equippedOutfitId ?? null;
+    if (
+      equipped &&
+      isValidPatronOutfitId(equipped) &&
+      unlockedSet.has(equipped) &&
+      isPatronOutfitAllowedInClimate(equipped, ctx.climateState)
+    ) {
+      return { outfitId: equipped, climateVariant: ctx.climateState };
+    }
+    return { outfitId: null, climateVariant: ctx.climateState };
+  }
+
+  if (ctx.mode === 'auto_match') {
+    const preferred = SCENERY_TO_OUTFIT_MAP[ctx.activeScenery] ?? null;
+    if (
+      preferred &&
+      unlockedSet.has(preferred) &&
+      isPatronOutfitAllowedInClimate(preferred, ctx.climateState)
+    ) {
+      return { outfitId: preferred, climateVariant: ctx.climateState };
+    }
+    return { outfitId: null, climateVariant: ctx.climateState };
+  }
+
+  // 'custom_mix'
+  const pool = (ctx.enabledCustomMixIds || []).filter(
+    (id) =>
+      isValidPatronOutfitId(id) &&
+      unlockedSet.has(id) &&
+      isPatronOutfitAllowedInClimate(id, ctx.climateState)
+  );
+  if (pool.length === 0) {
+    return { outfitId: null, climateVariant: ctx.climateState };
+  }
+  const rng = ctx.rng || Math.random;
+  const pick = pool[Math.floor(rng() * pool.length) % pool.length];
+  return { outfitId: pick, climateVariant: ctx.climateState };
+}
+
+/**
+ * Backwards-compatible wrapper around `resolveActivePatronOutfit`.
  */
 export function resolvePatronOutfitForSpawn(params: {
   activeScenery: SceneryId;
   climateState: ClimateState;
   unlockedPatronOutfits: readonly PatronOutfitId[];
   patronOutfitAutoMatch: boolean;
+  patronOutfitMode?: PatronOutfitMode;
+  equippedPatronOutfitId?: PatronOutfitId | null;
   enabledCustomPatronOutfits: readonly PatronOutfitId[];
   isSecretNpc?: boolean;
   rng?: () => number;
 }): PatronOutfitResolution {
-  if (params.isSecretNpc) {
-    return { outfitId: null, climateVariant: params.climateState };
-  }
-
-  const unlockedSet = new Set(params.unlockedPatronOutfits.filter(isValidPatronOutfitId));
-  if (unlockedSet.size === 0) {
-    return { outfitId: null, climateVariant: params.climateState };
-  }
-
-  if (params.patronOutfitAutoMatch) {
-    const scenerySpec = getScenerySpec(params.activeScenery);
-    const preferred = scenerySpec.matchingPatronOutfit;
-    if (
-      preferred &&
-      unlockedSet.has(preferred) &&
-      isPatronOutfitAllowedInClimate(preferred, params.climateState)
-    ) {
-      return { outfitId: preferred, climateVariant: params.climateState };
-    }
-    return { outfitId: null, climateVariant: params.climateState };
-  }
-
-  const eligible = params.enabledCustomPatronOutfits.filter(
-    (id) =>
-      isValidPatronOutfitId(id) &&
-      unlockedSet.has(id) &&
-      isPatronOutfitAllowedInClimate(id, params.climateState)
-  );
-  if (eligible.length === 0) {
-    return { outfitId: null, climateVariant: params.climateState };
-  }
-  const rng = params.rng || Math.random;
-  const pick = eligible[Math.floor(rng() * eligible.length) % eligible.length];
-  return { outfitId: pick, climateVariant: params.climateState };
+  const mode: PatronOutfitMode =
+    params.patronOutfitMode ?? (params.patronOutfitAutoMatch ? 'auto_match' : 'custom_mix');
+  return resolveActivePatronOutfit({
+    activeScenery: params.activeScenery,
+    climateState: params.climateState,
+    unlockedPatronOutfits: params.unlockedPatronOutfits,
+    mode,
+    equippedOutfitId: params.equippedPatronOutfitId ?? null,
+    enabledCustomMixIds: params.enabledCustomPatronOutfits,
+    isSecretNpc: params.isSecretNpc,
+    rng: params.rng,
+  });
 }
 
 // ============================================================================

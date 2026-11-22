@@ -57,6 +57,9 @@ import {
   SCENERY_CATALOG,
   SCENERY_WEATHER_RULES,
   SECRET_NPC_COOLDOWN_SEC,
+  ActivePatronOutfitContext,
+  PatronOutfitMode,
+  SCENERY_TO_OUTFIT_MAP,
   SECRET_NPC_DIALOGUES,
   SECRET_NPC_NAMES,
   SECRET_NPC_PATIENCE_DRAIN_MULT,
@@ -81,6 +84,7 @@ import {
   isValidPatronOutfitId,
   isValidSceneryId,
   normalizeSecretNpcNameIdx,
+  resolveActivePatronOutfit,
   resolveClimateState,
   resolvePatronOutfitForSpawn,
   resolveSecretNpcAppearance,
@@ -93,6 +97,7 @@ export {
   EVEREST_REVENUE_MILESTONE,
   PATRON_OUTFIT_CATALOG,
   SCENERY_CATALOG,
+  SCENERY_TO_OUTFIT_MAP,
   SCENERY_WEATHER_RULES,
   SECRET_NPC_COOLDOWN_SEC,
   SECRET_NPC_DIALOGUES,
@@ -114,14 +119,17 @@ export {
   isValidPatronOutfitId,
   isValidSceneryId,
   normalizeSecretNpcNameIdx,
+  resolveActivePatronOutfit,
   resolveClimateState,
   resolvePatronOutfitForSpawn,
   resolveSecretNpcAppearance,
   syncSceneryMilestones,
 };
 export type {
+  ActivePatronOutfitContext,
   ClimateState,
   PatronOutfitId,
+  PatronOutfitMode,
   PatronOutfitSpec,
   PatronOutfitWeatherMode,
   SceneryId,
@@ -1243,6 +1251,44 @@ export const RECIPES: DrinkRecipe[] = [
   },
 ];
 
+export interface DrinkTempBias {
+  hotWeight: number; // 0.0 - 1.0
+  icedWeight: number; // 0.0 - 1.0
+}
+
+export function getSceneryDrinkTempBias(sceneryId: string): DrinkTempBias {
+  if (sceneryId === 'switzerland_hilltop' || sceneryId === 'mt_everest') {
+    return { hotWeight: 0.95, icedWeight: 0.05 };
+  }
+  return { hotWeight: 0.5, icedWeight: 0.5 };
+}
+
+export interface OrderPrepGuardState {
+  acceptedOrders: Array<{ id: string; acceptedAt: number; pendingItemCount: number }>;
+  activePrepCount: number; // total unserved in-progress cups + pastry plates on counter
+}
+
+export function canStartOrderPrep(state: OrderPrepGuardState): {
+  allowed: boolean;
+  reason?: 'no_accepted_order' | 'slot_cap_reached';
+} {
+  if (state.acceptedOrders.length === 0) {
+    return { allowed: false, reason: 'no_accepted_order' };
+  }
+  const acceptedPendingItemCount = state.acceptedOrders.reduce(
+    (sum, o) => sum + o.pendingItemCount,
+    0
+  );
+  if (state.activePrepCount >= acceptedPendingItemCount) {
+    return { allowed: false, reason: 'slot_cap_reached' };
+  }
+  return { allowed: true };
+}
+
+export function canServePreparedItem(itemCreatedAt: number, orderAcceptedAt: number): boolean {
+  return itemCreatedAt >= orderAcceptedAt;
+}
+
 export interface CupBuildState {
   hasGrounds: boolean;
   isTamped: boolean;
@@ -1251,6 +1297,7 @@ export interface CupBuildState {
   hasSteamedMilk: boolean;
   hasIce: boolean;
   syrup: SyrupFlavor;
+  createdAt?: number | null;
 }
 
 export interface CustomerOrder {
@@ -1261,6 +1308,7 @@ export interface CustomerOrder {
   recipeId: string;
   orderType: OrderType;
   orderAccepted: boolean; // False while waiting calmly in line; true once barista accepts the order
+  acceptedAt?: number | null; // Timestamp when barista accepted this order (anti-exploit check)
   mood: number; // 100 (Happy) down to 0 (Dissatisfied / Disappointed)
   moodDurationSec: number; // Randomized 60..120 seconds (1 to 2 minutes) to drain 100 -> 0
   moodExpired?: boolean; // True when mood hits 0 -> triggers dissatisfied walkout ($0)
@@ -1418,6 +1466,7 @@ export interface KlasikGameState {
   pinnedOrderId: string | null;
   currentCup: CupBuildState;
   preparedPastry: PastryId | null; // 100% decoupled from currentCup brew steps!
+  preparedPastryCreatedAt?: number | null;
   activeStepLock?: ActiveStepAction | null;
   customers: CustomerOrder[];
   upgrades: BizUpgradeItem[];
@@ -1440,6 +1489,8 @@ export interface KlasikGameState {
   activeScenery: SceneryId;
   unlockedSceneries: SceneryId[];
   unlockedPatronOutfits: PatronOutfitId[];
+  patronOutfitMode: PatronOutfitMode;
+  equippedPatronOutfitId: PatronOutfitId | null;
   patronOutfitAutoMatch: boolean;
   enabledCustomPatronOutfits: PatronOutfitId[];
   secretNpcNameIdx: number;
@@ -2015,6 +2066,7 @@ export function createInitialGameState(): KlasikGameState {
     pinnedOrderId: firstCustomer.id,
     currentCup: createEmptyCup(),
     preparedPastry: null,
+    preparedPastryCreatedAt: null,
     activeStepLock: null,
     customers: [firstCustomer, secondCustomer, thirdCustomer],
     upgrades: INITIAL_UPGRADES.map((u) => ({ ...u })),
@@ -2042,7 +2094,9 @@ export function createInitialGameState(): KlasikGameState {
     activeScenery: 'busy_street',
     unlockedSceneries: ['busy_street'],
     unlockedPatronOutfits: [],
-    patronOutfitAutoMatch: true,
+    patronOutfitMode: 'manual',
+    equippedPatronOutfitId: null,
+    patronOutfitAutoMatch: false,
     enabledCustomPatronOutfits: [],
     secretNpcNameIdx: 0,
     secretNpcCooldownRemaining: 0,
@@ -2222,20 +2276,73 @@ export function getStepDurationMs(
   return 450;
 }
 
+export function isCupInProgress(cup: CupBuildState): boolean {
+  return Boolean(
+    cup.hasGrounds ||
+      cup.isTamped ||
+      cup.hasEspresso ||
+      cup.hasSteepedTea ||
+      cup.hasSteamedMilk ||
+      cup.hasIce ||
+      cup.syrup !== 'none'
+  );
+}
+
+export function buildOrderPrepGuardState(state: KlasikGameState): OrderPrepGuardState {
+  const acceptedOrders = state.customers
+    .filter((c) => c.state === 'ordering' && c.orderAccepted)
+    .map((c) => ({
+      id: c.id,
+      acceptedAt: c.acceptedAt ?? 0,
+      pendingItemCount: 1 + (c.requestedPastry ? 1 : 0),
+    }));
+  const activePrepCount =
+    (isCupInProgress(state.currentCup) ? 1 : 0) + (state.preparedPastry ? 1 : 0);
+  return {
+    acceptedOrders,
+    activePrepCount,
+  };
+}
+
 export function preparePastry(
   state: KlasikGameState,
-  pastryId: PastryId
+  pastryId: PastryId,
+  nowMs: number = Date.now()
 ): KlasikGameState {
   const spec = getPastryById(pastryId);
   if (!spec) return state;
+
+  // Phase 2 Anti-Exploit Gate: Require at least 1 accepted order and enforce pending-item slot cap
+  const guardState = buildOrderPrepGuardState(state);
+  if (guardState.acceptedOrders.length === 0) {
+    return {
+      ...state,
+      lastActionFeedback: "Accept a customer's order first",
+    };
+  }
+  if (!state.preparedPastry) {
+    const prepCheck = canStartOrderPrep(guardState);
+    if (!prepCheck.allowed) {
+      return {
+        ...state,
+        lastActionFeedback:
+          prepCheck.reason === 'no_accepted_order'
+            ? "Accept a customer's order first"
+            : 'Finish or serve your accepted order before plating another pastry!',
+      };
+    }
+  }
+
   const activeOrder =
-    state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
-    state.customers.find((c) => c.state === 'ordering');
+    state.customers.find(
+      (c) => c.id === state.pinnedOrderId && c.state === 'ordering' && c.orderAccepted
+    ) || state.customers.find((c) => c.state === 'ordering' && c.orderAccepted);
   const isTakeout = activeOrder?.orderType === 'takeout' || Boolean(activeOrder?.isDeliveryRider);
   const containerLabel = isTakeout ? 'Kraft Paper Bag' : 'Mini Porcelain Plate';
   return {
     ...state,
     preparedPastry: pastryId,
+    preparedPastryCreatedAt: nowMs,
     lastActionFeedback: `Placed ${spec.name} into ${containerLabel} beside the Serving Coaster! (Coffee steps stay untouched.)`,
   };
 }
@@ -2244,6 +2351,7 @@ export function clearPreparedPastry(state: KlasikGameState): KlasikGameState {
   return {
     ...state,
     preparedPastry: null,
+    preparedPastryCreatedAt: null,
   };
 }
 
@@ -2253,6 +2361,7 @@ export function returnPreparedPastry(state: KlasikGameState): KlasikGameState {
   return {
     ...state,
     preparedPastry: null,
+    preparedPastryCreatedAt: null,
     lastActionFeedback: spec
       ? `Returned ${spec.name} back to the pastry display case.`
       : 'Returned pastry back to the display case.',
@@ -2567,11 +2676,40 @@ export function performCupAction(
     };
   }
 
+  // Phase 2 Anti-Exploit Gate: Block starting/crafting any cup before an order is accepted
+  const guardState = buildOrderPrepGuardState(state);
+  const cupAlreadyStarted = isCupInProgress(state.currentCup);
+  if (guardState.acceptedOrders.length === 0) {
+    return {
+      ...state,
+      lastActionFeedback: "Accept a customer's order first",
+    };
+  }
+  if (!cupAlreadyStarted && action !== 'quick_brew_step') {
+    const prepCheck = canStartOrderPrep(guardState);
+    if (!prepCheck.allowed) {
+      return {
+        ...state,
+        lastActionFeedback:
+          prepCheck.reason === 'no_accepted_order'
+            ? "Accept a customer's order first"
+            : 'Finish or serve your active order before starting another cup!',
+      };
+    }
+  }
+
   if (action === 'quick_brew_step') {
     const pinnedOrder =
-      state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
-      state.customers.find((c) => c.state === 'ordering');
-    const targetRecipe = pinnedOrder ? getRecipeById(pinnedOrder.recipeId) : RECIPES[1];
+      state.customers.find(
+        (c) => c.id === state.pinnedOrderId && c.state === 'ordering' && c.orderAccepted
+      ) || state.customers.find((c) => c.state === 'ordering' && c.orderAccepted);
+    if (!pinnedOrder) {
+      return {
+        ...state,
+        lastActionFeedback: "Accept a customer's order first",
+      };
+    }
+    const targetRecipe = getRecipeById(pinnedOrder.recipeId);
     const effectiveRecipe = getEffectiveRecipeForOrder(pinnedOrder, targetRecipe);
     const step = getNextRecommendedStep(cup, targetRecipe, pinnedOrder, state.preparedPastry);
     activeStation = step.station;
@@ -2583,12 +2721,30 @@ export function performCupAction(
         currentCup: createEmptyCup(),
         lastActionFeedback: 'Cleared cup at Rinser / Trash Chute [R] after wrong ingredient.',
       };
-    } else if (step.toolKey === 'pastry' && pinnedOrder?.requestedPastry) {
+    } else if (step.toolKey === 'pastry' && pinnedOrder.requestedPastry) {
       return {
-        ...preparePastry(state, pinnedOrder.requestedPastry),
+        ...preparePastry(state, pinnedOrder.requestedPastry, nowMs),
         activeStation: 1,
       };
-    } else if (step.toolKey === 'grinder') {
+    } else if (step.toolKey === 'serve') {
+      return serveCurrentCupToCustomer({ ...state, activeStation: 5 }, pinnedOrder.id, nowMs);
+    }
+
+    if (!cupAlreadyStarted) {
+      const prepCheck = canStartOrderPrep(guardState);
+      if (!prepCheck.allowed) {
+        return {
+          ...state,
+          lastActionFeedback:
+            prepCheck.reason === 'no_accepted_order'
+              ? "Accept a customer's order first"
+              : 'Finish or serve your active order before starting another cup!',
+        };
+      }
+      cup.createdAt = nowMs;
+    }
+
+    if (step.toolKey === 'grinder') {
       cup.hasGrounds = true;
       feedback = 'Ground 18g of fresh Arabica beans into the portafilter.';
     } else if (step.toolKey === 'tamper') {
@@ -2614,8 +2770,6 @@ export function performCupAction(
     } else if (step.toolKey === 'milk') {
       cup.hasSteamedMilk = true;
       feedback = 'Steamed 65°C velvety microfoam & poured Rosetta latte art!';
-    } else if (step.toolKey === 'serve') {
-      return serveCurrentCupToCustomer({ ...state, activeStation: 5 });
     }
 
     return {
@@ -2627,6 +2781,7 @@ export function performCupAction(
   }
 
   if (action === 'grind') {
+    if (!cupAlreadyStarted) cup.createdAt = nowMs;
     cup.hasGrounds = true;
     cup.isTamped = false;
     activeStation = 3;
@@ -2656,6 +2811,7 @@ export function performCupAction(
     activeStation = 4;
     feedback = 'Pulled 9-bar double espresso shot! Cup gliding to Station 4 Assembly Coaster.';
   } else if (action === 'steep_tea') {
+    if (!cupAlreadyStarted) cup.createdAt = nowMs;
     cup.hasSteepedTea = true;
     activeStation = 4;
     feedback = 'Steeped artisanal tea leaves & botanical infusion at 80°C on Station 4.';
@@ -2670,10 +2826,12 @@ export function performCupAction(
     activeStation = 4;
     feedback = 'Steamed silky 65°C microfoam milk & poured Rosetta latte art.';
   } else if (action === 'add_ice') {
+    if (!cupAlreadyStarted) cup.createdAt = nowMs;
     cup.hasIce = !cup.hasIce;
     activeStation = 4;
     feedback = cup.hasIce ? 'Scooped crystal ice cubes into cup.' : 'Removed ice from cup.';
   } else if (action === 'add_syrup' && syrupFlavor) {
+    if (!cupAlreadyStarted) cup.createdAt = nowMs;
     cup.syrup = syrupFlavor;
     if (syrupFlavor === 'matcha') {
       cup.hasSteepedTea = true;
@@ -2687,8 +2845,9 @@ export function performCupAction(
 
   // Check if the action introduced an unrequested ingredient for the active order
   const activeOrder =
-    state.customers.find((c) => c.id === state.pinnedOrderId && c.state === 'ordering') ||
-    state.customers.find((c) => c.state === 'ordering');
+    state.customers.find(
+      (c) => c.id === state.pinnedOrderId && c.state === 'ordering' && c.orderAccepted
+    ) || state.customers.find((c) => c.state === 'ordering' && c.orderAccepted);
   if (activeOrder) {
     const check = validateDrinkForServe(cup, getRecipeById(activeOrder.recipeId), activeOrder);
     if (check.hasWrongIngredient) {
@@ -2784,7 +2943,8 @@ export function syncCatUnlocks(
 
 export function acceptCustomerOrder(
   state: KlasikGameState,
-  orderId: string
+  orderId: string,
+  nowMs: number = Date.now()
 ): KlasikGameState {
   const target = state.customers.find(
     (c) => c.id === orderId && c.state === 'ordering'
@@ -2804,6 +2964,7 @@ export function acceptCustomerOrder(
     return {
       ...c,
       orderAccepted: true,
+      acceptedAt: nowMs,
       timerStarted: true,
       mood: 100,
       moodDurationSec: duration,
@@ -3028,7 +3189,27 @@ export function serveCurrentCupToCustomer(
   const targetCustomer =
     (targetCustomerId && orderingCustomers.find((c) => c.id === targetCustomerId)) ||
     (state.pinnedOrderId && orderingCustomers.find((c) => c.id === state.pinnedOrderId)) ||
+    orderingCustomers.find((c) => c.orderAccepted) ||
     orderingCustomers[0];
+
+  // Phase 2 Anti-Exploit Gate: Cannot serve an unaccepted order or pre-acceptance crafted items
+  if (!targetCustomer.orderAccepted) {
+    return {
+      ...state,
+      lastActionFeedback: "Accept a customer's order first",
+    };
+  }
+  if (
+    typeof targetCustomer.acceptedAt === 'number' &&
+    typeof state.currentCup.createdAt === 'number' &&
+    !canServePreparedItem(state.currentCup.createdAt, targetCustomer.acceptedAt)
+  ) {
+    return {
+      ...state,
+      lastActionFeedback:
+        'Cannot serve a cup started before accepting this order — rinse & brew fresh!',
+    };
+  }
 
   const recipe = getRecipeById(targetCustomer.recipeId);
   const validation = validateDrinkForServe(state.currentCup, recipe, targetCustomer);
@@ -3070,6 +3251,18 @@ export function serveCurrentCupToCustomer(
     return {
       ...state,
       lastActionFeedback: `Order also needs ${reqPastry.name}! Grab it at Station 1: Pastries (your finished coffee stays ready).`,
+    };
+  }
+  if (
+    reqPastry &&
+    typeof targetCustomer.acceptedAt === 'number' &&
+    typeof state.preparedPastryCreatedAt === 'number' &&
+    !canServePreparedItem(state.preparedPastryCreatedAt, targetCustomer.acceptedAt)
+  ) {
+    return {
+      ...state,
+      lastActionFeedback:
+        'Cannot serve a pastry plated before accepting this order — grab a fresh pastry!',
     };
   }
 
@@ -3232,6 +3425,7 @@ export function serveCurrentCupToCustomer(
     currentCup: createEmptyCup(),
     // Only consume preparedPastry if this order requested it!
     preparedPastry: reqPastry ? null : state.preparedPastry,
+    preparedPastryCreatedAt: reqPastry ? null : state.preparedPastryCreatedAt,
     customers: updatedCustomers,
     equipmentSkins: updatedSkins,
     unlockedSceneries: scenerySync.unlockedSceneries,
@@ -3258,11 +3452,27 @@ export function spawnCustomerOrder(
   day: number,
   seedOffset = 0,
   customPalette?: string[],
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  activeScenery: SceneryId = 'busy_street'
 ): CustomerOrder {
   const unlockedRecipes = RECIPES.filter((r) => r.unlockDay <= Math.max(1, day));
-  const idx = (day * 7 + seedOffset * 3 + Math.floor(rng() * 100)) % unlockedRecipes.length;
-  const recipe = unlockedRecipes[idx] || RECIPES[0];
+  const tempBias = getSceneryDrinkTempBias(activeScenery);
+  const wantHot = rng() < tempBias.hotWeight;
+  const hotRecipes = unlockedRecipes.filter(
+    (r) => !r.needsIce && r.category !== 'iced_coffee' && r.category !== 'cold_drink'
+  );
+  const icedRecipes = unlockedRecipes.filter(
+    (r) => r.needsIce || r.category === 'iced_coffee' || r.category === 'cold_drink'
+  );
+  const pool = wantHot
+    ? hotRecipes.length > 0
+      ? hotRecipes
+      : unlockedRecipes
+    : icedRecipes.length > 0
+    ? icedRecipes
+    : unlockedRecipes;
+  const idx = (day * 7 + seedOffset * 3 + Math.floor(rng() * 100)) % pool.length;
+  const recipe = pool[idx] || RECIPES[0];
   const nameIdx =
     (day * 3 + seedOffset * 5 + Math.floor(rng() * 100)) % CUSTOMER_NAMES.length;
   const customerName = CUSTOMER_NAMES[nameIdx];
@@ -3273,7 +3483,7 @@ export function spawnCustomerOrder(
   let customBonusTip = 2;
 
   const modRoll = (day + seedOffset + nameIdx) % 4;
-  if (modRoll === 0 && !recipe.needsIce && recipe.id !== 'klasik-espresso') {
+  if (!wantHot && modRoll === 0 && !recipe.needsIce && recipe.id !== 'klasik-espresso') {
     customNeedsIce = true;
     customAddons.push('+Iced');
     customBonusTip = 3;
@@ -3353,6 +3563,7 @@ export function spawnCustomerOrder(
     recipeId: recipe.id,
     orderType,
     orderAccepted: false,
+    acceptedAt: null,
     mood: 100,
     moodDurationSec,
     moodExpired: false,
@@ -3388,13 +3599,14 @@ export function spawnDeliveryRiderOrder(
   day: number,
   seedOffset = 0,
   forcedVariant?: DeliveryRiderVariant,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  activeScenery: SceneryId = 'busy_street'
 ): CustomerOrder {
   const variants: readonly DeliveryRiderVariant[] = ['blue', 'green', 'red'];
   const variant =
     forcedVariant || variants[Math.floor(rng() * variants.length) % variants.length];
   const cfg = RIDER_VARIANT_CONFIG[variant];
-  const baseOrder = spawnCustomerOrder(day, seedOffset, [cfg.jacketHex], rng);
+  const baseOrder = spawnCustomerOrder(day, seedOffset, [cfg.jacketHex], rng, activeScenery);
   const pastryId: PastryId =
     baseOrder.requestedPastry ||
     ALL_PASTRY_IDS[Math.floor(rng() * ALL_PASTRY_IDS.length) % ALL_PASTRY_IDS.length];
@@ -3411,7 +3623,7 @@ export function spawnDeliveryRiderOrder(
     requestedPastry: pastryId,
     isDeliveryRider: true,
     riderVariant: variant,
-    dialogueLine: `Scooter parked outside! ${cfg.label} pickup for ${recipe.name} (Takeout) + ${pastrySpec.name} in a Kraft Bag!`,
+    dialogueLine: `Delivery parked outside! ${cfg.label} pickup for ${recipe.name} (Takeout) + ${pastrySpec.name} in a Kraft Bag!`,
     socialBehavior: 'relaxing',
   };
 }
@@ -3703,17 +3915,48 @@ export function purchasePatronOutfit(
   };
 }
 
+export function setPatronOutfitMode(
+  state: KlasikGameState,
+  mode: PatronOutfitMode
+): KlasikGameState {
+  return {
+    ...state,
+    patronOutfitMode: mode,
+    patronOutfitAutoMatch: mode === 'auto_match',
+    lastActionFeedback:
+      mode === 'auto_match'
+        ? 'Patron outfits set to Auto-Match Scenery.'
+        : mode === 'custom_mix'
+        ? 'Patron outfits set to Custom Mix.'
+        : 'Patron outfits set to Manual Single Equip.',
+  };
+}
+
+export function equipManualPatronOutfit(
+  state: KlasikGameState,
+  outfitId: PatronOutfitId | null
+): KlasikGameState {
+  if (outfitId !== null) {
+    const unlocked = state.unlockedPatronOutfits || [];
+    if (!unlocked.includes(outfitId)) return state;
+  }
+  const spec = outfitId ? getPatronOutfitSpec(outfitId) : null;
+  return {
+    ...state,
+    patronOutfitMode: 'manual',
+    patronOutfitAutoMatch: false,
+    equippedPatronOutfitId: outfitId,
+    lastActionFeedback: spec
+      ? `Equipped ${spec.name} for all patrons (indoor & outdoor).`
+      : 'Equipped Standard Casual outfits for patrons.',
+  };
+}
+
 export function setPatronOutfitAutoMatch(
   state: KlasikGameState,
   autoMatch: boolean
 ): KlasikGameState {
-  return {
-    ...state,
-    patronOutfitAutoMatch: autoMatch,
-    lastActionFeedback: autoMatch
-      ? 'Patron outfits set to Auto-Match Scenery.'
-      : 'Patron outfits set to Custom Mix.',
-  };
+  return setPatronOutfitMode(state, autoMatch ? 'auto_match' : 'custom_mix');
 }
 
 export function toggleCustomPatronOutfit(
@@ -3727,6 +3970,8 @@ export function toggleCustomPatronOutfit(
   const next = exists ? current.filter((id) => id !== outfitId) : [...current, outfitId];
   return {
     ...state,
+    patronOutfitMode: 'custom_mix',
+    patronOutfitAutoMatch: false,
     enabledCustomPatronOutfits: next,
   };
 }
@@ -4074,13 +4319,16 @@ export function advanceSimulationTick(
 
   const attachPatronOutfit = (order: CustomerOrder): CustomerOrder => {
     if (order.isSecretNpc || order.isDeliveryRider) return order;
-    const resolved = resolvePatronOutfitForSpawn({
+    const mode: PatronOutfitMode =
+      state.patronOutfitMode ?? (state.patronOutfitAutoMatch ? 'auto_match' : 'manual');
+    const resolved = resolveActivePatronOutfit({
       activeScenery: state.activeScenery || 'busy_street',
       climateState,
       unlockedPatronOutfits: state.unlockedPatronOutfits || [],
-      patronOutfitAutoMatch: state.patronOutfitAutoMatch ?? true,
-      enabledCustomPatronOutfits: state.enabledCustomPatronOutfits || [],
-      isSecretNpc: false,
+      mode,
+      equippedOutfitId: state.equippedPatronOutfitId ?? null,
+      enabledCustomMixIds: state.enabledCustomPatronOutfits || [],
+      isSecretNpc: Boolean(order.isSecretNpc),
       rng,
     });
     return {
@@ -4117,6 +4365,7 @@ export function advanceSimulationTick(
     };
   };
 
+  const activeSceneryId: SceneryId = state.activeScenery || 'busy_street';
   const spawnNextPatron = (seedOffset: number): CustomerOrder => {
     const riderProb = computeDeliveryRiderProbability(state.weather, regularSinceRider);
     const canSpawnRider =
@@ -4124,7 +4373,13 @@ export function advanceSimulationTick(
     if (canSpawnRider) {
       regularSinceRider = 0;
       activeDeliveryRiderCount += 1;
-      const riderOrder = spawnDeliveryRiderOrder(state.day, seedOffset, undefined, rng);
+      const riderOrder = spawnDeliveryRiderOrder(
+        state.day,
+        seedOffset,
+        undefined,
+        rng,
+        activeSceneryId
+      );
       if (
         canSpawnSecretNpc({
           role: 'rider',
@@ -4138,7 +4393,13 @@ export function advanceSimulationTick(
       return riderOrder;
     }
     regularSinceRider += 1;
-    const custOrder = spawnCustomerOrder(state.day, seedOffset, activePack.paletteColors, rng);
+    const custOrder = spawnCustomerOrder(
+      state.day,
+      seedOffset,
+      activePack.paletteColors,
+      rng,
+      activeSceneryId
+    );
     if (
       canSpawnSecretNpc({
         role: 'customer',
@@ -4252,7 +4513,13 @@ export function startNextDayShift(state: KlasikGameState): KlasikGameState {
     state.customerSkinPacks.find((p) => p.id === state.activeCustomerSkinPack) ||
     INITIAL_CUSTOMER_SKIN_PACKS[0];
 
-  const c1 = spawnCustomerOrder(nextDay, 1, activePack.paletteColors);
+  const c1 = spawnCustomerOrder(
+    nextDay,
+    1,
+    activePack.paletteColors,
+    Math.random,
+    state.activeScenery || 'busy_street'
+  );
 
   return {
     ...state,
@@ -4332,7 +4599,9 @@ export function exportSaveJson(state: KlasikGameState): string {
         activeScenery: state.activeScenery || 'busy_street',
         unlockedSceneries: state.unlockedSceneries || ['busy_street'],
         unlockedPatronOutfits: state.unlockedPatronOutfits || [],
-        patronOutfitAutoMatch: state.patronOutfitAutoMatch ?? true,
+        patronOutfitMode: state.patronOutfitMode || 'manual',
+        equippedPatronOutfitId: state.equippedPatronOutfitId ?? null,
+        patronOutfitAutoMatch: state.patronOutfitAutoMatch ?? false,
         enabledCustomPatronOutfits: state.enabledCustomPatronOutfits || [],
         klasik_secret_name_idx: normalizeSecretNpcNameIdx(state.secretNpcNameIdx ?? 0),
         graphicsQuality: state.graphicsQuality,
@@ -4644,8 +4913,27 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       activeScenery: restoredActiveScenery,
       unlockedSceneries: scenerySync.unlockedSceneries,
       unlockedPatronOutfits: restoredPatronOutfits,
+      patronOutfitMode:
+        d.patronOutfitMode === 'manual' ||
+        d.patronOutfitMode === 'custom_mix' ||
+        d.patronOutfitMode === 'auto_match'
+          ? d.patronOutfitMode
+          : typeof d.patronOutfitAutoMatch === 'boolean'
+          ? d.patronOutfitAutoMatch
+            ? 'auto_match'
+            : 'custom_mix'
+          : 'manual',
+      equippedPatronOutfitId:
+        isValidPatronOutfitId(d.equippedPatronOutfitId) &&
+        restoredPatronOutfits.includes(d.equippedPatronOutfitId)
+          ? d.equippedPatronOutfitId
+          : null,
       patronOutfitAutoMatch:
-        typeof d.patronOutfitAutoMatch === 'boolean' ? d.patronOutfitAutoMatch : true,
+        d.patronOutfitMode !== undefined
+          ? d.patronOutfitMode === 'auto_match'
+          : typeof d.patronOutfitAutoMatch === 'boolean'
+          ? d.patronOutfitAutoMatch
+          : false,
       enabledCustomPatronOutfits: restoredEnabledCustomOutfits,
       secretNpcNameIdx: normalizeSecretNpcNameIdx(storedSecretIdx),
       secretNpcCooldownRemaining: 0,
