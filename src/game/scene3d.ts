@@ -420,6 +420,10 @@ interface PooledPedestrian {
   pauseCooldown: number;
   glancePhase: number;
   behavior: OutdoorNpcBehavior;
+  seed: number;
+  skin: string;
+  shirt: string;
+  appliedOutfitKey: string;
   dogRig: {
     root: THREE.Group;
     legs: THREE.Mesh[];
@@ -802,6 +806,7 @@ export class KlasikCafeScene3D {
 
   // Pooled Outdoor Living World (Full-Quality Pedestrians & Stylized Traffic) + 2D Static Colliders
   private pedestrianPool: PooledPedestrian[] = [];
+  private lastPedestrianOutfitSyncKey = '';
   private trafficPool: PooledTrafficVehicle[] = [];
   private staticColliders: StaticCollider2D[] = [];
 
@@ -9090,12 +9095,111 @@ export class KlasikCafeScene3D {
         pauseCooldown: 2 + idx * 1.4,
         glancePhase: idx * 0.9,
         behavior: 'plain_stroll',
+        seed: cfg.seed,
+        skin: cfg.skin,
+        shirt: cfg.shirt,
+        appliedOutfitKey: '',
         dogRig: { root: dogRoot, legs: dLegs, tail: dTail, leash },
         lanternGroup,
         hikerGear,
         neonUmbrella,
         footballMesh,
       });
+    });
+  }
+
+  private syncOutdoorPedestrianOutfits() {
+    if (this.pedestrianPool.length === 0) return;
+    const outfitMode: PatronOutfitMode =
+      this.gameState.patronOutfitMode ??
+      (this.gameState.patronOutfitAutoMatch ? 'auto_match' : 'manual');
+    const activePackId: CustomerSkinPackId =
+      this.gameState.activeCustomerSkinPack || 'casual-garden';
+    const sc = this.gameState.activeScenery || 'busy_street';
+    const climate = this.gameState.climateState || 'summer';
+    const syncKey = [
+      outfitMode,
+      this.gameState.equippedPatronOutfitId || '',
+      (this.gameState.enabledCustomPatronOutfits || []).join(','),
+      (this.gameState.unlockedPatronOutfits || []).join(','),
+      sc,
+      climate,
+      activePackId,
+    ].join('|');
+    if (syncKey === this.lastPedestrianOutfitSyncKey) return;
+    this.lastPedestrianOutfitSyncKey = syncKey;
+
+    this.pedestrianPool.forEach((p, idx) => {
+      if (p.actor.group.userData?.isSecretNpc === true) return;
+      const resolved = resolveActivePatronOutfit({
+        activeScenery: sc,
+        climateState: climate,
+        unlockedPatronOutfits: this.gameState.unlockedPatronOutfits || [],
+        mode: outfitMode,
+        equippedOutfitId: this.gameState.equippedPatronOutfitId ?? null,
+        enabledCustomMixIds: this.gameState.enabledCustomPatronOutfits || [],
+        isSecretNpc: false,
+        rng: () => ((idx * 41 + 17) % 100) / 100,
+      });
+      const desiredOutfit =
+        resolved.outfitId
+          ? { id: resolved.outfitId, climate: resolved.climateVariant }
+          : null;
+      const desiredKey = desiredOutfit
+        ? `${activePackId}:${desiredOutfit.id}:${desiredOutfit.climate}`
+        : `${activePackId}:standard`;
+      if (p.appliedOutfitKey === desiredKey) return;
+
+      const wasVisible = p.actor.group.visible;
+      const prevPos = p.actor.group.position.clone();
+      const prevRotY = p.actor.group.rotation.y;
+      const prevCupVisible = p.actor.heldCup.visible;
+      const prevPhoneVisible = p.actor.phoneMesh.visible;
+      const prevVessel = p.actor.appliedVesselType;
+
+      // Detach reusable behavior props before removing old actor group
+      if (p.dogRig) p.actor.group.remove(p.dogRig.root);
+      if (p.lanternGroup) p.actor.rightElbowJoint.remove(p.lanternGroup);
+      if (p.hikerGear) p.actor.torsoGroup.remove(p.hikerGear);
+      if (p.neonUmbrella) p.actor.torsoGroup.remove(p.neonUmbrella);
+      if (p.footballMesh) p.actor.rightElbowJoint.remove(p.footballMesh);
+
+      this.scene.remove(p.actor.group);
+      p.actor.activityTexture.dispose();
+
+      const rebuilt = this.createCustomerCharacter(
+        p.seed,
+        p.skin,
+        p.shirt,
+        activePackId,
+        undefined,
+        desiredOutfit,
+        null
+      );
+      rebuilt.activitySprite.visible = false;
+      rebuilt.phoneMesh.visible = prevPhoneVisible;
+      rebuilt.heldCup.visible = prevCupVisible;
+      rebuilt.appliedVesselType = prevVessel;
+      this.setVesselVariantVisibility(rebuilt.heldVesselVariants, prevVessel);
+
+      if (p.dogRig) rebuilt.group.add(p.dogRig.root);
+      if (p.lanternGroup) rebuilt.rightElbowJoint.add(p.lanternGroup);
+      if (p.hikerGear) rebuilt.torsoGroup.add(p.hikerGear);
+      if (p.neonUmbrella) rebuilt.torsoGroup.add(p.neonUmbrella);
+      if (p.footballMesh) rebuilt.rightElbowJoint.add(p.footballMesh);
+
+      rebuilt.group.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = false;
+        }
+      });
+      rebuilt.group.position.copy(prevPos);
+      rebuilt.group.rotation.y = prevRotY;
+      rebuilt.group.visible = wasVisible;
+      this.scene.add(rebuilt.group);
+
+      p.actor = rebuilt;
+      p.appliedOutfitKey = desiredKey;
     });
   }
 
@@ -11341,6 +11445,7 @@ export class KlasikCafeScene3D {
     this.redrawOrderTicketTextures();
     this.redrawPosScreenTexture();
     this.syncCustomerActors();
+    this.syncOutdoorPedestrianOutfits();
     this.syncOutdoorBiomeAndLod(false);
   }
 

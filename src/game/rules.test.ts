@@ -92,8 +92,15 @@ import {
   purchaseOrEquipScenery,
   purchasePatronOutfit,
   setPatronOutfitAutoMatch,
+  setPatronOutfitMode,
+  equipManualPatronOutfit,
   toggleCustomPatronOutfit,
   resolvePatronOutfitForSpawn,
+  resolveActivePatronOutfit,
+  SCENERY_TO_OUTFIT_MAP,
+  getSceneryDrinkTempBias,
+  canStartOrderPrep,
+  canServePreparedItem,
   resolveSecretNpcAppearance,
   canSpawnSecretNpc,
   advanceSecretNpcNameIdx,
@@ -191,6 +198,7 @@ test('getDailyOrderQuota returns the unified 35-cup daily real-time owner quota'
 
 test('performCupAction enforces strict sequential step order and blocks premature serve cash exploit', () => {
   let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
   const initialCash = state.cash;
 
   // 1. Attempting to serve an empty/incomplete cup MUST be blocked with $0 cash awarded!
@@ -229,6 +237,7 @@ test('performCupAction enforces strict sequential step order and blocks prematur
 
 test('validateDrinkForServe and serveCurrentCupToCustomer penalize wrong ingredients with customer complaint, $0 tip, and -8% Vibe', () => {
   let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
   const initialCash = state.cash;
   const initialSatisfaction = state.satisfactionScore;
 
@@ -241,6 +250,7 @@ test('validateDrinkForServe and serveCurrentCupToCustomer penalize wrong ingredi
     hasSteamedMilk: true,
     hasIce: false,
     syrup: 'chocolate',
+    createdAt: Date.now() + 10,
   };
 
   const validation = validateDrinkForServe(
@@ -281,7 +291,8 @@ test('getStepDurationMs scales barista step durations with purchased equipment u
 
 test('performCupAction steep_tea brews Artisanal Tea & Cold Refreshers step-by-step', () => {
   let state = createInitialGameState();
-  // Pin Customer 3 (Sora - ordering Earl Grey Vanilla London Fog)
+  // Accept & Pin Customer 3 (Sora - ordering Earl Grey Vanilla London Fog)
+  state = acceptCustomerOrder(state, 'cust-initial-3');
   state.pinnedOrderId = 'cust-initial-3';
 
   state = performCupAction(state, 'quick_brew_step'); // steep_tea at Station 4
@@ -368,6 +379,7 @@ test('catalog contains 50+ unique recipes, upgrades, equipment skins, customer p
 
 test('serveCurrentCupToCustomer seats the served customer at a Garage Garden table and awards +$120 daily quota bonus on 35th cup', () => {
   let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
   state.cupsServedToday = state.dailyOrderQuota - 1;
   state.currentCup = {
     hasGrounds: true,
@@ -377,6 +389,7 @@ test('serveCurrentCupToCustomer seats the served customer at a Garage Garden tab
     hasSteamedMilk: true,
     hasIce: false,
     syrup: 'none',
+    createdAt: Date.now() + 10,
   };
   const prevCash = state.cash;
   const nextState = serveCurrentCupToCustomer(state);
@@ -713,6 +726,7 @@ test('Phase 6: every Garage-Garden lounge table and chair is strictly clear of t
 
 test('Phase 2 Anti-Exploit: authoritative single-flight step lock blocks rapid-tap shortcuts & serves until duration expires', () => {
   let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
   const t0 = 10_000;
 
   // Create an active lock for 'grind' (1800ms on starter equipment)
@@ -744,6 +758,7 @@ test('Phase 2 Anti-Exploit: authoritative single-flight step lock blocks rapid-t
       hasSteamedMilk: true,
       hasIce: false,
       syrup: 'none' as const,
+      createdAt: t0 + 50,
     },
   };
   const spamServe = serveCurrentCupToCustomer(readyLocked, undefined, t0 + 400);
@@ -814,7 +829,8 @@ test('Phase 2: getOrderVesselType selects all 4 authentic vessels (hot-mug, iced
 
 test('Phase 2: serving a Takeout order routes the customer straight to departing without occupying an indoor lounge chair', () => {
   let state = createInitialGameState();
-  // Pin Kenji (takeout Iced Caramel Macchiato)
+  // Accept & Pin Kenji (takeout Iced Caramel Macchiato)
+  state = acceptCustomerOrder(state, 'cust-initial-2');
   state.pinnedOrderId = 'cust-initial-2';
   state.currentCup = {
     hasGrounds: true,
@@ -824,6 +840,7 @@ test('Phase 2: serving a Takeout order routes the customer straight to departing
     hasSteamedMilk: true,
     hasIce: true,
     syrup: 'caramel',
+    createdAt: Date.now() + 10,
   };
 
   const next = serveCurrentCupToCustomer(state);
@@ -1225,6 +1242,11 @@ test('V2 Phase 2: Device-clock Time Realism maps all 5 time bands and combines c
 test('V2 Phase 6: Pastries catalog has 3 pastries and preparePastry is 100% decoupled from active coffee cup steps', () => {
   assert.equal(PASTRY_CATALOG.length, 3);
   let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
+  // Ensure accepted order also requests a pastry so 2 pending items (drink + pastry) can be staged simultaneously
+  state.customers = state.customers.map((c) =>
+    c.id === 'cust-initial-1' ? { ...c, requestedPastry: 'miata-cake' as const } : c
+  );
   // Start brewing coffee (Grind + Tamp)
   state = performCupAction(state, 'grind');
   state = performCupAction(state, 'tamp');
@@ -1330,6 +1352,10 @@ test('Expansion Phase 1: Delivery Rider spawn probability is 50%–80% with pity
 
 test('Expansion Phase 1: returnPreparedPastry clears plated pastry back to display case with zero cash penalty and untouched coffee cup', () => {
   let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
+  state.customers = state.customers.map((c) =>
+    c.id === 'cust-initial-1' ? { ...c, requestedPastry: 'miata-cake' as const } : c
+  );
   state = performCupAction(state, 'grind');
   state = preparePastry(state, 'miata-cake');
   const cashBefore = state.cash;
@@ -2081,6 +2107,208 @@ test('Detail Polishing & Performance Optimization Plan (Phases 1–5): indoor ha
   assert.ok(houseFloor - 4.5 <= frontGround, 'Retaining plinth (-4.5) must anchor deeply below downhill terrain');
   assert.ok(houseFloor >= backGround - 0.72, 'House main floor must avoid burying windows inside uphill slope');
 });
+
+test('Extended Detail Polish Phase 2: Cold-climate drink bias rolls ~95% hot / ~5% iced on switzerland_hilltop & mt_everest and stays balanced elsewhere', () => {
+  assert.deepEqual(getSceneryDrinkTempBias('switzerland_hilltop'), { hotWeight: 0.95, icedWeight: 0.05 });
+  assert.deepEqual(getSceneryDrinkTempBias('mt_everest'), { hotWeight: 0.95, icedWeight: 0.05 });
+  assert.deepEqual(getSceneryDrinkTempBias('busy_street'), { hotWeight: 0.5, icedWeight: 0.5 });
+
+  // Deterministic LCG PRNG
+  const makeRng = (seedInit: number) => {
+    let s = seedInit >>> 0;
+    return () => {
+      s = (Math.imul(1664525, s) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+  };
+
+  for (const coldScenery of ['switzerland_hilltop', 'mt_everest'] as const) {
+    const rng = makeRng(coldScenery === 'switzerland_hilltop' ? 12345 : 67890);
+    let hotCount = 0;
+    let icedCount = 0;
+    const N = 2000;
+    for (let i = 0; i < N; i++) {
+      const order = spawnCustomerOrder(1, i, undefined, rng, coldScenery);
+      if (isColdOrIcedOrder(order)) icedCount++;
+      else hotCount++;
+    }
+    const hotRatio = hotCount / N;
+    const icedRatio = icedCount / N;
+    assert.ok(hotRatio >= 0.9, `Expected ${coldScenery} hotRatio >= 0.90, got ${hotRatio}`);
+    assert.ok(
+      icedRatio > 0 && icedRatio <= 0.1,
+      `Expected ${coldScenery} icedRatio in (0, 0.10], got ${icedRatio}`
+    );
+  }
+
+  // Non-cold scenery maintains balanced hot/iced mix
+  const warmRng = makeRng(424242);
+  let warmIced = 0;
+  const N = 1000;
+  for (let i = 0; i < N; i++) {
+    const order = spawnCustomerOrder(1, i, undefined, warmRng, 'busy_street');
+    if (isColdOrIcedOrder(order)) warmIced++;
+  }
+  const warmIcedRatio = warmIced / N;
+  assert.ok(
+    warmIcedRatio >= 0.3 && warmIcedRatio <= 0.7,
+    `Expected balanced iced ratio on busy_street, got ${warmIcedRatio}`
+  );
+});
+
+test('Extended Detail Polish Phase 2: Manual Patron Outfit control, Custom Mix, Opt-In Auto-Match & Double-Layer Secret NPC immunity', () => {
+  const initial = createInitialGameState();
+  // Default: autoMatch OFF, manual mode with Standard Casual (null)
+  assert.equal(initial.patronOutfitAutoMatch, false);
+  assert.equal(initial.patronOutfitMode, 'manual');
+  assert.equal(initial.equippedPatronOutfitId, null);
+
+  let state = unlockAllEverythingCheat(initial);
+
+  // 1. Manual Single Equip ignores active scenery
+  state = equipManualPatronOutfit(state, 'french');
+  assert.equal(state.patronOutfitMode, 'manual');
+  assert.equal(state.equippedPatronOutfitId, 'french');
+  for (const scId of ALL_SCENERY_IDS) {
+    const res = resolveActivePatronOutfit({
+      activeScenery: scId,
+      climateState: 'summer',
+      unlockedPatronOutfits: state.unlockedPatronOutfits,
+      mode: state.patronOutfitMode,
+      equippedOutfitId: state.equippedPatronOutfitId,
+      enabledCustomMixIds: state.enabledCustomPatronOutfits,
+    });
+    assert.equal(res.outfitId, 'french', `Manual equip must apply on ${scId}`);
+  }
+
+  // Standard Casual manual equip returns null across all sceneries
+  state = equipManualPatronOutfit(state, null);
+  assert.equal(state.equippedPatronOutfitId, null);
+  const stdRes = resolveActivePatronOutfit({
+    activeScenery: 'japanese_tranquility',
+    climateState: 'summer',
+    unlockedPatronOutfits: state.unlockedPatronOutfits,
+    mode: 'manual',
+    equippedOutfitId: null,
+    enabledCustomMixIds: ['filipino', 'french'],
+  });
+  assert.equal(stdRes.outfitId, null);
+
+  // 2. Custom Mix only returns outfits inside enabledCustomMixIds
+  state = setPatronOutfitMode(state, 'custom_mix');
+  const pool = ['filipino', 'french'] as const;
+  for (let i = 0; i < 20; i++) {
+    const res = resolveActivePatronOutfit({
+      activeScenery: 'cyberpunk_neon',
+      climateState: 'summer',
+      unlockedPatronOutfits: state.unlockedPatronOutfits,
+      mode: 'custom_mix',
+      equippedOutfitId: 'ancient_japanese',
+      enabledCustomMixIds: [...pool],
+      rng: () => (i % 10) / 10,
+    });
+    assert.ok(res.outfitId !== null && (pool as readonly string[]).includes(res.outfitId));
+  }
+
+  // 3. Opt-in Auto-Match resolves accurately across all 9 sceneries
+  assert.equal(Object.keys(SCENERY_TO_OUTFIT_MAP).length, 9);
+  for (const scId of ALL_SCENERY_IDS) {
+    const expected = SCENERY_TO_OUTFIT_MAP[scId];
+    const climate = scId === 'mt_everest' || scId === 'switzerland_hilltop' ? 'winter' : 'summer';
+    const res = resolveActivePatronOutfit({
+      activeScenery: scId,
+      climateState: climate,
+      unlockedPatronOutfits: state.unlockedPatronOutfits,
+      mode: 'auto_match',
+      equippedOutfitId: 'ancient_japanese',
+      enabledCustomMixIds: ['filipino'],
+    });
+    assert.equal(res.outfitId, expected, `Auto-match mismatch for ${scId}`);
+  }
+
+  // 4. Secret NPC (Beb / Anton / Duminiki) is 100% immune across ALL 3 modes and ALL 9 sceneries
+  for (const mode of ['manual', 'custom_mix', 'auto_match'] as const) {
+    for (const scId of ALL_SCENERY_IDS) {
+      const secretRes = resolveActivePatronOutfit({
+        activeScenery: scId,
+        climateState: 'winter',
+        unlockedPatronOutfits: state.unlockedPatronOutfits,
+        mode,
+        equippedOutfitId: 'french',
+        enabledCustomMixIds: ['filipino', 'french', 'swiss'],
+        isSecretNpc: true,
+      });
+      assert.equal(secretRes.outfitId, null, `Secret NPC must be immune in ${mode} on ${scId}`);
+      assert.equal(secretRes.isSecretBypass, true);
+    }
+  }
+});
+
+test('Extended Detail Polish Phase 2: Pre-acceptance order crafting & serve anti-exploit guards', () => {
+  // Unit guard checks
+  assert.deepEqual(canStartOrderPrep({ acceptedOrders: [], activePrepCount: 0 }), {
+    allowed: false,
+    reason: 'no_accepted_order',
+  });
+  assert.deepEqual(
+    canStartOrderPrep({
+      acceptedOrders: [{ id: 'o1', acceptedAt: 100, pendingItemCount: 1 }],
+      activePrepCount: 0,
+    }),
+    { allowed: true }
+  );
+  assert.deepEqual(
+    canStartOrderPrep({
+      acceptedOrders: [{ id: 'o1', acceptedAt: 100, pendingItemCount: 1 }],
+      activePrepCount: 1,
+    }),
+    { allowed: false, reason: 'slot_cap_reached' }
+  );
+  assert.equal(canServePreparedItem(100, 150), false);
+  assert.equal(canServePreparedItem(150, 150), true);
+  assert.equal(canServePreparedItem(220, 150), true);
+
+  // End-to-end state enforcement: 0 accepted orders blocks grind, quick_brew_step, and preparePastry
+  let state = createInitialGameState();
+  const blockedGrind = performCupAction(state, 'grind');
+  assert.equal(blockedGrind.currentCup.hasGrounds, false);
+  assert.ok(blockedGrind.lastActionFeedback.includes('Accept a customer'));
+
+  const blockedPastry = preparePastry(state, 'croissant');
+  assert.equal(blockedPastry.preparedPastry, null);
+  assert.ok(blockedPastry.lastActionFeedback.includes('Accept a customer'));
+
+  // Even if a pre-accepted cup were injected with createdAt < acceptedAt, serve MUST reject it!
+  let acceptedState = acceptCustomerOrder(state, 'cust-initial-1');
+  const acceptedAt = acceptedState.customers.find((c) => c.id === 'cust-initial-1')?.acceptedAt ?? 1000;
+  acceptedState = {
+    ...acceptedState,
+    currentCup: {
+      hasGrounds: true,
+      isTamped: true,
+      hasEspresso: true,
+      hasSteepedTea: false,
+      hasSteamedMilk: true,
+      hasIce: false,
+      syrup: 'none',
+      createdAt: acceptedAt - 500,
+    },
+  };
+  const rejectedServe = serveCurrentCupToCustomer(acceptedState);
+  assert.equal(rejectedServe.cupsServedToday, 0);
+  assert.ok(rejectedServe.lastActionFeedback.includes('before accepting this order'));
+
+  // Anti-stashing cap: with 1 accepted drink-only order and 1 active cup in progress, cannot also stash a pastry
+  let normalState = acceptCustomerOrder(state, 'cust-initial-1');
+  normalState = performCupAction(normalState, 'grind');
+  assert.equal(normalState.currentCup.hasGrounds, true);
+  const stashedPastry = preparePastry(normalState, 'croissant');
+  assert.equal(stashedPastry.preparedPastry, null);
+  // Modifying the existing in-progress cup is still allowed!
+  normalState = performCupAction(normalState, 'tamp');
+  assert.equal(normalState.currentCup.isTamped, true);
+});
+
 
 
 
