@@ -138,8 +138,12 @@ import {
   ROAD_ELEVATION_LAYERS,
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
+  T_JUNCTION_BUILDING_FRONT_X,
+  T_JUNCTION_FAR_SIDEWALK_WIDTH,
+  T_JUNCTION_OUTER_EDGE,
   computeLeashTransform,
   computeFavelaHouseFloorY,
+  easeInOutCubic,
   evaluateAerialTurnPath,
   evaluateCornerTurnPath,
   getEiffelRoadPose,
@@ -149,6 +153,7 @@ import {
   getSceneryOutdoorBehaviors,
   getSceneryRoadTopology,
   getSceneryStreetlightSpec,
+  hasCornerTurnCurbClearance,
   hasStreetTrafficScenery,
   isUrbanStreetScenery,
   stepTwoLaneTraffic,
@@ -2308,6 +2313,37 @@ test('Extended Detail Polish Phase 2: Pre-acceptance order crafting & serve anti
   normalState = performCupAction(normalState, 'tamp');
   assert.equal(normalState.currentCup.isTamped, true);
 });
+
+test('Detail Polish Phase 3: Global T-Junction curb geometry, vehicle turning clearance, and doorway cubic easing', () => {
+  assert.ok(Math.abs(T_JUNCTION_OUTER_EDGE - 37.7) < 1e-6);
+  assert.ok(T_JUNCTION_FAR_SIDEWALK_WIDTH >= 2.6, 'Far-side pedestrian sidewalk must be >= 2.6 units wide');
+  assert.ok(
+    Math.abs(T_JUNCTION_BUILDING_FRONT_X - (T_JUNCTION_OUTER_EDGE + T_JUNCTION_FAR_SIDEWALK_WIDTH)) < 1e-6,
+    'End-of-road buildings must sit flush behind far-side pedestrian sidewalk'
+  );
+  // Default urban corner turn (turnStart=29.0, turnRadius=4.6) clears far-side curb with >= 0.6u margin
+  assert.equal(hasCornerTurnCurbClearance(29.0, 4.6), true);
+  // Oversized turn that reaches past 37.1u would clip the far-side curb and MUST fail clearance
+  assert.equal(hasCornerTurnCurbClearance(33.5, 4.6), false);
+
+  // Verify evaluateCornerTurnPath stays strictly inside T_JUNCTION_OUTER_EDGE across the full arc
+  for (let u = 29.0; u <= 42.0; u += 0.5) {
+    const poseRight = evaluateCornerTurnPath(u, -10.3, 1, 29.0, 4.6, -1);
+    assert.ok(
+      Math.abs(poseRight.x) <= T_JUNCTION_OUTER_EDGE - 1.5,
+      `Turning vehicle at u=${u} overshot T-junction outer edge: x=${poseRight.x}`
+    );
+  }
+
+  // Smooth cubic ease-in-out bounds & monotonicity for animated doorways
+  assert.equal(easeInOutCubic(-0.2), 0);
+  assert.equal(easeInOutCubic(0), 0);
+  assert.equal(easeInOutCubic(0.5), 0.5);
+  assert.equal(easeInOutCubic(1), 1);
+  assert.equal(easeInOutCubic(1.5), 1);
+  assert.ok(easeInOutCubic(0.25) < 0.25 && easeInOutCubic(0.75) > 0.75);
+});
+
 
 
 

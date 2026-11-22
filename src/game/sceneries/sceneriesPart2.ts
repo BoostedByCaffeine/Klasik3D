@@ -8,6 +8,7 @@ import {
 import { evaluateAerialTurnPath } from '../outdoorLod';
 import {
   addSurrounding360Context,
+  createAnimatedDoorwayCluster,
   createProceduralFacadeTextures,
 } from './surroundingContext';
 
@@ -668,6 +669,32 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   let chaseX = -54;
   let chaseCooldown = 8.0; // First roll happens soon, then low-chance every 14s
 
+  // Phase 3: Split sliding cyber storefront doors with cyan/amber frame status strip (outdoor-only)
+  const cyberDoorXs = [-14.2, -6.4, 7.4, 14.5];
+  const cyberPodiumMat = new THREE.MeshStandardMaterial({
+    color: 0x101526,
+    roughness: 0.45,
+    metalness: 0.62,
+  });
+  cyberDoorXs.forEach((dx) => {
+    const kioskBase = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.1, 2.2), cyberPodiumMat);
+    kioskBase.position.set(dx, 1.55, -19.7);
+    root.add(kioskBase);
+  });
+  const acrossCyberDoors = createAnimatedDoorwayCluster(
+    'cyberpunk_neon',
+    'cyber_split_slide',
+    cyberDoorXs.map((dx, idx) => ({
+      x: dx,
+      z: -18.58,
+      facingZ: 1 as const,
+      width: 1.5,
+      height: 2.22,
+      seed: idx * 13 + 7,
+    }))
+  );
+  root.add(acrossCyberDoors.group);
+
   const ctx = addSurrounding360Context(root, 'cyberpunk_neon');
   disableShadowsRecursive(root);
 
@@ -682,8 +709,11 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
       skyTintNight: 0x060714,
       neonRain: true,
     },
-    update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRaining = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRaining, outside);
+      acrossCyberDoors.update(dt, elapsed, isNight, isRaining, outside);
       towerMat.emissiveIntensity = isNight ? 1.35 : 0.72;
       groundMat.roughness = weather.startsWith('rainy') ? 0.12 : 0.24;
       puddleCyanMat.emissiveIntensity = isNight ? 0.92 : 0.45;

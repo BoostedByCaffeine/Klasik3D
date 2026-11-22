@@ -7,6 +7,7 @@ import {
 } from './sceneryTypes';
 import {
   addSurrounding360Context,
+  createAnimatedDoorwayCluster,
   createProceduralFacadeTextures,
 } from './surroundingContext';
 import {
@@ -257,13 +258,16 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
     mullionV.position.set(-b.w * 0.14, 1.15, b.d / 2 + 0.055);
     bGroup.add(mullionV);
 
-    const shopDoor = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1.72, 0.08), doorWoodMat);
-    shopDoor.position.set(b.w * 0.3, 0.9, b.d / 2 + 0.03);
-    bGroup.add(shopDoor);
+    const animatedDoorIndices = new Set([1, 2, 4, 5]);
+    if (!animatedDoorIndices.has(bIdx)) {
+      const shopDoor = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1.72, 0.08), doorWoodMat);
+      shopDoor.position.set(b.w * 0.3, 0.9, b.d / 2 + 0.03);
+      bGroup.add(shopDoor);
 
-    const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.78), windowWarmMat);
-    doorGlass.position.set(b.w * 0.3, 1.24, b.d / 2 + 0.078);
-    bGroup.add(doorGlass);
+      const doorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.78), windowWarmMat);
+      doorGlass.position.set(b.w * 0.3, 1.24, b.d / 2 + 0.078);
+      bGroup.add(doorGlass);
+    }
 
     const awningGroup = new THREE.Group();
     const awningBody = new THREE.Mesh(
@@ -606,6 +610,25 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
   farCaps.instanceMatrix.needsUpdate = true;
   root.add(farInst, farCaps);
 
+  // Phase 3: Animated across-the-street hinged storefront entrances + outdoor NPCs (skipped indoors)
+  const acrossDoorPlacements = [1, 2, 4, 5].map((idx) => {
+    const b = storefrontSpecs[idx];
+    return {
+      x: b.x + b.w * 0.3,
+      z: -18.2,
+      facingZ: 1 as const,
+      width: 0.96,
+      height: 1.92,
+      seed: idx * 7 + 3,
+    };
+  });
+  const acrossDoors = createAnimatedDoorwayCluster(
+    'busy_street',
+    'hinged_shop',
+    acrossDoorPlacements
+  );
+  root.add(acrossDoors.group);
+
   const ctx = addSurrounding360Context(root, 'busy_street');
   disableShadowsRecursive(root);
 
@@ -613,8 +636,11 @@ export function buildBusyStreetScenery(): SceneryRuntimeInstance {
     id: 'busy_street',
     root,
     envHint: {},
-    update: (_dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRaining = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRaining, outside);
+      acrossDoors.update(dt, elapsed, isNight, isRaining, outside);
       windowWarmMat.emissiveIntensity = isNight ? 1.55 : 0.16;
       windowCoolMat.emissiveIntensity = isNight ? 1.15 : 0.12;
       signEmissiveMat.emissiveIntensity = isNight ? 1.95 : 0.55;
@@ -2246,10 +2272,19 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
     upper.position.y = h - 1.05;
     house.add(upper);
 
-    // Warm glowing shoji sliding door panels on ground floor
-    const shoji = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.92), shojiMat);
-    shoji.position.set(0, 1.12, d / 2 + 0.045);
-    house.add(shoji);
+    // Warm glowing shoji panels on ground floor (leave center doorway clear on animated machiya)
+    const isAnimatedMachiya = idx >= 1 && idx <= 4;
+    if (isAnimatedMachiya) {
+      [-1.24, 1.24].forEach((sx) => {
+        const sideShoji = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.92), shojiMat);
+        sideShoji.position.set(sx, 1.12, d / 2 + 0.045);
+        house.add(sideShoji);
+      });
+    } else {
+      const shoji = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.92), shojiMat);
+      shoji.position.set(0, 1.12, d / 2 + 0.045);
+      house.add(shoji);
+    }
 
     // 3D Wooden Koushi vertical latticework slats across ground facade
     for (let slat = -7; slat <= 7; slat++) {
@@ -2741,6 +2776,22 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   mamachari.add(frameBar, seatTube, handlePost, handleGrip, basket);
   root.add(mamachari);
 
+  // Phase 3: Animated Kyoto machiya sliding hikido/shoji doors + recessed genkan + outdoor NPCs
+  const machiyaDoorPlacements = [1, 2, 3, 4].map((idx) => ({
+    x: machiyaXs[idx],
+    z: -18.25,
+    facingZ: 1 as const,
+    width: 1.22,
+    height: 1.96,
+    seed: idx * 11 + 5,
+  }));
+  const acrossMachiyaDoors = createAnimatedDoorwayCluster(
+    'japanese_tranquility',
+    'kyoto_machiya_slide',
+    machiyaDoorPlacements
+  );
+  root.add(acrossMachiyaDoors.group);
+
   const ctx = addSurrounding360Context(root, 'japanese_tranquility');
   disableShadowsRecursive(root);
 
@@ -2752,8 +2803,11 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
       fogColorNight: 0x111525,
       fogDensityScale: 0.86,
     },
-    update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRaining = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRaining, outside);
+      acrossMachiyaDoors.update(dt, elapsed, isNight, isRaining, outside);
       shojiMat.emissiveIntensity = isNight ? 1.5 : 0.25;
       machiyaWallMat.emissiveIntensity = isNight ? 1.35 : 0.16;
       lanternMat.emissiveIntensity = isNight ? 2.2 : 0.72;
