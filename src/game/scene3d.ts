@@ -19,6 +19,7 @@ import {
   MIATA_BAY,
   PastryId,
   PatronOutfitId,
+  PatronOutfitMode,
   SECRET_NPC_COOLDOWN_SEC,
   SceneryId,
   SecretNpcAppearance,
@@ -37,6 +38,7 @@ import {
   isOrderReadyToServe,
   isRainyWeather,
   isStepLockActive,
+  resolveActivePatronOutfit,
   resolveSecretNpcAppearance,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
@@ -503,7 +505,13 @@ interface DeliveryScooterController {
   slotIndex: 0 | 1;
   parkX: number;
   root: THREE.Group;
+  scooterGroup: THREE.Group;
+  bicycleGroup: THREE.Group;
+  hoverScooterGroup: THREE.Group;
   wheels: THREE.Object3D[];
+  bicycleWheels: THREE.Object3D[];
+  hoverThrusterMats: THREE.MeshStandardMaterial[];
+  activeVehicleType: 'scooter' | 'bicycle' | 'hover';
   topBoxLidPivot: THREE.Group;
   headlightMat: THREE.MeshStandardMaterial;
   phase: 'arriving' | 'parked' | 'stowing' | 'departing';
@@ -542,6 +550,8 @@ interface ChampyRig {
   rightEar: THREE.Group;
   leftEyelid: THREE.Mesh;
   rightEyelid: THREE.Mesh;
+  openEyeGroups: THREE.Group[];
+  closedEyeGroups: THREE.Group[];
   leftEyeIrisMat: THREE.MeshStandardMaterial;
   rightEyeIrisMat: THREE.MeshStandardMaterial;
   baseScale: THREE.Vector3;
@@ -1097,6 +1107,15 @@ export class KlasikCafeScene3D {
     return count;
   }
 
+  private setCatEyesClosed(rig: ChampyRig, isClosed: boolean): void {
+    for (let i = 0; i < rig.openEyeGroups.length; i++) {
+      rig.openEyeGroups[i].visible = !isClosed;
+    }
+    for (let i = 0; i < rig.closedEyeGroups.length; i++) {
+      rig.closedEyeGroups[i].visible = isClosed;
+    }
+  }
+
   public petChampy() {
     if (!this.champyRig) return;
     const rig = this.champyRig;
@@ -1104,6 +1123,8 @@ export class KlasikCafeScene3D {
     rig.stateTimer = 0;
     rig.stateDuration = 3.2;
     rig.petTimer = 3.2;
+    rig.blinkDuration = 0;
+    this.setCatEyesClosed(rig, false);
     this.spawnChampyHearts(3);
   }
 
@@ -1168,6 +1189,8 @@ export class KlasikCafeScene3D {
     rig.stateTimer = 0;
     rig.stateDuration = 2.65;
     rig.treatEatTimer = 2.65;
+    rig.blinkDuration = 0;
+    this.setCatEyesClosed(rig, false);
     this.spawnChampyHearts(3);
     this.callbacks.onCatTreatCrunch?.();
   }
@@ -1179,6 +1202,8 @@ export class KlasikCafeScene3D {
     rig.stateTimer = 0;
     rig.stateDuration = 2.6;
     rig.walkInProgress = 0;
+    rig.blinkDuration = 0;
+    this.setCatEyesClosed(rig, false);
     this.spawnChampyHearts(4);
   }
 
@@ -5945,23 +5970,46 @@ export class KlasikCafeScene3D {
     const rightEar = makeEar(1);
     headPivot.add(leftEar, rightEar);
 
-    // Expressive Eyes with exact anatomical Left (+X) vs Right (-X) iris materials!
+    // Expressive Eyes with exact anatomical Left (+X) vs Right (-X) iris materials + closed sleeping/blinking arcs!
+    const openEyeGroups: THREE.Group[] = [];
+    const closedEyeGroups: THREE.Group[] = [];
+    const closedEyeMat = new THREE.MeshStandardMaterial({
+      color: 0x16161a,
+      roughness: 0.72,
+      metalness: 0.05,
+    });
+    const closedArcGeo = new THREE.TorusGeometry(0.0135, 0.0023, 6, 14, Math.PI);
+
     const makeEye = (xSign: number, irisMat: THREE.MeshStandardMaterial): THREE.Mesh => {
       const eyeGroup = new THREE.Group();
       eyeGroup.position.set(xSign * 0.032, 0.012, 0.062);
       eyeGroup.rotation.y = xSign * 0.22;
 
+      const openEyeGroup = new THREE.Group();
       const iris = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 10), irisMat);
       iris.scale.set(1.05, 0.96, 0.55);
-      eyeGroup.add(iris);
+      openEyeGroup.add(iris);
 
       const slit = new THREE.Mesh(new THREE.BoxGeometry(0.0055, 0.021, 0.006), pupilMat);
       slit.position.z = 0.0085;
-      eyeGroup.add(slit);
+      openEyeGroup.add(slit);
 
       const catchlight = new THREE.Mesh(new THREE.SphereGeometry(0.0032, 8, 8), sparkleMat);
       catchlight.position.set(-0.0045, 0.005, 0.0115);
-      eyeGroup.add(catchlight);
+      openEyeGroup.add(catchlight);
+      eyeGroup.add(openEyeGroup);
+      openEyeGroups.push(openEyeGroup);
+
+      // Flush downward-curved closed-eye arc (+0.004 Z forward bias avoids z-fighting against face fur)
+      const closedEyeGroup = new THREE.Group();
+      closedEyeGroup.name = xSign < 0 ? 'closedEyeR' : 'closedEyeL';
+      closedEyeGroup.position.set(0, 0.002, 0.004);
+      const closedArc = new THREE.Mesh(closedArcGeo, closedEyeMat);
+      closedArc.rotation.z = Math.PI;
+      closedEyeGroup.add(closedArc);
+      closedEyeGroup.visible = false;
+      eyeGroup.add(closedEyeGroup);
+      closedEyeGroups.push(closedEyeGroup);
 
       const eyelid = new THREE.Mesh(
         new THREE.SphereGeometry(0.0185, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
@@ -6198,6 +6246,8 @@ export class KlasikCafeScene3D {
       rightEar,
       leftEyelid: rightAnatomicalEyelid,
       rightEyelid: leftAnatomicalEyelid,
+      openEyeGroups,
+      closedEyeGroups,
       leftEyeIrisMat,
       rightEyeIrisMat,
       baseScale,
@@ -6709,6 +6759,8 @@ export class KlasikCafeScene3D {
     rig.headPivot.rotation.z = THREE.MathUtils.damp(rig.headPivot.rotation.z, targetHeadZ, 10, dt);
     rig.leftEyelid.rotation.x = THREE.MathUtils.damp(rig.leftEyelid.rotation.x, targetLid, 16, dt);
     rig.rightEyelid.rotation.x = THREE.MathUtils.damp(rig.rightEyelid.rotation.x, targetLid, 16, dt);
+    const shouldCloseEyes = rig.state === 'sleeping' || rig.blinkDuration > 0;
+    this.setCatEyesClosed(rig, shouldCloseEyes);
     rig.frontLeftLeg.rotation.x = THREE.MathUtils.damp(rig.frontLeftLeg.rotation.x, targetFrontLeftLegX, 12, dt);
     rig.frontRightLeg.rotation.x = THREE.MathUtils.damp(rig.frontRightLeg.rotation.x, targetFrontRightLegX, 12, dt);
     rig.frontLeftLeg.rotation.z = THREE.MathUtils.damp(rig.frontLeftLeg.rotation.z, targetFrontLeftLegZ, 12, dt);
@@ -10481,9 +10533,14 @@ export class KlasikCafeScene3D {
         },
         secretNpcAppearance
       );
+      group.userData.isSecretNpc = true;
+      torsoGroup.userData.isSecretNpc = true;
+      pelvisGroup.userData.isSecretNpc = true;
     } else if (patronOutfit && !isRider) {
       applyPatronOutfitToRig(
         {
+          root: group,
+          isSecretNpc: Boolean(secretNpcAppearance),
           pelvisGroup,
           torsoGroup,
           neckJoint,
@@ -10653,6 +10710,10 @@ export class KlasikCafeScene3D {
     shadow.position.y = 0.015;
     root.add(shadow);
 
+    // Sub-groups for scenery-specific delivery vehicle swapping (Phase 2 Section 1.5)
+    const scooterGroup = new THREE.Group();
+    root.add(scooterGroup);
+
     // Front & Rear Spinning Scooter Wheels (along -X front, +X rear)
     const wheels: THREE.Object3D[] = [];
     const tireGeo = new THREE.TorusGeometry(0.16, 0.055, 8, 18);
@@ -10664,73 +10725,228 @@ export class KlasikCafeScene3D {
       const hub = new THREE.Mesh(hubGeo, chromeMat);
       hub.rotation.x = Math.PI / 2;
       wp.add(tire, hub);
-      root.add(wp);
+      scooterGroup.add(wp);
       wheels.push(wp);
     });
 
     // Step-through floorboard & rear fairing
     const floorboard = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.08, 0.36), darkMat);
     floorboard.position.set(-0.04, 0.24, 0);
-    root.add(floorboard);
+    scooterGroup.add(floorboard);
 
     const rearBody = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.32, 0.4), paintMat);
     rearBody.position.set(0.32, 0.44, 0);
-    root.add(rearBody);
+    scooterGroup.add(rearBody);
 
     const seatMesh = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.11, 0.32), darkMat);
     seatMesh.position.set(0.22, 0.65, 0);
-    root.add(seatMesh);
+    scooterGroup.add(seatMesh);
 
     // Front leg shield & handlebar stem
     const frontShield = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.56, 0.38), paintMat);
     frontShield.position.set(-0.44, 0.54, 0);
     frontShield.rotation.z = -0.18;
-    root.add(frontShield);
+    scooterGroup.add(frontShield);
 
     const frontFender = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.16), paintMat);
     frontFender.position.set(-0.54, 0.38, 0);
-    root.add(frontFender);
+    scooterGroup.add(frontFender);
 
     // Handlebars, grips & twin mirrors
     const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.58, 10), chromeMat);
     handleBar.rotation.x = Math.PI / 2;
     handleBar.position.set(-0.38, 0.88, 0);
-    root.add(handleBar);
+    scooterGroup.add(handleBar);
 
     const headlight = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.068, 0.06, 14), headlightMat);
     headlight.rotation.z = Math.PI / 2;
     headlight.position.set(-0.52, 0.82, 0);
-    root.add(headlight);
+    scooterGroup.add(headlight);
 
     const taillight = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.07, 0.16), taillightMat);
     taillight.position.set(0.66, 0.52, 0);
-    root.add(taillight);
+    scooterGroup.add(taillight);
 
     // Hinged Color-Matched Insulated Delivery Top-Box behind seat
     const topBoxBase = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 0.4), paintMat);
     topBoxBase.position.set(0.58, 0.84, 0);
-    root.add(topBoxBase);
+    scooterGroup.add(topBoxBase);
 
     const topBoxStripe = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.042, 0.41), reflectMat);
     topBoxStripe.position.set(0.58, 0.84, 0);
-    root.add(topBoxStripe);
+    scooterGroup.add(topBoxStripe);
 
     const topBoxLidPivot = new THREE.Group();
     topBoxLidPivot.position.set(0.37, 1.02, 0);
     const lidMesh = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.05, 0.41), paintMat);
     lidMesh.position.set(0.21, 0.025, 0);
     topBoxLidPivot.add(lidMesh);
-    root.add(topBoxLidPivot);
+    scooterGroup.add(topBoxLidPivot);
+
+    // Variant 2: Classic Japanese Delivery Bicycle (Japanese Tranquility — zero scooters)
+    const bicycleGroup = new THREE.Group();
+    const bicycleWheels: THREE.Object3D[] = [];
+    const bikeFrameMat = new THREE.MeshStandardMaterial({
+      color: 0x1f2937,
+      roughness: 0.42,
+      metalness: 0.72,
+    });
+    const woodCrateMat = new THREE.MeshStandardMaterial({
+      color: 0x92400e,
+      roughness: 0.76,
+      metalness: 0.06,
+    });
+    const brassBellMat = new THREE.MeshStandardMaterial({
+      color: 0xd4af37,
+      roughness: 0.25,
+      metalness: 0.88,
+    });
+    const bikeTireGeo = new THREE.TorusGeometry(0.24, 0.024, 8, 20);
+    const spokeGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.46, 5);
+    [-0.56, 0.54].forEach((wx) => {
+      const wp = new THREE.Group();
+      wp.position.set(wx, 0.26, 0);
+      wp.add(new THREE.Mesh(bikeTireGeo, darkMat));
+      for (let s = 0; s < 4; s++) {
+        const sp = new THREE.Mesh(spokeGeo, chromeMat);
+        sp.rotation.z = (s * Math.PI) / 4;
+        wp.add(sp);
+      }
+      bicycleGroup.add(wp);
+      bicycleWheels.push(wp);
+    });
+    // Slender diamond steel frame tubes
+    const addBikeTube = (p1: [number, number, number], p2: [number, number, number], r = 0.015) => {
+      const v1 = new THREE.Vector3(...p1);
+      const v2 = new THREE.Vector3(...p2);
+      const len = v1.distanceTo(v2);
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 7), bikeFrameMat);
+      tube.position.copy(v1).add(v2).multiplyScalar(0.5);
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v2.clone().sub(v1).normalize());
+      bicycleGroup.add(tube);
+    };
+    addBikeTube([-0.56, 0.26, 0], [-0.38, 0.84, 0], 0.016); // Fork + head tube
+    addBikeTube([-0.4, 0.72, 0], [0.16, 0.72, 0], 0.015); // Top tube
+    addBikeTube([-0.42, 0.68, 0], [0.06, 0.34, 0], 0.016); // Down tube
+    addBikeTube([0.06, 0.34, 0], [0.18, 0.76, 0], 0.016); // Seat tube
+    addBikeTube([0.06, 0.34, 0], [0.54, 0.26, 0], 0.013); // Chain stay
+    addBikeTube([0.16, 0.68, 0], [0.54, 0.26, 0], 0.013); // Seat stay
+    const bikeSaddle = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.16), darkMat);
+    bikeSaddle.position.set(0.18, 0.79, 0);
+    bicycleGroup.add(bikeSaddle);
+    const bikeHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.54, 8), chromeMat);
+    bikeHandle.rotation.x = Math.PI / 2;
+    bikeHandle.position.set(-0.36, 0.87, 0);
+    bicycleGroup.add(bikeHandle);
+    const brassBell = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), brassBellMat);
+    brassBell.position.set(-0.36, 0.9, 0.14);
+    bicycleGroup.add(brassBell);
+    // Front basket + rear cedar insulated Klasik coffee crate
+    const frontBasket = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.28), bikeFrameMat);
+    frontBasket.position.set(-0.54, 0.74, 0);
+    bicycleGroup.add(frontBasket);
+    const rearRack = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.03, 0.26), bikeFrameMat);
+    rearRack.position.set(0.5, 0.58, 0);
+    bicycleGroup.add(rearRack);
+    const rearCrate = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.38), woodCrateMat);
+    rearCrate.position.set(0.52, 0.76, 0);
+    bicycleGroup.add(rearCrate);
+    const crateLid = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.045, 0.4), reflectMat);
+    crateLid.position.set(0.52, 0.95, 0);
+    bicycleGroup.add(crateLid);
+    bicycleGroup.visible = false;
+    root.add(bicycleGroup);
+
+    // Variant 3: Cyberpunk Floating Hover-Scooter (zero wheels, cyan/magenta emissive trim & under-thrusters)
+    const hoverScooterGroup = new THREE.Group();
+    const hoverThrusterMats: THREE.MeshStandardMaterial[] = [];
+    const obsidianMat = new THREE.MeshStandardMaterial({
+      color: 0x111318,
+      roughness: 0.26,
+      metalness: 0.72,
+    });
+    const cyanTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00f0ff,
+      emissiveIntensity: 2.2,
+      roughness: 0.15,
+    });
+    const magentaTrimMat = new THREE.MeshStandardMaterial({
+      color: 0xff2a85,
+      emissive: 0xff2a85,
+      emissiveIntensity: 2.1,
+      roughness: 0.15,
+    });
+    const hoverChassis = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.24, 0.44), obsidianMat);
+    hoverChassis.position.set(0.02, 0.26, 0);
+    hoverScooterGroup.add(hoverChassis);
+    const hoverNose = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.48, 6), obsidianMat);
+    hoverNose.rotation.z = Math.PI / 2;
+    hoverNose.position.set(-0.78, 0.3, 0);
+    hoverScooterGroup.add(hoverNose);
+    const hoverCowl = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.46, 0.38), obsidianMat);
+    hoverCowl.position.set(-0.42, 0.56, 0);
+    hoverCowl.rotation.z = -0.28;
+    hoverScooterGroup.add(hoverCowl);
+    const hoverSeat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.32), darkMat);
+    hoverSeat.position.set(0.18, 0.45, 0);
+    hoverScooterGroup.add(hoverSeat);
+    const hoverPod = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.36, 0.42), obsidianMat);
+    hoverPod.position.set(0.56, 0.64, 0);
+    hoverScooterGroup.add(hoverPod);
+    // Cyan & magenta neon trim strips
+    [-0.225, 0.225].forEach((sz) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.036, 0.02), cyanTrimMat);
+      strip.position.set(0.02, 0.28, sz);
+      hoverScooterGroup.add(strip);
+      const podAccent = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.04, 0.02), magentaTrimMat);
+      podAccent.position.set(0.56, 0.68, sz * 0.96);
+      hoverScooterGroup.add(podAccent);
+    });
+    // 2 Glowing under-thruster discs + additive rear neon trail
+    [-0.44, 0.44].forEach((tx) => {
+      const tMat = new THREE.MeshStandardMaterial({
+        color: 0x00f0ff,
+        emissive: 0x00f0ff,
+        emissiveIntensity: 2.0,
+        roughness: 0.1,
+      });
+      hoverThrusterMats.push(tMat);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 0.05, 14), tMat);
+      disc.position.set(tx, 0.12, 0);
+      hoverScooterGroup.add(disc);
+    });
+    const rearTrail = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.85, 0.18),
+      new THREE.MeshBasicMaterial({
+        color: 0xff2a85,
+        transparent: true,
+        opacity: 0.42,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    rearTrail.position.set(1.12, 0.26, 0);
+    hoverScooterGroup.add(rearTrail);
+    hoverScooterGroup.visible = false;
+    root.add(hoverScooterGroup);
 
     this.scene.add(root);
 
-    return {
+    const controller: DeliveryScooterController = {
       customerId,
       variant,
       slotIndex,
       parkX,
       root,
+      scooterGroup,
+      bicycleGroup,
+      hoverScooterGroup,
       wheels,
+      bicycleWheels,
+      hoverThrusterMats,
+      activeVehicleType: 'scooter',
       topBoxLidPivot,
       headlightMat,
       phase: 'arriving',
@@ -10739,6 +10955,25 @@ export class KlasikCafeScene3D {
       arrivedSoundPlayed: false,
       departSoundPlayed: false,
     };
+    this.syncDeliveryRiderVehicle(controller, this.gameState.activeScenery || 'busy_street');
+    return controller;
+  }
+
+  private syncDeliveryRiderVehicle(
+    sc: DeliveryScooterController,
+    sceneryId: SceneryId
+  ): void {
+    const nextType: 'scooter' | 'bicycle' | 'hover' =
+      sceneryId === 'japanese_tranquility'
+        ? 'bicycle'
+        : sceneryId === 'cyberpunk_neon'
+        ? 'hover'
+        : 'scooter';
+    sc.activeVehicleType = nextType;
+    sc.scooterGroup.visible = nextType === 'scooter';
+    sc.bicycleGroup.visible = nextType === 'bicycle';
+    sc.hoverScooterGroup.visible = nextType === 'hover';
+    sc.root.rotation.z = 0;
   }
 
   private disposeDeliveryScooter(customerId: string) {
@@ -10812,11 +11047,27 @@ export class KlasikCafeScene3D {
     this.gameState.customers.forEach((cust, idx) => {
       let actor = this.customerActors.get(cust.id);
 
+      const outfitMode: PatronOutfitMode =
+        this.gameState.patronOutfitMode ??
+        (this.gameState.patronOutfitAutoMatch ? 'auto_match' : 'manual');
+      const liveResolvedOutfit =
+        !cust.isSecretNpc && !cust.isDeliveryRider
+          ? resolveActivePatronOutfit({
+              activeScenery: this.gameState.activeScenery || 'busy_street',
+              climateState: this.gameState.climateState || cust.patronOutfitClimate || 'summer',
+              unlockedPatronOutfits: this.gameState.unlockedPatronOutfits || [],
+              mode: outfitMode,
+              equippedOutfitId: this.gameState.equippedPatronOutfitId ?? null,
+              enabledCustomMixIds: this.gameState.enabledCustomPatronOutfits || [],
+              isSecretNpc: Boolean(cust.isSecretNpc),
+              rng: () => ((idx * 37 + 13) % 100) / 100,
+            })
+          : null;
       const desiredPatronOutfit =
-        !cust.isSecretNpc && !cust.isDeliveryRider && cust.patronOutfitId
+        liveResolvedOutfit && liveResolvedOutfit.outfitId
           ? {
-              id: cust.patronOutfitId,
-              climate: this.gameState.climateState || cust.patronOutfitClimate || 'summer',
+              id: liveResolvedOutfit.outfitId,
+              climate: liveResolvedOutfit.climateVariant,
             }
           : null;
       const desiredOutfitKey = desiredPatronOutfit
@@ -11041,6 +11292,9 @@ export class KlasikCafeScene3D {
     if (sceneryChanged && this.sceneryManager) {
       this.sceneryManager.loadScenery(nextScenery);
       this.syncOutdoorBiomeAndLod(true);
+      for (let i = 0; i < this.deliveryScooters.length; i++) {
+        this.syncDeliveryRiderVehicle(this.deliveryScooters[i], nextScenery);
+      }
     }
 
     if (prevQuality !== newState.graphicsQuality) {
@@ -13998,17 +14252,37 @@ export class KlasikCafeScene3D {
     for (let si = 0; si < this.deliveryScooters.length; si++) {
       const sc = this.deliveryScooters[si];
       sc.headlightMat.emissiveIntensity = isNightOrRainScooter ? 3.2 : 1.6;
+      const isHover = sc.activeVehicleType === 'hover';
+      const isBike = sc.activeVehicleType === 'bicycle';
+      const vehicleY = isHover
+        ? 0.2 + Math.sin(this.elapsed * 4.5 + sc.slotIndex * 1.4) * 0.06
+        : 0.04;
+
+      if (isHover) {
+        const pulse = 1.65 + Math.sin(this.elapsed * 9.0 + sc.slotIndex) * 0.55;
+        for (let ti = 0; ti < sc.hoverThrusterMats.length; ti++) {
+          sc.hoverThrusterMats[ti].emissiveIntensity = pulse;
+        }
+      }
 
       if (sc.phase === 'arriving') {
-        const speed = 5.4;
+        const speed = isBike ? 3.8 : 5.4;
         sc.x = Math.max(sc.parkX, sc.x - speed * dt);
-        sc.root.position.set(sc.x, 0.04, -7.65);
-        for (let wi = 0; wi < sc.wheels.length; wi++) {
-          sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
+        sc.root.position.set(sc.x, vehicleY, -7.65);
+        sc.root.rotation.z = isHover ? 0.065 : 0;
+        if (isBike) {
+          for (let wi = 0; wi < sc.bicycleWheels.length; wi++) {
+            sc.bicycleWheels[wi].rotation.z += (speed / 0.24) * dt;
+          }
+        } else if (!isHover) {
+          for (let wi = 0; wi < sc.wheels.length; wi++) {
+            sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
+          }
         }
         if (sc.x <= sc.parkX + 0.01) {
           sc.x = sc.parkX;
           sc.phase = 'parked';
+          sc.root.rotation.z = 0;
           const riderActor = this.customerActors.get(sc.customerId);
           if (riderActor) {
             riderActor.currentPos.set(sc.parkX, 0, -7.25);
@@ -14017,10 +14291,18 @@ export class KlasikCafeScene3D {
             riderActor.finalGoalKey = '';
           }
         }
+      } else if (sc.phase === 'parked') {
+        if (isHover) {
+          sc.root.position.set(sc.x, vehicleY, -7.65);
+          sc.root.rotation.z = THREE.MathUtils.damp(sc.root.rotation.z, 0, 8, dt);
+        }
       } else if (sc.phase === 'stowing') {
         sc.stowTimer += dt;
         const u = Math.min(1, sc.stowTimer / 0.6);
         sc.topBoxLidPivot.rotation.z = Math.sin(u * Math.PI) * 1.12;
+        if (isHover) {
+          sc.root.position.set(sc.x, vehicleY, -7.65);
+        }
         if (u >= 1) {
           sc.topBoxLidPivot.rotation.z = 0;
           sc.phase = 'departing';
@@ -14030,11 +14312,18 @@ export class KlasikCafeScene3D {
           }
         }
       } else if (sc.phase === 'departing') {
-        const speed = 6.2;
+        const speed = isBike ? 4.4 : 6.2;
         sc.x -= speed * dt;
-        sc.root.position.set(sc.x, 0.04, -7.65);
-        for (let wi = 0; wi < sc.wheels.length; wi++) {
-          sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
+        sc.root.position.set(sc.x, vehicleY, -7.65);
+        sc.root.rotation.z = isHover ? 0.08 : 0;
+        if (isBike) {
+          for (let wi = 0; wi < sc.bicycleWheels.length; wi++) {
+            sc.bicycleWheels[wi].rotation.z += (speed / 0.24) * dt;
+          }
+        } else if (!isHover) {
+          for (let wi = 0; wi < sc.wheels.length; wi++) {
+            sc.wheels[wi].rotation.z += (speed / 0.21) * dt;
+          }
         }
         if (sc.x < -18.0) {
           scootersToDispose.push(sc.customerId);
