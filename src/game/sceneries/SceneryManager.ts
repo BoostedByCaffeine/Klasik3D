@@ -7,6 +7,7 @@ import {
   SceneryEnvironmentHint,
   SceneryRuntimeInstance,
   applyIndoorBackdropCullFilter,
+  batchStaticMeshesByMaterial,
   disableShadowsRecursive,
   disposeObject3D,
   stripRealtimeOutdoorLights,
@@ -115,8 +116,15 @@ export class SceneryManager {
 
     const builder = SCENERY_BUILDERS[sceneryId] || SCENERY_BUILDERS.busy_street;
     const instance = builder();
+    if (instance.windowBackdropGroup) {
+      instance.windowBackdropGroup.userData.alwaysVisibleBackdrop = true;
+    }
+    if (instance.outdoorOnlyGroup) {
+      instance.outdoorOnlyGroup.userData.outdoorOnly = true;
+    }
     stripRealtimeOutdoorLights(instance.root);
     disableShadowsRecursive(instance.root);
+    batchStaticMeshesByMaterial(instance.root);
     this.container.add(instance.root);
     this.current = instance;
     this.activeId = sceneryId;

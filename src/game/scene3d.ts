@@ -605,6 +605,7 @@ export class KlasikCafeScene3D {
   private callbacks: SceneInteractionCallbacks;
   private isSoftwareGl: boolean;
   private isMobileDevice: boolean;
+  private isCapacitor: boolean;
   private resizeObserver: ResizeObserver | null = null;
   private resizeDebounceTimer: number | null = null;
   private renderer: THREE.WebGLRenderer;
@@ -951,8 +952,17 @@ export class KlasikCafeScene3D {
     this.spotifyState = initialSpotifyState;
     this.callbacks = callbacks;
 
-    // 1. Software-WebGL & Mobile GPU detection (for locked 60 FPS on Android)
+    // 1. Software-WebGL, Capacitor APK & Mobile GPU detection (for locked 60 FPS on Android)
+    const capWin = window as unknown as {
+      Capacitor?: { isNativePlatform?: () => boolean };
+      KlasikNativeAudio?: unknown;
+    };
+    this.isCapacitor =
+      window.location.protocol === 'capacitor:' ||
+      Boolean(capWin.Capacitor?.isNativePlatform?.()) ||
+      Boolean(capWin.KlasikNativeAudio);
     this.isMobileDevice =
+      this.isCapacitor ||
       /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
       window.innerWidth <= 960;
 
@@ -1195,17 +1205,18 @@ export class KlasikCafeScene3D {
     const isLow = quality === 'low';
     const isMed = quality === 'medium';
     const dpr = window.devicePixelRatio || 1;
-    // Calibrated Mobile-Safe DPR cap: Mobile <= 1.35 (drops to 1.0 if frame time > 28ms), Desktop <= 1.75
+    // Calibrated Mobile/APK-Safe DPR cap:
+    // Low graphics: 0.8 on Capacitor APK, <= 1.0 elsewhere; Mobile Med/Max <= 1.35; Desktop <= 1.75
     const baseRatio = this.isSoftwareGl
       ? 1.0
+      : isLow
+      ? this.isCapacitor
+        ? 0.8
+        : Math.min(dpr, 1.0)
       : this.isMobileDevice
-      ? isLow
-        ? Math.min(dpr, 0.9)
-        : isMed
+      ? isMed
         ? Math.min(dpr, 1.15)
         : Math.min(dpr, 1.35)
-      : isLow
-      ? 1.0
       : isMed
       ? Math.min(dpr, 1.35)
       : Math.min(dpr, 1.75);
@@ -12396,7 +12407,7 @@ export class KlasikCafeScene3D {
       }
 
       const rawDt = this.clock.getDelta();
-      const dt = Math.min(rawDt, 0.12);
+      const dt = Math.min(rawDt, 0.05);
       this.elapsed += dt;
 
       this.fpsFrames++;

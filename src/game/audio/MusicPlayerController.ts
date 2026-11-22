@@ -516,6 +516,7 @@ export class MusicPlayerController {
   private radioTimeoutId: number | null = null;
   private fadeTimerId: number | null = null;
   private nativePollTimerId: number | null = null;
+  private lastNativePollMs = 0;
   private booted = false;
 
   private state: UnifiedAudioState = {
@@ -788,12 +789,14 @@ export class MusicPlayerController {
       if (extActive) {
         this.switchToExternalSilently();
       }
-      // Lightweight 4s poll while app is visible on Android so starting Spotify from notification shade ducks immediately
+      // Throttled >= 2500ms fallback poll ONLY while in 'external' audio mode & app visible
+      // (zero bridge calls when Audio Mode !== 'external' or inside rAF)
       if (this.nativePollTimerId === null) {
         this.nativePollTimerId = window.setInterval(() => {
           if (document.visibilityState !== 'visible') return;
+          if (this.state.mode !== 'external') return;
           this.refreshExternalAudioStatus(false);
-        }, 4000);
+        }, 3000);
       }
     } else {
       this.setState({
@@ -901,11 +904,15 @@ export class MusicPlayerController {
 
   private handleVisibilityChange = () => {
     if (document.visibilityState !== 'visible') return;
+    if (this.state.mode !== 'external') return;
     this.refreshExternalAudioStatus(true);
   };
 
-  public refreshExternalAudioStatus(triggerNativePush = true) {
+  public refreshExternalAudioStatus(triggerNativePush = true, force = false) {
     if (typeof window === 'undefined' || !window.KlasikNativeAudio) return;
+    const now = Date.now();
+    if (!force && now - this.lastNativePollMs < 2500) return;
+    this.lastNativePollMs = now;
     if (triggerNativePush) {
       try {
         window.KlasikNativeAudio.refreshExternalMediaState?.();

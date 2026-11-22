@@ -28,6 +28,18 @@ function patchManifest() {
     throw new Error(`Missing AndroidManifest.xml at ${MANIFEST_PATH}`);
   }
   let xml = fs.readFileSync(MANIFEST_PATH, 'utf8');
+  if (!/\bandroid:hardwareAccelerated=/.test(xml)) {
+    xml = xml.replace(
+      /(<application\b[^>]*?)(>)/,
+      '$1\n        android:hardwareAccelerated="true"$2'
+    );
+  }
+  if (!/\bandroid:largeHeap=/.test(xml)) {
+    xml = xml.replace(
+      /(<application\b[^>]*?)(>)/,
+      '$1\n        android:largeHeap="true"$2'
+    );
+  }
   if (!/\bandroid:screenOrientation=/.test(xml)) {
     xml = xml.replace(
       /(<activity\b[^>]*?)(>)/,
@@ -67,7 +79,7 @@ function patchManifest() {
     xml = xml.replace('</application>', serviceBlock);
   }
   fs.writeFileSync(MANIFEST_PATH, xml, 'utf8');
-  console.log('[patch-android] Patched AndroidManifest.xml (orientation, vibrate, KlasikMediaListenerService)');
+  console.log('[patch-android] Patched AndroidManifest.xml (hardwareAccelerated, largeHeap, orientation, vibrate, KlasikMediaListenerService)');
 }
 
 function patchStyles() {
@@ -126,6 +138,7 @@ function patchMainActivity() {
   fs.mkdirSync(path.dirname(MAIN_ACTIVITY_PATH), { recursive: true });
   const javaCode = `package com.boostedbycaffeine.klasik3d;
 
+import android.content.pm.ApplicationInfo;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.os.Bundle;
@@ -166,6 +179,10 @@ public class MainActivity extends BridgeActivity {
     private void attachExternalAudioBridge() {
         if (getBridge() == null || getBridge().getWebView() == null) return;
         WebView webView = getBridge().getWebView();
+        // Disable WebView remote debugging in release APKs to avoid Chromium compositor/DevTools overhead
+        boolean isDebuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        WebView.setWebContentsDebuggingEnabled(isDebuggable);
+
         WebSettings settings = webView.getSettings();
         // Allow smooth Web Audio SFX, live internet radio streams & background music playback
         settings.setMediaPlaybackRequiresUserGesture(false);
@@ -214,7 +231,7 @@ public class MainActivity extends BridgeActivity {
 }
 `;
   fs.writeFileSync(MAIN_ACTIVITY_PATH, javaCode, 'utf8');
-  console.log('[patch-android] Wrote sticky immersive MainActivity.java with KlasikNativeAudio bridge & audio focus coexistence');
+  console.log('[patch-android] Wrote sticky immersive MainActivity.java with release WebView hardening & KlasikNativeAudio bridge');
 }
 
 patchManifest();

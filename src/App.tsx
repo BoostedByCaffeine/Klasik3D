@@ -210,11 +210,19 @@ export default function App() {
     };
   }, []);
 
-  // Mirror phase, appVersion & graphics quality (for GFX: LOW backdrop-filter bypass)
+  // Mirror phase, appVersion & graphics quality (for low-fx & capacitor-apk backdrop-filter bypass)
   useEffect(() => {
     document.body.dataset.state = gameState.phase;
     document.body.dataset.version = pwaStatus.appVersion;
     document.documentElement.dataset.gfx = gameState.graphicsQuality;
+    const isLowFx = gameState.graphicsQuality === 'low';
+    const isCapacitorApk =
+      pwaStatus.appVersion === 'apk' ||
+      window.location.protocol === 'capacitor:' ||
+      Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) ||
+      Boolean(window.KlasikNativeAudio);
+    document.body.classList.toggle('low-fx', isLowFx);
+    document.body.classList.toggle('capacitor-apk', isCapacitorApk && gameState.graphicsQuality !== 'max');
     saveGameToStorage(gameState);
   }, [gameState, pwaStatus.appVersion]);
 
@@ -422,7 +430,7 @@ export default function App() {
             window.clearInterval(progressIntervalRef.current);
             progressIntervalRef.current = null;
           }
-        }, 40);
+        }, 200);
       } else {
         setStepProgress(null);
         setStepDurationMs(null);

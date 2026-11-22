@@ -445,17 +445,26 @@
   }
 }
 
-/* GFX: LOW — Lightweight Re-Optimized Single-Pass Obsidian Frosted Glass */
+/* GFX: LOW & Capacitor Android APK — Zero backdrop-filter WebView Rescue (Preserves #09090B Obsidian + Platinum Borders) */
+body.low-fx .hud-glass,
+body.capacitor-apk .hud-glass,
+body.low-fx .glass-panel,
+body.low-fx .glass-pill,
+body.low-fx .glass-hud-btn,
+body.low-fx .title-mono-glass,
+body.capacitor-apk .glass-panel,
+body.capacitor-apk .glass-pill,
+body.capacitor-apk .glass-hud-btn,
+body.capacitor-apk .title-mono-glass,
+[data-gfx='low'] .hud-glass,
 [data-gfx='low'] .glass-panel,
 [data-gfx='low'] .glass-pill,
-[data-gfx='low'] .glass-hud-btn {
-  backdrop-filter: blur(6px) saturate(110%) !important;
-  -webkit-backdrop-filter: blur(6px) saturate(110%) !important;
-  background: linear-gradient(
-    155deg,
-    rgba(24, 24, 27, 0.82) 0%,
-    rgba(9, 9, 11, 0.78) 100%
-  ) !important;
+[data-gfx='low'] .glass-hud-btn,
+[data-gfx='low'] .title-mono-glass {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(9, 9, 11, 0.92) !important;
+  background-color: rgba(9, 9, 11, 0.92) !important;
   border-color: rgba(255, 255, 255, 0.16) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
@@ -464,14 +473,14 @@
   contain: layout style paint;
 }
 
+body.low-fx .glass-modal,
+body.capacitor-apk .glass-modal,
 [data-gfx='low'] .glass-modal {
-  backdrop-filter: blur(8px) saturate(112%) !important;
-  -webkit-backdrop-filter: blur(8px) saturate(112%) !important;
-  background: linear-gradient(
-    160deg,
-    rgba(24, 24, 27, 0.90) 0%,
-    rgba(9, 9, 11, 0.92) 100%
-  ) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(9, 9, 11, 0.94) !important;
+  background-color: rgba(9, 9, 11, 0.94) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 20px 46px -12px rgba(0, 0, 0, 0.78) !important;

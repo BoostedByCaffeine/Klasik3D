@@ -157,10 +157,28 @@ export function batchStaticMeshesByMaterial(container: THREE.Group): void {
   const invContainer = new THREE.Matrix4().copy(container.matrixWorld).invert();
   const relMatrix = new THREE.Matrix4();
 
-  const buckets = new Map<THREE.Material, THREE.Mesh[]>();
+  type ZoneTag = 'backdrop' | 'outdoor' | 'default';
+  interface BucketEntry {
+    mat: THREE.Material;
+    zone: ZoneTag;
+    sig: string;
+    meshes: THREE.Mesh[];
+  }
+  const buckets = new Map<string, BucketEntry>();
+  const matIds = new Map<THREE.Material, number>();
+  let nextMatId = 1;
 
-  const collect = (obj: THREE.Object3D, blocked: boolean) => {
-    const isBlocked = blocked || Boolean(obj.userData?.noMerge);
+  const collect = (obj: THREE.Object3D, blocked: boolean, zone: ZoneTag) => {
+    const nextZone: ZoneTag = obj.userData?.alwaysVisibleBackdrop
+      ? 'backdrop'
+      : obj.userData?.outdoorOnly
+      ? 'outdoor'
+      : zone;
+    const isBlocked =
+      blocked ||
+      Boolean(obj.userData?.noMerge) ||
+      Boolean(obj.userData?.dynamicVisibility);
+
     if (!isBlocked) {
       const mesh = obj as THREE.Mesh;
       const isPlainStaticMesh =
@@ -173,74 +191,68 @@ export function batchStaticMeshesByMaterial(container: THREE.Group): void {
 
       if (isPlainStaticMesh && mesh.geometry.attributes.position) {
         const mat = mesh.material as THREE.Material;
-        let list = buckets.get(mat);
-        if (!list) {
-          list = [];
-          buckets.set(mat, list);
+        let matId = matIds.get(mat);
+        if (!matId) {
+          matId = nextMatId++;
+          matIds.set(mat, matId);
         }
-        list.push(mesh);
+        const attrs = mesh.geometry.attributes;
+        const sig = `${attrs.color ? 'C' : '_'}_${attrs.uv ? 'U' : '_'}`;
+        const key = `${matId}|${nextZone}|${sig}`;
+        let entry = buckets.get(key);
+        if (!entry) {
+          entry = { mat, zone: nextZone, sig, meshes: [] };
+          buckets.set(key, entry);
+        }
+        entry.meshes.push(mesh);
       }
     }
     for (let i = 0; i < obj.children.length; i++) {
-      collect(obj.children[i], isBlocked);
+      collect(obj.children[i], isBlocked, nextZone);
     }
   };
 
-  collect(container, false);
+  collect(container, false, 'default');
 
-  buckets.forEach((meshes, mat) => {
-    if (meshes.length < 3) return; // Keep tiny 1–2 mesh materials untouched
-
-    // Sub-bucket by attribute signature (e.g. with/without vertex color) so mergeGeometries never fails
-    const sigBuckets = new Map<string, THREE.Mesh[]>();
-    for (const m of meshes) {
-      const attrs = m.geometry.attributes;
-      const hasColor = Boolean(attrs.color);
-      const hasUv = Boolean(attrs.uv);
-      const sig = `${hasColor ? 'C' : '_'}_${hasUv ? 'U' : '_'}`;
-      let list = sigBuckets.get(sig);
-      if (!list) {
-        list = [];
-        sigBuckets.set(sig, list);
+  buckets.forEach((entry) => {
+    const groupMeshes = entry.meshes;
+    if (groupMeshes.length < 3) return; // Keep tiny 1–2 mesh materials untouched
+    const prepared: THREE.BufferGeometry[] = [];
+    for (const m of groupMeshes) {
+      const cloned = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+      if (!cloned.attributes.normal) {
+        cloned.computeVertexNormals();
       }
-      list.push(m);
+      for (const key of Object.keys(cloned.attributes)) {
+        if (key !== 'position' && key !== 'normal' && key !== 'uv' && key !== 'color') {
+          cloned.deleteAttribute(key);
+        }
+      }
+      relMatrix.multiplyMatrices(invContainer, m.matrixWorld);
+      cloned.applyMatrix4(relMatrix);
+      prepared.push(cloned);
     }
 
-    sigBuckets.forEach((groupMeshes) => {
-      if (groupMeshes.length < 3) return;
-      const prepared: THREE.BufferGeometry[] = [];
-      for (const m of groupMeshes) {
-        const cloned = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-        if (!cloned.attributes.normal) {
-          cloned.computeVertexNormals();
-        }
-        // Remove extra non-standard attributes if present so all geometries match cleanly
-        for (const key of Object.keys(cloned.attributes)) {
-          if (key !== 'position' && key !== 'normal' && key !== 'uv' && key !== 'color') {
-            cloned.deleteAttribute(key);
-          }
-        }
-        relMatrix.multiplyMatrices(invContainer, m.matrixWorld);
-        cloned.applyMatrix4(relMatrix);
-        prepared.push(cloned);
-      }
+    const merged = mergeGeometries(prepared, false);
+    for (const g of prepared) g.dispose();
+    if (!merged) return;
 
-      const merged = mergeGeometries(prepared, false);
-      for (const g of prepared) g.dispose();
-      if (!merged) return;
+    merged.computeBoundingSphere();
+    const mergedMesh = new THREE.Mesh(merged, entry.mat);
+    mergedMesh.name = `batched_static_${entry.zone}`;
+    mergedMesh.castShadow = false;
+    mergedMesh.receiveShadow = false;
+    if (entry.zone === 'backdrop') {
+      mergedMesh.userData.alwaysVisibleBackdrop = true;
+    } else if (entry.zone === 'outdoor') {
+      mergedMesh.userData.outdoorOnly = true;
+    }
+    container.add(mergedMesh);
 
-      merged.computeBoundingSphere();
-      const mergedMesh = new THREE.Mesh(merged, mat);
-      mergedMesh.name = 'batched_static_scenery';
-      mergedMesh.castShadow = false;
-      mergedMesh.receiveShadow = false;
-      container.add(mergedMesh);
-
-      for (const m of groupMeshes) {
-        m.parent?.remove(m);
-        m.geometry.dispose();
-      }
-    });
+    for (const m of groupMeshes) {
+      m.parent?.remove(m);
+      m.geometry.dispose();
+    }
   });
 }
 
