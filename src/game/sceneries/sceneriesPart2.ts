@@ -11,6 +11,14 @@ import {
   createAnimatedDoorwayCluster,
   createProceduralFacadeTextures,
 } from './surroundingContext';
+import {
+  HIMALAYAN_HORN,
+  SWISS_ALPINE,
+  createMountainRibbonMesh,
+  createRidgedPeakMesh,
+  createSharedMountainMaterial,
+  resolveMountainGraphicsTier,
+} from './mountainRanges';
 
 // ============================================================================
 // PHASE 4: OUTDOOR SCENERIES 6–9 (HIGH-DETAIL MOBILE-OPTIMIZED OVERHAUL)
@@ -979,8 +987,15 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     haussmannMat,
     cityBlocks.length
   );
+  const parisMansardGeo = new THREE.CylinderGeometry(
+    Math.SQRT1_2 * 0.72,
+    Math.SQRT1_2,
+    1.0,
+    4
+  );
+  parisMansardGeo.rotateY(Math.PI / 4);
   const parisMansards = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(0.74, 1.0, 4),
+    parisMansardGeo,
     slateRoofMat,
     cityBlocks.length
   );
@@ -997,8 +1012,8 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     parisBodies.setMatrixAt(idx, dummy.matrix);
 
     dummy.position.set(b.x, b.y + b.h + 0.95, b.z);
-    dummy.rotation.set(0, b.rotY + Math.PI / 4, 0);
-    dummy.scale.set(b.w * 1.04, 1.9, b.d * 1.04);
+    dummy.rotation.set(0, b.rotY, 0);
+    dummy.scale.set(b.w + 0.14, 1.9, b.d + 0.14);
     dummy.updateMatrix();
     parisMansards.setMatrixAt(idx, dummy.matrix);
 
@@ -1864,15 +1879,49 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   valleyRoad.position.set(8, -27.72, -55);
   root.add(valleyRoad);
 
-  // Grounded cliffside rock shoulders framing left & right slopes (outside center vista)
-  const rightCliffMass = new THREE.Mesh(new THREE.ConeGeometry(26, 26, 8), rockMat);
-  rightCliffMass.scale.set(1.2, 1.0, 0.9);
-  rightCliffMass.position.set(32, -14.5, -32);
-  root.add(rightCliffMass);
-  const leftCliffMass = new THREE.Mesh(new THREE.ConeGeometry(26, 25, 8), rockMat);
-  leftCliffMass.scale.set(1.2, 0.95, 0.9);
-  leftCliffMass.position.set(-34, -15.0, -34);
-  root.add(leftCliffMass);
+  // Phase 4: Window-visible backdrop group for procedural SWISS_ALPINE massifs & ribbons
+  const windowBackdropGroup = new THREE.Group();
+  windowBackdropGroup.name = 'switzerland_window_backdrop';
+  windowBackdropGroup.userData.alwaysVisibleBackdrop = true;
+  root.add(windowBackdropGroup);
+
+  const swissMountainMat = createSharedMountainMaterial();
+  const swissTier = resolveMountainGraphicsTier();
+
+  // Grounded sculpted cliffside rock shoulders framing left & right slopes (zero party-hat cones!)
+  const rightCliffMass = createRidgedPeakMesh(
+    {
+      seed: 613,
+      radiusX: 28,
+      radiusZ: 24,
+      height: 28,
+      baseY: -28.2,
+      skirtFloorY: -34,
+      ridgeStretch: 0.3,
+      palette: SWISS_ALPINE,
+      tier: swissTier,
+    },
+    swissMountainMat,
+    'swiss_right_cliff_shoulder'
+  );
+  rightCliffMass.position.set(34, 0, -34);
+  const leftCliffMass = createRidgedPeakMesh(
+    {
+      seed: 641,
+      radiusX: 28,
+      radiusZ: 24,
+      height: 27,
+      baseY: -28.2,
+      skirtFloorY: -34,
+      ridgeStretch: 0.3,
+      palette: SWISS_ALPINE,
+      tier: swissTier,
+    },
+    swissMountainMat,
+    'swiss_left_cliff_shoulder'
+  );
+  leftCliffMass.position.set(-36, 0, -35);
+  windowBackdropGroup.add(rightCliffMass, leftCliffMass);
 
   // Miniature Swiss Valley Village Chalets + Tiny Alpine Church Spire nestled along the glacial lake!
   const valleyChaletSpots: Array<[number, number, number]> = [
@@ -1939,129 +1988,101 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
       viaductGroup.add(arch);
     }
   }
+  // Phase 4: Sculpted Rock Embankments + Recessed Stone Tunnel Portals grounding BOTH ends of the Viaduct!
+  const tunnelBoreMat = new THREE.MeshStandardMaterial({ color: 0x0b0f17, roughness: 0.96 });
+  [-1, 1].forEach((sideSign, sIdx) => {
+    const endX = sideSign * 33.4;
+    // Recessed stone tunnel portal facade & dark bore seated flush onto viaduct deck ends
+    const portalWall = new THREE.Mesh(new THREE.BoxGeometry(2.6, 13.8, 5.2), stoneRetainingMat);
+    portalWall.position.set(endX + sideSign * 0.9, 6.9, 0);
+    viaductGroup.add(portalWall);
+
+    const tunnelBore = new THREE.Mesh(new THREE.BoxGeometry(0.9, 3.6, 2.3), tunnelBoreMat);
+    tunnelBore.position.set(endX - sideSign * 0.25, 10.7, 0);
+    viaductGroup.add(tunnelBore);
+
+    const portalArch = new THREE.Mesh(
+      new THREE.TorusGeometry(1.32, 0.34, 6, 10, Math.PI),
+      stoneRetainingMat
+    );
+    portalArch.rotation.y = Math.PI / 2;
+    portalArch.position.set(endX - sideSign * 0.42, 11.4, 0);
+    viaductGroup.add(portalArch);
+
+    // Massive rocky mountainside embankment enveloping the tunnel portal & plunging into the valley floor
+    const embankment = createRidgedPeakMesh(
+      {
+        seed: 677 + sIdx * 31,
+        radiusX: 16.5,
+        radiusZ: 15.5,
+        height: 24.5,
+        baseY: -0.5,
+        skirtFloorY: -8,
+        ridgeStretch: 0.32,
+        palette: SWISS_ALPINE,
+        tier: swissTier,
+      },
+      swissMountainMat,
+      `swiss_viaduct_embankment_${sIdx}`
+    );
+    embankment.position.set(endX + sideSign * 9.5, 0, 0.5);
+    viaductGroup.add(embankment);
+  });
   root.add(viaductGroup);
 
-  // Layered Multi-Ridge Rugged Swiss Alpine Massifs deeply grounded below valley floor (baseY = -36, ZERO uniform floating cones!)
-  const alpineSkirt = new THREE.Mesh(
-    new THREE.BoxGeometry(310, 14, 52),
-    new THREE.MeshStandardMaterial({ color: 0x3b4859, roughness: 0.94, flatShading: true })
+  // Phase 4: Procedural Continuous SWISS_ALPINE Massif Ribbons (skirtFloorY = -34 <= -30, shared 1 material, ~80% fewer draw calls!)
+  const alpineRangeBack = createMountainRibbonMesh(
+    {
+      seed: 709,
+      arcRadius: 128,
+      startAngle: -1.16,
+      endAngle: 1.16,
+      depth: 44,
+      peakCount: 5,
+      minPeakHeight: 62,
+      maxPeakHeight: 96,
+      baseY: -28.5,
+      skirtFloorY: -34,
+      palette: SWISS_ALPINE,
+      tier: swissTier,
+    },
+    swissMountainMat,
+    'swiss_alpine_range_back'
   );
-  alpineSkirt.position.set(0, -33.0, -124);
-  alpineSkirt.userData.alwaysVisibleBackdrop = true;
-  root.add(alpineSkirt);
+  const alpineRangeMid = createMountainRibbonMesh(
+    {
+      seed: 751,
+      arcRadius: 106,
+      startAngle: -1.04,
+      endAngle: 1.04,
+      depth: 32,
+      peakCount: 4,
+      minPeakHeight: 38,
+      maxPeakHeight: 66,
+      baseY: -28.5,
+      skirtFloorY: -34,
+      palette: SWISS_ALPINE,
+      tier: swissTier,
+    },
+    swissMountainMat,
+    'swiss_alpine_range_mid'
+  );
+  windowBackdropGroup.add(alpineRangeBack, alpineRangeMid);
 
-  const alpineMassifMat = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.88,
-    flatShading: true,
-  });
-  const graniteBaseColor = new THREE.Color(0x3f4a5a);
-  const slateMidColor = new THREE.Color(0x5b6b7f);
-  const snowSummitColor = new THREE.Color(0xf1f7ff);
-  const tmpAlpineColor = new THREE.Color();
-
-  // Build organic single-mesh vertex-colored faceted alpine massif (zero sharp cone-on-cone cutoff seams!)
-  const createAlpinePeakMesh = (
-    radius: number,
-    height: number,
-    radialSegs: number,
-    heightSegs: number,
-    seed: number,
-    snowStartRatio: number
-  ): THREE.Mesh => {
-    const geo = new THREE.ConeGeometry(radius, height, radialSegs, heightSegs);
-    const posAttr = geo.attributes.position as THREE.BufferAttribute;
-    const colors = new Float32Array(posAttr.count * 3);
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vy = posAttr.getY(i);
-      const vz = posAttr.getZ(i);
-      const normH = (vy + height * 0.5) / height; // 0 at base, 1 at apex
-      const angle = Math.atan2(vz, vx);
-      // Organic angular crag displacement (preserve apex & base cleanly)
-      const cragFactor = Math.sin(normH * Math.PI);
-      const radialWarp =
-        1 +
-        cragFactor *
-          (0.14 * Math.sin(angle * 3 + seed * 1.7) + 0.08 * Math.cos(angle * 5 - seed * 2.3));
-      posAttr.setXYZ(i, vx * radialWarp, vy, vz * radialWarp);
-
-      // Irregular jagged natural snowline blending dark granite -> mid slate -> gleaming snow
-      const snowLine =
-        snowStartRatio +
-        0.09 * Math.sin(angle * 3 + seed) +
-        0.05 * Math.cos(angle * 4 - seed * 1.4);
-      if (normH < snowLine - 0.14) {
-        const t = Math.max(0, normH / Math.max(0.1, snowLine - 0.14));
-        tmpAlpineColor.lerpColors(graniteBaseColor, slateMidColor, t);
-      } else if (normH < snowLine + 0.08) {
-        const t = (normH - (snowLine - 0.14)) / 0.22;
-        tmpAlpineColor.lerpColors(slateMidColor, snowSummitColor, Math.max(0, Math.min(1, t)));
-      } else {
-        tmpAlpineColor.copy(snowSummitColor);
-      }
-      colors[i * 3] = tmpAlpineColor.r;
-      colors[i * 3 + 1] = tmpAlpineColor.g;
-      colors[i * 3 + 2] = tmpAlpineColor.b;
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    geo.computeVertexNormals();
-    return new THREE.Mesh(geo, alpineMassifMat);
-  };
-
-  const peakSpecs: Array<{
-    x: number;
-    z: number;
-    r: number;
-    h: number;
-    shoulderDx: number;
-    shoulderScale: number;
-    snowStart: number;
-  }> = [
-    { x: -94, z: -112, r: 44, h: 72, shoulderDx: 18, shoulderScale: 0.68, snowStart: 0.44 },
-    { x: -56, z: -124, r: 42, h: 82, shoulderDx: -16, shoulderScale: 0.72, snowStart: 0.42 },
-    { x: -18, z: -134, r: 46, h: 92, shoulderDx: 19, shoulderScale: 0.74, snowStart: 0.4 },
-    { x: 20, z: -128, r: 44, h: 88, shoulderDx: -17, shoulderScale: 0.7, snowStart: 0.43 },
-    { x: 58, z: -120, r: 42, h: 78, shoulderDx: 16, shoulderScale: 0.68, snowStart: 0.45 },
-    { x: 96, z: -110, r: 44, h: 70, shoulderDx: -18, shoulderScale: 0.66, snowStart: 0.46 },
-  ];
-  peakSpecs.forEach((pk, idx) => {
-    const massif = new THREE.Group();
-    const mainPeak = createAlpinePeakMesh(pk.r, pk.h, 7, 6, idx * 1.9 + 0.4, pk.snowStart);
-    mainPeak.scale.set(1.18, 1.0, 0.82);
-    mainPeak.rotation.y = idx * 0.55;
-    mainPeak.position.set(pk.x, -36.0 + pk.h * 0.5, pk.z);
-    massif.add(mainPeak);
-
-    const shH = pk.h * pk.shoulderScale;
-    const shoulder = createAlpinePeakMesh(
-      pk.r * 0.72,
-      shH,
-      6,
-      5,
-      idx * 2.7 + 1.3,
-      pk.snowStart + 0.08
-    );
-    shoulder.scale.set(1.22, 1.0, 0.78);
-    shoulder.rotation.y = idx * 0.9 + 0.6;
-    shoulder.position.set(pk.x + pk.shoulderDx, -36.0 + shH * 0.5, pk.z + 10);
-    massif.add(shoulder);
-
-    massif.userData.alwaysVisibleBackdrop = true;
-    root.add(massif);
-  });
-
-  // Distant Animated High-Altitude Alpine Ski Gondola anchored cleanly to twin mountain pylons!
+  // Distant Animated High-Altitude Alpine Ski Gondola anchored to grounded lattice steel pylons + concrete footings!
   const gondolaStart = new THREE.Vector3(-42, 8.5, -96);
   const gondolaEnd = new THREE.Vector3(24, 15.5, -102);
-  const gondolaPylonMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7, metalness: 0.45 });
+  const gondolaPylonMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.65, metalness: 0.58 });
   [gondolaStart, gondolaEnd].forEach((pt) => {
-    const pylonH = pt.y + 30;
-    const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.72, pylonH, 6), gondolaPylonMat);
-    pylon.position.set(pt.x, pt.y - pylonH * 0.5, pt.z);
-    const crossArm = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.35, 0.45), gondolaPylonMat);
+    const footingY = -30;
+    const pylonH = pt.y - footingY;
+    const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.88, pylonH, 6), gondolaPylonMat);
+    pylon.position.set(pt.x, footingY + pylonH * 0.5, pt.z);
+    const footing = new THREE.Mesh(new THREE.BoxGeometry(3.2, 4.2, 3.2), stoneRetainingMat);
+    footing.position.set(pt.x, footingY + 2.1, pt.z);
+    const crossArm = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.42, 0.52), gondolaPylonMat);
     crossArm.position.copy(pt);
-    root.add(pylon, crossArm);
+    root.add(pylon, footing, crossArm);
   });
   const gondolaCable = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([gondolaStart, gondolaEnd]),
@@ -2078,6 +2099,7 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   gCabin.position.y = -2.0;
   gondolaCar.add(gHanger, gCabin);
   gondolaCar.position.copy(gondolaStart);
+  gondolaCar.userData.noMerge = true;
   root.add(gondolaCar);
 
   // Multi-tier Snow-Dusted Swiss Spruce Trees strictly framing left & right cliff edges (|x| > 9.0!)
@@ -2136,9 +2158,8 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   spSnowCaps.instanceMatrix.needsUpdate = true;
   root.add(spTrunks, spLower, spUpper, spSnowCaps);
 
-  // === GROUNDED CLIFFSIDE INCLINED ELEVATOR (FUNICULAR) — ZERO CLIPPING! ===
-  // Upper Station sits flush with the cliffside overlook terrace (y = 0.0, z = -19.8);
-  // Lower Station sits clearly on a lower cliffside terrace overlooking the valley (y = -17.2, z = -43.5).
+  // === GROUNDED SWISS FUNICULAR TRACK + STEEL PYLONS + DUAL ALPINE TIMBER LODGES ===
+  // Zero floating gray slabs or unanchored poles!
   const upperPos = new THREE.Vector3(12.2, 0.35, -20.2);
   const lowerPos = new THREE.Vector3(-10.5, -16.8, -43.0);
   const trackVec = new THREE.Vector3().subVectors(upperPos, lowerPos);
@@ -2150,60 +2171,124 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     roughness: 0.38,
     metalness: 0.78,
   });
-  const trackBeam = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.44, trackLen + 0.6), railSteelMat);
-  trackBeam.position.copy(trackMid);
-  trackBeam.lookAt(upperPos);
-  root.add(trackBeam);
+  const trackTimberMat = new THREE.MeshStandardMaterial({ color: 0x543620, roughness: 0.85 });
 
-  // Dual steel running rails atop the viaduct deck
-  [-0.55, 0.55].forEach((offset) => {
-    const subRail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, trackLen + 0.4), snowPeakMat);
-    subRail.position.copy(trackMid).add(new THREE.Vector3(offset, 0.28, 0));
-    subRail.lookAt(upperPos.clone().add(new THREE.Vector3(offset, 0.28, 0)));
-    root.add(subRail);
+  // Open steel twin-girder funicular rail bed (replaces stray flat gray/white slab look!)
+  const funicularTrackGroup = new THREE.Group();
+  funicularTrackGroup.position.copy(trackMid);
+  funicularTrackGroup.lookAt(upperPos);
+  [-0.58, 0.58].forEach((offset) => {
+    const girder = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, trackLen + 0.6), railSteelMat);
+    girder.position.set(offset, 0, 0);
+    funicularTrackGroup.add(girder);
+    const subRail = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.14, trackLen + 0.6), railSteelMat);
+    subRail.position.set(offset, 0.24, 0);
+    funicularTrackGroup.add(subRail);
   });
+  // Timber cross-ties along the inclined track
+  const tieCount = 24;
+  for (let ti = 0; ti < tieCount; ti++) {
+    const tz = -trackLen * 0.48 + (ti / (tieCount - 1)) * trackLen * 0.96;
+    const tie = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.1, 0.24), trackTimberMat);
+    tie.position.set(0, 0.12, tz);
+    funicularTrackGroup.add(tie);
+  }
+  root.add(funicularTrackGroup);
 
-  // 8 solid stone-and-steel trestle piers extending cleanly down into the rock cliff/valley floor
+  // 8 sturdy steel-and-stone support pylons grounded deeply into the rocky hillside (-28.5)
   const pierCount = 8;
   const pierPos = new THREE.Vector3();
   for (let p = 0; p < pierCount; p++) {
     const frac = p / (pierCount - 1);
     pierPos.lerpVectors(lowerPos, upperPos, frac);
-    const pierTopY = pierPos.y - 0.18;
+    const pierTopY = pierPos.y - 0.16;
     const pierBottomY = -28.5;
     const pierH = Math.max(2.0, pierTopY - pierBottomY);
-    const pier = new THREE.Mesh(new THREE.BoxGeometry(1.45, pierH, 1.45), stoneRetainingMat);
-    pier.position.set(pierPos.x, pierBottomY + pierH / 2, pierPos.z);
-    root.add(pier);
+    const stoneBaseH = Math.min(pierH * 0.55, 5.0);
+    const steelShaftH = Math.max(1.2, pierH - stoneBaseH);
+
+    const stoneFoot = new THREE.Mesh(new THREE.BoxGeometry(1.75, stoneBaseH, 1.75), stoneRetainingMat);
+    stoneFoot.position.set(pierPos.x, pierBottomY + stoneBaseH * 0.5, pierPos.z);
+    root.add(stoneFoot);
+
+    const steelPylon = new THREE.Mesh(new THREE.BoxGeometry(0.85, steelShaftH, 0.85), railSteelMat);
+    steelPylon.position.set(pierPos.x, pierBottomY + stoneBaseH + steelShaftH * 0.5, pierPos.z);
+    root.add(steelPylon);
+
+    const saddleCap = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.26, 0.9), railSteelMat);
+    saddleCap.position.set(pierPos.x, pierTopY - 0.08, pierPos.z);
+    root.add(saddleCap);
   }
 
-  // Distinct Upper & Lower Funicular Pavilion Stations with deep stone plinths
-  const stationWallMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.75 });
-  const roofRedMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.62 });
+  // 2 Grounded Swiss Alpine Timber Lodges / Funicular Stations (Lower + Upper endpoints)
+  // Warm lit windows, snow-dusted pitched chalet roofs, overhanging eaves & deep stone deck foundations!
+  const lodgePlasterMat = new THREE.MeshStandardMaterial({ color: 0xf4ede1, roughness: 0.8 });
+  const lodgeSnowRoofMat = new THREE.MeshStandardMaterial({ color: 0xf1f7ff, roughness: 0.84 });
   [
-    { pos: upperPos, offset: new THREE.Vector3(1.6, -0.45, 0.9) },
-    { pos: lowerPos, offset: new THREE.Vector3(-1.4, -0.5, -1.2) },
-  ].forEach(({ pos, offset }) => {
-    const st = new THREE.Group();
-    const foundationH = Math.max(5.5, pos.y + 28.5);
+    { pos: upperPos, offset: new THREE.Vector3(1.8, -0.4, 0.8), rotY: -0.45 },
+    { pos: lowerPos, offset: new THREE.Vector3(-1.6, -0.45, -1.2), rotY: 0.38 },
+  ].forEach(({ pos, offset, rotY }) => {
+    const lodge = new THREE.Group();
+    const foundationH = Math.max(6.5, pos.y + 29.0);
+
+    // Deeply grounded stone deck foundation seated cleanly into hillside
     const foundation = new THREE.Mesh(
-      new THREE.BoxGeometry(4.6, foundationH, 3.8),
+      new THREE.BoxGeometry(5.8, foundationH, 4.8),
       stoneRetainingMat
     );
-    foundation.position.y = -foundationH / 2 - 0.1;
-    st.add(foundation);
-    const base = new THREE.Mesh(new THREE.BoxGeometry(4.2, 2.5, 3.4), stationWallMat);
-    base.position.y = 1.15;
-    st.add(base);
-    const stationWin = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.05), chaletWinMat);
-    stationWin.position.set(0, 1.25, 1.73);
-    st.add(stationWin);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.4, 1.35, 4), roofRedMat);
-    roof.rotation.y = Math.PI / 4;
-    roof.position.y = 3.05;
-    st.add(roof);
-    st.position.copy(pos).add(offset);
-    root.add(st);
+    foundation.position.y = -foundationH * 0.5;
+    lodge.add(foundation);
+
+    // Timber viewing deck & wooden railing wrapping the station platform
+    const deckFloor = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.28, 5.2), chaletWoodMat);
+    deckFloor.position.y = 0.14;
+    lodge.add(deckFloor);
+
+    // Ground-floor stone-and-plaster chalet wall + upper timber chalet story
+    const lowerWall = new THREE.Mesh(new THREE.BoxGeometry(4.8, 1.5, 3.8), lodgePlasterMat);
+    lowerWall.position.y = 0.95;
+    lodge.add(lowerWall);
+    const upperTimber = new THREE.Mesh(new THREE.BoxGeometry(5.0, 1.55, 4.0), chaletWoodMat);
+    upperTimber.position.y = 2.45;
+    lodge.add(upperTimber);
+
+    // Warm lit alpine windows on front & sides
+    [-1.25, 1.25].forEach((wx) => {
+      const winFront = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.95), chaletWinMat);
+      winFront.position.set(wx, 2.35, 2.03);
+      lodge.add(winFront);
+      const winBack = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.95), chaletWinMat);
+      winBack.rotation.y = Math.PI;
+      winBack.position.set(wx, 2.35, -2.03);
+      lodge.add(winBack);
+    });
+    const entryDoor = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.35), chaletWinMat);
+    entryDoor.position.set(0, 0.95, 1.93);
+    lodge.add(entryDoor);
+
+    // Pitched Swiss chalet gable roof with overhanging timber eaves & snow-dusted cap
+    const roofGeo = new THREE.CylinderGeometry(0.18, Math.SQRT1_2, 1.85, 4);
+    roofGeo.rotateY(Math.PI / 4);
+    const roofBase = new THREE.Mesh(roofGeo, chaletRoofMat);
+    roofBase.scale.set(6.0, 1, 5.0);
+    roofBase.position.y = 4.1;
+    lodge.add(roofBase);
+
+    const snowCapGeo = new THREE.CylinderGeometry(0.15, Math.SQRT1_2, 1.7, 4);
+    snowCapGeo.rotateY(Math.PI / 4);
+    const snowCap = new THREE.Mesh(snowCapGeo, lodgeSnowRoofMat);
+    snowCap.scale.set(5.75, 1, 4.75);
+    snowCap.position.y = 4.22;
+    lodge.add(snowCap);
+
+    // Stone chimney
+    const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.4, 0.55), stoneRetainingMat);
+    chimney.position.set(1.5, 4.7, -0.6);
+    lodge.add(chimney);
+
+    lodge.position.copy(pos).add(offset);
+    lodge.rotation.y = rotY;
+    root.add(lodge);
   });
 
   // Animated Red & Glass Swiss Funicular Cabin strictly clamped to [0, 1] along the viaduct!
@@ -2246,6 +2331,7 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   return {
     id: 'switzerland_hilltop',
     root,
+    windowBackdropGroup,
     envHint: {
       fogColorDay: 0xdbeafe,
       fogColorNight: 0x0d1729,
@@ -2538,34 +2624,94 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
     }
   });
 
-  // Massive Jagged Snow-and-Slate Mt. Everest Summit Pyramid + Flanking Himalayan Peaks
+  // Phase 4: Window-visible backdrop group for HIMALAYAN_HORN pyramidal horns & serrated arêtes (Everest / Nuptse / Lhotse)
+  const windowBackdropGroup = new THREE.Group();
+  windowBackdropGroup.name = 'everest_window_backdrop';
+  windowBackdropGroup.userData.alwaysVisibleBackdrop = true;
+  root.add(windowBackdropGroup);
+
   const everestGroup = new THREE.Group();
   everestGroup.position.set(0, 0, -96);
+  everestGroup.userData.alwaysVisibleBackdrop = true;
 
-  const mainSlate = new THREE.Mesh(new THREE.ConeGeometry(42, 56, 5), slateMat);
-  mainSlate.position.set(0, 26, 0);
-  mainSlate.rotation.y = 0.35;
-  everestGroup.add(mainSlate);
+  const himalayanMat = createSharedMountainMaterial();
+  const everestTier = resolveMountainGraphicsTier();
 
-  const mainSnow = new THREE.Mesh(new THREE.ConeGeometry(34, 50, 5), snowMat);
-  mainSnow.position.set(-1.5, 29, 3.5);
-  mainSnow.rotation.y = 0.35;
-  everestGroup.add(mainSnow);
+  // Central Mt. Everest Pyramidal Horn (broad arête silhouette, zero party-hat cone!)
+  const everestHorn = createRidgedPeakMesh(
+    {
+      seed: 809,
+      radiusX: 46,
+      radiusZ: 36,
+      height: 56,
+      baseY: -0.4,
+      skirtFloorY: -26,
+      ridgeStretch: 0.38,
+      palette: HIMALAYAN_HORN,
+      tier: everestTier,
+    },
+    himalayanMat,
+    'everest_summit_horn'
+  );
+  everestGroup.add(everestHorn);
 
-  // Flanking Nuptse & Lhotse ridges
-  const leftPeak = new THREE.Mesh(new THREE.ConeGeometry(28, 36, 5), slateMat);
-  leftPeak.position.set(-34, 17, 10);
-  everestGroup.add(leftPeak);
-  const leftSnow = new THREE.Mesh(new THREE.ConeGeometry(19, 25, 5), snowMat);
-  leftSnow.position.set(-34, 23, 12);
-  everestGroup.add(leftSnow);
+  // Flanking Nuptse (left) & Lhotse (right) Pyramidal Horns
+  const nuptseHorn = createRidgedPeakMesh(
+    {
+      seed: 853,
+      radiusX: 34,
+      radiusZ: 26,
+      height: 39,
+      baseY: -0.4,
+      skirtFloorY: -26,
+      ridgeStretch: 0.34,
+      palette: HIMALAYAN_HORN,
+      tier: everestTier,
+    },
+    himalayanMat,
+    'everest_nuptse_horn'
+  );
+  nuptseHorn.position.set(-38, 0, 10);
+  everestGroup.add(nuptseHorn);
 
-  const rightPeak = new THREE.Mesh(new THREE.ConeGeometry(30, 39, 5), slateMat);
-  rightPeak.position.set(36, 18, 8);
-  everestGroup.add(rightPeak);
-  const rightSnow = new THREE.Mesh(new THREE.ConeGeometry(20, 27, 5), snowMat);
-  rightSnow.position.set(36, 24.5, 10);
-  everestGroup.add(rightSnow);
+  const lhotseHorn = createRidgedPeakMesh(
+    {
+      seed: 887,
+      radiusX: 36,
+      radiusZ: 28,
+      height: 43,
+      baseY: -0.4,
+      skirtFloorY: -26,
+      ridgeStretch: 0.36,
+      palette: HIMALAYAN_HORN,
+      tier: everestTier,
+    },
+    himalayanMat,
+    'everest_lhotse_horn'
+  );
+  lhotseHorn.position.set(40, 0, 8);
+  everestGroup.add(lhotseHorn);
+
+  // Sweeping Himalayan Serrated Arête Background Ridge Ribbon framing the entire horizon
+  const himalayanRibbon = createMountainRibbonMesh(
+    {
+      seed: 919,
+      arcRadius: 122,
+      startAngle: -1.18,
+      endAngle: 1.18,
+      depth: 38,
+      peakCount: 5,
+      minPeakHeight: 28,
+      maxPeakHeight: 50,
+      baseY: -0.5,
+      skirtFloorY: -26,
+      palette: HIMALAYAN_HORN,
+      tier: everestTier,
+    },
+    himalayanMat,
+    'everest_himalayan_arete_ribbon'
+  );
+  windowBackdropGroup.add(himalayanRibbon);
 
   // Animated wind-blown Summit Spindrift Snow particle stream (THREE.Points!)
   const spinCount = 95;
@@ -2587,7 +2733,7 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
     depthWrite: false,
   });
   everestGroup.add(new THREE.Points(spinGeo, spinMat));
-  root.add(everestGroup);
+  windowBackdropGroup.add(everestGroup);
 
   // Multi-tier Snow-Dusted Himalayan Conifers framing the base-camp trail margins
   const firMatA = new THREE.MeshStandardMaterial({ color: 0x264f43, roughness: 0.88 });
@@ -2988,6 +3134,7 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   return {
     id: 'mt_everest',
     root,
+    windowBackdropGroup,
     envHint: {
       fogColorDay: 0xdceeff,
       fogColorNight: 0x0b162a,

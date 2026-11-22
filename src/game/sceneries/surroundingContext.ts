@@ -1157,14 +1157,15 @@ export function addSurrounding360Context(
       roof.position.y = opts.height + 0.82;
       g.add(roof);
     } else if (opts.isParisian) {
-      // Dark-slate mansard roof + terracotta chimney pots
-      const mansard = new THREE.Mesh(
-        new THREE.CylinderGeometry(opts.width * 0.44, opts.width * 0.62, 1.65, 4),
-        corniceMat
-      );
-      mansard.rotation.y = Math.PI / 4;
-      mansard.scale.set(1.16, 1, opts.depth / opts.width);
-      mansard.position.y = opts.height + 0.8;
+      // Dark-slate mansard roof flush on wallTopY (bake 45° rotation into geometry BEFORE non-uniform scale so zero skew!)
+      const mansardH = 1.65;
+      const baseRad = Math.SQRT1_2;
+      const topRad = baseRad * 0.72;
+      const mansardGeo = new THREE.CylinderGeometry(topRad, baseRad, mansardH, 4);
+      mansardGeo.rotateY(Math.PI / 4);
+      const mansard = new THREE.Mesh(mansardGeo, corniceMat);
+      mansard.scale.set(opts.width + 0.16, 1, opts.depth + 0.16);
+      mansard.position.y = opts.height + mansardH * 0.5;
       g.add(mansard);
       const chimney = new THREE.Mesh(
         new THREE.BoxGeometry(0.65, 0.95, 0.55),
@@ -2174,20 +2175,113 @@ export function addSurrounding360Context(
         cornerBlock.position.set(centerX, wallBaseY + blockH * 0.5, -12.5);
         ctxGroup.add(cornerBlock);
 
-        // Phase 4 / Structural Flush Mansard Roof: bottom footprint matches (blockW, blockD) and roofBaseY === wallTopY!
+        // Phase 4 / Structural Flush Mansard Roof: bake 45° rotation BEFORE scaling so bottom footprint matches (blockW, blockD) with zero skew & roofBaseY === wallTopY!
         const mansardH = 2.6;
-        const baseRad = Math.SQRT1_2; // unit 4-sided cylinder rotated 45° has exact 1x1 square base
+        const baseRad = Math.SQRT1_2;
         const topRad = baseRad * 0.72;
-        const mansard = new THREE.Mesh(
-          new THREE.CylinderGeometry(topRad, baseRad, mansardH, 4),
-          parapetMat
-        );
-        mansard.rotation.y = Math.PI / 4;
+        const mansardGeo = new THREE.CylinderGeometry(topRad, baseRad, mansardH, 4);
+        mansardGeo.rotateY(Math.PI / 4);
+        const mansard = new THREE.Mesh(mansardGeo, parapetMat);
         mansard.scale.set(blockW + 0.16, 1, blockD + 0.16);
         mansard.position.set(centerX, wallTopY + mansardH * 0.5, -12.5);
         ctxGroup.add(mansard);
       });
     } else if (sceneryId === 'brazilian_favela') {
+      // Phase 5: Procedural Rio street-art graffiti CanvasTexture murals on BOTH -X and +X end-of-road walls!
+      const createRioGraffitiTexture = (variant: number): THREE.CanvasTexture | null => {
+        if (typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 256;
+        const gctx = canvas.getContext('2d');
+        if (!gctx) return null;
+
+        // Warm weathered red-terracotta brick base
+        gctx.fillStyle = variant === 0 ? '#7c2d12' : '#1e3a5f';
+        gctx.fillRect(0, 0, 512, 256);
+        gctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        gctx.lineWidth = 2;
+        for (let r = 0; r < 16; r++) {
+          const y = r * 16;
+          gctx.beginPath();
+          gctx.moveTo(0, y);
+          gctx.lineTo(512, y);
+          gctx.stroke();
+          const off = (r % 2) * 18;
+          for (let c = -off; c < 512; c += 36) {
+            gctx.beginPath();
+            gctx.moveTo(c, y);
+            gctx.lineTo(c, y + 16);
+            gctx.stroke();
+          }
+        }
+
+        // Bold geometric Rio street-art color blocks
+        const blocks =
+          variant === 0
+            ? [
+                { x: 18, y: 20, w: 150, h: 110, c: '#facc15' },
+                { x: 145, y: 45, w: 170, h: 135, c: '#06b6d4' },
+                { x: 295, y: 18, w: 195, h: 120, c: '#ec4899' },
+                { x: 40, y: 145, w: 220, h: 90, c: '#10b981' },
+                { x: 265, y: 150, w: 210, h: 85, c: '#f97316' },
+              ]
+            : [
+                { x: 22, y: 22, w: 165, h: 120, c: '#10b981' },
+                { x: 170, y: 14, w: 165, h: 130, c: '#f97316' },
+                { x: 320, y: 32, w: 172, h: 115, c: '#facc15' },
+                { x: 38, y: 148, w: 205, h: 86, c: '#ec4899' },
+                { x: 255, y: 142, w: 220, h: 92, c: '#0ea5e9' },
+              ];
+        for (const b of blocks) {
+          gctx.fillStyle = b.c;
+          gctx.fillRect(b.x, b.y, b.w, b.h);
+          gctx.strokeStyle = '#111827';
+          gctx.lineWidth = 5;
+          gctx.strokeRect(b.x, b.y, b.w, b.h);
+        }
+
+        // Stylized tropical palm fronds & toucan silhouette motif
+        gctx.fillStyle = '#14532d';
+        for (let lf = 0; lf < 5; lf++) {
+          gctx.beginPath();
+          gctx.ellipse(90 + lf * 16, 175 - lf * 14, 34, 10, -0.5 + lf * 0.25, 0, Math.PI * 2);
+          gctx.fill();
+        }
+        // Toucan body & golden beak
+        gctx.fillStyle = '#0f172a';
+        gctx.beginPath();
+        gctx.ellipse(415, 130, 28, 42, 0.2, 0, Math.PI * 2);
+        gctx.fill();
+        gctx.fillStyle = '#facc15';
+        gctx.beginPath();
+        gctx.moveTo(432, 104);
+        gctx.lineTo(482, 118);
+        gctx.lineTo(430, 128);
+        gctx.closePath();
+        gctx.fill();
+        gctx.fillStyle = '#f97316';
+        gctx.beginPath();
+        gctx.arc(475, 117, 7, 0, Math.PI * 2);
+        gctx.fill();
+
+        // Bold stylized graffiti lettering with thick dark outline
+        gctx.font = '900 54px sans-serif';
+        gctx.textAlign = 'center';
+        gctx.textBaseline = 'middle';
+        const label = variant === 0 ? 'RIO • ARTE' : 'FAVELA • SOL';
+        gctx.lineWidth = 10;
+        gctx.strokeStyle = '#09090b';
+        gctx.strokeText(label, 250, 122);
+        gctx.fillStyle = '#ffffff';
+        gctx.fillText(label, 250, 122);
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.userData.ownedByScenery = true;
+        return tex;
+      };
+
       // Authentic Rio T-road corner botecos seated strictly behind the far-side sidewalk (|x| = 41.9)
       const botecoColors = [0xf59e0b, 0x06b6d4, 0xf43f5e, 0x10b981];
       const botecoWallMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.9 });
@@ -2202,6 +2296,19 @@ export function addSurrounding360Context(
         const shop = new THREE.Mesh(new THREE.BoxGeometry(shopW, 6.2, 16.0), shopMat);
         shop.position.set(centerX, 3.0, -12.5);
         ctxGroup.add(shop);
+
+        // Vibrant Rio street-art graffiti mural mounted flush on the road-facing wall of BOTH -X and +X ends!
+        const muralTex = createRioGraffitiTexture(eIdx);
+        const muralMat = new THREE.MeshStandardMaterial({
+          map: muralTex ?? undefined,
+          color: 0xffffff,
+          roughness: 0.78,
+        });
+        const muralPlane = new THREE.Mesh(new THREE.PlaneGeometry(13.6, 5.2), muralMat);
+        muralPlane.position.set(sign * (T_JUNCTION_BUILDING_FRONT_X - 0.05), 3.05, -12.5);
+        muralPlane.rotation.y = sign === 1 ? -Math.PI / 2 : Math.PI / 2;
+        ctxGroup.add(muralPlane);
+
         const shop2Mat = new THREE.MeshStandardMaterial({
           color: botecoColors[(eIdx + 2) % botecoColors.length],
           roughness: 0.82,
@@ -2327,11 +2434,13 @@ export function addSurrounding360Context(
       treeCoords.push([tx, tz, 0.85 + (i % 4) * 0.22]);
     }
     // Dense tree groves explicitly closing the -X and +X road ends (x = ±36..±54, z = -16..-8)
+    // Phase 4 Title Screen Miata Clearance: foreground flanking alpine pines shifted laterally outward
+    // from ±6.5 to ±10.4 (>= 3.9u outward, well clear of the parked 1990 Mazda Miata MX-5 windshield!)
     [
-      [-13.4, -7.2, 1.05],
-      [-6.5, -7.5, 0.92],
-      [6.5, -7.5, 0.95],
-      [13.4, -7.2, 1.1],
+      [-14.2, -7.2, 1.05],
+      [-10.4, -7.4, 0.94],
+      [10.4, -7.4, 0.96],
+      [14.2, -7.2, 1.1],
       [-22.0, -9.5, 1.18],
       [22.0, -9.5, 1.16],
       [-36.0, -11.5, 1.35],

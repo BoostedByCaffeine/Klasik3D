@@ -718,3 +718,30 @@ export function computeFavelaHouseFloorY(x: number, z: number, depth: number): n
   return Math.max(frontH, backH - 0.85) + 0.15;
 }
 
+/**
+ * Grounded step-height interpolation for outdoor favela alleyway walkers descending/ascending
+ * stepped hillside staircases onto the main sidewalk (`t = 0` street edge -> `t = 1` upper terrace).
+ */
+export function interpolateAlleyStepY(
+  t: number,
+  alleyBaseX: number,
+  startZ = -17.6,
+  endZ = -34.2,
+  stepCount = 18
+): { x: number; y: number; z: number } {
+  const clamped = Math.max(0, Math.min(1, t));
+  const stepF = clamped * stepCount;
+  const stepIdx = Math.floor(stepF);
+  const stepFrac = stepF - stepIdx;
+  // Smooth micro-riser curve so walker steps cleanly onto each tread without snapping harshly
+  const riserEase = stepFrac < 0.35 ? (stepFrac / 0.35) * (stepFrac / 0.35) : 1;
+  const effectiveStep = Math.min(stepCount, stepIdx + riserEase);
+  const effectiveT = effectiveStep / Math.max(1, stepCount);
+  const z = startZ + (endZ - startZ) * clamped;
+  const x = alleyBaseX + Math.sin(effectiveStep * 0.38) * 1.15;
+  const rawY = getFavelaHillHeight(x, startZ + (endZ - startZ) * effectiveT);
+  const y = clamped <= 0.02 ? 0.08 : rawY + 0.48;
+  return { x, y, z };
+}
+
+

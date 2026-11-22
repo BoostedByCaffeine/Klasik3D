@@ -160,6 +160,16 @@ import {
 } from './outdoorLod';
 import { resolveSecretNpcHairVisibility } from './secretNpc3d';
 import { resolveOutdoorVantageForScenery } from './OutdoorOverlookController';
+import {
+  COASTAL_SIERRA,
+  HIMALAYAN_HORN,
+  MAYON_FOOTHILLS,
+  SWISS_ALPINE,
+  createMountainRangeRibbon,
+  createMountainRibbonMesh,
+  createRidgedPeakGeometry,
+  createSharedMountainMaterial,
+} from './sceneries/mountainRanges';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
   const recipe = getRecipeById('vanilla-oat-latte');
@@ -2343,6 +2353,103 @@ test('Detail Polish Phase 3: Global T-Junction curb geometry, vehicle turning cl
   assert.equal(easeInOutCubic(1.5), 1);
   assert.ok(easeInOutCubic(0.25) < 0.25 && easeInOutCubic(0.75) > 0.75);
 });
+
+test('Detail Polish Phase 4: Procedural mountain ranges bake vertex colors, drop open-bottom skirts to skirtFloorY, and enforce Low vs High triangle budgets', () => {
+  const lowRibbon = createMountainRangeRibbon({
+    seed: 42,
+    arcRadius: 120,
+    startAngle: -1.0,
+    endAngle: 1.0,
+    depth: 36,
+    peakCount: 4,
+    minPeakHeight: 30,
+    maxPeakHeight: 65,
+    baseY: -24,
+    skirtFloorY: -30,
+    palette: SWISS_ALPINE,
+    tier: 'low',
+  });
+  const highRibbon = createMountainRangeRibbon({
+    seed: 42,
+    arcRadius: 120,
+    startAngle: -1.0,
+    endAngle: 1.0,
+    depth: 36,
+    peakCount: 4,
+    minPeakHeight: 30,
+    maxPeakHeight: 65,
+    baseY: -24,
+    skirtFloorY: -30,
+    palette: SWISS_ALPINE,
+    tier: 'high',
+  });
+
+  // Both must have position, normal, color attributes & index buffer
+  assert.ok(lowRibbon.attributes.position);
+  assert.ok(lowRibbon.attributes.normal);
+  assert.ok(lowRibbon.attributes.color);
+  assert.ok(lowRibbon.index);
+  assert.ok(highRibbon.index);
+
+  const lowTris = lowRibbon.index.count / 3;
+  const highTris = highRibbon.index.count / 3;
+  assert.ok(lowTris < highTris, `Low tier (${lowTris}) should have fewer triangles than High tier (${highTris})`);
+  assert.ok(lowTris <= 400, `Low tier mountain ribbon exceeded mobile triangle budget: ${lowTris}`);
+
+  // Verify vertical skirt reaches skirtFloorY (-30) and peaks rise cleanly above baseY
+  const pos = lowRibbon.attributes.position;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  assert.equal(minY, -30, 'Vertical skirt MUST ground strictly down to skirtFloorY');
+  assert.ok(maxY > 0, 'Mountain ribbon peaks must rise well above baseY');
+
+  // Verify createRidgedPeakGeometry & shared material / mesh guards
+  const hornGeo = createRidgedPeakGeometry({
+    seed: 99,
+    radiusX: 40,
+    radiusZ: 32,
+    height: 55,
+    baseY: 0,
+    skirtFloorY: -26,
+    palette: HIMALAYAN_HORN,
+    tier: 'medium',
+  });
+  assert.ok(hornGeo.attributes.color);
+  assert.ok(hornGeo.index);
+
+  const sharedMat = createSharedMountainMaterial();
+  assert.equal(sharedMat.vertexColors, true);
+  assert.equal(sharedMat.flatShading, true);
+
+  const mesh = createMountainRibbonMesh(
+    {
+      seed: 12,
+      arcRadius: 90,
+      startAngle: -0.9,
+      endAngle: 0.9,
+      depth: 28,
+      peakCount: 3,
+      minPeakHeight: 10,
+      maxPeakHeight: 20,
+      baseY: 0,
+      skirtFloorY: -10,
+      palette: MAYON_FOOTHILLS,
+      tier: 'low',
+    },
+    sharedMat
+  );
+  assert.equal(mesh.castShadow, false);
+  assert.equal(mesh.receiveShadow, false);
+  assert.equal(mesh.userData.alwaysVisibleBackdrop, true);
+  assert.equal(COASTAL_SIERRA.snowlineNormalized, 1.5);
+  assert.equal(MAYON_FOOTHILLS.snowlineNormalized, 1.5);
+});
+
 
 
 

@@ -12,8 +12,76 @@ import {
 } from './surroundingContext';
 import {
   computeFavelaHouseFloorY,
+  evaluateCornerTurnPath,
   getFavelaHillHeight,
+  interpolateAlleyStepY,
 } from '../outdoorLod';
+import {
+  COASTAL_SIERRA,
+  MAYON_FOOTHILLS,
+  createMountainRibbonMesh,
+  createRidgedPeakMesh,
+  createSharedMountainMaterial,
+  resolveMountainGraphicsTier,
+} from './mountainRanges';
+
+function createMayonAsphaltTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const w = 256;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Sun-baked tropical Bicol asphalt base
+  ctx.fillStyle = '#383d45';
+  ctx.fillRect(0, 0, w, h);
+
+  // Subtle darker tire-wear wheel tracks
+  ctx.fillStyle = 'rgba(24, 27, 32, 0.24)';
+  ctx.fillRect(0, 44, w, 26);
+  ctx.fillRect(0, 92, w, 24);
+  ctx.fillRect(0, 144, w, 24);
+  ctx.fillRect(0, 188, w, 26);
+
+  // Fine mineral aggregate stone speckles (deterministic hash)
+  for (let i = 0; i < 620; i++) {
+    const px = ((i * 73 + 19) % w);
+    const py = ((i * 131 + 47) % h);
+    const bright = (i % 3) === 0;
+    ctx.fillStyle = bright ? 'rgba(215, 218, 224, 0.14)' : 'rgba(18, 20, 24, 0.18)';
+    ctx.fillRect(px, py, 2, 2);
+  }
+
+  // Concrete/asphalt expansion seams
+  ctx.strokeStyle = 'rgba(22, 25, 30, 0.32)';
+  ctx.lineWidth = 2;
+  for (let sx = 64; sx < w; sx += 128) {
+    ctx.beginPath();
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, h);
+    ctx.stroke();
+  }
+
+  // Faded tropical shoulder edge lines + dashed center divider
+  ctx.fillStyle = 'rgba(241, 245, 249, 0.34)';
+  ctx.fillRect(0, 10, w, 4);
+  ctx.fillRect(0, h - 14, w, 4);
+  ctx.fillStyle = 'rgba(250, 204, 21, 0.42)';
+  for (let dx = 12; dx < w; dx += 48) {
+    ctx.fillRect(dx, h / 2 - 2, 24, 4);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(9, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.userData = { ownedByScenery: true };
+  return tex;
+}
 
 // ============================================================================
 // PHASE 3: OUTDOOR SCENERIES 1–5 (HIGH-DETAIL MOBILE-OPTIMIZED OVERHAUL)
@@ -709,6 +777,31 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   meadow.position.set(0, -0.06, -90);
   root.add(meadow);
 
+  // Phase 5: Procedural weathered asphalt/concrete foreground road overlay (aggregate grain, tire wear, lane lines)
+  const mayonRoadTex = createMayonAsphaltTexture();
+  if (mayonRoadTex) {
+    const mayonRoadMat = new THREE.MeshStandardMaterial({
+      map: mayonRoadTex,
+      color: 0xffffff,
+      roughness: 0.88,
+      metalness: 0.04,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    const mayonRoadOverlay = new THREE.Mesh(new THREE.PlaneGeometry(75.4, 12.2), mayonRoadMat);
+    mayonRoadOverlay.rotation.x = -Math.PI / 2;
+    mayonRoadOverlay.position.set(0, 0.068, -12.6);
+    root.add(mayonRoadOverlay);
+  }
+
+  // Phase 5: Outdoor-only animated detail group (culled + skipped indoors for locked cafe FPS)
+  const outdoorOnlyGroup = new THREE.Group();
+  outdoorOnlyGroup.name = 'mayon_outdoor_only';
+  outdoorOnlyGroup.userData.outdoorOnly = true;
+  outdoorOnlyGroup.userData.noMerge = true;
+  root.add(outdoorOnlyGroup);
+
   // Terraced Bicol emerald rice paddies & glistening irrigation channels in midground
   const paddyMatA = new THREE.MeshStandardMaterial({ color: 0x4d8f34, roughness: 0.88 });
   const paddyMatB = new THREE.MeshStandardMaterial({ color: 0x65a338, roughness: 0.86 });
@@ -731,18 +824,52 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     root.add(channel);
   }
 
-  // Subtle green foothills framing only the outer flanks so Mayon's center base is unobstructed
-  const hillMat = new THREE.MeshStandardMaterial({ color: 0x2f6331, roughness: 0.9 });
-  [
-    { x: -46, z: -70, r: 24, h: 8.2 },
-    { x: 46, z: -68, r: 26, h: 9.0 },
-    { x: -26, z: -64, r: 16, h: 4.5 },
-    { x: 29, z: -64, r: 18, h: 5.0 },
-  ].forEach((h) => {
-    const hill = new THREE.Mesh(new THREE.ConeGeometry(h.r, h.h, 12), hillMat);
-    hill.position.set(h.x, h.h * 0.42, h.z);
-    root.add(hill);
-  });
+  // Phase 4: Window-visible backdrop group containing Mayon Volcano & rolling tropical MAYON_FOOTHILLS ribbons
+  const windowBackdropGroup = new THREE.Group();
+  windowBackdropGroup.name = 'mayon_window_backdrop';
+  windowBackdropGroup.userData.alwaysVisibleBackdrop = true;
+  root.add(windowBackdropGroup);
+
+  // Replace sharp flanking cones with rolling tropical MAYON_FOOTHILLS ridge ribbons (Mayon Volcano cone stays untouched!)
+  const mayonFoothillMat = createSharedMountainMaterial();
+  const mayonTier = resolveMountainGraphicsTier();
+  const leftFoothills = createMountainRibbonMesh(
+    {
+      seed: 101,
+      arcRadius: 82,
+      startAngle: -1.16,
+      endAngle: -0.34,
+      depth: 26,
+      peakCount: 4,
+      minPeakHeight: 4.8,
+      maxPeakHeight: 11.2,
+      baseY: -0.25,
+      skirtFloorY: -10,
+      palette: MAYON_FOOTHILLS,
+      tier: mayonTier,
+    },
+    mayonFoothillMat,
+    'mayon_foothills_left'
+  );
+  const rightFoothills = createMountainRibbonMesh(
+    {
+      seed: 207,
+      arcRadius: 84,
+      startAngle: 0.34,
+      endAngle: 1.16,
+      depth: 28,
+      peakCount: 4,
+      minPeakHeight: 5.0,
+      maxPeakHeight: 11.8,
+      baseY: -0.25,
+      skirtFloorY: -10,
+      palette: MAYON_FOOTHILLS,
+      tier: mayonTier,
+    },
+    mayonFoothillMat,
+    'mayon_foothills_right'
+  );
+  windowBackdropGroup.add(leftFoothills, rightFoothills);
 
   // Grand, monumental near-perfect symmetrical Mayon Volcano rising cleanly over the Bicol plains
   const mayonGroup = new THREE.Group();
@@ -807,7 +934,8 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     cloudRing.add(puff);
   }
   mayonGroup.add(cloudRing);
-  root.add(mayonGroup);
+  mayonGroup.userData.alwaysVisibleBackdrop = true;
+  windowBackdropGroup.add(mayonGroup);
 
   // Weathered volcanic-stone Cagsawa Church Belfry Ruin (upgraded with cornices & stone wall)
   const belfry = new THREE.Group();
@@ -965,6 +1093,83 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     root.add(stall);
   });
 
+  // Phase 5: Animated Bicol market stall vendors stationed behind EVERY souvenir stall (outdoorOnlyGroup)
+  interface BicolVendor {
+    group: THREE.Group;
+    rightArm: THREE.Group;
+    headGroup: THREE.Group;
+    phase: number;
+    baseRotY: number;
+  }
+  const vendors: BicolVendor[] = [];
+  const vendorSkinMat = new THREE.MeshStandardMaterial({ color: 0xd69f7e, roughness: 0.72 });
+  const vendorHairMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.88 });
+  const vendorApronMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.86 });
+  const salakotMat = new THREE.MeshStandardMaterial({ color: 0xc29252, roughness: 0.88 });
+  const vendorShirtHexes = [0x0ea5e9, 0xf97316, 0x16a34a, 0xe11d48];
+
+  stallConfigs.forEach((sc, idx) => {
+    const vg = new THREE.Group();
+    const shirtMat = new THREE.MeshStandardMaterial({
+      color: vendorShirtHexes[idx % vendorShirtHexes.length],
+      roughness: 0.78,
+    });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.86 });
+
+    const legs = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.72, 0.2), pantsMat);
+    legs.position.y = 0.36;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.52, 0.22), shirtMat);
+    torso.position.y = 1.02;
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.58, 0.04), vendorApronMat);
+    apron.position.set(0, 0.82, 0.12);
+
+    const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.045, 0.44, 6), shirtMat);
+    leftArm.position.set(-0.24, 1.02, 0.06);
+    leftArm.rotation.x = -0.35;
+
+    const rightArm = new THREE.Group();
+    rightArm.position.set(0.24, 1.22, 0);
+    const rUpper = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.045, 0.22, 6), shirtMat);
+    rUpper.position.y = -0.1;
+    const rFore = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.038, 0.28, 6), vendorSkinMat);
+    rFore.position.y = -0.32;
+    rightArm.add(rUpper, rFore);
+
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.34, 0);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 7), vendorSkinMat);
+    head.position.y = 0.13;
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.148, 7, 5, 0, Math.PI * 2, 0, Math.PI * 0.55),
+      vendorHairMat
+    );
+    hair.position.set(0, 0.145, -0.01);
+    // Traditional Bicol conical woven salakot hat
+    const salakot = new THREE.Mesh(new THREE.ConeGeometry(0.31, 0.18, 9), salakotMat);
+    salakot.position.y = 0.28;
+    headGroup.add(head, hair, salakot);
+
+    vg.add(legs, torso, apron, leftArm, rightArm, headGroup);
+
+    // Position strictly behind each stall's display counter facing +Z toward shoppers
+    const backOffset = -0.44;
+    const wx = sc.x + Math.sin(sc.rotY) * backOffset;
+    const wz = sc.z + Math.cos(sc.rotY) * backOffset;
+    vg.position.set(wx, 0.02, wz);
+    vg.rotation.y = sc.rotY;
+    vg.userData.outdoorOnly = true;
+    vg.userData.noMerge = true;
+    outdoorOnlyGroup.add(vg);
+
+    vendors.push({
+      group: vg,
+      rightArm,
+      headGroup,
+      phase: idx * 1.7 + 0.4,
+      baseRotY: sc.rotY,
+    });
+  });
+
   // Full-Rigged Articulated Multi-Part Sightseeing Tourists (separate legs, shoes, torso, articulated arms, backpacks, cameras)
   interface SightseeingTourist {
     group: THREE.Group;
@@ -998,12 +1203,20 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     opacity: 0,
   });
 
+  // Phase 5: Denser Bicol sightseeing crowds (11 tourists: market shoppers, Mayon photographers, Cagsawa belfry pairs)
   const touristSpecs = [
-    { x: -10.8, z: -19.1, rotY: Math.PI - 0.18, shirt: 0xef4444, pants: 0x334155, hat: 0xfef3c7, pack: 0x1e293b, hasCamera: false, strollAmp: 0.34 },
+    { x: -12.4, z: -18.7, rotY: Math.PI + 0.14, shirt: 0xef4444, pants: 0x334155, hat: 0xfef3c7, pack: 0x1e293b, hasCamera: false, strollAmp: 0.34 },
+    { x: -10.4, z: -19.0, rotY: Math.PI - 0.18, shirt: 0x06b6d4, pants: 0x1e293b, hat: 0xffffff, pack: 0x334155, hasCamera: false, strollAmp: 0.28 },
+    { x: -7.2, z: -19.5, rotY: Math.PI + 0.12, shirt: 0x8b5cf6, pants: 0x334155, hat: 0xfef08a, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.3 },
     { x: -3.2, z: -20.3, rotY: Math.PI + 0.08, shirt: 0x2563eb, pants: 0x475569, hat: 0xfde047, pack: 0x0f766e, hasCamera: true, strollAmp: 0.14 },
     { x: -1.7, z: -20.6, rotY: Math.PI - 0.16, shirt: 0xf59e0b, pants: 0x1e3a5f, hat: 0xffffff, pack: 0x92400e, hasCamera: false, strollAmp: 0.24 },
+    { x: 0.9, z: -21.2, rotY: Math.PI + 0.04, shirt: 0xf43f5e, pants: 0x1e293b, hat: 0xfef3c7, pack: 0x0f766e, hasCamera: true, strollAmp: 0.12 },
     { x: 2.8, z: -21.0, rotY: Math.PI + 0.16, shirt: 0x10b981, pants: 0x292524, hat: 0xd97706, pack: 0x334155, hasCamera: true, strollAmp: 0.12 },
-    { x: 8.6, z: -19.3, rotY: Math.PI - 0.22, shirt: 0xec4899, pants: 0x3b82f6, hat: 0xfef3c7, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.36 },
+    { x: 7.2, z: -19.4, rotY: Math.PI - 0.1, shirt: 0xec4899, pants: 0x3b82f6, hat: 0xfef3c7, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.34 },
+    { x: 11.8, z: -18.8, rotY: Math.PI - 0.22, shirt: 0x14b8a6, pants: 0x1e293b, hat: 0xfde68a, pack: 0x475569, hasCamera: false, strollAmp: 0.28 },
+    // Sightseeing pair admiring Cagsawa Ruins belfry & framing Mayon Volcano
+    { x: 6.4, z: -27.2, rotY: Math.PI + 0.28, shirt: 0xf97316, pants: 0x334155, hat: 0xffffff, pack: 0x1e293b, hasCamera: true, strollAmp: 0.16 },
+    { x: 7.9, z: -26.8, rotY: Math.PI - 0.24, shirt: 0x3b82f6, pants: 0x475569, hat: 0xfef3c7, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.26 },
   ];
   touristSpecs.forEach((ts, idx) => {
     const tg = new THREE.Group();
@@ -1112,7 +1325,8 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     tg.position.set(ts.x, 0.02, ts.z);
     tg.rotation.y = ts.rotY;
     tg.userData.outdoorOnly = true;
-    root.add(tg);
+    tg.userData.noMerge = true;
+    outdoorOnlyGroup.add(tg);
     tourists.push({
       group: tg,
       leftLeg,
@@ -1456,18 +1670,38 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   return {
     id: 'mayon_volcano',
     root,
+    windowBackdropGroup,
+    outdoorOnlyGroup,
     envHint: {
       fogColorDay: 0xd4e8e6,
       fogColorNight: 0x0f1a2a,
       fogDensityScale: 0.72,
     },
-    update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRain = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRain, outside);
       cloudRing.rotation.y += dt * 0.08;
       stallBulbMat.emissiveIntensity = isNight ? 2.1 : 0.3;
       kuboWinMat.emissiveIntensity = isNight ? 1.75 : 0.14;
       waterStripMat.color.setHex(isNight ? 0x164e63 : 0x38bdf8);
-      const isRain = weather.startsWith('rainy');
+
+      if (!outside) return;
+
+      // Animated Bicol market stall vendors gesturing warmly toward visitors
+      for (let i = 0; i < vendors.length; i++) {
+        const v = vendors[i];
+        v.group.rotation.y = v.baseRotY + Math.sin(elapsed * 0.8 + v.phase) * 0.16;
+        v.headGroup.rotation.y = Math.sin(elapsed * 1.15 + v.phase) * 0.22;
+        const waveCycle = (elapsed + v.phase * 1.9) % 5.2;
+        if (waveCycle < 1.8) {
+          v.rightArm.rotation.x = -1.35;
+          v.rightArm.rotation.z = 0.28 + Math.sin(elapsed * 8.5 + v.phase) * 0.26;
+        } else {
+          v.rightArm.rotation.x = -0.45 + Math.sin(elapsed * 1.6 + v.phase) * 0.14;
+          v.rightArm.rotation.z = 0.06;
+        }
+      }
 
       for (let i = 0; i < tourists.length; i++) {
         const t = tourists[i];
@@ -1693,49 +1927,110 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   const cliffFace = new THREE.Mesh(cliffGeo, sculptedCliffMat);
   root.add(cliffFace);
 
-  // Continuous dark urban valley floor + subtle district arterial street bands
+  // Phase 4: Window-visible backdrop group for Coastal Sierra ribbons & Shimmering Coastal Sea/Bay
+  const windowBackdropGroup = new THREE.Group();
+  windowBackdropGroup.name = 'hilltop_window_backdrop';
+  windowBackdropGroup.userData.alwaysVisibleBackdrop = true;
+  root.add(windowBackdropGroup);
+
+  // Continuous dark urban valley floor beneath the metropolis
   const valleyFloor = new THREE.Mesh(
-    new THREE.PlaneGeometry(310, 190),
+    new THREE.PlaneGeometry(310, 120),
     new THREE.MeshStandardMaterial({ color: 0x0b121e, roughness: 0.95 })
   );
   valleyFloor.rotation.x = -Math.PI / 2;
-  valleyFloor.position.set(0, valleyY, -112);
+  valleyFloor.position.set(0, valleyY, -78);
   valleyFloor.userData.alwaysVisibleBackdrop = true;
-  root.add(valleyFloor);
+  windowBackdropGroup.add(valleyFloor);
 
-  // Deeply Grounded Mountain Range Backdrop & Horizon Skirt (baseY <= -38, ZERO floating cones!)
-  const horizonSkirtMat = new THREE.MeshStandardMaterial({ color: 0x111c2b, roughness: 0.96, flatShading: true });
-  const ridgeMat = new THREE.MeshStandardMaterial({ color: 0x162436, roughness: 0.95, flatShading: true });
-  const foothillMat = new THREE.MeshStandardMaterial({ color: 0x1b2b3d, roughness: 0.95, flatShading: true });
-
-  // Solid continuous dark mountain-base apron merging far ridge peaks seamlessly into the valley floor
-  const mountainApron = new THREE.Mesh(new THREE.BoxGeometry(340, 16, 56), horizonSkirtMat);
-  mountainApron.position.set(0, valleyY - 4.0, -142);
-  mountainApron.userData.alwaysVisibleBackdrop = true;
-  root.add(mountainApron);
-
-  // Multi-faceted layered ridge peaks with bases sunk far below valleyY (-38 to -42)
-  [
-    { x: -112, z: -140, r: 52, h: 48, mat: ridgeMat },
-    { x: -70, z: -146, r: 56, h: 58, mat: ridgeMat },
-    { x: -24, z: -152, r: 60, h: 64, mat: ridgeMat },
-    { x: 26, z: -150, r: 58, h: 60, mat: ridgeMat },
-    { x: 74, z: -144, r: 54, h: 54, mat: ridgeMat },
-    { x: 116, z: -138, r: 50, h: 46, mat: ridgeMat },
-    { x: -88, z: -124, r: 44, h: 36, mat: foothillMat },
-    { x: -42, z: -130, r: 46, h: 38, mat: foothillMat },
-    { x: 4, z: -134, r: 48, h: 40, mat: foothillMat },
-    { x: 52, z: -128, r: 46, h: 38, mat: foothillMat },
-    { x: 94, z: -122, r: 42, h: 34, mat: foothillMat },
-  ].forEach((pk, idx) => {
-    const peak = new THREE.Mesh(new THREE.ConeGeometry(pk.r, pk.h, 8), pk.mat);
-    peak.scale.set(1.25, 1.0, 0.78);
-    peak.rotation.y = idx * 0.45;
-    // Base is at -38.0 (14 units below valleyFloor!) so zero floating silhouette edges ever appear
-    peak.position.set(pk.x, -38.0 + pk.h * 0.5, pk.z);
-    peak.userData.alwaysVisibleBackdrop = true;
-    root.add(peak);
+  // Phase 4: Expansive Shimmering Coastal Sea / Bay replacing empty horizon void (z = -126..-296)
+  const coastalSeaMat = new THREE.MeshStandardMaterial({
+    color: 0x164e63,
+    emissive: 0x0c2d48,
+    emissiveIntensity: 0.24,
+    roughness: 0.16,
+    metalness: 0.58,
   });
+  const coastalSea = new THREE.Mesh(new THREE.PlaneGeometry(420, 185), coastalSeaMat);
+  coastalSea.rotation.x = -Math.PI / 2;
+  coastalSea.position.set(0, valleyY + 0.05, -212);
+  coastalSea.userData.alwaysVisibleBackdrop = true;
+  windowBackdropGroup.add(coastalSea);
+
+  // Subtle horizon shimmer band + warm coastal city-light reflection glints over the bay
+  const bayShimmerMat = new THREE.MeshBasicMaterial({
+    color: 0xfbbf24,
+    transparent: true,
+    opacity: 0.22,
+  });
+  const bayGlints: THREE.Mesh[] = [];
+  for (let g = 0; g < 10; g++) {
+    const gw = 16 + (g % 4) * 9;
+    const glint = new THREE.Mesh(new THREE.PlaneGeometry(gw, 1.8 + (g % 3) * 0.9), bayShimmerMat);
+    glint.rotation.x = -Math.PI / 2;
+    glint.position.set(-76 + g * 17.5, valleyY + 0.12, -138 - (g % 4) * 14);
+    glint.userData.alwaysVisibleBackdrop = true;
+    glint.userData.noMerge = true;
+    windowBackdropGroup.add(glint);
+    bayGlints.push(glint);
+  }
+
+  // Phase 4: Sculpted COASTAL_SIERRA Mountain Range Ribbons & Left Headland (skirtFloorY = -28 <= -24, ZERO floating cones!)
+  const sierraMat = createSharedMountainMaterial();
+  const hilltopTier = resolveMountainGraphicsTier();
+  const leftCoastalSierra = createMountainRibbonMesh(
+    {
+      seed: 311,
+      arcRadius: 146,
+      startAngle: -1.18,
+      endAngle: -0.18,
+      depth: 42,
+      peakCount: 4,
+      minPeakHeight: 26,
+      maxPeakHeight: 54,
+      baseY: valleyY - 1.5,
+      skirtFloorY: -34,
+      palette: COASTAL_SIERRA,
+      tier: hilltopTier,
+    },
+    sierraMat,
+    'hilltop_coastal_sierra_left'
+  );
+  const rightCoastalSierra = createMountainRibbonMesh(
+    {
+      seed: 419,
+      arcRadius: 152,
+      startAngle: 0.14,
+      endAngle: 1.18,
+      depth: 44,
+      peakCount: 4,
+      minPeakHeight: 24,
+      maxPeakHeight: 50,
+      baseY: valleyY - 1.5,
+      skirtFloorY: -34,
+      palette: COASTAL_SIERRA,
+      tier: hilltopTier,
+    },
+    sierraMat,
+    'hilltop_coastal_sierra_right'
+  );
+  const leftHeadland = createRidgedPeakMesh(
+    {
+      seed: 523,
+      radiusX: 38,
+      radiusZ: 28,
+      height: 36,
+      baseY: valleyY - 1.5,
+      skirtFloorY: -34,
+      ridgeStretch: 0.34,
+      palette: COASTAL_SIERRA,
+      tier: hilltopTier,
+    },
+    sierraMat,
+    'hilltop_left_headland'
+  );
+  leftHeadland.position.set(-96, 0, -118);
+  windowBackdropGroup.add(leftCoastalSierra, rightCoastalSierra, leftHeadland);
 
   // Framed Baguio Pine Trees strictly on left & right cliff edges (|x| > 9.5 so center valley view is 100% clear!)
   const pineCoords: Array<[number, number, number]> = [];
@@ -2120,13 +2415,38 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   return {
     id: 'hilltop_city_lights',
     root,
+    windowBackdropGroup,
     envHint: {
       fogColorDay: 0xcbd9e6,
       fogColorNight: 0x091020,
       fogDensityScale: 0.65,
     },
-    update: (dt, elapsed, isNight, climateState) => {
+    update: (dt, elapsed, isNight, climateState, weather) => {
       ctx.update(isNight, climateState, elapsed);
+      const isGolden = weather === 'golden' || weather === 'rainy-golden' || weather === 'dawn' || weather === 'rainy-dawn';
+      // Shimmering Coastal Sea / Bay atmospheric tint (Sunset gold/orange vs moonlit navy at night)
+      if (isNight) {
+        coastalSeaMat.color.setHex(0x0b1f3a);
+        coastalSeaMat.emissive.setHex(0x08162c);
+        coastalSeaMat.emissiveIntensity = 0.36;
+        bayShimmerMat.color.setHex(0xfbbf24);
+        bayShimmerMat.opacity = 0.28 + Math.sin(elapsed * 2.1) * 0.06;
+      } else if (isGolden) {
+        coastalSeaMat.color.setHex(0x8c5638);
+        coastalSeaMat.emissive.setHex(0xc2410c);
+        coastalSeaMat.emissiveIntensity = 0.34;
+        bayShimmerMat.color.setHex(0xfde68a);
+        bayShimmerMat.opacity = 0.36 + Math.sin(elapsed * 2.4) * 0.07;
+      } else {
+        coastalSeaMat.color.setHex(0x1d5e7a);
+        coastalSeaMat.emissive.setHex(0x0c354c);
+        coastalSeaMat.emissiveIntensity = 0.2;
+        bayShimmerMat.color.setHex(0xe0f2fe);
+        bayShimmerMat.opacity = 0.22 + Math.sin(elapsed * 1.9) * 0.05;
+      }
+      for (let g = 0; g < bayGlints.length; g++) {
+        bayGlints[g].scale.x = 0.85 + Math.sin(elapsed * 1.7 + g * 1.3) * 0.24;
+      }
       stringBulbMat.emissiveIntensity = isNight ? 2.25 : 0.45;
       resortWinMat.emissiveIntensity = isNight ? 2.1 : 0.45;
       valleyLowMat.emissiveIntensity = isNight ? 1.55 : 0.18;
@@ -2776,6 +3096,215 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   mamachari.add(frameBar, seatTube, handlePost, handleGrip, basket);
   root.add(mamachari);
 
+  // Phase 5: Outdoor-only living Kyoto detail group (mamachari cyclists + strolling kimono girls)
+  const japanOutdoorGroup = new THREE.Group();
+  japanOutdoorGroup.name = 'japan_outdoor_only';
+  japanOutdoorGroup.userData.outdoorOnly = true;
+  japanOutdoorGroup.userData.noMerge = true;
+  root.add(japanOutdoorGroup);
+
+  // 3 Kyoto Mamachari Cycling NPCs gliding smoothly down the stone lane & turning 90° at both T-junctions
+  interface KyotoCyclist {
+    group: THREE.Group;
+    frontWheel: THREE.Group;
+    rearWheel: THREE.Group;
+    leftLeg: THREE.Mesh;
+    rightLeg: THREE.Mesh;
+    u: number;
+    laneZ: number;
+    dir: 1 | -1;
+    speed: number;
+    turnSign: 1 | -1;
+    phase: number;
+  }
+  const kyotoCyclists: KyotoCyclist[] = [];
+  const jpSkinMat = new THREE.MeshStandardMaterial({ color: 0xf1d2be, roughness: 0.7 });
+  const jpHairMat = new THREE.MeshStandardMaterial({ color: 0x171514, roughness: 0.84 });
+  const spokeMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, roughness: 0.3, metalness: 0.75 });
+  const wheelTireGeo = new THREE.TorusGeometry(0.28, 0.032, 6, 14);
+  const spokeGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.52, 4);
+  const cyclistSpecs: Array<{ u: number; laneZ: number; dir: 1 | -1; speed: number; turnSign: 1 | -1; frameHex: number; jacketHex: number }> = [
+    { u: -18, laneZ: -10.6, dir: 1, speed: 3.4, turnSign: -1, frameHex: 0x2f5e4e, jacketHex: 0x3b82f6 },
+    { u: 14, laneZ: -14.1, dir: -1, speed: 3.1, turnSign: 1, frameHex: 0x991b1b, jacketHex: 0xf59e0b },
+    { u: -34, laneZ: -11.4, dir: 1, speed: 3.6, turnSign: -1, frameHex: 0x334155, jacketHex: 0x10b981 },
+  ];
+  cyclistSpecs.forEach((cs, idx) => {
+    const cg = new THREE.Group();
+    const fMat = new THREE.MeshStandardMaterial({ color: cs.frameHex, roughness: 0.36, metalness: 0.38 });
+    const jMat = new THREE.MeshStandardMaterial({ color: cs.jacketHex, roughness: 0.78 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.84 });
+
+    const makeWheel = (wx: number): THREE.Group => {
+      const wg = new THREE.Group();
+      wg.position.set(wx, 0.29, 0);
+      wg.add(new THREE.Mesh(wheelTireGeo, bikeTireMat));
+      for (let s = 0; s < 3; s++) {
+        const sp = new THREE.Mesh(spokeGeo, spokeMat);
+        sp.rotation.z = (s * Math.PI) / 3;
+        wg.add(sp);
+      }
+      return wg;
+    };
+    const rearWheel = makeWheel(-0.48);
+    const frontWheel = makeWheel(0.48);
+    cg.add(rearWheel, frontWheel);
+
+    const frameTop = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.76, 6), fMat);
+    frameTop.rotation.z = Math.PI / 2 + 0.14;
+    frameTop.position.set(0, 0.5, 0);
+    const seatPost = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 6), fMat);
+    seatPost.position.set(-0.24, 0.56, 0);
+    const saddle = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.14), bikeTireMat);
+    saddle.position.set(-0.26, 0.82, 0);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.62, 6), fMat);
+    stem.position.set(0.34, 0.62, 0);
+    const handlebar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.44, 6), darkCedarMat);
+    handlebar.rotation.x = Math.PI / 2;
+    handlebar.position.set(0.32, 0.92, 0);
+    const frontBasket = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.32), basketMat);
+    frontBasket.position.set(0.5, 0.74, 0);
+
+    // Seated cyclist body oriented along +X
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 0.34), jMat);
+    torso.position.set(-0.14, 1.06, 0);
+    torso.rotation.z = -0.22;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 7), jpSkinMat);
+    head.position.set(-0.04, 1.4, 0);
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.138, 7, 5, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      jpHairMat
+    );
+    hair.position.set(-0.06, 1.42, 0);
+    const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.036, 0.48, 5), jMat);
+    armL.rotation.z = Math.PI / 2 - 0.35;
+    armL.position.set(0.12, 1.06, -0.18);
+    const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.036, 0.48, 5), jMat);
+    armR.rotation.z = Math.PI / 2 - 0.35;
+    armR.position.set(0.12, 1.06, 0.18);
+    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.48, 6), pantsMat);
+    leftLeg.position.set(-0.12, 0.62, -0.11);
+    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.48, 6), pantsMat);
+    rightLeg.position.set(-0.12, 0.62, 0.11);
+
+    cg.add(frameTop, seatPost, saddle, stem, handlebar, frontBasket, torso, head, hair, armL, armR, leftLeg, rightLeg);
+    cg.userData.outdoorOnly = true;
+    cg.userData.noMerge = true;
+    japanOutdoorGroup.add(cg);
+
+    kyotoCyclists.push({
+      group: cg,
+      frontWheel,
+      rearWheel,
+      leftLeg,
+      rightLeg,
+      u: cs.u,
+      laneZ: cs.laneZ,
+      dir: cs.dir,
+      speed: cs.speed,
+      turnSign: cs.turnSign,
+      phase: idx * 2.1,
+    });
+  });
+
+  // Strolling Cluster of 3 Kimono Girls (floral/pastel kimono silhouettes, obi sashes, hair buns, auto Rain wagasa umbrellas)
+  interface KimonoGirl {
+    group: THREE.Group;
+    headGroup: THREE.Group;
+    leftSleeve: THREE.Group;
+    rightSleeve: THREE.Group;
+    wagasaGroup: THREE.Group;
+    offsetX: number;
+    offsetZ: number;
+    phase: number;
+  }
+  const kimonoGirls: KimonoGirl[] = [];
+  const kimonoClusterGroup = new THREE.Group();
+  kimonoClusterGroup.userData.outdoorOnly = true;
+  kimonoClusterGroup.userData.noMerge = true;
+  japanOutdoorGroup.add(kimonoClusterGroup);
+
+  const wagasaShaftGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.92, 5);
+  const wagasaCanopyGeo = new THREE.ConeGeometry(0.58, 0.18, 12);
+  const wagasaShaftMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.72 });
+  const kanzashiMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.32, metalness: 0.65 });
+  const kimonoSpecs = [
+    { ox: -0.78, oz: -0.18, main: 0xf472b6, obi: 0xfef08a, wagasa: 0xdc2626 },
+    { ox: 0.0, oz: 0.12, main: 0x38bdf8, obi: 0xf43f5e, wagasa: 0x7c3aed },
+    { ox: 0.76, oz: -0.1, main: 0xc084fc, obi: 0xfb923c, wagasa: 0xec4899 },
+  ];
+  kimonoSpecs.forEach((ks, idx) => {
+    const kg = new THREE.Group();
+    const kimMat = new THREE.MeshStandardMaterial({ color: ks.main, roughness: 0.82 });
+    const obiMat = new THREE.MeshStandardMaterial({ color: ks.obi, roughness: 0.72 });
+    const getaMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.85 });
+
+    // Traditional straight-column kimono skirt + upper robe + wide obi waist sash & back bow
+    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.9, 9), kimMat);
+    skirt.position.y = 0.49;
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.19, 0.44, 9), kimMat);
+    upper.position.y = 1.12;
+    const obi = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.22, 9), obiMat);
+    obi.position.y = 0.92;
+    const obiBow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.12), obiMat);
+    obiBow.position.set(0, 0.92, -0.2);
+    const getaL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.18), getaMat);
+    getaL.position.set(-0.08, 0.03, 0.02);
+    const getaR = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.18), getaMat);
+    getaR.position.set(0.08, 0.03, 0.02);
+
+    const makeSleeve = (side: -1 | 1): THREE.Group => {
+      const sg = new THREE.Group();
+      sg.position.set(side * 0.21, 1.24, 0);
+      const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.42, 0.22), kimMat);
+      sleeve.position.y = -0.2;
+      sg.add(sleeve);
+      return sg;
+    };
+    const leftSleeve = makeSleeve(-1);
+    const rightSleeve = makeSleeve(1);
+
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 1.36, 0);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 8, 7), jpSkinMat);
+    head.position.y = 0.13;
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 6), jpHairMat);
+    hair.position.set(0, 0.145, -0.02);
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.085, 7, 6), jpHairMat);
+    bun.position.set(0, 0.24, -0.09);
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 4), kanzashiMat);
+    pin.rotation.z = 0.7;
+    pin.position.set(0.03, 0.25, -0.09);
+    headGroup.add(head, hair, bun, pin);
+
+    // Traditional Kyoto oiled-paper wagasa umbrella (automatically opens in Rain)
+    const wagasaGroup = new THREE.Group();
+    const wShaft = new THREE.Mesh(wagasaShaftGeo, wagasaShaftMat);
+    wShaft.position.y = 0.46;
+    const wCanopy = new THREE.Mesh(
+      wagasaCanopyGeo,
+      new THREE.MeshStandardMaterial({ color: ks.wagasa, roughness: 0.62, side: THREE.DoubleSide })
+    );
+    wCanopy.position.y = 0.92;
+    wagasaGroup.add(wShaft, wCanopy);
+    wagasaGroup.position.set(0.16, 1.18, 0.16);
+    wagasaGroup.visible = false;
+
+    kg.add(skirt, upper, obi, obiBow, getaL, getaR, leftSleeve, rightSleeve, headGroup, wagasaGroup);
+    kg.position.set(ks.ox, 0.08, ks.oz);
+    kimonoClusterGroup.add(kg);
+
+    kimonoGirls.push({
+      group: kg,
+      headGroup,
+      leftSleeve,
+      rightSleeve,
+      wagasaGroup,
+      offsetX: ks.ox,
+      offsetZ: ks.oz,
+      phase: idx * 1.4,
+    });
+  });
+
   // Phase 3: Animated Kyoto machiya sliding hikido/shoji doors + recessed genkan + outdoor NPCs
   const machiyaDoorPlacements = [1, 2, 3, 4].map((idx) => ({
     x: machiyaXs[idx],
@@ -2798,6 +3327,7 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
   return {
     id: 'japanese_tranquility',
     root,
+    outdoorOnlyGroup: japanOutdoorGroup,
     envHint: {
       fogColorDay: 0xfce7f3,
       fogColorNight: 0x111525,
@@ -2850,6 +3380,46 @@ export function buildJapaneseTranquilityScenery(): SceneryRuntimeInstance {
         attr.setXY(i, x, y);
       }
       attr.needsUpdate = true;
+
+      if (!outside) return;
+
+      // Animate 3 Kyoto mamachari cyclists gliding smoothly through both T-junction turns
+      for (let i = 0; i < kyotoCyclists.length; i++) {
+        const cyc = kyotoCyclists[i];
+        cyc.u += cyc.dir * cyc.speed * dt;
+        const bound = 48;
+        if (cyc.dir === 1 && cyc.u > bound) cyc.u = -bound;
+        if (cyc.dir === -1 && cyc.u < -bound) cyc.u = bound;
+        const pose = evaluateCornerTurnPath(cyc.u, cyc.laneZ, cyc.dir, 29.0, 4.6, cyc.turnSign);
+        cyc.group.position.set(pose.x, 0.06, pose.z);
+        cyc.group.rotation.y = pose.vehicleYaw;
+        const wheelSpin = dt * cyc.speed * 3.4;
+        cyc.frontWheel.rotation.z -= wheelSpin;
+        cyc.rearWheel.rotation.z -= wheelSpin;
+        const pedal = Math.sin(elapsed * 7.2 + cyc.phase);
+        cyc.leftLeg.rotation.z = pedal * 0.38;
+        cyc.rightLeg.rotation.z = -pedal * 0.38;
+      }
+
+      // Animate strolling cluster of 3 kimono girls along far stone Kyoto sidewalk
+      const clusterPeriod = 46;
+      const clusterPhase = (elapsed * 0.85) % (clusterPeriod * 2);
+      const goingRight = clusterPhase < clusterPeriod;
+      const frac = goingRight ? clusterPhase / clusterPeriod : (clusterPeriod * 2 - clusterPhase) / clusterPeriod;
+      const cx = -21 + frac * 42;
+      kimonoClusterGroup.position.set(cx, 0, -16.85);
+      kimonoClusterGroup.rotation.y = goingRight ? Math.PI / 2 : -Math.PI / 2;
+
+      for (let i = 0; i < kimonoGirls.length; i++) {
+        const kg = kimonoGirls[i];
+        const bob = Math.abs(Math.sin(elapsed * 4.4 + kg.phase)) * 0.032;
+        kg.group.position.set(kg.offsetX, 0.08 + bob, kg.offsetZ);
+        kg.headGroup.rotation.y = Math.sin(elapsed * 1.1 + kg.phase) * 0.28;
+        kg.wagasaGroup.visible = isRaining;
+        const sway = Math.sin(elapsed * 4.4 + kg.phase) * 0.14;
+        kg.leftSleeve.rotation.x = sway;
+        kg.rightSleeve.rotation.x = isRaining ? -0.92 : -sway;
+      }
     },
   };
 }
@@ -3327,19 +3897,92 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   });
   root.add(new THREE.Points(bayLightsGeo, bayLightsMat));
 
+  // Phase 5: Outdoor-only grounded stepped hillside alleyway walkers (descending & ascending Selarón stairs)
+  const favelaOutdoorGroup = new THREE.Group();
+  favelaOutdoorGroup.name = 'favela_outdoor_only';
+  favelaOutdoorGroup.userData.outdoorOnly = true;
+  favelaOutdoorGroup.userData.noMerge = true;
+  root.add(favelaOutdoorGroup);
+
+  interface FavelaAlleyWalker {
+    group: THREE.Group;
+    leftLeg: THREE.Mesh;
+    rightLeg: THREE.Mesh;
+    leftArm: THREE.Mesh;
+    rightArm: THREE.Mesh;
+    alleyBaseX: number;
+    t: number;
+    dir: 1 | -1;
+    speed: number;
+    phase: number;
+  }
+  const favelaAlleyWalkers: FavelaAlleyWalker[] = [];
+  const favSkinMat = new THREE.MeshStandardMaterial({ color: 0xc6865c, roughness: 0.72 });
+  const favHairMat = new THREE.MeshStandardMaterial({ color: 0x171412, roughness: 0.88 });
+  const alleyWalkerSpecs: Array<{ alleyX: number; startT: number; dir: 1 | -1; speed: number; shirt: number; shorts: number }> = [
+    { alleyX: -18.5, startT: 0.82, dir: -1, speed: 0.085, shirt: 0xfacc15, shorts: 0x1d4ed8 },
+    { alleyX: -5.2, startT: 0.18, dir: 1, speed: 0.075, shirt: 0x16a34a, shorts: 0x1e293b },
+    { alleyX: 6.2, startT: 0.65, dir: -1, speed: 0.09, shirt: 0xec4899, shorts: 0x0f172a },
+    { alleyX: -5.2, startT: 0.92, dir: -1, speed: 0.072, shirt: 0x38bdf8, shorts: 0x334155 },
+  ];
+  alleyWalkerSpecs.forEach((ws, idx) => {
+    const wg = new THREE.Group();
+    const sMat = new THREE.MeshStandardMaterial({ color: ws.shirt, roughness: 0.78 });
+    const pMat = new THREE.MeshStandardMaterial({ color: ws.shorts, roughness: 0.84 });
+
+    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.048, 0.68, 6), pMat);
+    leftLeg.position.set(-0.09, 0.34, 0);
+    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.048, 0.68, 6), pMat);
+    rightLeg.position.set(0.09, 0.34, 0);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.5, 0.2), sMat);
+    torso.position.y = 0.96;
+    const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.44, 5), favSkinMat);
+    leftArm.position.set(-0.23, 0.94, 0);
+    const rightArm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.44, 5), favSkinMat);
+    rightArm.position.set(0.23, 0.94, 0);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 8, 7), favSkinMat);
+    head.position.y = 1.35;
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(0.142, 7, 5, 0, Math.PI * 2, 0, Math.PI * 0.56),
+      favHairMat
+    );
+    hair.position.set(0, 1.37, -0.01);
+
+    wg.add(leftLeg, rightLeg, torso, leftArm, rightArm, head, hair);
+    wg.userData.outdoorOnly = true;
+    wg.userData.noMerge = true;
+    favelaOutdoorGroup.add(wg);
+
+    favelaAlleyWalkers.push({
+      group: wg,
+      leftLeg,
+      rightLeg,
+      leftArm,
+      rightArm,
+      alleyBaseX: ws.alleyX,
+      t: ws.startT,
+      dir: ws.dir,
+      speed: ws.speed,
+      phase: idx * 1.9,
+    });
+  });
+
   const ctx = addSurrounding360Context(root, 'brazilian_favela');
   disableShadowsRecursive(root);
 
   return {
     id: 'brazilian_favela',
     root,
+    outdoorOnlyGroup: favelaOutdoorGroup,
     envHint: {
       fogColorDay: 0xdbeafe,
       fogColorNight: 0x0f172a,
       fogDensityScale: 0.76,
     },
-    update: (_dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRaining = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRaining, outside);
       houseMat.emissiveIntensity = isNight ? 1.45 : 0.14;
       soapstoneMat.emissiveIntensity = isNight ? 1.85 : 0.24;
       pedestalBaseMat.emissiveIntensity = isNight ? 1.05 : 0.12;
@@ -3358,6 +4001,31 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
 
       for (let i = 0; i < laundryFlaps.length; i++) {
         laundryFlaps[i].rotation.x = Math.sin(elapsed * 2.4 + i * 0.9) * 0.22;
+      }
+
+      if (!outside) return;
+
+      // Grounded uphill/downhill walkers stepping along the Selarón hillside staircases onto the street sidewalk
+      for (let i = 0; i < favelaAlleyWalkers.length; i++) {
+        const w = favelaAlleyWalkers[i];
+        w.t += w.dir * w.speed * dt;
+        if (w.t <= 0.0) {
+          w.t = 0.0;
+          w.dir = 1;
+        } else if (w.t >= 0.96) {
+          w.t = 0.96;
+          w.dir = -1;
+        }
+        const curr = interpolateAlleyStepY(w.t, w.alleyBaseX);
+        const lookT = Math.max(0, Math.min(1, w.t + w.dir * 0.03));
+        const ahead = interpolateAlleyStepY(lookT, w.alleyBaseX);
+        w.group.position.set(curr.x, curr.y, curr.z);
+        w.group.rotation.y = Math.atan2(ahead.x - curr.x, ahead.z - curr.z);
+        const stride = Math.sin(elapsed * 6.5 + w.phase) * 0.42;
+        w.leftLeg.rotation.x = stride;
+        w.rightLeg.rotation.x = -stride;
+        w.leftArm.rotation.x = -stride * 0.75;
+        w.rightArm.rotation.x = stride * 0.75;
       }
     },
   };
