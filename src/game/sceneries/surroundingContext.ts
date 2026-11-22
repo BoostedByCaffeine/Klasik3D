@@ -1,16 +1,523 @@
 import * as THREE from 'three';
-import type { ClimateState, SceneryId } from '../sceneryData';
+import {
+  resolveActivePatronOutfit,
+  type ClimateState,
+  type SceneryId,
+} from '../sceneryData';
 import {
   EIFFEL_DOWNHILL_START_Z,
   ROAD_ELEVATION_LAYERS,
+  T_JUNCTION_BUILDING_FRONT_X,
+  T_JUNCTION_FAR_SIDEWALK_WIDTH,
+  T_JUNCTION_OUTER_EDGE,
+  easeInOutCubic,
   getEiffelRoadPose,
   getSceneryRoadTopology,
   getSceneryStreetlightSpec,
+  type DoorwayAnimationState,
+  type DoorwayStyle,
 } from '../outdoorLod';
 import { batchStaticMeshesByMaterial } from './sceneryTypes';
 
 export interface SurroundingContextHandle {
-  update: (isNight: boolean, climateState: ClimateState, elapsed?: number) => void;
+  update: (
+    isNight: boolean,
+    climateState: ClimateState,
+    elapsed?: number,
+    dt?: number,
+    isRaining?: boolean,
+    isPlayerOutside?: boolean
+  ) => void;
+}
+
+export interface AnimatedDoorwayPlacement {
+  x: number;
+  z: number;
+  /** Outward facing direction along Z: +1 faces +Z (toward cafe), -1 faces -Z (away from cafe) */
+  facingZ: 1 | -1;
+  width?: number;
+  height?: number;
+  seed?: number;
+}
+
+export interface AnimatedDoorwayHandle {
+  group: THREE.Group;
+  update: (
+    dt: number,
+    elapsed: number,
+    isNight: boolean,
+    isRaining: boolean,
+    isPlayerOutside: boolean
+  ) => void;
+}
+
+/**
+ * Builds an outdoor-only animated building entrance/exit cluster (recessed interior foyer/genkan,
+ * animated hinged/split-sliding/Kyoto-shoji doors with zero z-fighting, and outdoor NPC entry/exit
+ * state machine). Parented inside `outdoorOnlyGroup` and completely skipped when `!isPlayerOutside`.
+ */
+export function createAnimatedDoorwayCluster(
+  sceneryId: SceneryId,
+  style: DoorwayStyle,
+  placements: readonly AnimatedDoorwayPlacement[]
+): AnimatedDoorwayHandle {
+  const cluster = new THREE.Group();
+  cluster.name = `animated_doorways_${sceneryId}`;
+  cluster.userData.outdoorOnly = true;
+  cluster.userData.noMerge = true;
+
+  // Shared materials & geometries across all upgraded doorways (minimal draw calls & memory)
+  const foyerDarkMat = new THREE.MeshStandardMaterial({
+    color: style === 'kyoto_machiya_slide' ? 0x22160f : style === 'cyber_split_slide' ? 0x0b1222 : 0x161414,
+    roughness: 0.92,
+  });
+  const foyerGlowMat = new THREE.MeshStandardMaterial({
+    color: style === 'cyber_split_slide' ? 0x164e63 : 0xfef3c7,
+    emissive: style === 'cyber_split_slide' ? 0x06b6d4 : 0xf59e0b,
+    emissiveIntensity: 0.55,
+    roughness: 0.4,
+  });
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: style === 'kyoto_machiya_slide' ? 0x2b1910 : style === 'cyber_split_slide' ? 0x1e293b : 0x27201c,
+    roughness: style === 'cyber_split_slide' ? 0.35 : 0.72,
+    metalness: style === 'cyber_split_slide' ? 0.72 : 0.15,
+  });
+  const woodLeafMat = new THREE.MeshStandardMaterial({
+    color: style === 'kyoto_machiya_slide' ? 0x3b2416 : 0x5c341d,
+    roughness: 0.68,
+  });
+  const glassOrWashiMat = new THREE.MeshStandardMaterial({
+    color: style === 'kyoto_machiya_slide' ? 0xf6ebd4 : style === 'cyber_split_slide' ? 0x164e63 : 0xcbe7f7,
+    emissive: style === 'kyoto_machiya_slide' ? 0xf59e0b : style === 'cyber_split_slide' ? 0x0891b2 : 0xfde68a,
+    emissiveIntensity: style === 'kyoto_machiya_slide' ? 0.35 : 0.28,
+    roughness: style === 'kyoto_machiya_slide' ? 0.78 : 0.18,
+    metalness: style === 'cyber_split_slide' ? 0.35 : 0.08,
+    transparent: true,
+    opacity: style === 'kyoto_machiya_slide' ? 0.9 : 0.68,
+  });
+  const stepWoodMat = new THREE.MeshStandardMaterial({ color: 0x5c3a22, roughness: 0.8 });
+
+  // Shared NPC materials
+  const skinTones = [0xf3d2b3, 0xe0ac69, 0xc68642, 0xffdbac, 0xd8a373];
+  const outfitHexMap: Record<string, number[]> = {
+    ancient_japanese: [0x9f1239, 0x1e3a5f, 0x3f6212, 0x6b21a8],
+    filipino: [0xf5e9d4, 0xd97706, 0x0d9488],
+    french: [0x1e293b, 0x7f1d1d, 0x334155],
+    brazilian: [0xeab308, 0x16a34a, 0x2563eb],
+    swiss: [0x991b1b, 0x1e3a5f, 0x3f6212],
+    hiker: [0xea580c, 0x0284c7, 0x4d7c0f],
+    default: style === 'cyber_split_slide'
+      ? [0x0f172a, 0x1e1b4b, 0x3b0764, 0x111827]
+      : style === 'kyoto_machiya_slide'
+      ? [0x1e3a5f, 0x7c2d12, 0x365314, 0x4c1d95]
+      : [0x3b82f6, 0x10b981, 0xf43f5e, 0xd97706],
+  };
+  const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.86 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: 0x181412, roughness: 0.85 });
+  const wagasaRedMat = new THREE.MeshStandardMaterial({
+    color: style === 'kyoto_machiya_slide' ? 0xc8281c : style === 'cyber_split_slide' ? 0x06b6d4 : 0x334155,
+    emissive: style === 'cyber_split_slide' ? 0x06b6d4 : 0x000000,
+    emissiveIntensity: style === 'cyber_split_slide' ? 0.65 : 0,
+    roughness: 0.55,
+    side: THREE.DoubleSide,
+  });
+  const wagasaRimMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.8 });
+
+  interface DoorRig {
+    state: DoorwayAnimationState;
+    stateTimer: number;
+    idleCooldown: number;
+    openAmount: number;
+    doorWidth: number;
+    facingZ: 1 | -1;
+    worldX: number;
+    worldZ: number;
+    hingePivot?: THREE.Group;
+    leftSlide?: THREE.Group;
+    rightSlide?: THREE.Group;
+    shojiSlide?: THREE.Group;
+    statusStripMat?: THREE.MeshBasicMaterial;
+    npc: {
+      root: THREE.Group;
+      leftLeg: THREE.Mesh;
+      rightLeg: THREE.Mesh;
+      leftArm: THREE.Mesh;
+      rightArm: THREE.Mesh;
+      umbrella: THREE.Group;
+      walkPhase: number;
+      walkDirX: 1 | -1;
+      progress: number;
+    };
+  }
+
+  const doors: DoorRig[] = [];
+
+  placements.forEach((p, idx) => {
+    const doorW = p.width ?? (style === 'cyber_split_slide' ? 1.38 : style === 'kyoto_machiya_slide' ? 1.18 : 0.96);
+    const doorH = p.height ?? 2.04;
+    const foyerDepth = 1.6; // >= 1.4u recessed interior foyer/genkan
+    const dg = new THREE.Group();
+    dg.position.set(p.x, 0.08, p.z);
+    // Rotate whole assembly so local +Z points strictly outward toward the street/sidewalk
+    dg.rotation.y = p.facingZ === 1 ? 0 : Math.PI;
+    dg.userData.noMerge = true;
+
+    // 1. Recessed Interior Foyer / Genkan (extends backward into -Z inside building footprint)
+    const foyerBack = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.24, doorH + 0.14, 0.12), foyerDarkMat);
+    foyerBack.position.set(0, doorH * 0.5, -foyerDepth);
+    const foyerSideL = new THREE.Mesh(new THREE.BoxGeometry(0.1, doorH + 0.14, foyerDepth), foyerDarkMat);
+    foyerSideL.position.set(-doorW * 0.5 - 0.06, doorH * 0.5, -foyerDepth * 0.5);
+    const foyerSideR = new THREE.Mesh(new THREE.BoxGeometry(0.1, doorH + 0.14, foyerDepth), foyerDarkMat);
+    foyerSideR.position.set(doorW * 0.5 + 0.06, doorH * 0.5, -foyerDepth * 0.5);
+    const foyerCeil = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.24, 0.1, foyerDepth), foyerDarkMat);
+    foyerCeil.position.set(0, doorH + 0.06, -foyerDepth * 0.5);
+    const foyerFloor = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.2, 0.06, foyerDepth), foyerDarkMat);
+    foyerFloor.position.set(0, 0.02, -foyerDepth * 0.5);
+    // Warm backlit foyer wall bounce (or cyber vestibule glow panel)
+    const glowBounce = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.78, doorH * 0.65), foyerGlowMat);
+    glowBounce.position.set(0, doorH * 0.56, -foyerDepth + 0.08);
+    dg.add(foyerBack, foyerSideL, foyerSideR, foyerCeil, foyerFloor, glowBounce);
+
+    // Kyoto Machiya Genkan raised timber step + overhead kamoi/shikii cedar sliding tracks
+    if (style === 'kyoto_machiya_slide') {
+      const genkanStep = new THREE.Mesh(new THREE.BoxGeometry(doorW, 0.22, 0.65), stepWoodMat);
+      genkanStep.position.set(0, 0.11, -foyerDepth + 0.42);
+      const kamoi = new THREE.Mesh(new THREE.BoxGeometry(doorW * 1.95, 0.11, 0.14), frameMat);
+      kamoi.position.set(doorW * 0.42, doorH + 0.06, 0.03);
+      const shikii = new THREE.Mesh(new THREE.BoxGeometry(doorW * 1.95, 0.07, 0.14), frameMat);
+      shikii.position.set(doorW * 0.42, 0.035, 0.03);
+      dg.add(genkanStep, kamoi, shikii);
+    }
+
+    // Outer Door Frame Jambs & Lintel (+0.02 Z clearance from wall plane)
+    const jambL = new THREE.Mesh(new THREE.BoxGeometry(0.09, doorH + 0.12, 0.14), frameMat);
+    jambL.position.set(-doorW * 0.5 - 0.045, doorH * 0.5, 0.02);
+    const jambR = new THREE.Mesh(new THREE.BoxGeometry(0.09, doorH + 0.12, 0.14), frameMat);
+    jambR.position.set(doorW * 0.5 + 0.045, doorH * 0.5, 0.02);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.18, 0.11, 0.16), frameMat);
+    lintel.position.set(0, doorH + 0.055, 0.02);
+    dg.add(jambL, jambR, lintel);
+
+    let hingePivot: THREE.Group | undefined;
+    let leftSlide: THREE.Group | undefined;
+    let rightSlide: THREE.Group | undefined;
+    let shojiSlide: THREE.Group | undefined;
+    let statusStripMat: THREE.MeshBasicMaterial | undefined;
+
+    // 2. Style-Specific Animated Door Leaf(s) at Z-offset +0.02 clearance
+    if (style === 'hinged_shop') {
+      hingePivot = new THREE.Group();
+      hingePivot.position.set(-doorW * 0.5, 0, 0.02);
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH, 0.06), woodLeafMat);
+      leaf.position.set(doorW * 0.5, doorH * 0.5, 0);
+      const glassPane = new THREE.Mesh(new THREE.PlaneGeometry(doorW * 0.66, doorH * 0.46), glassOrWashiMat);
+      glassPane.position.set(doorW * 0.5, doorH * 0.64, 0.035);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.24, 0.08), frameMat);
+      handle.position.set(doorW * 0.86, doorH * 0.48, 0.04);
+      hingePivot.add(leaf, glassPane, handle);
+      dg.add(hingePivot);
+    } else if (style === 'cyber_split_slide') {
+      statusStripMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+      const topStrip = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.16, 0.07, 0.06), statusStripMat);
+      topStrip.position.set(0, doorH + 0.13, 0.07);
+      dg.add(topStrip);
+
+      const halfW = doorW * 0.49;
+      leftSlide = new THREE.Group();
+      leftSlide.position.set(0, 0, 0.02);
+      const lFrame = new THREE.Mesh(new THREE.BoxGeometry(halfW, doorH, 0.055), frameMat);
+      lFrame.position.set(-halfW * 0.5, doorH * 0.5, 0);
+      const lGlass = new THREE.Mesh(new THREE.PlaneGeometry(halfW * 0.78, doorH * 0.82), glassOrWashiMat);
+      lGlass.position.set(-halfW * 0.5, doorH * 0.5, 0.032);
+      leftSlide.add(lFrame, lGlass);
+
+      rightSlide = new THREE.Group();
+      rightSlide.position.set(0, 0, 0.02);
+      const rFrame = new THREE.Mesh(new THREE.BoxGeometry(halfW, doorH, 0.055), frameMat);
+      rFrame.position.set(halfW * 0.5, doorH * 0.5, 0);
+      const rGlass = new THREE.Mesh(new THREE.PlaneGeometry(halfW * 0.78, doorH * 0.82), glassOrWashiMat);
+      rGlass.position.set(halfW * 0.5, doorH * 0.5, 0.032);
+      rightSlide.add(rFrame, rGlass);
+      dg.add(leftSlide, rightSlide);
+    } else {
+      // Kyoto Machiya Sliding Hikido / Shoji Lattice Door sliding into right cedar wall pocket
+      shojiSlide = new THREE.Group();
+      shojiSlide.position.set(0, 0, 0.025);
+      const lowerCedar = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH * 0.34, 0.05), woodLeafMat);
+      lowerCedar.position.set(0, doorH * 0.17, 0);
+      const washiPanel = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.08, doorH * 0.62, 0.03), glassOrWashiMat);
+      washiPanel.position.set(0, doorH * 0.66, 0);
+      shojiSlide.add(lowerCedar, washiPanel);
+      // Crisp vertical & horizontal kumiko cedar lattice bars
+      for (let bx = -1; bx <= 1; bx++) {
+        const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.032, doorH * 0.64, 0.052), frameMat);
+        vBar.position.set(bx * (doorW * 0.28), doorH * 0.66, 0);
+        shojiSlide.add(vBar);
+      }
+      for (let by = 0; by < 3; by++) {
+        const hBar = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.04, 0.028, 0.052), frameMat);
+        hBar.position.set(0, doorH * (0.44 + by * 0.19), 0);
+        shojiSlide.add(hBar);
+      }
+      dg.add(shojiSlide);
+    }
+
+    // 3. Dedicated Lightweight Articulated Outdoor Doorway NPC (resolved via resolveActivePatronOutfit)
+    const outfitRes = resolveActivePatronOutfit({
+      activeScenery: sceneryId,
+      climateState: 'summer',
+      unlockedPatronOutfits: ['ancient_japanese', 'filipino', 'french', 'brazilian', 'swiss', 'hiker'],
+      mode: 'auto_match',
+      equippedOutfitId: null,
+      enabledCustomMixIds: [],
+      isSecretNpc: false,
+      rng: () => ((idx * 31 + 7) % 100) / 100,
+    });
+    const palette = outfitHexMap[outfitRes.outfitId || 'default'] || outfitHexMap.default;
+    const npcGroup = new THREE.Group();
+    npcGroup.visible = false;
+    npcGroup.userData.noMerge = true;
+
+    const torsoMat = new THREE.MeshStandardMaterial({
+      color: palette[(idx + (p.seed ?? 0)) % palette.length],
+      roughness: 0.78,
+    });
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: skinTones[(idx + (p.seed ?? 1)) % skinTones.length],
+      roughness: 0.72,
+    });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 7), skinMat);
+    head.position.y = 1.5;
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.155, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.62), hairMat);
+    hair.position.y = 1.53;
+    const torso = new THREE.Mesh(
+      new THREE.BoxGeometry(0.36, style === 'kyoto_machiya_slide' ? 0.88 : 0.56, 0.22),
+      torsoMat
+    );
+    torso.position.y = style === 'kyoto_machiya_slide' ? 0.92 : 1.06;
+    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.66, 0.13), pantsMat);
+    leftLeg.position.set(-0.09, 0.34, 0);
+    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.66, 0.13), pantsMat);
+    rightLeg.position.set(0.09, 0.34, 0);
+    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.48, 0.1), torsoMat);
+    leftArm.position.set(-0.24, 1.06, 0);
+    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.48, 0.1), torsoMat);
+    rightArm.position.set(0.24, 1.06, 0);
+
+    // Rain umbrella / Kyoto Wagasa oiled-paper parasol (auto-opens on threshold when isRaining === true)
+    const umbrella = new THREE.Group();
+    const uShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.88, 6), frameMat);
+    uShaft.position.y = 0.44;
+    const uCanopy = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.18, 10, 1, true), wagasaRedMat);
+    uCanopy.position.y = 0.86;
+    const uRim = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.014, 4, 10), wagasaRimMat);
+    uRim.rotation.x = Math.PI / 2;
+    uRim.position.y = 0.77;
+    umbrella.add(uShaft, uCanopy, uRim);
+    umbrella.position.set(0.18, 1.24, 0.08);
+    umbrella.visible = false;
+
+    npcGroup.add(head, hair, torso, leftLeg, rightLeg, leftArm, rightArm, umbrella);
+    dg.add(npcGroup);
+    cluster.add(dg);
+
+    doors.push({
+      state: 'IdleClosed',
+      stateTimer: 0,
+      idleCooldown: 2.0 + idx * 2.4,
+      openAmount: 0,
+      doorWidth: doorW,
+      facingZ: p.facingZ,
+      worldX: p.x,
+      worldZ: p.z,
+      hingePivot,
+      leftSlide,
+      rightSlide,
+      shojiSlide,
+      statusStripMat,
+      npc: {
+        root: npcGroup,
+        leftLeg,
+        rightLeg,
+        leftArm,
+        rightArm,
+        umbrella,
+        walkPhase: idx * 1.1,
+        walkDirX: idx % 2 === 0 ? 1 : -1,
+        progress: 0,
+      },
+    });
+  });
+
+  const openDur = style === 'kyoto_machiya_slide' ? 0.45 : style === 'cyber_split_slide' ? 0.32 : 0.35;
+  const closeDur = style === 'kyoto_machiya_slide' ? 0.5 : style === 'cyber_split_slide' ? 0.32 : 0.4;
+
+  return {
+    group: cluster,
+    update: (dt, _elapsed, isNight, isRaining, isPlayerOutside) => {
+      // Update warm dusk/night washi & foyer glow even on env sync tick
+      foyerGlowMat.emissiveIntensity = isNight ? 1.35 : 0.35;
+      glassOrWashiMat.emissiveIntensity =
+        style === 'kyoto_machiya_slide'
+          ? isNight ? 1.15 : 0.22
+          : style === 'cyber_split_slide'
+          ? isNight ? 0.9 : 0.38
+          : isNight ? 0.72 : 0.14;
+
+      // Strict Indoor FPS Protection: completely skip door & NPC animation state machines when indoors!
+      if (!isPlayerOutside || dt <= 0) return;
+
+      for (let i = 0; i < doors.length; i++) {
+        const d = doors[i];
+        d.stateTimer += dt;
+
+        switch (d.state) {
+          case 'IdleClosed': {
+            d.openAmount = 0;
+            d.npc.root.visible = false;
+            d.idleCooldown -= dt;
+            if (d.idleCooldown <= 0) {
+              d.stateTimer = 0;
+              d.npc.progress = 0;
+              d.npc.walkDirX = ((i + Math.floor(_elapsed)) % 2 === 0 ? 1 : -1) as 1 | -1;
+              // Alternate between NPC exiting building onto street & street NPC entering building
+              const doExit = (i + Math.floor(_elapsed * 0.2)) % 2 === 0;
+              if (doExit) {
+                d.state = 'OpeningForExit';
+                d.npc.root.visible = true;
+                d.npc.root.position.set(0, 0, -0.95);
+                d.npc.root.rotation.y = 0;
+                d.npc.umbrella.visible = false;
+              } else {
+                d.state = 'OpeningForEntry';
+                d.npc.root.visible = true;
+                d.npc.root.position.set(d.npc.walkDirX * 2.2, 0, 1.45);
+                d.npc.root.rotation.y = d.npc.walkDirX > 0 ? -Math.PI / 2 : Math.PI / 2;
+                d.npc.umbrella.visible = isRaining;
+              }
+            }
+            break;
+          }
+          case 'OpeningForExit': {
+            d.openAmount = easeInOutCubic(d.stateTimer / openDur);
+            if (d.openAmount >= 0.85 && d.stateTimer >= openDur + 0.15) {
+              d.openAmount = 1;
+              d.state = 'NpcExiting';
+              d.stateTimer = 0;
+              d.npc.progress = 0;
+            }
+            break;
+          }
+          case 'NpcExiting': {
+            d.openAmount = 1;
+            d.npc.progress += dt * 0.42;
+            const p = Math.min(1, d.npc.progress);
+            // Walk straight out through foyer (-0.95 -> +1.35) then turn onto sidewalk
+            if (p < 0.48) {
+              const u = p / 0.48;
+              d.npc.root.position.set(0, 0, -0.95 + u * 2.3);
+              d.npc.root.rotation.y = 0;
+              d.npc.umbrella.visible = isRaining && u > 0.55;
+            } else {
+              const u = (p - 0.48) / 0.52;
+              d.npc.root.position.set(d.npc.walkDirX * u * 2.8, 0, 1.35);
+              d.npc.root.rotation.y = d.npc.walkDirX > 0 ? Math.PI / 2 : -Math.PI / 2;
+              d.npc.umbrella.visible = isRaining;
+            }
+            d.npc.walkPhase += dt * 7.2;
+            const s = Math.sin(d.npc.walkPhase);
+            d.npc.leftLeg.rotation.x = s * 0.48;
+            d.npc.rightLeg.rotation.x = -s * 0.48;
+            d.npc.leftArm.rotation.x = -s * 0.36;
+            d.npc.rightArm.rotation.x = d.npc.umbrella.visible ? -1.1 : s * 0.36;
+            if (p >= 1) {
+              d.npc.root.visible = false;
+              d.state = 'ClosingAfterExit';
+              d.stateTimer = 0;
+            }
+            break;
+          }
+          case 'ClosingAfterExit': {
+            d.openAmount = 1 - easeInOutCubic(d.stateTimer / closeDur);
+            if (d.stateTimer >= closeDur) {
+              d.openAmount = 0;
+              d.state = 'IdleClosed';
+              d.stateTimer = 0;
+              d.idleCooldown = 4.2 + (i % 3) * 1.9;
+            }
+            break;
+          }
+          case 'OpeningForEntry': {
+            d.openAmount = easeInOutCubic(d.stateTimer / openDur);
+            // Street NPC walks from sidewalk up to threshold while door opens
+            const approach = Math.min(1, d.stateTimer / openDur);
+            d.npc.root.position.set(d.npc.walkDirX * (1 - approach) * 1.8, 0, 1.45);
+            d.npc.root.rotation.y = d.npc.walkDirX > 0 ? -Math.PI / 2 : Math.PI / 2;
+            d.npc.umbrella.visible = isRaining;
+            d.npc.walkPhase += dt * 6.8;
+            const s = Math.sin(d.npc.walkPhase);
+            d.npc.leftLeg.rotation.x = s * 0.44;
+            d.npc.rightLeg.rotation.x = -s * 0.44;
+            if (d.openAmount >= 0.85 && d.stateTimer >= openDur) {
+              d.openAmount = 1;
+              d.state = 'NpcEntering';
+              d.stateTimer = 0;
+              d.npc.progress = 0;
+            }
+            break;
+          }
+          case 'NpcEntering': {
+            d.openAmount = 1;
+            d.npc.progress += dt * 0.62;
+            const p = Math.min(1, d.npc.progress);
+            d.npc.root.position.set(0, 0, 1.45 - p * 2.45);
+            d.npc.root.rotation.y = Math.PI;
+            d.npc.umbrella.visible = isRaining && p < 0.42;
+            d.npc.walkPhase += dt * 7.2;
+            const s = Math.sin(d.npc.walkPhase);
+            d.npc.leftLeg.rotation.x = s * 0.46;
+            d.npc.rightLeg.rotation.x = -s * 0.46;
+            d.npc.leftArm.rotation.x = -s * 0.35;
+            d.npc.rightArm.rotation.x = d.npc.umbrella.visible ? -1.1 : s * 0.35;
+            if (p >= 1) {
+              d.npc.root.visible = false;
+              d.state = 'ClosingAfterEntry';
+              d.stateTimer = 0;
+            }
+            break;
+          }
+          case 'ClosingAfterEntry': {
+            d.openAmount = 1 - easeInOutCubic(d.stateTimer / closeDur);
+            if (d.stateTimer >= closeDur) {
+              d.openAmount = 0;
+              d.state = 'IdleClosed';
+              d.stateTimer = 0;
+              d.idleCooldown = 4.5 + (i % 3) * 1.8;
+            }
+            break;
+          }
+        }
+
+        // Apply door kinematic transforms
+        if (d.hingePivot) {
+          // Hinged shop door: 0° -> 82° (1.431 rad)
+          d.hingePivot.rotation.y = -d.openAmount * 1.431;
+        }
+        if (d.leftSlide && d.rightSlide) {
+          const slideDist = d.openAmount * d.doorWidth * 0.46;
+          d.leftSlide.position.x = -slideDist;
+          d.rightSlide.position.x = slideDist;
+          if (d.statusStripMat) {
+            d.statusStripMat.color.setHex(d.openAmount > 0.12 ? 0xf59e0b : 0x06b6d4);
+          }
+        }
+        if (d.shojiSlide) {
+          // Kyoto machiya sliding hikido/shoji: 0 -> 0.82 * doorWidth into wall pocket
+          d.shojiSlide.position.x = d.openAmount * d.doorWidth * 0.82;
+        }
+      }
+    },
+  };
 }
 
 type FacadeStyle =
@@ -285,6 +792,8 @@ export function addSurrounding360Context(
     greenMat: THREE.MeshBasicMaterial;
     phaseOffset: number;
   }> = [];
+  const animatedDoorPlacements: AnimatedDoorwayPlacement[] = [];
+  let neighborDoorHandle: AnimatedDoorwayHandle | null = null;
 
   // 1. Continuous 360-Degree Biome Ground Skirt
   // IMPORTANT: On elevated cliffside/overlook maps (hilltop_city_lights, switzerland_hilltop, eiffel_tower),
@@ -478,10 +987,25 @@ export function addSurrounding360Context(
     shopWin.position.set(-opts.width * 0.12, 1.2, frontZ - 0.055);
     g.add(shopWin);
 
-    // Recessed shop doorway on right side
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.95, 2.05, 0.12), darkIronMat);
-    door.position.set(opts.width * 0.31, 1.02, frontZ - 0.02);
-    g.add(door);
+    // Recessed shop doorway on right side (upgraded to live animated doorway on busy_street/cyberpunk/kyoto!)
+    const useAnimatedDoor =
+      sceneryId === 'busy_street' ||
+      sceneryId === 'cyberpunk_neon' ||
+      sceneryId === 'japanese_tranquility';
+    if (useAnimatedDoor) {
+      animatedDoorPlacements.push({
+        x: opts.xCenter + opts.width * 0.31,
+        z: opts.zCenter + frontZ - 0.04,
+        facingZ: -1,
+        width: opts.isCyberpunk ? 1.24 : opts.isJapanese ? 1.12 : 0.96,
+        height: 2.04,
+        seed: Math.round(Math.abs(opts.xCenter) * 7),
+      });
+    } else {
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.95, 2.05, 0.12), darkIronMat);
+      door.position.set(opts.width * 0.31, 1.02, frontZ - 0.02);
+      g.add(door);
+    }
 
     // Mullion frame over shop window (koushi wood grid for Kyoto, iron bars otherwise)
     if (opts.isJapanese) {
@@ -720,12 +1244,18 @@ export function addSurrounding360Context(
       winterGroundMats.push({ mat: extSidewalkMat, summerHex: 0x8d95a0, winterHex: 0xdce8f4 });
     }
 
-    // Segmented Sidewalk Wings & Road Extensions cleanly split around x = ±33.8 junctions (ZERO gutter/sidewalk overlap!)
+    // Segmented Sidewalk Wings & Strict T-Junction Asphalt Termination at |x| = T_JUNCTION_OUTER_EDGE (±37.7)
     const curbFilletMat = new THREE.MeshStandardMaterial({
       color: sceneryId === 'cyberpunk_neon' ? 0x1e293b : 0x6b7280,
       roughness: 0.86,
     });
     const roadTopo = getSceneryRoadTopology(sceneryId);
+    const isStrictTJunctionCurbMap =
+      sceneryId === 'busy_street' ||
+      sceneryId === 'brazilian_favela' ||
+      sceneryId === 'cyberpunk_neon' ||
+      sceneryId === 'eiffel_tower';
+
     [-1, 1].forEach((sign) => {
       // Inner connector sidewalk from main sidewalk end (±22.0) strictly up to junction opening (±29.2)
       const innerSw = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.12, 2.2), extSidewalkMat);
@@ -735,27 +1265,48 @@ export function addSurrounding360Context(
       innerFarSw.position.set(sign * 25.6, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
       ctxGroup.add(innerFarSw);
 
-      // Outer sidewalk continuation strictly BEYOND junction opening (±38.4 to ±60.0)
-      const outerSw = new THREE.Mesh(new THREE.BoxGeometry(21.6, 0.12, 2.2), extSidewalkMat);
-      outerSw.position.set(sign * 49.2, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -8.2);
-      ctxGroup.add(outerSw);
-      const outerFarSw = new THREE.Mesh(new THREE.BoxGeometry(21.6, 0.12, 2.2), extSidewalkMat);
-      outerFarSw.position.set(sign * 49.2, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
-      ctxGroup.add(outerFarSw);
+      if (isStrictTJunctionCurbMap) {
+        // Strict T-Junction Termination: ZERO asphalt extends past |x| = T_JUNCTION_OUTER_EDGE (±37.7)!
+        // Continuous raised far-side curb (curbTopY = 0.11) + wide far-side pedestrian sidewalk (width = 4.2 >= 2.6)
+        // cleanly separating the perpendicular cross-street from the end-of-road building front wall at |x| = 41.9!
+        const farCurb = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 36.0), curbFilletMat);
+        farCurb.position.set(
+          sign * (T_JUNCTION_OUTER_EDGE + 0.12),
+          ROAD_ELEVATION_LAYERS.curbTopY - 0.09,
+          -12.55
+        );
+        ctxGroup.add(farCurb);
 
-      // Continuous main avenue wing asphalt extending cleanly to corner buildings (zero curb intrusion)
-      const roadWing = new THREE.Mesh(new THREE.PlaneGeometry(38, 6.6), extAsphaltMat);
-      roadWing.rotation.x = -Math.PI / 2;
-      roadWing.position.set(sign * 41.0, ROAD_ELEVATION_LAYERS.asphaltY - 0.004, -12.55);
-      ctxGroup.add(roadWing);
+        const farSidewalkSlab = new THREE.Mesh(
+          new THREE.BoxGeometry(T_JUNCTION_FAR_SIDEWALK_WIDTH, 0.16, 36.0),
+          extSidewalkMat
+        );
+        farSidewalkSlab.position.set(
+          sign * (T_JUNCTION_OUTER_EDGE + T_JUNCTION_FAR_SIDEWALK_WIDTH * 0.5),
+          ROAD_ELEVATION_LAYERS.curbTopY - 0.08,
+          -12.55
+        );
+        ctxGroup.add(farSidewalkSlab);
+      } else {
+        // Japanese Tranquility quiet Kyoto stone lane continuation to Torii steps (-X) & canal bridge (+X)
+        const outerSw = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.12, 2.2), extSidewalkMat);
+        outerSw.position.set(sign * 43.4, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -8.2);
+        ctxGroup.add(outerSw);
+        const outerFarSw = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.12, 2.2), extSidewalkMat);
+        outerFarSw.position.set(sign * 43.4, ROAD_ELEVATION_LAYERS.sidewalkTopY - 0.06, -16.9);
+        ctxGroup.add(outerFarSw);
 
-      // Clean 90° rounded corner curb fillets framing both inner & outer mouths of x = ±33.8 junction
+        const kyotoLaneWing = new THREE.Mesh(new THREE.PlaneGeometry(15.7, 6.6), extAsphaltMat);
+        kyotoLaneWing.rotation.x = -Math.PI / 2;
+        kyotoLaneWing.position.set(sign * 29.85, ROAD_ELEVATION_LAYERS.asphaltY - 0.004, -12.55);
+        ctxGroup.add(kyotoLaneWing);
+      }
+
+      // Clean 90° rounded corner curb fillets framing the inner mouths of x = ±33.8 junction
       const ix = sign * 33.8;
       const filletOffsets: Array<[number, number, number]> = [
-        [ix - 4.6, -8.6, 0],
-        [ix + 4.6, -8.6, Math.PI * 0.5],
-        [ix + 4.6, -16.5, Math.PI],
-        [ix - 4.6, -16.5, Math.PI * 1.5],
+        [ix - sign * 4.6, -8.6, sign > 0 ? 0 : Math.PI * 0.5],
+        [ix - sign * 4.6, -16.5, sign > 0 ? Math.PI * 1.5 : Math.PI],
       ];
       filletOffsets.forEach(([fx, fz, startAng]) => {
         if (roadTopo === 'l_junction' && fz < -12) return;
@@ -1204,11 +1755,23 @@ export function addSurrounding360Context(
           }
         });
 
-        // White stop-bars & zebra crosswalk stripes framing the main avenue approach
-        const stopLine = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 6.2), crossStripeMat);
+        // Crisp perpendicular white stop-bars (width 0.28, y = 0.015) & corner zebra crosswalk stripes on BOTH -X & +X T-junctions
+        const stopLine = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 6.2), crossStripeMat);
         stopLine.rotation.x = -Math.PI / 2;
-        stopLine.position.set(ix - sign * 5.3, ROAD_ELEVATION_LAYERS.crosswalkY, -12.55);
+        stopLine.position.set(ix - sign * 5.25, 0.015, -12.55);
         ctxGroup.add(stopLine);
+
+        // Perpendicular cross-street stop bars on both +Z and -Z arms
+        const crossStopNear = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 0.28), crossStripeMat);
+        crossStopNear.rotation.x = -Math.PI / 2;
+        crossStopNear.position.set(ix, 0.015, -7.2);
+        ctxGroup.add(crossStopNear);
+        if (!isDownhillParis) {
+          const crossStopFar = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 0.28), crossStripeMat);
+          crossStopFar.rotation.x = -Math.PI / 2;
+          crossStopFar.position.set(ix, 0.015, -17.9);
+          ctxGroup.add(crossStopFar);
+        }
 
         for (let s = 0; s < 5; s++) {
           const zStripe = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.42), crossStripeMat);
@@ -1221,6 +1784,14 @@ export function addSurrounding360Context(
           pStripe.rotation.x = -Math.PI / 2;
           pStripe.position.set(ix - 2.4 + s * 1.2, ROAD_ELEVATION_LAYERS.crosswalkY, -8.3);
           ctxGroup.add(pStripe);
+
+          // Corner crosswalk across -Z side-street mouth (except Eiffel downhill ramp)
+          if (!isDownhillParis) {
+            const fStripe = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 1.4), crossStripeMat);
+            fStripe.rotation.x = -Math.PI / 2;
+            fStripe.position.set(ix - 2.4 + s * 1.2, ROAD_ELEVATION_LAYERS.crosswalkY, -16.8);
+            ctxGroup.add(fStripe);
+          }
         }
 
         // Working 3-Lens Red/Yellow/Green Cantilever Traffic Signal Posts on Busy Street & Eiffel Avenue
@@ -1260,22 +1831,23 @@ export function addSurrounding360Context(
     // PHASE 2.2: BIOME-MATCHED -X & +X ROAD-END VISUAL TERMINATORS (ZERO VOID!)
     // =========================================================================
     if (sceneryId === 'busy_street') {
-      // Cross-street corner mid-rise & distant skyline beyond the ±34 intersections
-      [-54, 54].forEach((endX) => {
-        const sign = Math.sign(endX);
-        const tBldg = new THREE.Mesh(new THREE.BoxGeometry(11, 16, 26), blockMat);
-        tBldg.position.set(endX + sign * 6, 7.8, -12.5);
+      // Cross-street corner mid-rise & distant skyline flush behind the far-side T-junction sidewalk (|x| = 41.9)
+      [-1, 1].forEach((sign) => {
+        const bldgW = 11;
+        const centerX = sign * (T_JUNCTION_BUILDING_FRONT_X + bldgW * 0.5);
+        const tBldg = new THREE.Mesh(new THREE.BoxGeometry(bldgW, 16, 26), blockMat);
+        tBldg.position.set(centerX, 7.8, -12.5);
         ctxGroup.add(tBldg);
-        const tRoof = new THREE.Mesh(new THREE.BoxGeometry(11.6, 0.5, 26.6), parapetMat);
-        tRoof.position.set(endX + sign * 6, 16.0, -12.5);
+        const tRoof = new THREE.Mesh(new THREE.BoxGeometry(bldgW + 0.6, 0.5, 26.6), parapetMat);
+        tRoof.position.set(centerX, 16.0, -12.5);
         ctxGroup.add(tRoof);
 
         const skyTower = new THREE.Mesh(new THREE.BoxGeometry(14, 28, 22), blockMat);
-        skyTower.position.set(endX + sign * 18, 13.8, -10.0);
+        skyTower.position.set(centerX + sign * 12, 13.8, -10.0);
         ctxGroup.add(skyTower);
       });
     } else if (sceneryId === 'cyberpunk_neon') {
-      // Towering elevated maglev skybridges, stacked megastructure arches & glowing arcology towers closing both ends!
+      // Towering elevated maglev skybridges, street-level cyber podiums flush at |x| = 41.9 & arcology towers closing both ends!
       const megaSteelMat = new THREE.MeshStandardMaterial({
         color: 0x111827,
         roughness: 0.45,
@@ -1285,8 +1857,21 @@ export function addSurrounding360Context(
       const magentaNeon = new THREE.MeshBasicMaterial({ color: 0xec4899 });
       neonAccentMats.push(cyanNeon, magentaNeon);
 
-      [-48, 48].forEach((endX, sIdx) => {
-        const sign = Math.sign(endX);
+      [-1, 1].forEach((sign, sIdx) => {
+        const endX = sign * 48;
+        // Street-level cyber podium facade seated strictly behind the far-side sidewalk at |x| = 41.9
+        const podiumW = 10.0;
+        const podiumX = sign * (T_JUNCTION_BUILDING_FRONT_X + podiumW * 0.5);
+        const cyberPodium = new THREE.Mesh(new THREE.BoxGeometry(podiumW, 11.2, 28), blockMat);
+        cyberPodium.position.set(podiumX, 5.5, -12.5);
+        ctxGroup.add(cyberPodium);
+        const podiumTrim = new THREE.Mesh(
+          new THREE.BoxGeometry(0.18, 0.26, 26),
+          sIdx === 0 ? cyanNeon : magentaNeon
+        );
+        podiumTrim.position.set(sign * (T_JUNCTION_BUILDING_FRONT_X - 0.05), 3.4, -12.5);
+        ctxGroup.add(podiumTrim);
+
         // Elevated dual-deck highway / maglev skybridge spanning across the avenue
         const bridgeDeck = new THREE.Mesh(new THREE.BoxGeometry(5.5, 2.2, 34), megaSteelMat);
         bridgeDeck.position.set(endX, 11.2, -12.5);
@@ -1577,43 +2162,56 @@ export function addSurrounding360Context(
         }
       });
     } else if (sceneryId === 'eiffel_tower') {
-      // Grand Parisian Haussmann corner apartments & mansard blocks closing both -X and +X street ends
-      [-52, 52].forEach((endX) => {
-        const sign = Math.sign(endX);
-        const cornerBlock = new THREE.Mesh(new THREE.BoxGeometry(10, 11.5, 24), blockMat);
-        cornerBlock.position.set(endX + sign * 5, 5.6, -12.5);
+      // Grand Parisian Haussmann corner apartments flush behind the far-side sidewalk (|x| = 41.9)
+      [-1, 1].forEach((sign) => {
+        const blockW = 10;
+        const blockH = 11.5;
+        const blockD = 24;
+        const centerX = sign * (T_JUNCTION_BUILDING_FRONT_X + blockW * 0.5);
+        const wallBaseY = -0.15;
+        const wallTopY = wallBaseY + blockH; // 11.35
+        const cornerBlock = new THREE.Mesh(new THREE.BoxGeometry(blockW, blockH, blockD), blockMat);
+        cornerBlock.position.set(centerX, wallBaseY + blockH * 0.5, -12.5);
         ctxGroup.add(cornerBlock);
-        const mansard = new THREE.Mesh(new THREE.CylinderGeometry(8.5, 11.5, 2.8, 4), parapetMat);
+
+        // Phase 4 / Structural Flush Mansard Roof: bottom footprint matches (blockW, blockD) and roofBaseY === wallTopY!
+        const mansardH = 2.6;
+        const baseRad = Math.SQRT1_2; // unit 4-sided cylinder rotated 45° has exact 1x1 square base
+        const topRad = baseRad * 0.72;
+        const mansard = new THREE.Mesh(
+          new THREE.CylinderGeometry(topRad, baseRad, mansardH, 4),
+          parapetMat
+        );
         mansard.rotation.y = Math.PI / 4;
-        mansard.scale.set(0.75, 1, 1.45);
-        mansard.position.set(endX + sign * 5, 12.6, -12.5);
+        mansard.scale.set(blockW + 0.16, 1, blockD + 0.16);
+        mansard.position.set(centerX, wallTopY + mansardH * 0.5, -12.5);
         ctxGroup.add(mansard);
       });
     } else if (sceneryId === 'brazilian_favela') {
-      // Phase 2: Replace end-of-road green mountains with authentic Rio T-road corner botecos,
-      // colorful plaster walls, stone retaining steps, and tiled awnings framing the cross-street!
+      // Authentic Rio T-road corner botecos seated strictly behind the far-side sidewalk (|x| = 41.9)
       const botecoColors = [0xf59e0b, 0x06b6d4, 0xf43f5e, 0x10b981];
       const botecoWallMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.9 });
-      [-45.5, 45.5].forEach((endX, eIdx) => {
-        const sign = Math.sign(endX);
-        // Corner Boteco storefront directly across the T-road turn
+      [-1, 1].forEach((sign, eIdx) => {
+        const shopW = 9.2;
+        const centerX = sign * (T_JUNCTION_BUILDING_FRONT_X + shopW * 0.5);
+        // Corner Boteco storefront directly across the T-road sidewalk (front wall strictly at |x| = 41.9)
         const shopMat = new THREE.MeshStandardMaterial({
           color: botecoColors[eIdx % botecoColors.length],
           roughness: 0.8,
         });
-        const shop = new THREE.Mesh(new THREE.BoxGeometry(9.2, 6.2, 14.0), shopMat);
-        shop.position.set(endX + sign * 2.5, 3.0, -12.5);
+        const shop = new THREE.Mesh(new THREE.BoxGeometry(shopW, 6.2, 16.0), shopMat);
+        shop.position.set(centerX, 3.0, -12.5);
         ctxGroup.add(shop);
         const shop2Mat = new THREE.MeshStandardMaterial({
           color: botecoColors[(eIdx + 2) % botecoColors.length],
           roughness: 0.82,
         });
-        const shop2 = new THREE.Mesh(new THREE.BoxGeometry(8.4, 4.4, 11.2), shop2Mat);
-        shop2.position.set(endX + sign * 2.8, 8.2, -13.0);
+        const shop2 = new THREE.Mesh(new THREE.BoxGeometry(8.4, 4.4, 12.2), shop2Mat);
+        shop2.position.set(centerX + sign * 0.4, 8.2, -13.0);
         ctxGroup.add(shop2);
         // Stone coastal retaining wall & hillside stairway rising cleanly along the cross-street flank
         const retainWall = new THREE.Mesh(new THREE.BoxGeometry(10.5, 1.8, 1.2), botecoWallMat);
-        retainWall.position.set(endX - sign * 2.5, 0.85, -18.5);
+        retainWall.position.set(centerX - sign * 2.5, 0.85, -20.8);
         ctxGroup.add(retainWall);
       });
     }
@@ -2214,11 +2812,30 @@ export function addSurrounding360Context(
     }
   }
 
+  // Mount animated outdoor-only doorways & NPC entry/exit state machine on flanking storefronts
+  if (animatedDoorPlacements.length > 0) {
+    const doorStyle: DoorwayStyle =
+      sceneryId === 'cyberpunk_neon'
+        ? 'cyber_split_slide'
+        : sceneryId === 'japanese_tranquility'
+        ? 'kyoto_machiya_slide'
+        : 'hinged_shop';
+    neighborDoorHandle = createAnimatedDoorwayCluster(sceneryId, doorStyle, animatedDoorPlacements);
+    ctxGroup.add(neighborDoorHandle.group);
+  }
+
   // Collapse repeated static flanking/intersection/streetlight meshes sharing identical materials into merged batches
   batchStaticMeshesByMaterial(ctxGroup);
 
   return {
-    update: (isNight: boolean, climateState: ClimateState, elapsed?: number) => {
+    update: (
+      isNight: boolean,
+      climateState: ClimateState,
+      elapsed?: number,
+      dt = 0,
+      isRaining = false,
+      isPlayerOutside = true
+    ) => {
       horizonBandMat.color.setHex(isNight ? gSpec.horizonNight : gSpec.horizonDay);
       for (const wm of warmWindowMats) {
         wm.emissiveIntensity = isNight ? 0.72 : 0.2;
@@ -2258,6 +2875,15 @@ export function addSurrounding360Context(
       }
       for (const nm of neonAccentMats) {
         nm.opacity = isNight ? 1.0 : 0.84;
+      }
+      if (neighborDoorHandle) {
+        neighborDoorHandle.update(
+          dt,
+          typeof elapsed === 'number' ? elapsed : 0,
+          isNight,
+          isRaining,
+          isPlayerOutside
+        );
       }
     },
   };

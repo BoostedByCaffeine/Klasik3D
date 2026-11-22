@@ -65,6 +65,7 @@ import {
   ROAD_ELEVATION_LAYERS,
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
+  T_JUNCTION_OUTER_EDGE,
   computeLeashTransform,
   evaluateCornerTurnPath,
   getEiffelRoadPose,
@@ -4541,8 +4542,11 @@ export class KlasikCafeScene3D {
       roughness: 0.85,
       metalness: 0.08,
     });
-    // Clip central avenue asphalt cleanly into the ±33.8 junction mouths (width 76 spans -38..+38)
-    const avenueRoad = new THREE.Mesh(new THREE.PlaneGeometry(76, 6.6), this.roadAsphaltMat);
+    // Terminate main street asphalt strictly at |x| = T_JUNCTION_OUTER_EDGE (±37.7) — zero overflow into far-side sidewalks/buildings!
+    const avenueRoad = new THREE.Mesh(
+      new THREE.PlaneGeometry(T_JUNCTION_OUTER_EDGE * 2, 6.6),
+      this.roadAsphaltMat
+    );
     avenueRoad.rotation.x = -Math.PI / 2;
     avenueRoad.position.set(0, ROAD_ELEVATION_LAYERS.asphaltY, -12.55);
     avenueRoad.receiveShadow = true;

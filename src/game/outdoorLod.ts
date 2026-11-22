@@ -37,6 +37,44 @@ export interface TrafficLaneVehicle {
 export const TRAFFIC_MIN_LANE_SPACING = 11.5;
 export const TRAFFIC_X_BOUND = 44.0;
 export const PEDESTRIAN_CORNER_BOUND = 35.5;
+export const T_JUNCTION_CENTER_X = 33.8;
+export const T_JUNCTION_CROSS_WIDTH = 7.8;
+/** Strict outer curb edge of the perpendicular cross-street where main street asphalt MUST terminate. */
+export const T_JUNCTION_OUTER_EDGE = T_JUNCTION_CENTER_X + T_JUNCTION_CROSS_WIDTH * 0.5; // 37.7
+/** Continuous far-side sidewalk width between T-junction outer curb and end-of-road building wall (>= 2.6). */
+export const T_JUNCTION_FAR_SIDEWALK_WIDTH = 4.2;
+export const T_JUNCTION_BUILDING_FRONT_X = T_JUNCTION_OUTER_EDGE + T_JUNCTION_FAR_SIDEWALK_WIDTH; // 41.9
+
+export type DoorwayStyle = 'hinged_shop' | 'cyber_split_slide' | 'kyoto_machiya_slide';
+
+export type DoorwayAnimationState =
+  | 'IdleClosed'
+  | 'OpeningForExit'
+  | 'NpcExiting'
+  | 'ClosingAfterExit'
+  | 'OpeningForEntry'
+  | 'NpcEntering'
+  | 'ClosingAfterEntry';
+
+export function easeInOutCubic(t: number): number {
+  const x = Math.max(0, Math.min(1, t));
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
+
+/**
+ * Verifies that vehicles turning via `evaluateCornerTurnPath(u, laneZ, dir, turnStartX, turnRadius, sign)`
+ * remain centered inside the perpendicular cross-street with at least `minClearance` units from the
+ * far-side T-junction curb at `|x| = T_JUNCTION_OUTER_EDGE`.
+ */
+export function hasCornerTurnCurbClearance(
+  turnStartX: number,
+  turnRadius: number,
+  vehicleHalfWidth = 0.9,
+  minClearance = 0.6
+): boolean {
+  const outerVehicleEdgeX = turnStartX + Math.max(0.5, turnRadius) + vehicleHalfWidth;
+  return T_JUNCTION_OUTER_EDGE - outerVehicleEdgeX >= minClearance;
+}
 
 export interface CornerTurnPose {
   x: number;
