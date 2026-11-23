@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getMountainSurfaceTextures, type MountainTexturePreset } from './mountainTextures';
 
 export type GraphicsTier = 'low' | 'medium' | 'high';
 
@@ -11,6 +12,10 @@ export interface MountainBiomePalette {
   steepnessRockThreshold: number; // e.g. 0.52 (normal.y < threshold forces rock)
   crispRidges?: boolean; // true -> ridge*ridge for alpine/Himalayan arêtes; false -> rolling tropical hills
   defaultSkirtFloorY?: number;
+  /** Optional warm low-elevation bounce tint (e.g., valley city lights hitting bottom ~15% of ridges). */
+  lowBounceColor?: number;
+  /** Normalized elevation band [0..1] receiving lowBounceColor (default 0.16). */
+  lowBounceHeight?: number;
 }
 
 export interface RidgedPeakOptions {
@@ -54,34 +59,36 @@ export const MAYON_FOOTHILLS: MountainBiomePalette = {
 };
 
 export const COASTAL_SIERRA: MountainBiomePalette = {
-  baseColor: 0x263a2e,
-  midRockColor: 0x3b444b,
-  steepCliffColor: 0x2e323a,
+  baseColor: 0x1a2b24,
+  midRockColor: 0x25323f,
+  steepCliffColor: 0x1b222c,
   snowColor: 0xffffff,
   snowlineNormalized: 1.5,
   steepnessRockThreshold: 0.5,
   crispRidges: false,
   defaultSkirtFloorY: -24,
+  lowBounceColor: 0x3a2d22,
+  lowBounceHeight: 0.16,
 };
 
 export const SWISS_ALPINE: MountainBiomePalette = {
-  baseColor: 0x325238,
-  midRockColor: 0x636b73,
-  steepCliffColor: 0x3e444d,
-  snowColor: 0xf2f7fc,
-  snowlineNormalized: 0.56,
-  steepnessRockThreshold: 0.55,
+  baseColor: 0x2c4734,
+  midRockColor: 0x56606d,
+  steepCliffColor: 0x1d242e,
+  snowColor: 0xf4f9ff,
+  snowlineNormalized: 0.52,
+  steepnessRockThreshold: 0.56,
   crispRidges: true,
   defaultSkirtFloorY: -30,
 };
 
 export const HIMALAYAN_HORN: MountainBiomePalette = {
-  baseColor: 0x59626e,
-  midRockColor: 0x434b57,
-  steepCliffColor: 0x252b33,
+  baseColor: 0x4b5563,
+  midRockColor: 0x353e4a,
+  steepCliffColor: 0x1a2029,
   snowColor: 0xf5faff,
-  snowlineNormalized: 0.42,
-  steepnessRockThreshold: 0.52,
+  snowlineNormalized: 0.32,
+  steepnessRockThreshold: 0.48,
   crispRidges: true,
   defaultSkirtFloorY: -26,
 };
@@ -164,6 +171,9 @@ function bakeMountainVertexColors(
   const cMid = new THREE.Color(palette.midRockColor);
   const cCliff = new THREE.Color(palette.steepCliffColor);
   const cSnow = new THREE.Color(palette.snowColor);
+  const cBounce =
+    palette.lowBounceColor !== undefined ? new THREE.Color(palette.lowBounceColor) : null;
+  const bounceBand = palette.lowBounceHeight ?? 0.16;
   const cTmp = new THREE.Color();
 
   const invMaxH = maxHeight > 0.001 ? 1 / maxHeight : 1;
@@ -176,32 +186,37 @@ function bakeMountainVertexColors(
     const hNorm = clamp01((vy - baseY) * invMaxH);
 
     // Slight elevation jitter from deterministic noise so snowline & strata look organic
-    const nWarp = (valueNoise2D(vx * 0.06, vz * 0.06, seed + 503) - 0.5) * 0.14;
+    const nWarp = (valueNoise2D(vx * 0.06, vz * 0.06, seed + 503) - 0.5) * 0.13;
 
     // Base -> Mid Rock blend
     const rockMix = clamp01(hNorm * 1.15 + nWarp * 0.5);
     cTmp.copy(cBase).lerp(cMid, rockMix);
 
-    // Steep exposed faces shed foliage & snow -> steepCliffColor
+    // Steep exposed faces shed foliage & snow -> crisp dark steepCliffColor ribs
     if (upDot < palette.steepnessRockThreshold) {
       const cliffT = clamp01(
-        (palette.steepnessRockThreshold - upDot) / Math.max(0.08, palette.steepnessRockThreshold)
+        (palette.steepnessRockThreshold - upDot) / Math.max(0.08, palette.steepnessRockThreshold * 0.72)
       );
-      cTmp.lerp(cCliff, 0.45 + cliffT * 0.5);
+      cTmp.lerp(cCliff, 0.55 + cliffT * 0.45);
     }
 
-    // High-altitude gentle-slope snow cap
+    // High-altitude gentle-slope snow cap with sharper granite-vs-snow slope cutoff
     const snowH = hNorm + nWarp;
+    const snowSlopeStart = palette.steepnessRockThreshold * 0.94;
     if (
       palette.snowlineNormalized <= 1.05 &&
       snowH > palette.snowlineNormalized &&
-      upDot >= palette.steepnessRockThreshold * 0.92
+      upDot >= snowSlopeStart
     ) {
-      const snowBand = clamp01((snowH - palette.snowlineNormalized) / 0.18);
-      const slopeFactor = clamp01(
-        (upDot - palette.steepnessRockThreshold * 0.92) / 0.2
-      );
-      cTmp.lerp(cSnow, snowBand * slopeFactor);
+      const snowBand = clamp01((snowH - palette.snowlineNormalized) / 0.13);
+      const slopeFactor = clamp01((upDot - snowSlopeStart) / 0.13);
+      cTmp.lerp(cSnow, Math.pow(snowBand * slopeFactor, 0.85));
+    }
+
+    // Subtle warm low-elevation bounce facing valley city lights (bottom ~15%)
+    if (cBounce && vy >= baseY - 1.5 && hNorm < bounceBand) {
+      const bounceT = (1 - hNorm / Math.max(0.05, bounceBand)) * 0.55;
+      cTmp.lerp(cBounce, bounceT);
     }
 
     // Subtle darkening on deep vertical skirts below baseY to ground seamlessly into valley fog
@@ -218,14 +233,28 @@ function bakeMountainVertexColors(
 }
 
 /**
- * Shared single material per scenery for all procedural mountain meshes so
- * `batchStaticMeshesByMaterial()` collapses them into minimal draw calls.
+ * Shared single matte PBR material per scenery for all procedural mountain meshes so
+ * `batchStaticMeshesByMaterial()` collapses them into minimal draw calls while rendering
+ * crisp micro-grained rock/snow relief instead of untextured clay.
  */
-export function createSharedMountainMaterial(): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({
+export function createSharedMountainMaterial(
+  preset: MountainTexturePreset = 'alpine',
+  tier?: GraphicsTier
+): THREE.MeshStandardMaterial {
+  const resolvedTier = tier ?? resolveMountainGraphicsTier();
+  const textures = getMountainSurfaceTextures(preset);
+  const useBump = resolvedTier !== 'low' && textures.bumpMap !== null;
+
+  return new THREE.MeshStandardMaterial({
     vertexColors: true,
     flatShading: true,
     side: THREE.FrontSide,
+    roughness: 0.96,
+    metalness: 0.0,
+    envMapIntensity: 0.1,
+    map: textures.map,
+    bumpMap: useBump ? textures.bumpMap : null,
+    bumpScale: useBump ? textures.bumpScale : 0,
   });
 }
 
@@ -252,7 +281,16 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
   const crisp = palette.crispRidges ?? true;
 
   const positions: number[] = [];
+  const uvs: number[] = [];
   const indices: number[] = [];
+
+  // World-scaled UV tiling factor so cliffs and slopes keep crisp rock/snow micro-grain without stretching
+  const peakTileSpan = Math.max(12, Math.min(28, (radiusX + radiusZ + height) * 0.22));
+  const peakCircumferenceRepeats = Math.max(
+    2,
+    Math.round((Math.PI * (radiusX + radiusZ)) / peakTileSpan)
+  );
+  const peakSlopeSpan = Math.hypot(radiusX, radiusZ) * 0.42;
 
   // Deterministic summit crest orientation & slight off-center asymmetry
   const crestYaw = (hash2D(seed, 11, 7) - 0.5) * Math.PI;
@@ -267,7 +305,8 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
     const ringT = isSkirtBottom ? 1.0 : Math.max(0.06, ring / ringSegs);
 
     for (let seg = 0; seg <= radialSegs; seg++) {
-      const theta = (seg / radialSegs) * Math.PI * 2;
+      const segFrac = seg / radialSegs;
+      const theta = segFrac * Math.PI * 2;
       const ca = Math.cos(theta);
       const sa = Math.sin(theta);
 
@@ -300,6 +339,9 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
       }
 
       positions.push(wx, wy, wz);
+      const uvU = segFrac * peakCircumferenceRepeats;
+      const uvV = ((wy - baseY) * 0.92 - ringT * peakSlopeSpan) / peakTileSpan;
+      uvs.push(uvU, uvV);
     }
   }
 
@@ -310,6 +352,7 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
     baseY + height * 1.01,
     asymX * radiusX * sinYaw + asymZ * radiusZ * cosYaw
   );
+  uvs.push(peakCircumferenceRepeats * 0.5, (height * 1.01 * 0.92) / peakTileSpan);
 
   const stride = radialSegs + 1;
   // Cap inner crest ring to apex (CCW outward)
@@ -333,6 +376,7 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   bakeMountainVertexColors(geo, baseY, height, palette, seed);
   return geo;
@@ -385,8 +429,11 @@ export function createMountainRangeRibbon(
   }
 
   const positions: number[] = [];
+  const uvs: number[] = [];
   const indices: number[] = [];
   const halfDepth = depth * 0.5;
+  const arcLen = Math.max(12, Math.abs(endAngle - startAngle) * arcRadius);
+  const ribbonTileSpan = Math.max(16, Math.min(34, (depth + maxPeakHeight) * 0.42));
 
   for (let row = 0; row < totalDepthRows; row++) {
     const isFrontSkirt = row === 0;
@@ -450,6 +497,9 @@ export function createMountainRangeRibbon(
       }
 
       positions.push(wx, wy, wz);
+      const uvU = (u * arcLen) / ribbonTileSpan;
+      const uvV = (v * depth * 0.6 + (wy - baseY) * 0.85) / ribbonTileSpan;
+      uvs.push(uvU, uvV);
       void halfDepth;
     }
   }
@@ -477,6 +527,7 @@ export function createMountainRangeRibbon(
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   bakeMountainVertexColors(geo, baseY, maxPeakHeight, palette, seed);
   return geo;
@@ -487,7 +538,7 @@ export function createMountainRangeRibbon(
  */
 export function createMountainRibbonMesh(
   options: MountainRangeRibbonOptions,
-  sharedMaterial: THREE.MeshLambertMaterial,
+  sharedMaterial: THREE.MeshStandardMaterial | THREE.MeshLambertMaterial,
   name = 'mountain_ribbon'
 ): THREE.Mesh {
   const geo = createMountainRangeRibbon(options);
@@ -501,7 +552,7 @@ export function createMountainRibbonMesh(
 
 export function createRidgedPeakMesh(
   options: RidgedPeakOptions,
-  sharedMaterial: THREE.MeshLambertMaterial,
+  sharedMaterial: THREE.MeshStandardMaterial | THREE.MeshLambertMaterial,
   name = 'mountain_peak'
 ): THREE.Mesh {
   const geo = createRidgedPeakGeometry(options);

@@ -245,3 +245,120 @@ export function createCleanCyberHighwayOverlay(): THREE.Group {
 
   return highway;
 }
+
+/**
+ * Verified open recessed neon alley X-centerlines along the Cyberpunk Neon far storefront row.
+ * Alley #1 (-3.8): between Holo Ramen (拉麺屋) and Cyber-Boba (合成茶館).
+ * Alley #2 (+3.2): between the yellow vending kiosk and Cyber Arcade (電脳遊戯).
+ * Flank alleys (-17.8, +17.6): far left/right pedestrian corridors.
+ */
+export const CYBER_OPEN_ALLEY_XS = [-17.8, -3.8, 3.2, 17.6] as const;
+
+export interface RecessedCyberAlleyOptions {
+  x: number;
+  width?: number;
+  depth?: number;
+  height?: number;
+  accentHex?: number;
+  secondaryHex?: number;
+}
+
+/**
+ * Builds a genuine recessed neon alley corridor (`width >= 2.2`, `depth >= 3.2`) with dark
+ * ribbed side walls, subtle cyan/magenta floor curb strips, overhead conduit pipes, and a
+ * deep shadowed backplane so alley walkers enter/exit real corridors instead of clipping walls.
+ */
+export function createRecessedCyberAlley(options: RecessedCyberAlleyOptions): THREE.Group {
+  const {
+    x,
+    width = 2.4,
+    depth = 4.6,
+    height = 4.8,
+    accentHex = 0x06b6d4,
+    secondaryHex = 0xec4899,
+  } = options;
+
+  const alley = new THREE.Group();
+  alley.name = `cyber_recessed_alley_${x.toFixed(1)}`;
+  // Mouth opens flush at z = -18.1 and recesses deep back to z = -18.1 - depth
+  const mouthZ = -18.1;
+  const centerZ = mouthZ - depth * 0.5;
+  alley.position.set(x, 0, 0);
+
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0x0c101b,
+    roughness: 0.82,
+    metalness: 0.28,
+  });
+  const ribMat = new THREE.MeshStandardMaterial({
+    color: 0x161d2e,
+    roughness: 0.56,
+    metalness: 0.55,
+  });
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0d14,
+    roughness: 0.78,
+    metalness: 0.1,
+  });
+  const backMat = new THREE.MeshBasicMaterial({ color: 0x04060c });
+  const accentMat = new THREE.MeshBasicMaterial({ color: accentHex });
+  const secondaryMat = new THREE.MeshBasicMaterial({ color: secondaryHex });
+
+  const halfW = width * 0.5;
+
+  // Dark matte recessed alley floor
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth + 0.6), floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, 0.014, centerZ);
+  alley.add(floor);
+
+  // Dark interior ceiling + deep shadowed backplane
+  const ceiling = new THREE.Mesh(new THREE.BoxGeometry(width + 0.3, 0.24, depth + 0.4), wallMat);
+  ceiling.position.set(0, height, centerZ);
+  const backplane = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.2, height + 0.2), backMat);
+  backplane.position.set(0, height * 0.5, mouthZ - depth - 0.12);
+  alley.add(ceiling, backplane);
+
+  // Ribbed dark side walls + subtle glowing neon floor curb strips
+  [-1, 1].forEach((side) => {
+    const wallX = side * (halfW + 0.1);
+    const sideWall = new THREE.Mesh(new THREE.BoxGeometry(0.2, height, depth), wallMat);
+    sideWall.position.set(wallX, height * 0.5, centerZ);
+    alley.add(sideWall);
+
+    // Subtle floor curb strip hugging each alley wall edge
+    const curb = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, depth - 0.3),
+      side < 0 ? accentMat : secondaryMat
+    );
+    curb.position.set(side * (halfW - 0.06), 0.04, centerZ);
+    alley.add(curb);
+
+    // Structural vertical pilasters along wall depth for unmistakable spatial depth cues
+    const ribCount = 4;
+    for (let r = 0; r < ribCount; r++) {
+      const rz = mouthZ - 0.45 - (r / (ribCount - 1)) * (depth - 0.9);
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.14, height - 0.15, 0.22), ribMat);
+      rib.position.set(side * (halfW - 0.04), height * 0.5, rz);
+      alley.add(rib);
+    }
+  });
+
+  // Overhead industrial conduit pipes spanning across the recessed corridor
+  const pipeGeo = new THREE.CylinderGeometry(0.065, 0.065, width + 0.1, 6);
+  pipeGeo.rotateZ(Math.PI / 2);
+  for (let p = 0; p < 3; p++) {
+    const pz = mouthZ - 0.7 - p * (depth * 0.3);
+    const pipe = new THREE.Mesh(pipeGeo, ribMat);
+    pipe.position.set(0, height - 0.42 - (p % 2) * 0.16, pz);
+    alley.add(pipe);
+  }
+
+  // Subtle recessed overhead neon tube accent deep inside alley mouth
+  const headerBar = new THREE.Mesh(new THREE.BoxGeometry(width - 0.36, 0.065, 0.065), accentMat);
+  headerBar.position.set(0, height - 0.72, mouthZ - 0.55);
+  alley.add(headerBar);
+
+  return alley;
+}
+

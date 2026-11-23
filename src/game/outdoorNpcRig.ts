@@ -6,6 +6,10 @@ export type OutdoorNpcPoseMode =
   | 'walk'
   | 'idle_browse'
   | 'photo_pose'
+  | 'buddy_pose'
+  | 'bench_sit'
+  | 'picnic_sit'
+  | 'campfire_warm'
   | 'vendor_tend'
   | 'cycling';
 
@@ -422,11 +426,115 @@ export function updateArticulatedNpcPose(
     return;
   }
 
-  // Default: 'idle_browse'
+  if (mode === 'buddy_pose') {
+    // Stationary smiling photo pose (zero leg swing), waving right arm & hand on left hip
+    rig.pelvisPivot.position.y = 0.76 + Math.sin(elapsed * 1.4 + phase) * 0.008;
+    rig.torsoGroup.rotation.x = -0.02;
+    rig.leftHipPivot.rotation.x = 0.03;
+    rig.leftHipPivot.rotation.z = 0;
+    rig.rightHipPivot.rotation.x = -0.04;
+    rig.rightHipPivot.rotation.z = 0;
+    rig.leftKneePivot.rotation.x = 0.02;
+    rig.rightKneePivot.rotation.x = 0.03;
+
+    if (holdingLeftProp) {
+      rig.leftShoulderPivot.rotation.x = -1.08;
+      rig.leftShoulderPivot.rotation.z = -0.06;
+      rig.leftElbowPivot.rotation.x = -0.34;
+    } else {
+      rig.leftShoulderPivot.rotation.x = -0.18;
+      rig.leftShoulderPivot.rotation.z = -0.34;
+      rig.leftElbowPivot.rotation.x = -0.82;
+    }
+    rig.rightShoulderPivot.rotation.x = -1.15;
+    rig.rightShoulderPivot.rotation.z = 0.42 + Math.sin(elapsed * 4.2 + phase) * 0.14;
+    rig.rightElbowPivot.rotation.x = -0.68;
+    rig.headPivot.rotation.y = Math.sin(elapsed * 0.8 + phase) * 0.1;
+    rig.headPivot.rotation.x = state.lookUpPitch ?? -0.04;
+    return;
+  }
+
+  if (mode === 'bench_sit') {
+    // Seated cleanly on a park bench seat (pelvis at ~0.48, thighs forward, calves vertical)
+    rig.pelvisPivot.position.y = 0.48 + Math.sin(elapsed * 1.2 + phase) * 0.006;
+    rig.torsoGroup.rotation.x = -0.05;
+    rig.leftHipPivot.rotation.x = -1.46;
+    rig.leftHipPivot.rotation.z = 0.04;
+    rig.rightHipPivot.rotation.x = -1.46;
+    rig.rightHipPivot.rotation.z = -0.04;
+    rig.leftKneePivot.rotation.x = 1.44;
+    rig.rightKneePivot.rotation.x = 1.44;
+
+    if (holdingLeftProp) {
+      rig.leftShoulderPivot.rotation.x = -1.1;
+      rig.leftShoulderPivot.rotation.z = -0.06;
+      rig.leftElbowPivot.rotation.x = -0.35;
+    } else {
+      rig.leftShoulderPivot.rotation.x = -0.38 + Math.sin(elapsed * 0.9 + phase) * 0.05;
+      rig.leftShoulderPivot.rotation.z = -0.06;
+      rig.leftElbowPivot.rotation.x = -0.68;
+    }
+    rig.rightShoulderPivot.rotation.x = -0.38 - Math.sin(elapsed * 0.9 + phase) * 0.05;
+    rig.rightShoulderPivot.rotation.z = 0.06;
+    rig.rightElbowPivot.rotation.x = -0.68;
+    rig.headPivot.rotation.y = Math.sin(elapsed * 0.72 + phase) * 0.28;
+    rig.headPivot.rotation.x = state.lookUpPitch ?? 0.02;
+    return;
+  }
+
+  if (mode === 'picnic_sit') {
+    // Ground-seated blanket posture with gentle conversational / eating hand gestures
+    rig.pelvisPivot.position.y = 0.22 + Math.sin(elapsed * 1.3 + phase) * 0.006;
+    rig.torsoGroup.rotation.x = 0.08;
+    rig.leftHipPivot.rotation.x = -1.38;
+    rig.leftHipPivot.rotation.z = -0.24;
+    rig.rightHipPivot.rotation.x = -1.38;
+    rig.rightHipPivot.rotation.z = 0.24;
+    rig.leftKneePivot.rotation.x = 1.65;
+    rig.rightKneePivot.rotation.x = 1.65;
+
+    const eatWave = Math.sin(elapsed * 1.6 + phase);
+    rig.leftShoulderPivot.rotation.x = -0.45 + eatWave * 0.12;
+    rig.leftShoulderPivot.rotation.z = -0.14;
+    rig.leftElbowPivot.rotation.x = -0.82 - Math.max(0, eatWave) * 0.22;
+    rig.rightShoulderPivot.rotation.x = -0.52 - eatWave * 0.16;
+    rig.rightShoulderPivot.rotation.z = 0.14;
+    rig.rightElbowPivot.rotation.x = -0.86 - Math.max(0, -eatWave) * 0.28;
+    rig.headPivot.rotation.y = Math.sin(elapsed * 0.85 + phase) * 0.3;
+    rig.headPivot.rotation.x = 0.06 + Math.sin(elapsed * 1.5 + phase) * 0.05;
+    return;
+  }
+
+  if (mode === 'campfire_warm') {
+    // Expedition camper crouched/seated by campfire warming gloved hands toward kettle flames
+    rig.pelvisPivot.position.y = 0.42 + Math.sin(elapsed * 1.5 + phase) * 0.008;
+    rig.torsoGroup.rotation.x = 0.18;
+    rig.leftHipPivot.rotation.x = -1.24;
+    rig.leftHipPivot.rotation.z = -0.12;
+    rig.rightHipPivot.rotation.x = -1.24;
+    rig.rightHipPivot.rotation.z = 0.12;
+    rig.leftKneePivot.rotation.x = 1.48;
+    rig.rightKneePivot.rotation.x = 1.48;
+
+    const rub = Math.sin(elapsed * 3.4 + phase);
+    rig.leftShoulderPivot.rotation.x = -0.88 + rub * 0.06;
+    rig.leftShoulderPivot.rotation.z = 0.18;
+    rig.leftElbowPivot.rotation.x = -0.48 + rub * 0.08;
+    rig.rightShoulderPivot.rotation.x = -0.88 - rub * 0.06;
+    rig.rightShoulderPivot.rotation.z = -0.18;
+    rig.rightElbowPivot.rotation.x = -0.48 - rub * 0.08;
+    rig.headPivot.rotation.y = Math.sin(elapsed * 0.65 + phase) * 0.2;
+    rig.headPivot.rotation.x = 0.12 + Math.sin(elapsed * 1.1 + phase) * 0.04;
+    return;
+  }
+
+  // Default: 'idle_browse' (leg swing strictly zeroed!)
   rig.pelvisPivot.position.y = 0.76 + Math.sin(elapsed * 1.5 + phase) * 0.01;
   rig.torsoGroup.rotation.x = 0.02;
   rig.leftHipPivot.rotation.x = 0;
+  rig.leftHipPivot.rotation.z = 0;
   rig.rightHipPivot.rotation.x = 0;
+  rig.rightHipPivot.rotation.z = 0;
   rig.leftKneePivot.rotation.x = 0;
   rig.rightKneePivot.rotation.x = 0;
   if (holdingLeftProp) {
@@ -443,6 +551,134 @@ export function updateArticulatedNpcPose(
   rig.rightElbowPivot.rotation.x = -0.18;
   rig.headPivot.rotation.y = Math.sin(elapsed * 0.9 + phase) * 0.26;
   rig.headPivot.rotation.x = state.lookUpPitch ?? 0;
+}
+
+export interface ExpeditionWinterGearOptions {
+  parkaHex: number;
+  accentHex?: number;
+  beanieHex?: number;
+  packHex?: number;
+  withTrekkingPoles?: boolean;
+}
+
+/**
+ * Equips an articulated `outdoorNpcRig.ts` character with full Himalayan expedition winter gear:
+ * baffled puffer parka rings, fur-trimmed hood or knit beanie, reflective dark ski goggles,
+ * insulated mittens/gloves, winter trekking boots, torso-parented framed expedition backpack,
+ * and optional hand-parented trekking poles. Zero detached/floating parts.
+ */
+export function attachExpeditionWinterGear(
+  rig: ArticulatedOutdoorNpcRig,
+  options: ExpeditionWinterGearOptions
+): void {
+  const parkaMat = new THREE.MeshStandardMaterial({ color: options.parkaHex, roughness: 0.78 });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: options.accentHex ?? 0x1e293b,
+    roughness: 0.75,
+  });
+  const furTrimMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.92 });
+  const beanieMat = new THREE.MeshStandardMaterial({
+    color: options.beanieHex ?? options.parkaHex,
+    roughness: 0.88,
+  });
+  const goggleFrameMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.45 });
+  const goggleLensMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0284c7,
+    emissiveIntensity: 0.32,
+    roughness: 0.14,
+    metalness: 0.85,
+  });
+  const gloveMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.72 });
+  const bootMat = new THREE.MeshStandardMaterial({ color: 0x3b2618, roughness: 0.82 });
+  const packMat = new THREE.MeshStandardMaterial({
+    color: options.packHex ?? 0x334155,
+    roughness: 0.84,
+  });
+  const poleMetalMat = new THREE.MeshStandardMaterial({
+    color: 0xcbd5e1,
+    roughness: 0.35,
+    metalness: 0.75,
+  });
+
+  // 1. Baffled puffer parka horizontal quilt ribs & warm collar on torsoGroup
+  [0.14, 0.25, 0.36].forEach((by, idx) => {
+    const baffle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.195 - idx * 0.005, 0.2 - idx * 0.005, 0.095, 10),
+      parkaMat
+    );
+    baffle.scale.set(1.08, 1.0, 0.78);
+    baffle.position.set(0, by, 0);
+    rig.torsoGroup.add(baffle);
+  });
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 6, 12), furTrimMat);
+  collar.rotation.x = Math.PI / 2;
+  collar.position.set(0, 0.48, -0.01);
+  rig.torsoGroup.add(collar);
+
+  // 2. Knit expedition beanie + pom-pom & reflective dark ski goggles on headwear slot
+  const beanie = new THREE.Mesh(
+    new THREE.SphereGeometry(0.156, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    beanieMat
+  );
+  beanie.position.set(0, -0.09, -0.005);
+  const beanieCuff = new THREE.Mesh(new THREE.TorusGeometry(0.145, 0.025, 6, 14), accentMat);
+  beanieCuff.rotation.x = Math.PI / 2;
+  beanieCuff.position.set(0, -0.075, 0);
+  const pom = new THREE.Mesh(new THREE.SphereGeometry(0.036, 7, 6), furTrimMat);
+  pom.position.set(0, 0.075, -0.01);
+  rig.slots.headwear.add(beanie, beanieCuff, pom);
+
+  const goggleFrame = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.072, 0.055), goggleFrameMat);
+  goggleFrame.position.set(0, -0.095, 0.13);
+  const goggleLens = new THREE.Mesh(new THREE.BoxGeometry(0.185, 0.052, 0.02), goggleLensMat);
+  goggleLens.position.set(0, -0.095, 0.154);
+  rig.slots.headwear.add(goggleFrame, goggleLens);
+
+  // 3. Insulated gloves mounted on left/right forearm hand joints
+  const gloveGeo = new THREE.SphereGeometry(0.054, 7, 6);
+  const lGlove = new THREE.Mesh(gloveGeo, gloveMat);
+  lGlove.scale.set(1.0, 1.15, 1.05);
+  rig.slots.leftHandProp.add(lGlove);
+  const rGlove = new THREE.Mesh(gloveGeo, gloveMat);
+  rGlove.scale.set(1.0, 1.15, 1.05);
+  rig.slots.rightHandProp.add(rGlove);
+
+  // 4. Heavy insulated winter trekking boots anchored to left/right knee calf bottoms
+  const bootGeo = new THREE.BoxGeometry(0.125, 0.12, 0.21);
+  [rig.leftKneePivot, rig.rightKneePivot].forEach((knee) => {
+    const boot = new THREE.Mesh(bootGeo, bootMat);
+    boot.position.set(0, -0.33, 0.035);
+    knee.add(boot);
+  });
+
+  // 5. Framed Himalayan expedition backpack strictly parented to torsoGroup's backProp slot
+  const packBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.46, 0.2), packMat);
+  packBody.position.set(0, 0.04, -0.08);
+  const packLid = new THREE.Mesh(new THREE.BoxGeometry(0.33, 0.09, 0.22), accentMat);
+  packLid.position.set(0, 0.29, -0.08);
+  const bedroll = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.36, 8), parkaMat);
+  bedroll.rotation.z = Math.PI / 2;
+  bedroll.position.set(0, 0.36, -0.08);
+  const packPocket = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.06), accentMat);
+  packPocket.position.set(0, -0.04, -0.19);
+  rig.slots.backProp.add(packBody, packLid, bedroll, packPocket);
+
+  // 6. Optional bone-parented trekking poles in hand slots
+  if (options.withTrekkingPoles) {
+    const poleShaftGeo = new THREE.CylinderGeometry(0.011, 0.008, 1.12, 6);
+    const basketGeo = new THREE.CylinderGeometry(0.042, 0.042, 0.012, 8);
+    [rig.slots.leftHandProp, rig.slots.rightHandProp].forEach((handSlot) => {
+      const pole = new THREE.Group();
+      const shaft = new THREE.Mesh(poleShaftGeo, poleMetalMat);
+      shaft.position.y = -0.44;
+      const basket = new THREE.Mesh(basketGeo, accentMat);
+      basket.position.y = -0.92;
+      pole.add(shaft, basket);
+      pole.rotation.x = 0.14;
+      handSlot.add(pole);
+    });
+  }
 }
 
 export interface KyotoCyclistOptions {

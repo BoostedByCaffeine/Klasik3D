@@ -2402,8 +2402,14 @@ export function addSurrounding360Context(
         : sceneryId === 'hilltop_city_lights'
         ? -12
         : -2.5;
-    const perimeterMat = createSharedMountainMaterial();
     const perimeterTier = resolveMountainGraphicsTier();
+    const perimeterPreset =
+      sceneryId === 'mt_everest'
+        ? 'himalayan'
+        : sceneryId === 'switzerland_hilltop'
+        ? 'alpine'
+        : 'highland';
+    const perimeterMat = createSharedMountainMaterial(perimeterPreset, perimeterTier);
 
     // Sculpted corner rock shoulders tucked outside the L-junction bends on both flanks
     [-60, 60].forEach((endX, bIdx) => {

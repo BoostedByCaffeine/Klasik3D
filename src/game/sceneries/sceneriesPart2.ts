@@ -20,14 +20,18 @@ import {
   resolveMountainGraphicsTier,
 } from './mountainRanges';
 import {
+  CYBER_OPEN_ALLEY_XS,
   createCleanCyberHighwayOverlay,
   createCyberHoverCar,
+  createRecessedCyberAlley,
 } from './cyberpunkAssets';
 import {
   ArticulatedOutdoorNpcRig,
+  attachExpeditionWinterGear,
   createArticulatedOutdoorNpc,
   updateArticulatedNpcPose,
 } from '../outdoorNpcRig';
+import { createEiffelParkLife } from './eiffelParkLife';
 
 // ============================================================================
 // PHASE 4: OUTDOOR SCENERIES 6–9 (HIGH-DETAIL MOBILE-OPTIMIZED OVERHAUL)
@@ -209,9 +213,18 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     const row = Math.floor(i / 14);
     const col = i % 14;
     const tx = -48 + col * 7.4 + (row % 2) * 3.2;
-    const tz = -21.5 - row * 13.5 - (i % 3) * 3.2;
     const tw = 4.4 + (i % 4) * 1.4;
     const td = 4.4 + ((i * 3) % 4) * 1.2;
+    let tz = -21.5 - row * 13.5 - (i % 3) * 3.2;
+    // Keep all 4 recessed neon alley corridors 100% unobstructed by front-row skyscrapers
+    if (row === 0) {
+      const blocksAlley = CYBER_OPEN_ALLEY_XS.some(
+        (ax) => Math.abs(tx - ax) < tw * 0.5 + 1.55
+      );
+      if (blocksAlley) {
+        tz -= 6.8;
+      }
+    }
     const th = 16 + ((i * 7) % 26) + row * 8;
     dummy.position.set(tx, th / 2, tz);
     dummy.rotation.set(0, 0, 0);
@@ -228,7 +241,7 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   roofTrims.instanceMatrix.needsUpdate = true;
   root.add(towers, roofTrims);
 
-  // Exposed industrial pipes, vents & glowing neon conduit strips on lower street level
+  // Exposed industrial pipes, vents & glowing neon conduit strips framing alley edges (never blocking alley mouths)
   const pipeMat = new THREE.MeshStandardMaterial({
     color: 0x1e293b,
     roughness: 0.45,
@@ -236,16 +249,38 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   });
   const conduitCyanMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
   const conduitMagMat = new THREE.MeshBasicMaterial({ color: 0xec4899 });
-  [-18, -10.5, -3.5, 4.0, 11.2, 18.5].forEach((px, idx) => {
-    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 12, 7), pipeMat);
-    pipe.position.set(px, 6.0, -18.6);
+  [-16.2, -11.9, -5.05, -2.55, 1.85, 4.65, 12.6, 16.2].forEach((px, idx) => {
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 12, 7), pipeMat);
+    pipe.position.set(px, 6.0, -18.55);
     root.add(pipe);
     const strip = new THREE.Mesh(
       new THREE.BoxGeometry(0.1, 9.5, 0.12),
       idx % 2 === 0 ? conduitCyanMat : conduitMagMat
     );
-    strip.position.set(px + 0.26, 5.2, -18.45);
+    strip.position.set(px + (idx % 2 === 0 ? -0.2 : 0.2), 5.2, -18.42);
     root.add(strip);
+  });
+
+  // Phase 3: Genuine Recessed Neon Alley Corridors (depth >= 4.4u, width >= 2.4u)
+  // Alley #1 (-3.8): between Holo Ramen (拉麺屋) and Cyber-Boba (合成茶館)
+  // Alley #2 (+3.2): between Yellow Kiosk and Cyber Arcade (電脳遊戯)
+  // Plus flank alleys (-17.8, +17.6)
+  [
+    { x: CYBER_OPEN_ALLEY_XS[0], w: 2.4, d: 4.8, a: 0x06b6d4, s: 0xec4899 },
+    { x: CYBER_OPEN_ALLEY_XS[1], w: 2.4, d: 4.8, a: 0x06b6d4, s: 0xf97316 },
+    { x: CYBER_OPEN_ALLEY_XS[2], w: 2.5, d: 4.8, a: 0xec4899, s: 0x38bdf8 },
+    { x: CYBER_OPEN_ALLEY_XS[3], w: 2.4, d: 4.8, a: 0x38bdf8, s: 0xa855f7 },
+  ].forEach((al) => {
+    root.add(
+      createRecessedCyberAlley({
+        x: al.x,
+        width: al.w,
+        depth: al.d,
+        height: 4.8,
+        accentHex: al.a,
+        secondaryHex: al.s,
+      })
+    );
   });
 
   // Translucent Holographic Kanji / Cyber Billboards + Additive Fake-Bloom Glow Sprites
@@ -303,10 +338,10 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   const neonAmberMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
   const neonPurpleMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
 
-  // 1. Open-front Glowing Hologram Noodle / Ramen Bar (x = -6.8, z = -18.25)
+  // 1. Open-front Glowing Hologram Noodle / Ramen Bar (x = -7.2, z = -18.25, leaving Alley #1 at -3.8 wide open)
   const ramenBar = new THREE.Group();
-  ramenBar.position.set(-6.8, 0, -18.25);
-  const rbFrame = new THREE.Mesh(new THREE.BoxGeometry(4.6, 3.2, 2.2), darkMetalMat);
+  ramenBar.position.set(-7.2, 0, -18.25);
+  const rbFrame = new THREE.Mesh(new THREE.BoxGeometry(4.3, 3.2, 2.2), darkMetalMat);
   rbFrame.position.set(0, 1.6, -0.45);
   ramenBar.add(rbFrame);
   const rbInteriorGlow = new THREE.Mesh(
@@ -614,8 +649,8 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   let chaseX = -54;
   let chaseCooldown = 8.0; // First roll happens soon, then low-chance every 14s
 
-  // Phase 3: Split sliding cyber storefront doors with cyan/amber frame status strip (outdoor-only)
-  const cyberDoorXs = [-14.2, -6.4, 7.4, 14.5];
+  // Phase 3: Split sliding cyber storefront doors strictly on unobstructed facade podiums (clear of all 4 alleys & open booths)
+  const cyberDoorXs = [-13.4, 14.2];
   const cyberPodiumMat = new THREE.MeshStandardMaterial({
     color: 0x101526,
     roughness: 0.45,
@@ -669,7 +704,7 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
       hasSteam: true,
     },
     {
-      x: -1.8,
+      x: -1.4,
       z: -17.95,
       title: '合成茶館',
       sub: 'CYBER-BOBA',
@@ -797,12 +832,12 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   });
   cyberOutdoorGroup.add(new THREE.Points(ramenSteamGeo, ramenSteamMat));
 
-  // 4 Full-Detail Articulated Neon Side-Alley Cyber-Pedestrians emerging from deep shadowed alleyways
+  // 4 Full-Detail Articulated Neon Side-Alley Cyber-Pedestrians strictly clamped to verified CYBER_OPEN_ALLEY_XS
   interface CyberAlleyWalker {
     rig: ArticulatedOutdoorNpcRig;
     umbrellaGroup: THREE.Group;
-    alleyX: number;
-    strollDir: 1 | -1;
+    enterAlleyX: number;
+    exitAlleyX: number;
     cycleOffset: number;
     speed: number;
   }
@@ -810,8 +845,8 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   const cyberUmbStemGeo = new THREE.CylinderGeometry(0.013, 0.013, 0.86, 6);
   const cyberUmbTopGeo = new THREE.ConeGeometry(0.52, 0.19, 10);
   const cyberAlleySpecs: Array<{
-    alleyX: number;
-    dir: 1 | -1;
+    enterAlleyX: number;
+    exitAlleyX: number;
     offset: number;
     speed: number;
     coat: number;
@@ -819,10 +854,10 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     skin: number;
     hair: number;
   }> = [
-    { alleyX: -17.8, dir: 1, offset: 0.0, speed: 1.55, coat: 0x0f172a, neon: 0x38bdf8, skin: 0xe6c3ad, hair: 0x111827 },
-    { alleyX: -4.2, dir: -1, offset: 4.5, speed: 1.45, coat: 0x1e1b4b, neon: 0xec4899, skin: 0xd9a882, hair: 0x2e1065 },
-    { alleyX: 3.6, dir: 1, offset: 8.8, speed: 1.6, coat: 0x111827, neon: 0x22c55e, skin: 0xf1d0b6, hair: 0x18181b },
-    { alleyX: 17.6, dir: -1, offset: 12.2, speed: 1.5, coat: 0x1f2937, neon: 0xf97316, skin: 0xc99670, hair: 0x0f172a },
+    { enterAlleyX: CYBER_OPEN_ALLEY_XS[0], exitAlleyX: CYBER_OPEN_ALLEY_XS[1], offset: 0.0, speed: 1.55, coat: 0x0f172a, neon: 0x38bdf8, skin: 0xe6c3ad, hair: 0x111827 },
+    { enterAlleyX: CYBER_OPEN_ALLEY_XS[1], exitAlleyX: CYBER_OPEN_ALLEY_XS[2], offset: 5.2, speed: 1.45, coat: 0x1e1b4b, neon: 0xec4899, skin: 0xd9a882, hair: 0x2e1065 },
+    { enterAlleyX: CYBER_OPEN_ALLEY_XS[2], exitAlleyX: CYBER_OPEN_ALLEY_XS[3], offset: 10.6, speed: 1.58, coat: 0x111827, neon: 0x22c55e, skin: 0xf1d0b6, hair: 0x18181b },
+    { enterAlleyX: CYBER_OPEN_ALLEY_XS[3], exitAlleyX: CYBER_OPEN_ALLEY_XS[2], offset: 15.0, speed: 1.48, coat: 0x1f2937, neon: 0xf97316, skin: 0xc99670, hair: 0x0f172a },
   ];
   cyberAlleySpecs.forEach((as, idx) => {
     const neonMat = new THREE.MeshBasicMaterial({ color: as.neon });
@@ -863,10 +898,94 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     cyberAlleyWalkers.push({
       rig,
       umbrellaGroup,
-      alleyX: as.alleyX,
-      strollDir: as.dir,
+      enterAlleyX: as.enterAlleyX,
+      exitAlleyX: as.exitAlleyX,
       cycleOffset: as.offset,
       speed: as.speed,
+    });
+  });
+
+  // Phase 3: Passing Sidewalk Browsers that peel off to browse Holo Ramen & Cyber-Boba (max 1-2 per stall, legSwing=0 idle 4-8s!)
+  type CyberBrowserPhase = 'walk_in' | 'browse_idle' | 'walk_out' | 'cooldown';
+  interface CyberStallBrowser {
+    rig: ArticulatedOutdoorNpcRig;
+    umbrellaGroup: THREE.Group;
+    phase: CyberBrowserPhase;
+    timer: number;
+    browseDuration: number;
+    stallIdx: number;
+    spawnX: number;
+    exitX: number;
+    targetX: number;
+    targetZ: number;
+    walkSpeed: number;
+    x: number;
+    z: number;
+    yaw: number;
+    animPhase: number;
+  }
+  const cyberBrowseTargets = [
+    { x: -10.35, z: -16.62 }, // Holo Ramen stall
+    { x: -7.15, z: -16.52 }, // Holo Ramen bar (拉麺屋)
+    { x: -1.45, z: -16.62 }, // Cyber-Boba (合成茶館)
+  ];
+  const cyberBrowsers: CyberStallBrowser[] = [];
+  const browserPalettes = [
+    { coat: 0x1e293b, neon: 0xf97316, skin: 0xe6c3ad, hair: 0x111827, stallIdx: 0, dir: 1 as const, initDelay: 0.5 },
+    { coat: 0x311042, neon: 0xec4899, skin: 0xd9a882, hair: 0x1e1b4b, stallIdx: 2, dir: -1 as const, initDelay: 2.4 },
+    { coat: 0x0f2537, neon: 0x38bdf8, skin: 0xf1d0b6, hair: 0x18181b, stallIdx: 1, dir: 1 as const, initDelay: 5.5 },
+  ];
+  browserPalettes.forEach((bp, idx) => {
+    const neonMat = new THREE.MeshBasicMaterial({ color: bp.neon });
+    const rig = createArticulatedOutdoorNpc({
+      skinHex: bp.skin,
+      shirtHex: bp.coat,
+      pantsHex: 0x0f172a,
+      hairHex: bp.hair,
+      shoeHex: 0x09090b,
+      hairStyle: idx === 1 ? 'bob' : 'short',
+      seed: 780 + idx * 23,
+    });
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.048, 0.08), neonMat);
+    visor.position.set(0, 0.02, 0.13);
+    rig.slots.headwear.add(visor);
+
+    const umbrellaGroup = new THREE.Group();
+    const stem = new THREE.Mesh(cyberUmbStemGeo, stallMetalMat);
+    stem.position.y = 0.43;
+    const canopy = new THREE.Mesh(
+      cyberUmbTopGeo,
+      new THREE.MeshBasicMaterial({ color: bp.neon, transparent: true, opacity: 0.44, side: THREE.DoubleSide })
+    );
+    canopy.position.y = 0.86;
+    umbrellaGroup.add(stem, canopy);
+    umbrellaGroup.rotation.x = 0.14;
+    umbrellaGroup.visible = false;
+    rig.slots.leftHandProp.add(umbrellaGroup);
+
+    const tgt = cyberBrowseTargets[bp.stallIdx];
+    const spawnX = bp.dir === 1 ? -22.5 : 22.5;
+    const exitX = bp.dir === 1 ? 22.5 : -22.5;
+    rig.root.position.set(spawnX, 0.08, -16.15);
+    rig.root.visible = false;
+    cyberOutdoorGroup.add(rig.root);
+
+    cyberBrowsers.push({
+      rig,
+      umbrellaGroup,
+      phase: 'cooldown',
+      timer: bp.initDelay,
+      browseDuration: 4.8 + idx * 1.3,
+      stallIdx: bp.stallIdx,
+      spawnX,
+      exitX,
+      targetX: tgt.x + (idx % 2 === 0 ? -0.35 : 0.35),
+      targetZ: tgt.z,
+      walkSpeed: 1.55 + idx * 0.12,
+      x: spawnX,
+      z: -16.15,
+      yaw: bp.dir === 1 ? Math.PI / 2 : -Math.PI / 2,
+      animPhase: idx * 2.3 + 0.7,
     });
   });
 
@@ -918,30 +1037,31 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
         }
         rsAttr.needsUpdate = true;
 
-        // Animate 4 articulated neon side-alley pedestrians emerging from deep shadowed alleys (-24.8)
-        const cycleLen = 20.0;
+        // Animate 4 articulated neon side-alley pedestrians strictly between verified recessed alleys (-22.6 .. -16.85)
+        const cycleLen = 22.0;
         for (let i = 0; i < cyberAlleyWalkers.length; i++) {
           const cw = cyberAlleyWalkers[i];
           const phaseT = ((elapsed * cw.speed + cw.cycleOffset) % cycleLen) / cycleLen; // 0..1
-          let px = cw.alleyX;
-          let pz = -24.8;
+          const walkDir = cw.exitAlleyX >= cw.enterAlleyX ? 1 : -1;
+          let px = cw.enterAlleyX;
+          let pz = -22.6;
           let yaw = 0;
-          if (phaseT < 0.28) {
-            // Walk out of shadowed side alley (+Z) toward sidewalk
-            const f = phaseT / 0.28;
-            pz = -24.8 + f * 7.95;
+          if (phaseT < 0.24) {
+            // Walk out of recessed shadowed alley (+Z) onto sidewalk
+            const f = phaseT / 0.24;
+            pz = -22.6 + f * 5.75;
             yaw = 0;
-          } else if (phaseT < 0.72) {
-            // Stroll along neon sidewalk
-            const f = (phaseT - 0.28) / 0.44;
-            px = cw.alleyX + cw.strollDir * f * 8.4;
+          } else if (phaseT < 0.76) {
+            // Stroll along neon sidewalk from enterAlleyX to exitAlleyX
+            const f = (phaseT - 0.24) / 0.52;
+            px = cw.enterAlleyX + (cw.exitAlleyX - cw.enterAlleyX) * f;
             pz = -16.85;
-            yaw = cw.strollDir === 1 ? Math.PI / 2 : -Math.PI / 2;
+            yaw = walkDir === 1 ? Math.PI / 2 : -Math.PI / 2;
           } else {
-            // Duck deep back into neighboring shadowed neon alley (-Z)
-            const f = (phaseT - 0.72) / 0.28;
-            px = cw.alleyX + cw.strollDir * 8.4;
-            pz = -16.85 - f * 7.95;
+            // Duck cleanly into verified destination recessed neon alley (-Z)
+            const f = (phaseT - 0.76) / 0.24;
+            px = cw.exitAlleyX;
+            pz = -16.85 - f * 5.75;
             yaw = Math.PI;
           }
           cw.rig.root.position.set(px, 0.08, pz);
@@ -954,6 +1074,105 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
             speed: cw.speed * 0.65,
             holdingLeftProp: isRaining,
           });
+        }
+
+        // Animate passing sidewalk browsers peeling off to inspect Holo Ramen & Cyber-Boba (legSwing=0 while browsing 4-8s!)
+        for (let i = 0; i < cyberBrowsers.length; i++) {
+          const cb = cyberBrowsers[i];
+          cb.umbrellaGroup.visible = isRaining;
+          if (cb.phase === 'cooldown') {
+            cb.timer -= dt;
+            cb.rig.root.visible = false;
+            if (cb.timer <= 0) {
+              cb.stallIdx = (cb.stallIdx + 1) % cyberBrowseTargets.length;
+              const tgt = cyberBrowseTargets[cb.stallIdx];
+              const offsetX = ((i + Math.floor(elapsed)) % 2 === 0 ? -0.35 : 0.35);
+              cb.targetX = tgt.x + offsetX;
+              cb.targetZ = tgt.z;
+              const fromLeft = (i + cb.stallIdx) % 2 === 0;
+              cb.spawnX = fromLeft ? -22.5 : 22.5;
+              cb.exitX = fromLeft ? 22.5 : -22.5;
+              cb.x = cb.spawnX;
+              cb.z = -16.15;
+              cb.yaw = fromLeft ? Math.PI / 2 : -Math.PI / 2;
+              cb.browseDuration = 4.4 + ((i * 1.7 + elapsed * 0.3) % 3.4); // 4.4 - 7.8s
+              cb.phase = 'walk_in';
+              cb.rig.root.visible = true;
+            }
+            continue;
+          }
+
+          if (cb.phase === 'walk_in') {
+            const dx = cb.targetX - cb.x;
+            const dz = cb.targetZ - cb.z;
+            const dist = Math.hypot(dx, dz);
+            const step = cb.walkSpeed * dt;
+            if (dist <= step + 0.06) {
+              cb.x = cb.targetX;
+              cb.z = cb.targetZ;
+              cb.yaw = Math.PI; // Face stall counter (-Z)
+              cb.timer = cb.browseDuration;
+              cb.phase = 'browse_idle';
+            } else {
+              // Peel off smoothly from main sidewalk lane (-16.15) into stall front as we approach
+              const moveX = (dx / dist) * step;
+              const desiredZ = Math.abs(dx) < 2.2 ? cb.targetZ : -16.15;
+              const moveZ = Math.max(-step * 0.8, Math.min(step * 0.8, desiredZ - cb.z));
+              cb.x += moveX;
+              cb.z += moveZ;
+              cb.yaw = Math.atan2(moveX, moveZ);
+            }
+            cb.rig.root.position.set(cb.x, 0.08, cb.z);
+            cb.rig.root.rotation.y = cb.yaw;
+            updateArticulatedNpcPose(cb.rig, dt, {
+              mode: 'walk',
+              elapsed,
+              phase: cb.animPhase,
+              speed: cb.walkSpeed * 0.65,
+              holdingLeftProp: isRaining,
+            });
+          } else if (cb.phase === 'browse_idle') {
+            cb.timer -= dt;
+            cb.rig.root.position.set(cb.x, 0.08, cb.z);
+            cb.rig.root.rotation.y = Math.PI;
+            // Completely stop leg walk swing and perform subtle menu-check / head-nod idle
+            updateArticulatedNpcPose(cb.rig, dt, {
+              mode: 'idle_browse',
+              elapsed,
+              phase: cb.animPhase,
+              holdingLeftProp: isRaining,
+              lookUpPitch: -0.1 + Math.sin(elapsed * 1.4 + cb.animPhase) * 0.08,
+            });
+            if (cb.timer <= 0) {
+              cb.phase = 'walk_out';
+            }
+          } else if (cb.phase === 'walk_out') {
+            const dx = cb.exitX - cb.x;
+            const targetLaneZ = -16.15;
+            const dz = targetLaneZ - cb.z;
+            const dist = Math.hypot(dx, dz);
+            const step = cb.walkSpeed * dt;
+            if (Math.abs(dx) <= step + 0.15) {
+              cb.phase = 'cooldown';
+              cb.timer = 2.5 + (i % 3) * 1.5;
+              cb.rig.root.visible = false;
+            } else {
+              const moveX = (dx / dist) * step;
+              const moveZ = Math.max(-step * 0.8, Math.min(step * 0.8, dz));
+              cb.x += moveX;
+              cb.z += moveZ;
+              cb.yaw = Math.atan2(moveX, moveZ);
+              cb.rig.root.position.set(cb.x, 0.08, cb.z);
+              cb.rig.root.rotation.y = cb.yaw;
+              updateArticulatedNpcPose(cb.rig, dt, {
+                mode: 'walk',
+                elapsed,
+                phase: cb.animPhase,
+                speed: cb.walkSpeed * 0.65,
+                holdingLeftProp: isRaining,
+              });
+            }
+          }
         }
       }
 
@@ -1176,14 +1395,17 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     roughness: 0.8,
   });
 
+  const parkY = -14.35;
+  const plinthBaseY = parkY - 0.8; // -15.15: deeply embedded below park floor so zero underside gaps exist!
+
   const cityBlocks: Array<{ x: number; y: number; z: number; w: number; h: number; d: number; rotY: number }> = [];
   for (let row = 0; row < 7; row++) {
     const zBase = -25.5 - row * 14.5;
     const cols = 15;
     for (let col = 0; col < cols; col++) {
       const xPos = -72 + col * 10.3 + (row % 2) * 3.8;
-      // Keep the grand Champs-de-Mars center avenue open directly to the Eiffel Tower!
-      if (Math.abs(xPos - 0.5) < 9.5 && zBase > -82) continue;
+      // Keep the grand Champs-de-Mars center park + limestone curbs clear (x in [-11.0, +12.0])
+      if (Math.abs(xPos - 0.5) < 11.4 && zBase > -82) continue;
       // Also avoid overlapping the Eiffel Tower base plaza directly
       if (Math.abs(xPos - 0.5) < 13 && Math.abs(zBase + 68) < 12) continue;
 
@@ -1209,6 +1431,12 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     haussmannMat,
     cityBlocks.length
   );
+  // Solid limestone foundation plinths extending down to plinthBaseY (-15.15 = parkY - 0.8) beneath every Haussmann block
+  const parisPlinths = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    stoneMat,
+    cityBlocks.length
+  );
   const parisMansardGeo = new THREE.CylinderGeometry(
     Math.SQRT1_2 * 0.72,
     Math.SQRT1_2,
@@ -1227,6 +1455,14 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     cityBlocks.length
   );
   cityBlocks.forEach((b, idx) => {
+    const plinthTopY = b.y + 0.35;
+    const plinthH = Math.max(1.2, plinthTopY - plinthBaseY);
+    dummy.position.set(b.x, plinthBaseY + plinthH * 0.5, b.z);
+    dummy.rotation.set(0, b.rotY, 0);
+    dummy.scale.set(b.w + 0.24, plinthH, b.d + 0.24);
+    dummy.updateMatrix();
+    parisPlinths.setMatrixAt(idx, dummy.matrix);
+
     dummy.position.set(b.x, b.y + b.h / 2, b.z);
     dummy.rotation.set(0, b.rotY, 0);
     dummy.scale.set(b.w, b.h, b.d);
@@ -1245,13 +1481,21 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     dummy.updateMatrix();
     parisChimneys.setMatrixAt(idx, dummy.matrix);
   });
+  parisPlinths.instanceMatrix.needsUpdate = true;
   parisBodies.instanceMatrix.needsUpdate = true;
   parisMansards.instanceMatrix.needsUpdate = true;
   parisChimneys.instanceMatrix.needsUpdate = true;
-  root.add(parisBodies, parisMansards, parisChimneys);
+  root.add(parisPlinths, parisBodies, parisMansards, parisChimneys);
+
+  // Continuous raised limestone sidewalk curbs (height: 0.16, width: 0.75) hugging both flanking park edges
+  [-10.75, 11.75].forEach((curbX, cIdx) => {
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.16, 48.0), stoneMat);
+    curb.name = cIdx === 0 ? 'eiffel_park_curb_left' : 'eiffel_park_curb_right';
+    curb.position.set(curbX, parkY + 0.08, -44.0);
+    root.add(curb);
+  });
 
   // === LUSH GREEN CHAMP DE MARS PARK DIRECTLY BENEATH THE EIFFEL TOWER ===
-  const parkY = -14.35;
   const parkLawnMat = new THREE.MeshStandardMaterial({ color: 0x3b8640, roughness: 0.9 });
   const parkGravelMat = new THREE.MeshStandardMaterial({ color: 0xd6cab8, roughness: 0.92 });
   const hedgeMat = new THREE.MeshStandardMaterial({ color: 0x225c2c, roughness: 0.88 });
@@ -1358,43 +1602,8 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     root.add(bg);
   });
 
-  // Checkered picnic blankets on open lawns (hidden automatically during rain!)
-  const picnicRainHideGroup = new THREE.Group();
-  picnicRainHideGroup.userData.dynamicVisibility = true;
-  root.add(picnicRainHideGroup);
-
-  const picnicRedMat = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.88 });
-  const picnicCreamMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.88 });
-  const picnicSpots: Array<[number, number]> = [
-    [-5.8, -25.4],
-    [6.6, -25.8],
-    [-5.8, -42.5],
-    [6.6, -42.5],
-  ];
-  picnicSpots.forEach(([px, pz], idx) => {
-    const pg = new THREE.Group();
-    const cloth = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.2, 2.2),
-      idx % 2 === 0 ? picnicRedMat : picnicCreamMat
-    );
-    cloth.rotation.x = -Math.PI / 2;
-    cloth.position.y = 0.04;
-    const inner = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.3, 1.3),
-      idx % 2 === 0 ? picnicCreamMat : picnicRedMat
-    );
-    inner.rotation.x = -Math.PI / 2;
-    inner.position.y = 0.05;
-    const basket = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.32, 0.34), benchWoodMat);
-    basket.position.set(0.48, 0.18, -0.32);
-    pg.add(cloth, inner, basket);
-    pg.position.set(px, parkY, pz);
-    pg.rotation.y = idx * 0.4;
-    picnicRainHideGroup.add(pg);
-  });
-
   // Classic Dark-Green Parisian Morris Columns flanking the entrance to Champ de Mars
-  [-10.4, 11.2].forEach((mx) => {
+  [-10.1, 11.1].forEach((mx) => {
     const colG = new THREE.Group();
     const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.58, 3.2, 10), ironMat);
     cyl.position.y = 1.6;
@@ -1407,166 +1616,12 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
     root.add(colG);
   });
 
-  // Shared Umbrella Geometry for Universal Park Rain Reaction (Zero extra draw bloat!)
-  const sharedUmbCanopyGeo = new THREE.ConeGeometry(0.62, 0.24, 10);
-  const sharedUmbStemGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.95, 5);
-  const umbStemMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
-  const umbPalette = [0xb91c1c, 0x1d4ed8, 0x0f766e, 0x7c3aed, 0xd97706, 0x334155];
-  const parkUmbrellas: Array<{ umb: THREE.Group; arm: THREE.Mesh; baseArmX: number }> = [];
-
-  // Helper: Articulated Full-Rigged Park NPC (Head, Hair, Torso, 2 Arms, 2 Legs + Rain Umbrella)
-  const parkSkinMat = new THREE.MeshStandardMaterial({ color: 0xe8bc9e, roughness: 0.72 });
-  const parkHairMat = new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 0.85 });
-  const parkPantsMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
-  const createParkPerson = (
-    coatHex: number,
-    seated: boolean,
-    holdingHandSide: -1 | 0 | 1,
-    umbrellaIdx?: number
-  ) => {
-    const g = new THREE.Group();
-    const coatMat = new THREE.MeshStandardMaterial({ color: coatHex, roughness: 0.78 });
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.68, 0.16), parkPantsMat);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.68, 0.16), parkPantsMat);
-    if (seated) {
-      legL.rotation.x = -Math.PI / 2.15;
-      legR.rotation.x = -Math.PI / 2.15;
-      legL.position.set(-0.1, 0.47, 0.24);
-      legR.position.set(0.1, 0.47, 0.24);
-    } else {
-      legL.position.set(-0.1, 0.34, 0);
-      legR.position.set(0.1, 0.34, 0);
-    }
-    const torsoY = seated ? 0.82 : 0.96;
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.58, 0.22), coatMat);
-    torso.position.y = torsoY;
-    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, 0.12), coatMat);
-    armL.position.set(-0.25, torsoY - 0.02, 0);
-    if (holdingHandSide === -1) armL.rotation.z = -0.35;
-    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, 0.12), coatMat);
-    armR.position.set(0.25, torsoY - 0.02, 0);
-    if (holdingHandSide === 1) armR.rotation.z = 0.35;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 7), parkSkinMat);
-    head.position.y = torsoY + 0.44;
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.58), parkHairMat);
-    hair.position.y = torsoY + 0.47;
-    g.add(legL, legR, torso, armL, armR, head, hair);
-
-    if (typeof umbrellaIdx === 'number') {
-      const umb = new THREE.Group();
-      const umbMat = new THREE.MeshStandardMaterial({
-        color: umbPalette[umbrellaIdx % umbPalette.length],
-        roughness: 0.6,
-        side: THREE.DoubleSide,
-      });
-      const stem = new THREE.Mesh(sharedUmbStemGeo, umbStemMat);
-      stem.position.y = 0.48;
-      const canopy = new THREE.Mesh(sharedUmbCanopyGeo, umbMat);
-      canopy.position.y = 0.95;
-      umb.add(stem, canopy);
-      umb.position.set(holdingHandSide === -1 ? 0.22 : -0.22, torsoY + 0.06, 0.18);
-      umb.visible = false;
-      g.add(umb);
-      parkUmbrellas.push({
-        umb,
-        arm: holdingHandSide === -1 ? armR : armL,
-        baseArmX: 0,
-      });
-    }
-    return { group: g, legL, legR, armL, armR, head };
-  };
-
-  // Animated Dating Couples Strolling Hand-in-Hand strictly inside flat gravel walkways (ZERO fountain/wall clipping!)
-  interface StrollingCouple {
-    group: THREE.Group;
-    pA: ReturnType<typeof createParkPerson>;
-    pB: ReturnType<typeof createParkPerson>;
-    baseX: number;
-    zMin: number;
-    zMax: number;
-    z: number;
-    dir: 1 | -1;
-    speed: number;
-    phase: number;
-  }
-  const strollingCouples: StrollingCouple[] = [];
-  const coupleSpecs = [
-    { x: -0.6, z: -30.0, zMin: -38.2, zMax: -24.2, dir: -1 as const, speed: 1.05, cA: 0xb91c1c, cB: 0x1d4ed8 },
-    { x: 1.5, z: -50.5, zMin: -55.2, zMax: -46.8, dir: 1 as const, speed: 1.0, cA: 0x0f766e, cB: 0xbe185d },
-    { x: -8.6, z: -36.0, zMin: -54.5, zMax: -28.0, dir: -1 as const, speed: 1.2, cA: 0x7c3aed, cB: 0xd97706 },
-    { x: 9.6, z: -44.0, zMin: -54.5, zMax: -28.0, dir: 1 as const, speed: 1.1, cA: 0x334155, cB: 0xe11d48 },
-  ];
-  coupleSpecs.forEach((cs, idx) => {
-    const cg = new THREE.Group();
-    const pA = createParkPerson(cs.cA, false, 1, idx);
-    pA.group.position.x = -0.32;
-    const pB = createParkPerson(cs.cB, false, -1);
-    pB.group.position.x = 0.32;
-    cg.add(pA.group, pB.group);
-    cg.position.set(cs.x, parkY + 0.03, cs.z);
-    cg.rotation.y = cs.dir === 1 ? 0 : Math.PI;
-    cg.userData.outdoorOnly = true;
-    root.add(cg);
-    strollingCouples.push({
-      group: cg,
-      pA,
-      pB,
-      baseX: cs.x,
-      zMin: cs.zMin,
-      zMax: cs.zMax,
-      z: cs.z,
-      dir: cs.dir,
-      speed: cs.speed,
-      phase: idx * 1.6,
-    });
-  });
-
-  // Dating Couples Snapped Cleanly onto Park Bench Seats (y = parkY + 0.03, facing outward esplanade normal, sharing umbrella in rain!)
-  const seatedHeads: THREE.Mesh[] = [];
-  [
-    { x: -2.65, z: -31.5, rot: Math.PI / 2, cA: 0x9f1239, cB: 0x1e40af },
-    { x: 3.65, z: -47.0, rot: -Math.PI / 2, cA: 0x047857, cB: 0xb45309 },
-  ].forEach((sb, idx) => {
-    const pair = new THREE.Group();
-    const a = createParkPerson(sb.cA, true, 1, idx + 4);
-    a.group.position.set(-0.32, 0.03, 0.04);
-    const b = createParkPerson(sb.cB, true, -1);
-    b.group.position.set(0.32, 0.03, 0.04);
-    pair.add(a.group, b.group);
-    pair.position.set(sb.x, parkY + 0.03, sb.z);
-    pair.rotation.y = sb.rot;
-    pair.userData.outdoorOnly = true;
-    root.add(pair);
-    seatedHeads.push(a.head, b.head);
-  });
-
-  picnicSpots.slice(0, 2).forEach(([px, pz], idx) => {
-    const pA = createParkPerson(idx === 0 ? 0xdb2777 : 0x2563eb, true, 0);
-    pA.group.position.set(px - 0.55, parkY - 0.25, pz + 0.2);
-    pA.group.rotation.y = 0.8;
-    const pB = createParkPerson(idx === 0 ? 0x1e293b : 0xd97706, true, 0);
-    pB.group.position.set(px + 0.55, parkY - 0.25, pz + 0.2);
-    pB.group.rotation.y = -0.8;
-    picnicRainHideGroup.add(pA.group, pB.group);
-    seatedHeads.push(pA.head, pB.head);
-  });
-
-  // Parisian Artist painting at a wooden easel facing the Eiffel Tower (equips umbrella in rain!)
-  const artistGroup = new THREE.Group();
-  artistGroup.position.set(-3.4, parkY + 0.03, -27.2);
-  artistGroup.rotation.y = Math.PI - 0.2;
-  artistGroup.userData.outdoorOnly = true;
-  const artist = createParkPerson(0x1f2937, false, 0, 5);
-  artist.armR.rotation.x = -1.05;
-  artistGroup.add(artist.group);
-  const easelStand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.55, 0.08), benchWoodMat);
-  easelStand.position.set(0.05, 0.78, 0.72);
-  easelStand.rotation.x = -0.18;
-  const canvasBoard = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.54, 0.05), picnicCreamMat);
-  canvasBoard.position.set(0.05, 1.25, 0.66);
-  canvasBoard.rotation.x = -0.18;
-  artistGroup.add(easelStand, canvasBoard);
-  root.add(artistGroup);
+  // Phase 4: Live Champ de Mars bottom-park activity controller (100% outdoorNpcRig.ts inside outdoorOnlyGroup)
+  const eiffelParkLife = createEiffelParkLife(
+    parkY,
+    benchSpots.map(([x, z, rotY]) => ({ x, z, rotY }))
+  );
+  root.add(eiffelParkLife.group);
 
   // Shimmering Seine River Curve behind the Eiffel Tower with gliding Bateaux Mouches riverboat lights!
   const seineMat = new THREE.MeshStandardMaterial({
@@ -1739,13 +1794,16 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
   return {
     id: 'eiffel_tower',
     root,
+    outdoorOnlyGroup: eiffelParkLife.group,
     envHint: {
       fogColorDay: 0xe2e8f0,
       fogColorNight: 0x0e1426,
       fogDensityScale: 0.72,
     },
-    update: (dt, elapsed, isNight, climateState, weather) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRain = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRain, outside);
       eiffelMat.emissiveIntensity = isNight ? 0.92 : 0.07;
       winWarmMat.emissiveIntensity = isNight ? 1.9 : 0.22;
       haussmannMat.emissiveIntensity = isNight ? 1.35 : 0.1;
@@ -1754,51 +1812,13 @@ export function buildEiffelTowerScenery(): SceneryRuntimeInstance {
       boulevardTreeMat.color.setHex(climateState === 'winter' ? 0xd8e6f2 : 0x3a6b35);
       parkLawnMat.color.setHex(climateState === 'winter' ? 0xdce8f4 : 0x3b8640);
       seineMat.color.setHex(isNight ? 0x0b2545 : 0x1d4e68);
-      const isRain = weather.startsWith('rainy');
       cobbleMat.roughness = isRain ? 0.25 : 0.82;
       parkGravelMat.roughness = isRain ? 0.36 : 0.92;
-      picnicRainHideGroup.visible = !isRain;
 
-      // Animate central Parisian fountain shimmer
+      // Animate central Parisian fountain shimmer & live Champ de Mars bottom park (skipped when indoors!)
       fJet.scale.y = 0.88 + Math.sin(elapsed * 5.4) * 0.14;
       fJet.rotation.y += dt * 1.4;
-
-      // Animate Champ de Mars dating couples strolling hand-in-hand
-      for (const sc of strollingCouples) {
-        sc.z += sc.dir * sc.speed * dt;
-        if (sc.dir === -1 && sc.z < sc.zMin) {
-          sc.dir = 1;
-          sc.group.rotation.y = 0;
-        } else if (sc.dir === 1 && sc.z > sc.zMax) {
-          sc.dir = -1;
-          sc.group.rotation.y = Math.PI;
-        }
-        sc.group.position.z = sc.z;
-        const swing = Math.sin(elapsed * 4.8 + sc.phase) * 0.42;
-        sc.pA.legL.rotation.x = swing;
-        sc.pA.legR.rotation.x = -swing;
-        sc.pA.armL.rotation.x = isRain ? -1.15 : -swing * 0.7;
-        sc.pB.legL.rotation.x = -swing;
-        sc.pB.legR.rotation.x = swing;
-        sc.pB.armR.rotation.x = swing * 0.7;
-      }
-      for (let i = 0; i < seatedHeads.length; i++) {
-        seatedHeads[i].rotation.y = Math.sin(elapsed * 1.1 + i * 1.9) * 0.22;
-      }
-      artist.armR.rotation.z = Math.sin(elapsed * 3.8) * 0.16;
-
-      // Universal park rain umbrellas for strolling couples, bench couples & artist
-      for (let i = 0; i < parkUmbrellas.length; i++) {
-        const pu = parkUmbrellas[i];
-        pu.umb.visible = isRain;
-        if (isRain) {
-          pu.arm.rotation.x = -1.15;
-        } else if (pu.arm !== artist.armL) {
-          pu.arm.rotation.x = pu.baseArmX;
-        } else {
-          pu.arm.rotation.x = 0;
-        }
-      }
+      eiffelParkLife.update(dt, elapsed, isRain, outside);
 
       // Glide Bateaux Mouches riverboats along the Seine
       for (const rb of riverBoats) {

@@ -24,6 +24,7 @@ import {
   createSharedMountainMaterial,
   resolveMountainGraphicsTier,
 } from './mountainRanges';
+import { getHilltopUrbanLandmassTexture } from './mountainTextures';
 import {
   type ArticulatedOutdoorNpcRig,
   type KyotoCyclistInstance,
@@ -1847,27 +1848,51 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
   windowBackdropGroup.userData.alwaysVisibleBackdrop = true;
   root.add(windowBackdropGroup);
 
-  // Continuous dark urban valley floor beneath the metropolis (expanded to bridge both L/R corners)
-  const valleyFloor = new THREE.Mesh(
-    new THREE.PlaneGeometry(380, 160),
-    new THREE.MeshStandardMaterial({ color: 0x0b121e, roughness: 0.95 })
-  );
+  // Continuous matte aerial urban-landmass floor beneath the metropolis & viaduct piers (z: +4 .. -124)
+  // Zero mirror sheen so buildings & highway piers sit firmly on solid urban ground, NEVER flooded!
+  const urbanLandmassTex = getHilltopUrbanLandmassTexture();
+  const valleyFloorMat = new THREE.MeshStandardMaterial({
+    color: urbanLandmassTex ? 0xffffff : 0x121720,
+    map: urbanLandmassTex,
+    roughness: 0.97,
+    metalness: 0.0,
+    envMapIntensity: 0.04,
+  });
+  const valleyFloor = new THREE.Mesh(new THREE.PlaneGeometry(380, 128), valleyFloorMat);
+  valleyFloor.name = 'hilltop_urban_landmass';
   valleyFloor.rotation.x = -Math.PI / 2;
-  valleyFloor.position.set(0, valleyY, -82);
+  valleyFloor.position.set(0, valleyY, -60); // Near z = +4, outer shoreline perimeter z = -124
   valleyFloor.userData.alwaysVisibleBackdrop = true;
   windowBackdropGroup.add(valleyFloor);
 
-  // Phase 4 & D: Expansive Shimmering Coastal Sea / Bay (>= 480x340) continuing cleanly underneath both L/R corners!
+  // Subtle matte coastal seawall / shoreline embankment cleanly separating city landmass from bay at z = -124
+  const shorelineBank = new THREE.Mesh(
+    new THREE.BoxGeometry(380, 0.9, 2.6),
+    new THREE.MeshStandardMaterial({
+      color: 0x1d252e,
+      roughness: 0.95,
+      metalness: 0.0,
+      envMapIntensity: 0.05,
+    })
+  );
+  shorelineBank.name = 'hilltop_shoreline_embankment';
+  shorelineBank.position.set(0, valleyY - 0.15, -124);
+  shorelineBank.userData.alwaysVisibleBackdrop = true;
+  windowBackdropGroup.add(shorelineBank);
+
+  // Expansive Shimmering Coastal Sea / Bay strictly BEYOND the city shoreline perimeter (z <= -124)!
   const coastalSeaMat = new THREE.MeshStandardMaterial({
     color: 0x164e63,
     emissive: 0x0c2d48,
     emissiveIntensity: 0.24,
-    roughness: 0.16,
-    metalness: 0.58,
+    roughness: 0.18,
+    metalness: 0.52,
+    envMapIntensity: 0.65,
   });
-  const coastalSea = new THREE.Mesh(new THREE.PlaneGeometry(480, 340), coastalSeaMat);
+  const coastalSea = new THREE.Mesh(new THREE.PlaneGeometry(480, 260), coastalSeaMat);
+  coastalSea.name = 'hilltop_coastal_sea';
   coastalSea.rotation.x = -Math.PI / 2;
-  coastalSea.position.set(0, valleyY + 0.05, -188);
+  coastalSea.position.set(0, valleyY - 0.06, -254); // Starts cleanly at z = -124..(-384), never under buildings!
   coastalSea.userData.alwaysVisibleBackdrop = true;
   windowBackdropGroup.add(coastalSea);
 
@@ -1882,16 +1907,16 @@ export function buildHilltopCityLightsScenery(): SceneryRuntimeInstance {
     const gw = 16 + (g % 4) * 9;
     const glint = new THREE.Mesh(new THREE.PlaneGeometry(gw, 1.8 + (g % 3) * 0.9), bayShimmerMat);
     glint.rotation.x = -Math.PI / 2;
-    glint.position.set(-76 + g * 17.5, valleyY + 0.12, -138 - (g % 4) * 14);
+    glint.position.set(-76 + g * 17.5, valleyY + 0.06, -138 - (g % 4) * 14);
     glint.userData.alwaysVisibleBackdrop = true;
     glint.userData.noMerge = true;
     windowBackdropGroup.add(glint);
     bayGlints.push(glint);
   }
 
-  // Phase 4 & D: Sculpted COASTAL_SIERRA Mountain Range Ribbons & L/R Corner Headlands (skirtFloorY = -36, 4-edge lock!)
-  const sierraMat = createSharedMountainMaterial();
+  // Sculpted COASTAL_SIERRA Mountain Range Ribbons & L/R Corner Headlands with matte 'highland' grain texture
   const hilltopTier = resolveMountainGraphicsTier();
+  const sierraMat = createSharedMountainMaterial('highland', hilltopTier);
   const leftCoastalSierra = createMountainRibbonMesh(
     {
       seed: 311,
