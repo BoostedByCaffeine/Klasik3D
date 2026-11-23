@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ClimateState, SceneryId } from '../sceneryData';
 import type { WeatherMode } from '../rules';
+import type { AnimatedDoorwayAnchor } from '../doorwayTraffic';
 import {
   SceneryBuilderFn,
   SceneryDioramaBuilderFn,
@@ -90,6 +91,10 @@ export class SceneryManager {
 
   public getEnvironmentHint(): SceneryEnvironmentHint {
     return this.current?.envHint || {};
+  }
+
+  public getActiveDoorways(): readonly AnimatedDoorwayAnchor[] {
+    return this.current?.doorways ?? [];
   }
 
   public setPlayerOutside(isOutside: boolean): void {

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ClimateState, SceneryId } from '../sceneryData';
 import type { WeatherMode } from '../rules';
+import type { AnimatedDoorwayAnchor } from '../doorwayTraffic';
 
 export interface SceneryEnvironmentHint {
   fogColorDay?: number;
@@ -21,6 +22,8 @@ export interface SceneryRuntimeInstance {
   windowBackdropGroup?: THREE.Group;
   /** Rich 360-degree exterior details (flanks, intersections, park NPCs, deep valleys) culled when indoors. */
   outdoorOnlyGroup?: THREE.Group;
+  /** Animated storefront doorway anchors for seamless full-detail sidewalk pedestrian handoff. */
+  doorways?: AnimatedDoorwayAnchor[];
   envHint: SceneryEnvironmentHint;
   update?: (
     dt: number,
@@ -177,6 +180,7 @@ export function batchStaticMeshesByMaterial(container: THREE.Group): void {
     const isBlocked =
       blocked ||
       Boolean(obj.userData?.noMerge) ||
+      Boolean(obj.userData?.skipStaticBatch) ||
       Boolean(obj.userData?.dynamicVisibility);
 
     if (!isBlocked) {

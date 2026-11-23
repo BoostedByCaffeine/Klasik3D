@@ -19,6 +19,15 @@ import {
   createSharedMountainMaterial,
   resolveMountainGraphicsTier,
 } from './mountainRanges';
+import {
+  createCleanCyberHighwayOverlay,
+  createCyberHoverCar,
+} from './cyberpunkAssets';
+import {
+  ArticulatedOutdoorNpcRig,
+  createArticulatedOutdoorNpc,
+  updateArticulatedNpcPose,
+} from '../outdoorNpcRig';
 
 // ============================================================================
 // PHASE 4: OUTDOOR SCENERIES 6–9 (HIGH-DETAIL MOBILE-OPTIMIZED OVERHAUL)
@@ -102,6 +111,37 @@ function createEverestSignTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
+function createTrailArrowTexture(label: string, accentHex: string): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#5a3d28';
+  ctx.fillRect(0, 0, 256, 64);
+  // Subtle wood grain streaks
+  ctx.fillStyle = 'rgba(32, 20, 12, 0.25)';
+  for (let y = 8; y < 60; y += 10) {
+    ctx.fillRect(0, y, 256, 3);
+  }
+  ctx.strokeStyle = '#d6c1a7';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(3, 3, 250, 58);
+
+  ctx.fillStyle = accentHex;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 19px monospace';
+  ctx.fillText(label, 128, 33);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.userData = { ownedByScenery: true };
+  return tex;
+}
+
 function createCobbleTerraceTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
@@ -129,107 +169,6 @@ function createCobbleTerraceTexture(): THREE.CanvasTexture | null {
   return tex;
 }
 
-/**
- * Helper to construct a sleek multi-part futuristic Cyberpunk hover-spinner.
- */
-function buildSpinnerMesh(
-  bodyColor: number,
-  thrusterColor: number,
-  trailColor: number,
-  isPolice: boolean
-): {
-  group: THREE.Group;
-  redBar?: THREE.MeshBasicMaterial;
-  blueBar?: THREE.MeshBasicMaterial;
-  searchlight?: THREE.Mesh;
-} {
-  const g = new THREE.Group();
-
-  const hullMat = new THREE.MeshStandardMaterial({
-    color: bodyColor,
-    roughness: 0.25,
-    metalness: 0.78,
-  });
-  const canopyMat = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
-    emissive: thrusterColor,
-    emissiveIntensity: 0.35,
-    roughness: 0.12,
-    metalness: 0.85,
-  });
-  const thrustMat = new THREE.MeshBasicMaterial({ color: thrusterColor });
-  const trailMat = new THREE.MeshBasicMaterial({
-    color: trailColor,
-    transparent: true,
-    opacity: 0.72,
-  });
-
-  // Sleek aerodynamic wedge chassis (faces +X by default)
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.44, 1.15), hullMat);
-  g.add(hull);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.28, 0.92), hullMat);
-  nose.position.set(1.55, -0.04, 0);
-  g.add(nose);
-  const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.34, 0.84), canopyMat);
-  canopy.position.set(0.2, 0.32, 0);
-  g.add(canopy);
-
-  // Side hover-thruster nacelles + glowing underside plasma glow
-  [-0.68, 0.68].forEach((sz) => {
-    const pod = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.26, 0.24), hullMat);
-    pod.position.set(-0.2, -0.08, sz);
-    g.add(pod);
-    const pad = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.08, 0.18), thrustMat);
-    pad.position.set(-0.2, -0.22, sz);
-    g.add(pad);
-  });
-
-  // Headlight bar & elongated glowing rear plasma light-trail
-  const headBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.08, 0.12, 0.82),
-    new THREE.MeshBasicMaterial({ color: 0xe0f2fe })
-  );
-  headBar.position.set(2.04, -0.02, 0);
-  g.add(headBar);
-
-  const trail = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.12, 0.72), trailMat);
-  trail.position.set(-3.4, 0.0, 0);
-  g.add(trail);
-
-  let redBar: THREE.MeshBasicMaterial | undefined;
-  let blueBar: THREE.MeshBasicMaterial | undefined;
-  let searchlight: THREE.Mesh | undefined;
-
-  if (isPolice) {
-    redBar = new THREE.MeshBasicMaterial({ color: 0xef4444 });
-    blueBar = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
-    const barR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.42), redBar);
-    barR.position.set(0.15, 0.56, -0.22);
-    g.add(barR);
-    const barB = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.42), blueBar);
-    barB.position.set(0.15, 0.56, 0.22);
-    g.add(barB);
-
-    // Sweeping downward translucent volumetric searchlight cone
-    const coneMat = new THREE.MeshBasicMaterial({
-      color: 0xbae6fd,
-      transparent: true,
-      opacity: 0.18,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const coneGeo = new THREE.ConeGeometry(2.6, 8.5, 12, 1, true);
-    coneGeo.translate(0, -4.25, 0);
-    searchlight = new THREE.Mesh(coneGeo, coneMat);
-    searchlight.position.set(1.2, -0.25, 0);
-    searchlight.rotation.z = 0.24;
-    g.add(searchlight);
-  }
-
-  return { group: g, redBar, blueBar, searchlight };
-}
-
 // ============================================================================
 // 6. CYBERPUNK NEON (Dense Textured Megacity Canyon, Holographic Kanji Billboards,
 //    Steam Vents, Multi-Altitude Flying Hover-Cars & Periodic Aerial Police Chase)
@@ -238,11 +177,11 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   const root = new THREE.Group();
   root.name = 'scenery_cyberpunk_neon';
 
-  // Wet obsidian reflective megacity ground slab
+  // Dark matte rain-damp obsidian megacity ground slab (zero neon reflection wash)
   const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x090b15,
-    roughness: 0.22,
-    metalness: 0.62,
+    color: 0x0b0d14,
+    roughness: 0.72,
+    metalness: 0.08,
   });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 150), groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -403,6 +342,8 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   // Floating holo ramen bowl hologram above the awning
   const holoBowlGroup = new THREE.Group();
   holoBowlGroup.position.set(0, 3.85, 1.15);
+  holoBowlGroup.userData.skipStaticBatch = true;
+  holoBowlGroup.userData.noMerge = true;
   const holoBowlMat = new THREE.MeshBasicMaterial({
     color: 0x06b6d4,
     transparent: true,
@@ -472,43 +413,9 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     root.add(kiosk);
   });
 
-  // 4. Glossy Reflective Neon Rain Puddles shimmering on the wet cyber avenue
-  const puddleCyanMat = new THREE.MeshStandardMaterial({
-    color: 0x0e7490,
-    emissive: 0x06b6d4,
-    emissiveIntensity: 0.65,
-    roughness: 0.06,
-    metalness: 0.85,
-    transparent: true,
-    opacity: 0.52,
-    polygonOffset: true,
-    polygonOffsetFactor: -3,
-    polygonOffsetUnits: -3,
-  });
-  const puddleMagMat = new THREE.MeshStandardMaterial({
-    color: 0x831843,
-    emissive: 0xec4899,
-    emissiveIntensity: 0.62,
-    roughness: 0.06,
-    metalness: 0.85,
-    transparent: true,
-    opacity: 0.5,
-    polygonOffset: true,
-    polygonOffsetFactor: -3,
-    polygonOffsetUnits: -3,
-  });
-  [
-    { x: -11.5, z: -15.4, rx: 2.3, rz: 0.9, mat: puddleCyanMat },
-    { x: -3.2, z: -11.8, rx: 2.8, rz: 1.05, mat: puddleMagMat },
-    { x: 5.8, z: -15.1, rx: 2.4, rz: 0.85, mat: puddleCyanMat },
-    { x: 13.5, z: -12.4, rx: 2.2, rz: 0.95, mat: puddleMagMat },
-  ].forEach((pd) => {
-    const puddle = new THREE.Mesh(new THREE.CircleGeometry(1, 14), pd.mat);
-    puddle.rotation.x = -Math.PI / 2;
-    puddle.scale.set(pd.rx, pd.rz, 1);
-    puddle.position.set(pd.x, 0.042, pd.z);
-    root.add(puddle);
-  });
+  // 4. Clean dark rain-damp matte charcoal highway surface & crisp painted lane markings (zero glowing neon road wash)
+  const cleanCyberHighway = createCleanCyberHighwayOverlay();
+  root.add(cleanCyberHighway);
 
   // 5. Floating Animated Holographic Koi Fish & Neon Ad Drones drifting over the avenue!
   interface HoloFloater {
@@ -533,6 +440,8 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     { x: 0.0, y: 4.9, z: -14.0, rx: 6.4, speed: 0.42, mat: holoKoiMats[2] },
   ].forEach((hk, idx) => {
     const koi = new THREE.Group();
+    koi.userData.skipStaticBatch = true;
+    koi.userData.noMerge = true;
     const body = new THREE.Mesh(new THREE.ConeGeometry(0.32, 1.45, 7), hk.mat);
     body.rotation.z = -Math.PI / 2;
     const tail = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.65, 4), hk.mat);
@@ -560,6 +469,8 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     { x: 12.6, y: 3.7, z: -16.6, rx: 2.4, speed: -0.48 },
   ].forEach((dr, idx) => {
     const drone = new THREE.Group();
+    drone.userData.skipStaticBatch = true;
+    drone.userData.noMerge = true;
     const core = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), darkMetalMat);
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.42, 0.04, 6, 14),
@@ -606,7 +517,7 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   });
   root.add(new THREE.Points(steamGeo, steamMat));
 
-  // === MULTI-ALTITUDE FLYING HOVER-CARS (SPINNERS) ACROSS 3 STACKED AERIAL LANES ===
+  // === MULTI-ALTITUDE WATERTIGHT FLYING HOVER-CARS (SPINNERS) ACROSS 3 STACKED AERIAL LANES (STRICTLY y >= 5.8) ===
   interface FlyingSpinner {
     group: THREE.Group;
     speed: number;
@@ -623,26 +534,32 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
     speed: number;
     body: number;
     thrust: number;
-    trail: number;
+    tail: number;
   }> = [
-    // Low avenue aerial lane (y ~ 4.4 - 5.2) right above the street!
-    { x: -24, y: 4.5, z: -13.5, dir: 1, speed: 11.5, body: 0x1e293b, thrust: 0x06b6d4, trail: 0x38bdf8 },
-    { x: 18, y: 5.1, z: -16.0, dir: -1, speed: 12.8, body: 0x312e81, thrust: 0xec4899, trail: 0xf472b6 },
-    { x: 4, y: 4.3, z: -11.5, dir: 1, speed: 10.2, body: 0x27272a, thrust: 0xf59e0b, trail: 0xfbbf24 },
-    // Mid-canyon express lane (y ~ 10.5 - 12.2)
-    { x: -34, y: 10.8, z: -22.5, dir: 1, speed: 15.2, body: 0x0f172a, thrust: 0x38bdf8, trail: 0x06b6d4 },
-    { x: 26, y: 11.6, z: -25.0, dir: -1, speed: 16.4, body: 0x3f1d38, thrust: 0xf43f5e, trail: 0xec4899 },
-    { x: -6, y: 12.0, z: -27.5, dir: 1, speed: 14.0, body: 0x1e293b, thrust: 0xa855f7, trail: 0xc084fc },
-    // High-altitude megacity corridor (y ~ 18.2 - 20.5)
-    { x: -28, y: 18.5, z: -32.0, dir: -1, speed: 18.5, body: 0x172554, thrust: 0x06b6d4, trail: 0x7dd3fc },
-    { x: 14, y: 19.6, z: -35.5, dir: 1, speed: 19.5, body: 0x1e1b4b, thrust: 0xf59e0b, trail: 0xfde047 },
+    // Low avenue aerial lane strictly elevated above storefronts (y >= 6.0)
+    { x: -24, y: 6.0, z: -13.5, dir: 1, speed: 11.5, body: 0x161a24, thrust: 0x00f0ff, tail: 0xff2255 },
+    { x: 18, y: 6.8, z: -16.0, dir: -1, speed: 12.8, body: 0x1e2235, thrust: 0xec4899, tail: 0x00f0ff },
+    { x: 4, y: 6.2, z: -11.8, dir: 1, speed: 10.2, body: 0x1c1e26, thrust: 0xf59e0b, tail: 0xff2255 },
+    // Mid-canyon express lane (y ~ 10.8 - 12.2)
+    { x: -34, y: 10.8, z: -22.5, dir: 1, speed: 15.2, body: 0x121622, thrust: 0x38bdf8, tail: 0xff2255 },
+    { x: 26, y: 11.6, z: -25.0, dir: -1, speed: 16.4, body: 0x26172a, thrust: 0xf43f5e, tail: 0x00f0ff },
+    { x: -6, y: 12.0, z: -27.5, dir: 1, speed: 14.0, body: 0x182032, thrust: 0xa855f7, tail: 0xff2255 },
+    // High-altitude megacity corridor (y ~ 18.5 - 19.8)
+    { x: -28, y: 18.5, z: -32.0, dir: -1, speed: 18.5, body: 0x172038, thrust: 0x00f0ff, tail: 0xff2255 },
+    { x: 14, y: 19.6, z: -35.5, dir: 1, speed: 19.5, body: 0x1b1a30, thrust: 0xf59e0b, tail: 0x00f0ff },
   ];
 
   laneSpecs.forEach((ls, idx) => {
-    const built = buildSpinnerMesh(ls.body, ls.thrust, ls.trail, false);
+    const built = createCyberHoverCar({
+      bodyColor: ls.body,
+      accentColor: ls.thrust,
+      thrusterColor: ls.thrust,
+      tailLightColor: ls.tail,
+      isPolice: false,
+    });
     built.group.position.set(ls.x, ls.y, ls.z);
     if (ls.dir === -1) built.group.rotation.y = Math.PI;
-    built.group.scale.setScalar(ls.y < 7 ? 0.72 : 0.88);
+    built.group.scale.setScalar(ls.y < 8 ? 0.78 : 0.9);
     root.add(built.group);
     flyingSpinners.push({
       group: built.group,
@@ -656,17 +573,37 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   // === LOW-CHANCE PERIODIC AERIAL POLICE CHASE EVENT (~10–12% encounter roll) ===
   const chaseGroup = new THREE.Group();
   chaseGroup.visible = false;
-  const fugitive = buildSpinnerMesh(0x09090b, 0xf97316, 0xef4444, false);
+  chaseGroup.userData.skipStaticBatch = true;
+  chaseGroup.userData.noMerge = true;
+  const fugitive = createCyberHoverCar({
+    bodyColor: 0x11131a,
+    accentColor: 0xf97316,
+    thrusterColor: 0xf97316,
+    tailLightColor: 0xff2255,
+    isPolice: false,
+  });
   fugitive.group.position.set(9.5, 0.3, 0);
   fugitive.group.scale.setScalar(0.86);
   chaseGroup.add(fugitive.group);
 
-  const police1 = buildSpinnerMesh(0x111827, 0x38bdf8, 0xef4444, true);
+  const police1 = createCyberHoverCar({
+    bodyColor: 0x111827,
+    accentColor: 0x38bdf8,
+    thrusterColor: 0x00f0ff,
+    tailLightColor: 0xff2255,
+    isPolice: true,
+  });
   police1.group.position.set(0, 0.5, -1.6);
   police1.group.scale.setScalar(0.9);
   chaseGroup.add(police1.group);
 
-  const police2 = buildSpinnerMesh(0x111827, 0x38bdf8, 0x3b82f6, true);
+  const police2 = createCyberHoverCar({
+    bodyColor: 0x111827,
+    accentColor: 0x38bdf8,
+    thrusterColor: 0x00f0ff,
+    tailLightColor: 0x00f0ff,
+    isPolice: true,
+  });
   police2.group.position.set(-4.8, 1.3, 1.5);
   police2.group.scale.setScalar(0.88);
   chaseGroup.add(police2.group);
@@ -703,12 +640,244 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
   );
   root.add(acrossCyberDoors.group);
 
+  // Phase 5: Outdoor-only living Cyberpunk street stalls (Holo Ramen, Cyber-Boba, Street Tech) + side-alley walkers
+  const cyberOutdoorGroup = new THREE.Group();
+  cyberOutdoorGroup.name = 'cyberpunk_outdoor_only';
+  cyberOutdoorGroup.userData.outdoorOnly = true;
+  cyberOutdoorGroup.userData.noMerge = true;
+  root.add(cyberOutdoorGroup);
+
+  interface CyberStallVendor {
+    rig: ArticulatedOutdoorNpcRig;
+    phase: number;
+  }
+  const cyberVendors: CyberStallVendor[] = [];
+  const stallMetalMat = new THREE.MeshStandardMaterial({ color: 0x181c2e, roughness: 0.42, metalness: 0.68 });
+  const visorCyanMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const visorMagMat = new THREE.MeshBasicMaterial({ color: 0xf472b6 });
+
+  const cyberStallSpecs = [
+    {
+      x: -10.2,
+      z: -17.95,
+      title: '電脳拉麺',
+      sub: 'HOLO RAMEN',
+      primary: '#f97316',
+      secondary: '#38bdf8',
+      trimHex: 0xf97316,
+      jacketHex: 0x1e293b,
+      hasSteam: true,
+    },
+    {
+      x: -1.8,
+      z: -17.95,
+      title: '合成茶館',
+      sub: 'CYBER-BOBA',
+      primary: '#ec4899',
+      secondary: '#a855f7',
+      trimHex: 0xec4899,
+      jacketHex: 0x581c87,
+      hasSteam: false,
+    },
+    {
+      x: 11.2,
+      z: -17.95,
+      title: '電脳屋台',
+      sub: 'STREET TECH',
+      primary: '#38bdf8',
+      secondary: '#22c55e',
+      trimHex: 0x38bdf8,
+      jacketHex: 0x0f172a,
+      hasSteam: false,
+    },
+  ];
+  cyberStallSpecs.forEach((st, idx) => {
+    const sg = new THREE.Group();
+    sg.position.set(st.x, 0, st.z);
+    const trimMat = new THREE.MeshBasicMaterial({ color: st.trimHex });
+
+    // Counter booth + twin side pillars + slanted neon awning
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.94, 0.9), stallMetalMat);
+    counter.position.set(0, 0.47, 0.12);
+    const frontStrip = new THREE.Mesh(new THREE.BoxGeometry(2.42, 0.08, 0.05), trimMat);
+    frontStrip.position.set(0, 0.88, 0.59);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(2.75, 0.14, 1.45), stallMetalMat);
+    roof.position.set(0, 2.38, 0.06);
+    const roofNeon = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.07, 0.06), trimMat);
+    roofNeon.position.set(0, 2.32, 0.78);
+    [-1.18, 1.18].forEach((px) => {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.38, 0.1), stallMetalMat);
+      post.position.set(px, 1.19, 0.52);
+      sg.add(post);
+    });
+
+    // Glowing emissive procedural menu board mounted on canopy fascia
+    const menuTex = createCyberBillboardTexture(st.primary, st.secondary, st.title, st.sub);
+    const menuMat = new THREE.MeshBasicMaterial({
+      map: menuTex ?? undefined,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.94,
+    });
+    const menuBoard = new THREE.Mesh(new THREE.PlaneGeometry(2.15, 0.68), menuMat);
+    menuBoard.position.set(0, 2.74, 0.72);
+
+    // Countertop props (ramen pot / glowing boba cups / holo chip display)
+    if (idx === 0) {
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.24, 0.26, 8), stallMetalMat);
+      pot.position.set(-0.52, 1.07, 0.12);
+      const broth = new THREE.Mesh(new THREE.CircleGeometry(0.25, 8), new THREE.MeshBasicMaterial({ color: 0xfb923c }));
+      broth.rotation.x = -Math.PI / 2;
+      broth.position.set(-0.52, 1.21, 0.12);
+      sg.add(pot, broth);
+    } else if (idx === 1) {
+      [-0.6, -0.25, 0.15, 0.55].forEach((bx, bi) => {
+        const cup = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.065, 0.05, 0.22, 6),
+          bi % 2 === 0 ? visorMagMat : visorCyanMat
+        );
+        cup.position.set(bx, 1.05, 0.24);
+        sg.add(cup);
+      });
+    } else {
+      const holoScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.42), visorCyanMat);
+      holoScreen.position.set(0, 1.24, 0.16);
+      holoScreen.rotation.x = -0.25;
+      sg.add(holoScreen);
+    }
+
+    // Full articulated cyber-vendor tending the counter (bone-parented cyber-visor)
+    const vendorRig = createArticulatedOutdoorNpc({
+      skinHex: idx === 1 ? 0xdfb18b : 0xe6c3ad,
+      shirtHex: st.jacketHex,
+      pantsHex: 0x0f172a,
+      hairHex: idx === 1 ? 0x3b0764 : 0x18181b,
+      shoeHex: 0x09090b,
+      seed: 520 + idx * 17,
+    });
+    vendorRig.root.position.set(0.15, 0.04, -0.45);
+    // Bone-parented glowing cyber-visor on headwear slot
+    const vVisor = new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, 0.055, 0.08),
+      idx % 2 === 0 ? visorCyanMat : visorMagMat
+    );
+    vVisor.position.set(0, 0.02, 0.13);
+    vendorRig.slots.headwear.add(vVisor);
+    // Glowing techwear collar trim on torsoGroup
+    const vCollar = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.055, 0.21), trimMat);
+    vCollar.position.set(0, 0.44, 0);
+    vendorRig.torsoGroup.add(vCollar);
+
+    sg.add(counter, frontStrip, roof, roofNeon, menuBoard, vendorRig.root);
+    sg.userData.outdoorOnly = true;
+    sg.userData.noMerge = true;
+    sg.userData.skipStaticBatch = true;
+    cyberOutdoorGroup.add(sg);
+
+    cyberVendors.push({ rig: vendorRig, phase: idx * 2.1 });
+  });
+
+  // Lightweight rising ramen stall steam wisps inside cyberOutdoorGroup
+  const ramenSteamCount = 22;
+  const ramenSteamPos = new Float32Array(ramenSteamCount * 3);
+  for (let i = 0; i < ramenSteamCount; i++) {
+    ramenSteamPos[i * 3] = -10.72 + ((i % 5) - 2) * 0.08;
+    ramenSteamPos[i * 3 + 1] = 1.25 + (i / ramenSteamCount) * 1.15;
+    ramenSteamPos[i * 3 + 2] = -17.83 + (((i * 7) % 5) - 2) * 0.06;
+  }
+  const ramenSteamGeo = new THREE.BufferGeometry();
+  ramenSteamGeo.setAttribute('position', new THREE.BufferAttribute(ramenSteamPos, 3));
+  const ramenSteamMat = new THREE.PointsMaterial({
+    size: 0.42,
+    color: 0xffedd5,
+    map: getSharedGlowSpriteTexture(),
+    transparent: true,
+    opacity: 0.34,
+    depthWrite: false,
+  });
+  cyberOutdoorGroup.add(new THREE.Points(ramenSteamGeo, ramenSteamMat));
+
+  // 4 Full-Detail Articulated Neon Side-Alley Cyber-Pedestrians emerging from deep shadowed alleyways
+  interface CyberAlleyWalker {
+    rig: ArticulatedOutdoorNpcRig;
+    umbrellaGroup: THREE.Group;
+    alleyX: number;
+    strollDir: 1 | -1;
+    cycleOffset: number;
+    speed: number;
+  }
+  const cyberAlleyWalkers: CyberAlleyWalker[] = [];
+  const cyberUmbStemGeo = new THREE.CylinderGeometry(0.013, 0.013, 0.86, 6);
+  const cyberUmbTopGeo = new THREE.ConeGeometry(0.52, 0.19, 10);
+  const cyberAlleySpecs: Array<{
+    alleyX: number;
+    dir: 1 | -1;
+    offset: number;
+    speed: number;
+    coat: number;
+    neon: number;
+    skin: number;
+    hair: number;
+  }> = [
+    { alleyX: -17.8, dir: 1, offset: 0.0, speed: 1.55, coat: 0x0f172a, neon: 0x38bdf8, skin: 0xe6c3ad, hair: 0x111827 },
+    { alleyX: -4.2, dir: -1, offset: 4.5, speed: 1.45, coat: 0x1e1b4b, neon: 0xec4899, skin: 0xd9a882, hair: 0x2e1065 },
+    { alleyX: 3.6, dir: 1, offset: 8.8, speed: 1.6, coat: 0x111827, neon: 0x22c55e, skin: 0xf1d0b6, hair: 0x18181b },
+    { alleyX: 17.6, dir: -1, offset: 12.2, speed: 1.5, coat: 0x1f2937, neon: 0xf97316, skin: 0xc99670, hair: 0x0f172a },
+  ];
+  cyberAlleySpecs.forEach((as, idx) => {
+    const neonMat = new THREE.MeshBasicMaterial({ color: as.neon });
+    const rig = createArticulatedOutdoorNpc({
+      skinHex: as.skin,
+      shirtHex: as.coat,
+      pantsHex: 0x0b0f19,
+      hairHex: as.hair,
+      shoeHex: 0x09090b,
+      seed: 640 + idx * 19,
+    });
+
+    // Bone-parented glowing techwear collar & cyber-visor
+    const collar = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.055, 0.21), neonMat);
+    collar.position.set(0, 0.44, 0);
+    rig.torsoGroup.add(collar);
+
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.05, 0.08), neonMat);
+    visor.position.set(0, 0.02, 0.13);
+    rig.slots.headwear.add(visor);
+
+    // Bone-parented translucent neon cyber-umbrella in leftHandProp
+    const umbrellaGroup = new THREE.Group();
+    const stem = new THREE.Mesh(cyberUmbStemGeo, stallMetalMat);
+    stem.position.y = 0.43;
+    const canopy = new THREE.Mesh(
+      cyberUmbTopGeo,
+      new THREE.MeshBasicMaterial({ color: as.neon, transparent: true, opacity: 0.46, side: THREE.DoubleSide })
+    );
+    canopy.position.y = 0.86;
+    umbrellaGroup.add(stem, canopy);
+    umbrellaGroup.rotation.x = 0.14;
+    umbrellaGroup.visible = false;
+    rig.slots.leftHandProp.add(umbrellaGroup);
+
+    cyberOutdoorGroup.add(rig.root);
+
+    cyberAlleyWalkers.push({
+      rig,
+      umbrellaGroup,
+      alleyX: as.alleyX,
+      strollDir: as.dir,
+      cycleOffset: as.offset,
+      speed: as.speed,
+    });
+  });
+
   const ctx = addSurrounding360Context(root, 'cyberpunk_neon');
   disableShadowsRecursive(root);
 
   return {
     id: 'cyberpunk_neon',
     root,
+    outdoorOnlyGroup: cyberOutdoorGroup,
+    doorways: [...acrossCyberDoors.anchors, ...ctx.doorways],
     envHint: {
       fogColorDay: 0x1a1d36,
       fogColorNight: 0x070816,
@@ -723,11 +892,70 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
       ctx.update(isNight, climateState, elapsed, dt, isRaining, outside);
       acrossCyberDoors.update(dt, elapsed, isNight, isRaining, outside);
       towerMat.emissiveIntensity = isNight ? 1.35 : 0.72;
-      groundMat.roughness = weather.startsWith('rainy') ? 0.12 : 0.24;
-      puddleCyanMat.emissiveIntensity = isNight ? 0.92 : 0.45;
-      puddleMagMat.emissiveIntensity = isNight ? 0.88 : 0.42;
+      groundMat.roughness = weather.startsWith('rainy') ? 0.58 : 0.72;
       holoBowlGroup.rotation.y = elapsed * 0.9;
       holoBowlGroup.position.y = 3.85 + Math.sin(elapsed * 2.2) * 0.1;
+
+      if (outside) {
+        // Animate articulated cyber street stall vendors tending counters & rising Holo Ramen steam
+        for (let i = 0; i < cyberVendors.length; i++) {
+          const cv = cyberVendors[i];
+          updateArticulatedNpcPose(cv.rig, dt, {
+            mode: 'vendor_tend',
+            elapsed,
+            phase: cv.phase,
+          });
+        }
+        const rsAttr = ramenSteamGeo.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < ramenSteamCount; i++) {
+          let sy = rsAttr.getY(i) + dt * (0.55 + (i % 3) * 0.16);
+          let sx = rsAttr.getX(i) + Math.sin(elapsed * 2.2 + i) * dt * 0.12;
+          if (sy > 2.45) {
+            sy = 1.24;
+            sx = -10.72 + ((i % 5) - 2) * 0.07;
+          }
+          rsAttr.setXY(i, sx, sy);
+        }
+        rsAttr.needsUpdate = true;
+
+        // Animate 4 articulated neon side-alley pedestrians emerging from deep shadowed alleys (-24.8)
+        const cycleLen = 20.0;
+        for (let i = 0; i < cyberAlleyWalkers.length; i++) {
+          const cw = cyberAlleyWalkers[i];
+          const phaseT = ((elapsed * cw.speed + cw.cycleOffset) % cycleLen) / cycleLen; // 0..1
+          let px = cw.alleyX;
+          let pz = -24.8;
+          let yaw = 0;
+          if (phaseT < 0.28) {
+            // Walk out of shadowed side alley (+Z) toward sidewalk
+            const f = phaseT / 0.28;
+            pz = -24.8 + f * 7.95;
+            yaw = 0;
+          } else if (phaseT < 0.72) {
+            // Stroll along neon sidewalk
+            const f = (phaseT - 0.28) / 0.44;
+            px = cw.alleyX + cw.strollDir * f * 8.4;
+            pz = -16.85;
+            yaw = cw.strollDir === 1 ? Math.PI / 2 : -Math.PI / 2;
+          } else {
+            // Duck deep back into neighboring shadowed neon alley (-Z)
+            const f = (phaseT - 0.72) / 0.28;
+            px = cw.alleyX + cw.strollDir * 8.4;
+            pz = -16.85 - f * 7.95;
+            yaw = Math.PI;
+          }
+          cw.rig.root.position.set(px, 0.08, pz);
+          cw.rig.root.rotation.y = yaw;
+          cw.umbrellaGroup.visible = isRaining;
+          updateArticulatedNpcPose(cw.rig, dt, {
+            mode: 'walk',
+            elapsed,
+            phase: cw.cycleOffset,
+            speed: cw.speed * 0.65,
+            holdingLeftProp: isRaining,
+          });
+        }
+      }
 
       for (let i = 0; i < holoFloaters.length; i++) {
         const hf = holoFloaters[i];
@@ -811,7 +1039,7 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
         chaseGroup.position.y = 7.6 + Math.sin(elapsed * 5.2) * 0.35;
         fugitive.group.rotation.z = Math.sin(elapsed * 6.5) * 0.14;
 
-        // Rapid alternating red/blue police lightbars + sweeping downward searchlight
+        // Rapid alternating red/blue police lightbars (zero downward light cones)
         const strobe = Math.floor(elapsed * 12) % 2 === 0;
         if (police1.redBar && police1.blueBar) {
           police1.redBar.color.setHex(strobe ? 0xff1e42 : 0x2a0810);
@@ -820,12 +1048,6 @@ export function buildCyberpunkNeonScenery(): SceneryRuntimeInstance {
         if (police2.redBar && police2.blueBar) {
           police2.redBar.color.setHex(strobe ? 0x2a0810 : 0xff1e42);
           police2.blueBar.color.setHex(strobe ? 0x3b82f6 : 0x0a1c4a);
-        }
-        if (police1.searchlight) {
-          police1.searchlight.rotation.z = 0.22 + Math.sin(elapsed * 4.2) * 0.25;
-        }
-        if (police2.searchlight) {
-          police2.searchlight.rotation.z = 0.18 + Math.cos(elapsed * 3.8) * 0.22;
         }
 
         if ((chaseDir === 1 && chaseX > 62) || (chaseDir === -1 && chaseX < -62)) {
@@ -1834,10 +2056,11 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     waterfallFoams.push(mist);
   });
 
-  // Deep Alpine Valley Floor far below (y = -28.0) with shimmering turquoise glacial lake!
-  const valleyMeadow = new THREE.Mesh(new THREE.PlaneGeometry(260, 180), alpineMeadowMat);
+  // Deep Alpine Valley Floor far below (y = -28.0) extended >= 360x360 so zero void gaps appear at L/R corners!
+  const valleyMeadow = new THREE.Mesh(new THREE.PlaneGeometry(380, 360), alpineMeadowMat);
   valleyMeadow.rotation.x = -Math.PI / 2;
-  valleyMeadow.position.set(0, -28.0, -104);
+  valleyMeadow.position.set(0, -28.0, -140);
+  valleyMeadow.userData.alwaysVisibleBackdrop = true;
   root.add(valleyMeadow);
 
   const lakeMat = new THREE.MeshStandardMaterial({
@@ -1888,15 +2111,15 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   const swissMountainMat = createSharedMountainMaterial();
   const swissTier = resolveMountainGraphicsTier();
 
-  // Grounded sculpted cliffside rock shoulders framing left & right slopes (zero party-hat cones!)
+  // Grounded sculpted cliffside rock shoulders framing left & right slopes (skirtFloorY = -40, zero floating lips!)
   const rightCliffMass = createRidgedPeakMesh(
     {
       seed: 613,
-      radiusX: 28,
-      radiusZ: 24,
+      radiusX: 30,
+      radiusZ: 26,
       height: 28,
       baseY: -28.2,
-      skirtFloorY: -34,
+      skirtFloorY: -40,
       ridgeStretch: 0.3,
       palette: SWISS_ALPINE,
       tier: swissTier,
@@ -1908,11 +2131,11 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   const leftCliffMass = createRidgedPeakMesh(
     {
       seed: 641,
-      radiusX: 28,
-      radiusZ: 24,
+      radiusX: 30,
+      radiusZ: 26,
       height: 27,
       baseY: -28.2,
-      skirtFloorY: -34,
+      skirtFloorY: -40,
       ridgeStretch: 0.3,
       palette: SWISS_ALPINE,
       tier: swissTier,
@@ -2030,19 +2253,19 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   });
   root.add(viaductGroup);
 
-  // Phase 4: Procedural Continuous SWISS_ALPINE Massif Ribbons (skirtFloorY = -34 <= -30, shared 1 material, ~80% fewer draw calls!)
+  // Phase 4 & D: Procedural Continuous SWISS_ALPINE Massif Ribbons + L/R Corner Anchors (skirtFloorY = -40, 4-edge lock!)
   const alpineRangeBack = createMountainRibbonMesh(
     {
       seed: 709,
       arcRadius: 128,
-      startAngle: -1.16,
-      endAngle: 1.16,
-      depth: 44,
-      peakCount: 5,
+      startAngle: -1.44,
+      endAngle: 1.44,
+      depth: 46,
+      peakCount: 6,
       minPeakHeight: 62,
       maxPeakHeight: 96,
       baseY: -28.5,
-      skirtFloorY: -34,
+      skirtFloorY: -40,
       palette: SWISS_ALPINE,
       tier: swissTier,
     },
@@ -2053,21 +2276,53 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     {
       seed: 751,
       arcRadius: 106,
-      startAngle: -1.04,
-      endAngle: 1.04,
-      depth: 32,
-      peakCount: 4,
+      startAngle: -1.32,
+      endAngle: 1.32,
+      depth: 34,
+      peakCount: 5,
       minPeakHeight: 38,
       maxPeakHeight: 66,
       baseY: -28.5,
-      skirtFloorY: -34,
+      skirtFloorY: -40,
       palette: SWISS_ALPINE,
       tier: swissTier,
     },
     swissMountainMat,
     'swiss_alpine_range_mid'
   );
-  windowBackdropGroup.add(alpineRangeBack, alpineRangeMid);
+  const swissLeftCornerMassif = createRidgedPeakMesh(
+    {
+      seed: 769,
+      radiusX: 40,
+      radiusZ: 34,
+      height: 52,
+      baseY: -28.5,
+      skirtFloorY: -40,
+      ridgeStretch: 0.35,
+      palette: SWISS_ALPINE,
+      tier: swissTier,
+    },
+    swissMountainMat,
+    'swiss_left_corner_massif'
+  );
+  swissLeftCornerMassif.position.set(-96, 0, -68);
+  const swissRightCornerMassif = createRidgedPeakMesh(
+    {
+      seed: 787,
+      radiusX: 40,
+      radiusZ: 34,
+      height: 54,
+      baseY: -28.5,
+      skirtFloorY: -40,
+      ridgeStretch: 0.35,
+      palette: SWISS_ALPINE,
+      tier: swissTier,
+    },
+    swissMountainMat,
+    'swiss_right_corner_massif'
+  );
+  swissRightCornerMassif.position.set(96, 0, -68);
+  windowBackdropGroup.add(alpineRangeBack, alpineRangeMid, swissLeftCornerMassif, swissRightCornerMassif);
 
   // Distant Animated High-Altitude Alpine Ski Gondola anchored to grounded lattice steel pylons + concrete footings!
   const gondolaStart = new THREE.Vector3(-42, 8.5, -96);
@@ -3128,6 +3383,198 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   });
   root.add(new THREE.Points(headlampGeo, headlampMat));
 
+  // Phase 5: Outdoor-only Everest Base Camp detail pass (tripod kettle, multi-arrow signpost, expedition sled, fire-warming hikers, low snow wisps)
+  const everestOutdoorGroup = new THREE.Group();
+  everestOutdoorGroup.name = 'everest_outdoor_only';
+  everestOutdoorGroup.userData.outdoorOnly = true;
+  everestOutdoorGroup.userData.noMerge = true;
+  root.add(everestOutdoorGroup);
+
+  // 1. 3-Leg Iron Campfire Tripod suspending a steaming dark cast-iron kettle/pot over the brazier (5.4, 0, -21.0)
+  const ironMat = new THREE.MeshStandardMaterial({ color: 0x1f242b, roughness: 0.55, metalness: 0.72 });
+  const tripodGroup = new THREE.Group();
+  tripodGroup.position.set(5.4, 0, -21.0);
+  for (let leg = 0; leg < 3; leg++) {
+    const ang = (leg / 3) * Math.PI * 2 + 0.35;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 1.72, 5), ironMat);
+    pole.position.set(Math.cos(ang) * 0.42, 0.78, Math.sin(ang) * 0.42);
+    pole.rotation.z = Math.cos(ang) * 0.44;
+    pole.rotation.x = -Math.sin(ang) * 0.44;
+    tripodGroup.add(pole);
+  }
+  const chainHook = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.54, 4), ironMat);
+  chainHook.position.y = 1.24;
+  const kettleBody = new THREE.Mesh(new THREE.SphereGeometry(0.24, 9, 7), ironMat);
+  kettleBody.scale.set(1.05, 0.86, 1.05);
+  kettleBody.position.y = 0.86;
+  const kettleLid = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.06, 8), ironMat);
+  kettleLid.position.y = 1.05;
+  const kettleSpout = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.045, 0.22, 5), ironMat);
+  kettleSpout.position.set(0.22, 0.92, 0);
+  kettleSpout.rotation.z = -0.68;
+  tripodGroup.add(chainHook, kettleBody, kettleLid, kettleSpout);
+  everestOutdoorGroup.add(tripodGroup);
+
+  // Rising steam wisps floating off the campfire kettle
+  const kettleSteamCount = 18;
+  const kettleSteamPos = new Float32Array(kettleSteamCount * 3);
+  for (let i = 0; i < kettleSteamCount; i++) {
+    kettleSteamPos[i * 3] = 5.42 + ((i % 5) - 2) * 0.06;
+    kettleSteamPos[i * 3 + 1] = 1.12 + (i / kettleSteamCount) * 1.35;
+    kettleSteamPos[i * 3 + 2] = -21.0 + (((i * 7) % 5) - 2) * 0.06;
+  }
+  const kettleSteamGeo = new THREE.BufferGeometry();
+  kettleSteamGeo.setAttribute('position', new THREE.BufferAttribute(kettleSteamPos, 3));
+  const kettleSteamMat = new THREE.PointsMaterial({
+    size: 0.46,
+    color: 0xe2e8f0,
+    map: getSharedGlowSpriteTexture(),
+    transparent: true,
+    opacity: 0.38,
+    depthWrite: false,
+  });
+  everestOutdoorGroup.add(new THREE.Points(kettleSteamGeo, kettleSteamMat));
+
+  // 2. Weathered multi-arrow wooden trail signpost (EVEREST SUMMIT 8,848m, KALA PATTHAR, BASE CAMP)
+  const signpostGroup = new THREE.Group();
+  signpostGroup.position.set(-3.9, 0, -19.2);
+  const signPostTimber = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 2.65, 6), woodMat);
+  signPostTimber.position.y = 1.32;
+  const signCairn = new THREE.Mesh(new THREE.DodecahedronGeometry(0.32, 0), slateMat);
+  signCairn.scale.set(1.3, 0.55, 1.3);
+  signCairn.position.y = 0.14;
+  signpostGroup.add(signPostTimber, signCairn);
+
+  const arrowPlankSpecs = [
+    { y: 2.32, rotY: 0.16, label: 'EVEREST SUMMIT 8,848m', color: '#fef08a' },
+    { y: 1.94, rotY: -0.34, label: 'KALA PATTHAR 5,545m', color: '#bae6fd' },
+    { y: 1.56, rotY: 0.48, label: 'BASE CAMP 5,364m', color: '#fed7aa' },
+  ];
+  arrowPlankSpecs.forEach((ap) => {
+    const ag = new THREE.Group();
+    ag.position.y = ap.y;
+    ag.rotation.y = ap.rotY;
+    const tex = createTrailArrowTexture(ap.label, ap.color);
+    const plankMat = new THREE.MeshStandardMaterial({
+      map: tex ?? undefined,
+      color: 0xffffff,
+      roughness: 0.88,
+    });
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.26, 0.06), plankMat);
+    plank.position.x = 0.34;
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.145, 0.26, 4), woodMat);
+    tip.rotation.z = -Math.PI / 2;
+    tip.position.x = 1.08;
+    ag.add(plank, tip);
+    signpostGroup.add(ag);
+  });
+  everestOutdoorGroup.add(signpostGroup);
+
+  // 3. Wooden expedition sled & strapped climbing gear near the dome tents
+  const sledGroup = new THREE.Group();
+  sledGroup.position.set(-9.4, 0.04, -22.2);
+  sledGroup.rotation.y = 0.42;
+  [-0.36, 0.36].forEach((rx) => {
+    const runner = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 1.85), woodMat);
+    runner.position.set(rx, 0.08, 0);
+    const curl = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.28), woodMat);
+    curl.position.set(rx, 0.18, 0.96);
+    curl.rotation.x = -0.55;
+    sledGroup.add(runner, curl);
+  });
+  const sledDeck = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.06, 1.65), woodMat);
+  sledDeck.position.y = 0.22;
+  const sledCrate = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.34, 0.72), tentOrangeMat);
+  sledCrate.position.set(0, 0.42, -0.22);
+  const sledPack = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.28, 0.52), duffelMat);
+  sledPack.position.set(0, 0.39, 0.44);
+  const ropeCoil = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.04, 6, 10), tentYellowMat);
+  ropeCoil.rotation.x = Math.PI / 2;
+  ropeCoil.position.set(0, 0.62, -0.2);
+  sledGroup.add(sledDeck, sledCrate, sledPack, ropeCoil);
+  everestOutdoorGroup.add(sledGroup);
+
+  // 4. Two fire-warming hikers beside the crackling campfire (1 seated on camp log, 1 standing warming hands)
+  interface FireHiker {
+    group: THREE.Group;
+    leftArm: THREE.Group;
+    rightArm: THREE.Group;
+    head: THREE.Mesh;
+    phase: number;
+  }
+  const fireHikers: FireHiker[] = [];
+  const hikerSkinMat = new THREE.MeshStandardMaterial({ color: 0xe2b89d, roughness: 0.72 });
+  const hikerBootMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.88 });
+  const hikerSpecs = [
+    { x: 4.18, y: 0.0, z: -20.52, rotY: 1.24, jacket: 0xdc2626, pants: 0x1e293b, seated: true },
+    { x: 6.72, y: 0.0, z: -20.55, rotY: -1.18, jacket: 0x0284c7, pants: 0x334155, seated: false },
+  ];
+  hikerSpecs.forEach((hs, idx) => {
+    const hg = new THREE.Group();
+    const jMat = new THREE.MeshStandardMaterial({ color: hs.jacket, roughness: 0.78 });
+    const pMat = new THREE.MeshStandardMaterial({ color: hs.pants, roughness: 0.85 });
+
+    const legY = hs.seated ? 0.34 : 0.4;
+    [-0.1, 0.1].forEach((lx) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.06, hs.seated ? 0.44 : 0.74, 6), pMat);
+      leg.position.set(lx, legY, hs.seated ? 0.18 : 0);
+      if (hs.seated) leg.rotation.x = 0.65;
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.22), hikerBootMat);
+      boot.position.set(lx, 0.06, hs.seated ? 0.36 : 0.03);
+      hg.add(leg, boot);
+    });
+    const torsoBaseY = hs.seated ? 0.72 : 1.02;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.54, 0.26), jMat);
+    torso.position.y = torsoBaseY;
+    if (hs.seated) torso.rotation.x = 0.18;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 7), hikerSkinMat);
+    head.position.set(0, torsoBaseY + 0.38, hs.seated ? 0.06 : 0);
+    const beanie = new THREE.Mesh(
+      new THREE.SphereGeometry(0.155, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      idx === 0 ? tentYellowMat : tentOrangeMat
+    );
+    beanie.position.set(0, torsoBaseY + 0.41, hs.seated ? 0.06 : 0);
+
+    const makeWarmArm = (side: -1 | 1): THREE.Group => {
+      const ag = new THREE.Group();
+      ag.position.set(side * 0.24, torsoBaseY + 0.18, 0.02);
+      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.048, 0.42, 6), jMat);
+      sleeve.position.y = -0.18;
+      const glove = new THREE.Mesh(new THREE.SphereGeometry(0.058, 6, 5), hikerBootMat);
+      glove.position.y = -0.4;
+      ag.add(sleeve, glove);
+      return ag;
+    };
+    const leftArm = makeWarmArm(-1);
+    const rightArm = makeWarmArm(1);
+    hg.add(torso, head, beanie, leftArm, rightArm);
+    hg.position.set(hs.x, hs.y, hs.z);
+    hg.rotation.y = hs.rotY;
+    everestOutdoorGroup.add(hg);
+
+    fireHikers.push({ group: hg, leftArm, rightArm, head, phase: idx * 2.4 });
+  });
+
+  // 5. Subtle low wind-blown snow wisps drifting across the base camp trail
+  const trailWispCount = 34;
+  const trailWispPos = new Float32Array(trailWispCount * 3);
+  for (let i = 0; i < trailWispCount; i++) {
+    trailWispPos[i * 3] = -18 + ((i * 3.7) % 36);
+    trailWispPos[i * 3 + 1] = 0.22 + (i % 5) * 0.24;
+    trailWispPos[i * 3 + 2] = -15.8 - ((i * 1.9) % 8.5);
+  }
+  const trailWispGeo = new THREE.BufferGeometry();
+  trailWispGeo.setAttribute('position', new THREE.BufferAttribute(trailWispPos, 3));
+  const trailWispMat = new THREE.PointsMaterial({
+    size: 0.52,
+    color: 0xeef6ff,
+    map: getSharedGlowSpriteTexture(),
+    transparent: true,
+    opacity: 0.36,
+    depthWrite: false,
+  });
+  everestOutdoorGroup.add(new THREE.Points(trailWispGeo, trailWispMat));
+
   const ctx = addSurrounding360Context(root, 'mt_everest');
   disableShadowsRecursive(root);
 
@@ -3135,6 +3582,7 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
     id: 'mt_everest',
     root,
     windowBackdropGroup,
+    outdoorOnlyGroup: everestOutdoorGroup,
     envHint: {
       fogColorDay: 0xdceeff,
       fogColorNight: 0x0b162a,
@@ -3142,8 +3590,10 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
       sunColorOverride: 0xdceeff,
       alwaysWinter: true,
     },
-    update: (dt, elapsed, isNight, climateState) => {
-      ctx.update(isNight, climateState, elapsed);
+    update: (dt, elapsed, isNight, climateState, weather, isPlayerOutside) => {
+      const outside = isPlayerOutside ?? true;
+      const isRaining = weather.startsWith('rainy');
+      ctx.update(isNight, climateState, elapsed, dt, isRaining, outside);
       lanternMat.emissiveIntensity = isNight ? 2.2 : 1.15;
       tentYellowMat.emissiveIntensity = isNight ? 0.72 : 0.14;
       tentOrangeMat.emissiveIntensity = isNight ? 0.72 : 0.14;
@@ -3193,6 +3643,45 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
         pf.mesh.rotation.x = pf.baseRotX + Math.sin(elapsed * 5.2 + pf.phase) * 0.28;
         pf.mesh.rotation.y = Math.cos(elapsed * 3.4 + pf.phase) * 0.16;
       }
+
+      if (!outside) return;
+
+      // Kettle steam rising above tripod campfire pot
+      const ksAttr = kettleSteamGeo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < kettleSteamCount; i++) {
+        let sy = ksAttr.getY(i) + dt * (0.62 + (i % 3) * 0.18);
+        let sx = ksAttr.getX(i) + dt * 0.18 + Math.sin(elapsed * 2.4 + i) * dt * 0.08;
+        if (sy > 2.55) {
+          sy = 1.1;
+          sx = 5.42 + ((i % 5) - 2) * 0.06;
+        }
+        ksAttr.setXY(i, sx, sy);
+      }
+      ksAttr.needsUpdate = true;
+
+      // 2 hikers rubbing & warming outstretched hands beside the crackling campfire
+      for (let i = 0; i < fireHikers.length; i++) {
+        const fh = fireHikers[i];
+        const rub = Math.sin(elapsed * 4.8 + fh.phase) * 0.14;
+        fh.leftArm.rotation.x = -1.12 + rub;
+        fh.leftArm.rotation.z = -0.18;
+        fh.rightArm.rotation.x = -1.12 - rub;
+        fh.rightArm.rotation.z = 0.18;
+        fh.head.rotation.y = Math.sin(elapsed * 0.9 + fh.phase) * 0.22;
+      }
+
+      // Low wind-blown snow wisps drifting across the base camp trail
+      const twAttr = trailWispGeo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < trailWispCount; i++) {
+        let wx = twAttr.getX(i) + dt * (2.6 + (i % 4) * 0.65);
+        let wy = twAttr.getY(i) + Math.sin(elapsed * 2.1 + i) * dt * 0.14;
+        if (wx > 18) {
+          wx = -18;
+          wy = 0.22 + (i % 5) * 0.24;
+        }
+        twAttr.setXY(i, wx, Math.max(0.18, wy));
+      }
+      twAttr.needsUpdate = true;
     },
   };
 }

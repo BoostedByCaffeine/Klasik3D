@@ -155,6 +155,7 @@ import {
   getSceneryStreetlightSpec,
   hasCornerTurnCurbClearance,
   hasStreetTrafficScenery,
+  interpolateAlleyStepY,
   isUrbanStreetScenery,
   stepTwoLaneTraffic,
 } from './outdoorLod';
@@ -170,6 +171,20 @@ import {
   createRidgedPeakGeometry,
   createSharedMountainMaterial,
 } from './sceneries/mountainRanges';
+import * as THREE from 'three';
+import { createArticulatedOutdoorNpc, createKyotoCyclist } from './outdoorNpcRig';
+import {
+  DOORWAY_CLOSED_RECYCLE_THRESHOLD,
+  DOORWAY_OPEN_PASS_THRESHOLD,
+  evaluateDoorwayEntryStep,
+  evaluateDoorwayExitStep,
+  isPedestrianOffscreenForDoorwayExit,
+} from './doorwayTraffic';
+import {
+  createCleanCyberHighwayOverlay,
+  createCyberHoverCar,
+} from './sceneries/cyberpunkAssets';
+import { batchStaticMeshesByMaterial } from './sceneries/sceneryTypes';
 
 test('evaluateDrinkMatch scores perfect 100% for matching coffee and artisanal tea recipes', () => {
   const recipe = getRecipeById('vanilla-oat-latte');
@@ -2449,6 +2464,153 @@ test('Detail Polish Phase 4: Procedural mountain ranges bake vertex colors, drop
   assert.equal(COASTAL_SIERRA.snowlineNormalized, 1.5);
   assert.equal(MAYON_FOOTHILLS.snowlineNormalized, 1.5);
 });
+
+test('Detail Polish Phase 5: Favela stepped hillside alley walker interpolation stays grounded across risers and lands flush on sidewalk at t=0', () => {
+  // Street sidewalk arrival (t = 0) lands cleanly at y = 0.08
+  const bottom = interpolateAlleyStepY(0, -5.2);
+  assert.equal(bottom.y, 0.08);
+  assert.ok(Math.abs(bottom.z - (-17.6)) < 1e-6);
+
+  // Upper staircase (t = 0.5 and t = 1.0) rises monotonically above the hillside terrain
+  const mid = interpolateAlleyStepY(0.5, -5.2);
+  const top = interpolateAlleyStepY(1.0, -5.2);
+  assert.ok(mid.y > bottom.y + 2.0, `Expected mid-stair elevation > bottom, got ${mid.y}`);
+  assert.ok(top.y > mid.y + 3.0, `Expected top-stair elevation > mid, got ${top.y}`);
+  assert.ok(top.z < mid.z && mid.z < bottom.z);
+
+  // Clamping out-of-range inputs stays bounded and finite
+  const under = interpolateAlleyStepY(-0.5, 6.2);
+  const over = interpolateAlleyStepY(1.8, 6.2);
+  assert.equal(under.y, 0.08);
+  assert.ok(Number.isFinite(over.x) && Number.isFinite(over.y) && Number.isFinite(over.z));
+
+  // Kyoto mamachari cyclist turn path (turnStartX = 29.0, turnRadius = 4.6) clears T-junction outer curb
+  assert.equal(hasCornerTurnCurbClearance(29.0, 4.6, 0.45, 0.6), true);
+});
+
+test('Detail Truncation Fix Phase A: Articulated outdoor NPC & Kyoto cyclist enforce bone-parented accessory slots and batch immunity', () => {
+  const npc = createArticulatedOutdoorNpc({
+    skinHex: 0xdca57c,
+    shirtHex: 0x0284c7,
+    pantsHex: 0x1e293b,
+    seed: 42,
+  });
+  assert.equal(npc.root.userData.outdoorOnly, true);
+  assert.equal(npc.root.userData.skipStaticBatch, true);
+  assert.equal(npc.root.userData.noMerge, true);
+
+  // Strict bone-parenting check: accessories move rigidly with head/torso/hand joints (zero floating props)
+  assert.equal(npc.slots.headwear.parent, npc.headPivot);
+  assert.equal(npc.slots.backProp.parent, npc.torsoGroup);
+  assert.equal(npc.slots.leftHandProp.parent, npc.leftElbowPivot);
+  assert.equal(npc.slots.rightHandProp.parent, npc.rightElbowPivot);
+
+  // Kyoto mamachari cyclist uses rotating tubular wheels + articulated rider with outdoor/batch guards
+  const cyclist = createKyotoCyclist({ frameHex: 0x166534, jacketHex: 0x334155, seed: 11 });
+  assert.equal(cyclist.group.userData.outdoorOnly, true);
+  assert.equal(cyclist.group.userData.skipStaticBatch, true);
+  assert.ok(cyclist.frontWheel.children.length >= 6, 'Front wheel must include spoked hub + tire');
+  assert.ok(cyclist.rearWheel.children.length >= 6, 'Rear wheel must include spoked hub + tire');
+});
+
+test('Detail Truncation Fix Phase B: Seamless sidewalk-to-doorway handoff waits for door clearance (>=0.85) and closed recycle (<=0.05)', () => {
+  // Entry flow: waits for door >= 0.85 before stepping into foyer
+  const waitIn = evaluateDoorwayEntryStep('WaitDoorOpenIn', 0.5, 0);
+  assert.equal(waitIn.nextPhase, 'WaitDoorOpenIn');
+  assert.equal(waitIn.wantDoorOpen, true);
+
+  const stepIn = evaluateDoorwayEntryStep('WaitDoorOpenIn', DOORWAY_OPEN_PASS_THRESHOLD, 0);
+  assert.equal(stepIn.nextPhase, 'StepIntoFoyer');
+
+  // Inside foyer: NEVER recycles off-screen while door is still open (> 0.05)
+  const stillOpen = evaluateDoorwayEntryStep('HiddenInFoyer', 0.4, 1);
+  assert.equal(stillOpen.nextPhase, 'HiddenInFoyer');
+  assert.equal(stillOpen.shouldRecycleOffscreen, false);
+
+  const closedRecycle = evaluateDoorwayEntryStep('HiddenInFoyer', DOORWAY_CLOSED_RECYCLE_THRESHOLD, 1);
+  assert.equal(closedRecycle.nextPhase, 'RecycledOffscreen');
+  assert.equal(closedRecycle.shouldRecycleOffscreen, true);
+
+  // Exit flow: ONLY selects off-screen pedestrians (never pops in on open sidewalk)
+  assert.equal(isPedestrianOffscreenForDoorwayExit(4.2, false, false), false);
+  assert.equal(isPedestrianOffscreenForDoorwayExit(-28.0, false, false), true);
+  assert.equal(isPedestrianOffscreenForDoorwayExit(-28.0, true, false), false);
+  assert.equal(isPedestrianOffscreenForDoorwayExit(-28.0, false, true), false);
+
+  // Exit waits for door >= 0.85 before stepping out, then hands seamlessly to SidewalkWalk
+  assert.equal(evaluateDoorwayExitStep('WaitDoorOpenOut', 0.6, 0).nextPhase, 'WaitDoorOpenOut');
+  assert.equal(evaluateDoorwayExitStep('WaitDoorOpenOut', 0.9, 0).nextPhase, 'StepOntoSidewalk');
+  const handoff = evaluateDoorwayExitStep('TurnOntoSidewalk', 0.1, 1);
+  assert.equal(handoff.nextPhase, 'SidewalkWalk');
+  assert.equal(handoff.releaseToSidewalk, true);
+});
+
+test('Detail Truncation Fix Phase C: Cyberpunk hover-cars survive static batching intact and clean highway has zero emissive neon glow', () => {
+  const container = new THREE.Group();
+  const hoverCar = createCyberHoverCar({ isPolice: true });
+  assert.equal(hoverCar.group.userData.skipStaticBatch, true);
+  const initialChildCount = hoverCar.group.children.length;
+  assert.ok(initialChildCount >= 12, 'Watertight hover-car must have hull, canopy, pontoons, lights, thrusters');
+  container.add(hoverCar.group);
+
+  // Run batchStaticMeshesByMaterial — MUST NOT rip or strip any hover-car sub-meshes!
+  batchStaticMeshesByMaterial(container);
+  assert.equal(
+    hoverCar.group.children.length,
+    initialChildCount,
+    'skipStaticBatch guard must preserve 100% of hover-car sub-meshes after batching'
+  );
+
+  // Verify zero emissive road glow on clean charcoal Cyberpunk highway
+  const highway = createCleanCyberHighwayOverlay();
+  let checkedMaterials = 0;
+  highway.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh && mesh.material instanceof THREE.MeshStandardMaterial) {
+      checkedMaterials++;
+      assert.equal(mesh.material.emissive.getHex(), 0x000000, 'Cyberpunk road must have zero emissive neon bleed');
+    }
+  });
+  assert.ok(checkedMaterials >= 3);
+});
+
+test('Detail Truncation Fix Phase D: Mountain range ribbon locks ALL 4 perimeter edges (front, back, left, right) down to skirtFloorY', () => {
+  const skirtY = -36;
+  const geo = createMountainRangeRibbon({
+    seed: 555,
+    arcRadius: 120,
+    startAngle: -1.4,
+    endAngle: 1.4,
+    depth: 36,
+    peakCount: 4,
+    minPeakHeight: 24,
+    maxPeakHeight: 48,
+    baseY: -12,
+    skirtFloorY: skirtY,
+    palette: COASTAL_SIERRA,
+    tier: 'low',
+  });
+  const pos = geo.attributes.position;
+  // Low tier ribbon dimensions: widthSegs = 22 (23 cols), depthSegs = 4 (7 rows incl. front/back skirts)
+  const cols = 23;
+  const rows = pos.count / cols;
+  assert.equal(Number.isInteger(rows), true);
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const isPerimeter = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
+      if (isPerimeter) {
+        const idx = r * cols + c;
+        assert.equal(
+          pos.getY(idx),
+          skirtY,
+          `Perimeter vertex (row=${r}, col=${c}) must lock strictly to skirtFloorY=${skirtY}`
+        );
+      }
+    }
+  }
+});
+
 
 
 

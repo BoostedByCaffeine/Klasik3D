@@ -1,9 +1,5 @@
 import * as THREE from 'three';
-import {
-  resolveActivePatronOutfit,
-  type ClimateState,
-  type SceneryId,
-} from '../sceneryData';
+import type { ClimateState, SceneryId } from '../sceneryData';
 import {
   EIFFEL_DOWNHILL_START_Z,
   ROAD_ELEVATION_LAYERS,
@@ -14,12 +10,23 @@ import {
   getEiffelRoadPose,
   getSceneryRoadTopology,
   getSceneryStreetlightSpec,
-  type DoorwayAnimationState,
   type DoorwayStyle,
 } from '../outdoorLod';
+import type { AnimatedDoorwayAnchor } from '../doorwayTraffic';
 import { batchStaticMeshesByMaterial } from './sceneryTypes';
+import {
+  COASTAL_SIERRA,
+  HIMALAYAN_HORN,
+  MAYON_FOOTHILLS,
+  SWISS_ALPINE,
+  createMountainRibbonMesh,
+  createRidgedPeakMesh,
+  createSharedMountainMaterial,
+  resolveMountainGraphicsTier,
+} from './mountainRanges';
 
 export interface SurroundingContextHandle {
+  doorways: AnimatedDoorwayAnchor[];
   update: (
     isNight: boolean,
     climateState: ClimateState,
@@ -42,6 +49,7 @@ export interface AnimatedDoorwayPlacement {
 
 export interface AnimatedDoorwayHandle {
   group: THREE.Group;
+  anchors: AnimatedDoorwayAnchor[];
   update: (
     dt: number,
     elapsed: number,
@@ -52,9 +60,10 @@ export interface AnimatedDoorwayHandle {
 }
 
 /**
- * Builds an outdoor-only animated building entrance/exit cluster (recessed interior foyer/genkan,
- * animated hinged/split-sliding/Kyoto-shoji doors with zero z-fighting, and outdoor NPC entry/exit
- * state machine). Parented inside `outdoorOnlyGroup` and completely skipped when `!isPlayerOutside`.
+ * Builds an outdoor-only animated building entrance/exit cluster (deep recessed interior foyer/genkan
+ * and animated hinged/split-sliding/Kyoto-shoji doors with zero z-fighting).
+ * Exposes `AnimatedDoorwayAnchor[]` so real full-detail outdoor sidewalk pedestrians seamlessly walk
+ * into and out of shops via `DoorwayTrafficController` with zero stub mini-NPCs.
  */
 export function createAnimatedDoorwayCluster(
   sceneryId: SceneryId,
@@ -65,6 +74,7 @@ export function createAnimatedDoorwayCluster(
   cluster.name = `animated_doorways_${sceneryId}`;
   cluster.userData.outdoorOnly = true;
   cluster.userData.noMerge = true;
+  cluster.userData.skipStaticBatch = true;
 
   // Shared materials & geometries across all upgraded doorways (minimal draw calls & memory)
   const foyerDarkMat = new THREE.MeshStandardMaterial({
@@ -97,70 +107,31 @@ export function createAnimatedDoorwayCluster(
   });
   const stepWoodMat = new THREE.MeshStandardMaterial({ color: 0x5c3a22, roughness: 0.8 });
 
-  // Shared NPC materials
-  const skinTones = [0xf3d2b3, 0xe0ac69, 0xc68642, 0xffdbac, 0xd8a373];
-  const outfitHexMap: Record<string, number[]> = {
-    ancient_japanese: [0x9f1239, 0x1e3a5f, 0x3f6212, 0x6b21a8],
-    filipino: [0xf5e9d4, 0xd97706, 0x0d9488],
-    french: [0x1e293b, 0x7f1d1d, 0x334155],
-    brazilian: [0xeab308, 0x16a34a, 0x2563eb],
-    swiss: [0x991b1b, 0x1e3a5f, 0x3f6212],
-    hiker: [0xea580c, 0x0284c7, 0x4d7c0f],
-    default: style === 'cyber_split_slide'
-      ? [0x0f172a, 0x1e1b4b, 0x3b0764, 0x111827]
-      : style === 'kyoto_machiya_slide'
-      ? [0x1e3a5f, 0x7c2d12, 0x365314, 0x4c1d95]
-      : [0x3b82f6, 0x10b981, 0xf43f5e, 0xd97706],
-  };
-  const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.86 });
-  const hairMat = new THREE.MeshStandardMaterial({ color: 0x181412, roughness: 0.85 });
-  const wagasaRedMat = new THREE.MeshStandardMaterial({
-    color: style === 'kyoto_machiya_slide' ? 0xc8281c : style === 'cyber_split_slide' ? 0x06b6d4 : 0x334155,
-    emissive: style === 'cyber_split_slide' ? 0x06b6d4 : 0x000000,
-    emissiveIntensity: style === 'cyber_split_slide' ? 0.65 : 0,
-    roughness: 0.55,
-    side: THREE.DoubleSide,
-  });
-  const wagasaRimMat = new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.8 });
-
   interface DoorRig {
-    state: DoorwayAnimationState;
-    stateTimer: number;
-    idleCooldown: number;
+    openTarget: boolean;
+    linearProgress: number;
     openAmount: number;
     doorWidth: number;
-    facingZ: 1 | -1;
-    worldX: number;
-    worldZ: number;
     hingePivot?: THREE.Group;
     leftSlide?: THREE.Group;
     rightSlide?: THREE.Group;
     shojiSlide?: THREE.Group;
     statusStripMat?: THREE.MeshBasicMaterial;
-    npc: {
-      root: THREE.Group;
-      leftLeg: THREE.Mesh;
-      rightLeg: THREE.Mesh;
-      leftArm: THREE.Mesh;
-      rightArm: THREE.Mesh;
-      umbrella: THREE.Group;
-      walkPhase: number;
-      walkDirX: 1 | -1;
-      progress: number;
-    };
   }
 
   const doors: DoorRig[] = [];
+  const anchors: AnimatedDoorwayAnchor[] = [];
 
   placements.forEach((p, idx) => {
     const doorW = p.width ?? (style === 'cyber_split_slide' ? 1.38 : style === 'kyoto_machiya_slide' ? 1.18 : 0.96);
     const doorH = p.height ?? 2.04;
-    const foyerDepth = 1.6; // >= 1.4u recessed interior foyer/genkan
+    const foyerDepth = 1.75; // >= 1.6u deep recessed dark interior foyer/genkan for seamless hidden spawn/recycle
     const dg = new THREE.Group();
     dg.position.set(p.x, 0.08, p.z);
     // Rotate whole assembly so local +Z points strictly outward toward the street/sidewalk
     dg.rotation.y = p.facingZ === 1 ? 0 : Math.PI;
     dg.userData.noMerge = true;
+    dg.userData.skipStaticBatch = true;
 
     // 1. Recessed Interior Foyer / Genkan (extends backward into -Z inside building footprint)
     const foyerBack = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.24, doorH + 0.14, 0.12), foyerDarkMat);
@@ -262,90 +233,34 @@ export function createAnimatedDoorwayCluster(
       dg.add(shojiSlide);
     }
 
-    // 3. Dedicated Lightweight Articulated Outdoor Doorway NPC (resolved via resolveActivePatronOutfit)
-    const outfitRes = resolveActivePatronOutfit({
-      activeScenery: sceneryId,
-      climateState: 'summer',
-      unlockedPatronOutfits: ['ancient_japanese', 'filipino', 'french', 'brazilian', 'swiss', 'hiker'],
-      mode: 'auto_match',
-      equippedOutfitId: null,
-      enabledCustomMixIds: [],
-      isSecretNpc: false,
-      rng: () => ((idx * 31 + 7) % 100) / 100,
-    });
-    const palette = outfitHexMap[outfitRes.outfitId || 'default'] || outfitHexMap.default;
-    const npcGroup = new THREE.Group();
-    npcGroup.visible = false;
-    npcGroup.userData.noMerge = true;
-
-    const torsoMat = new THREE.MeshStandardMaterial({
-      color: palette[(idx + (p.seed ?? 0)) % palette.length],
-      roughness: 0.78,
-    });
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: skinTones[(idx + (p.seed ?? 1)) % skinTones.length],
-      roughness: 0.72,
-    });
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 8, 7), skinMat);
-    head.position.y = 1.5;
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.155, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.62), hairMat);
-    hair.position.y = 1.53;
-    const torso = new THREE.Mesh(
-      new THREE.BoxGeometry(0.36, style === 'kyoto_machiya_slide' ? 0.88 : 0.56, 0.22),
-      torsoMat
-    );
-    torso.position.y = style === 'kyoto_machiya_slide' ? 0.92 : 1.06;
-    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.66, 0.13), pantsMat);
-    leftLeg.position.set(-0.09, 0.34, 0);
-    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.66, 0.13), pantsMat);
-    rightLeg.position.set(0.09, 0.34, 0);
-    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.48, 0.1), torsoMat);
-    leftArm.position.set(-0.24, 1.06, 0);
-    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.48, 0.1), torsoMat);
-    rightArm.position.set(0.24, 1.06, 0);
-
-    // Rain umbrella / Kyoto Wagasa oiled-paper parasol (auto-opens on threshold when isRaining === true)
-    const umbrella = new THREE.Group();
-    const uShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.88, 6), frameMat);
-    uShaft.position.y = 0.44;
-    const uCanopy = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.18, 10, 1, true), wagasaRedMat);
-    uCanopy.position.y = 0.86;
-    const uRim = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.014, 4, 10), wagasaRimMat);
-    uRim.rotation.x = Math.PI / 2;
-    uRim.position.y = 0.77;
-    umbrella.add(uShaft, uCanopy, uRim);
-    umbrella.position.set(0.18, 1.24, 0.08);
-    umbrella.visible = false;
-
-    npcGroup.add(head, hair, torso, leftLeg, rightLeg, leftArm, rightArm, umbrella);
-    dg.add(npcGroup);
     cluster.add(dg);
 
-    doors.push({
-      state: 'IdleClosed',
-      stateTimer: 0,
-      idleCooldown: 2.0 + idx * 2.4,
+    const rig: DoorRig = {
+      openTarget: false,
+      linearProgress: 0,
       openAmount: 0,
       doorWidth: doorW,
-      facingZ: p.facingZ,
-      worldX: p.x,
-      worldZ: p.z,
       hingePivot,
       leftSlide,
       rightSlide,
       shojiSlide,
       statusStripMat,
-      npc: {
-        root: npcGroup,
-        leftLeg,
-        rightLeg,
-        leftArm,
-        rightArm,
-        umbrella,
-        walkPhase: idx * 1.1,
-        walkDirX: idx % 2 === 0 ? 1 : -1,
-        progress: 0,
+    };
+    doors.push(rig);
+
+    const sidewalkOffset = p.facingZ === 1 ? 1.42 : 1.32;
+    anchors.push({
+      id: `${sceneryId}_${style}_${idx}_${Math.round(p.x * 10)}_${Math.round(p.z * 10)}`,
+      style,
+      sidewalkEntryPos: { x: p.x, z: p.z + p.facingZ * sidewalkOffset },
+      thresholdPos: { x: p.x, z: p.z },
+      foyerHiddenPos: { x: p.x, z: p.z - p.facingZ * 1.55 },
+      facingZ: p.facingZ,
+      isJapaneseMachiya: style === 'kyoto_machiya_slide',
+      setDoorOpenTarget: (open: boolean) => {
+        rig.openTarget = open;
       },
+      getDoorOpenRatio: () => rig.openAmount,
     });
   });
 
@@ -354,7 +269,8 @@ export function createAnimatedDoorwayCluster(
 
   return {
     group: cluster,
-    update: (dt, _elapsed, isNight, isRaining, isPlayerOutside) => {
+    anchors,
+    update: (dt, _elapsed, isNight, _isRaining, isPlayerOutside) => {
       // Update warm dusk/night washi & foyer glow even on env sync tick
       foyerGlowMat.emissiveIntensity = isNight ? 1.35 : 0.35;
       glassOrWashiMat.emissiveIntensity =
@@ -364,139 +280,17 @@ export function createAnimatedDoorwayCluster(
           ? isNight ? 0.9 : 0.38
           : isNight ? 0.72 : 0.14;
 
-      // Strict Indoor FPS Protection: completely skip door & NPC animation state machines when indoors!
+      // Strict Indoor FPS Protection: completely skip door motor animation when indoors!
       if (!isPlayerOutside || dt <= 0) return;
 
       for (let i = 0; i < doors.length; i++) {
         const d = doors[i];
-        d.stateTimer += dt;
-
-        switch (d.state) {
-          case 'IdleClosed': {
-            d.openAmount = 0;
-            d.npc.root.visible = false;
-            d.idleCooldown -= dt;
-            if (d.idleCooldown <= 0) {
-              d.stateTimer = 0;
-              d.npc.progress = 0;
-              d.npc.walkDirX = ((i + Math.floor(_elapsed)) % 2 === 0 ? 1 : -1) as 1 | -1;
-              // Alternate between NPC exiting building onto street & street NPC entering building
-              const doExit = (i + Math.floor(_elapsed * 0.2)) % 2 === 0;
-              if (doExit) {
-                d.state = 'OpeningForExit';
-                d.npc.root.visible = true;
-                d.npc.root.position.set(0, 0, -0.95);
-                d.npc.root.rotation.y = 0;
-                d.npc.umbrella.visible = false;
-              } else {
-                d.state = 'OpeningForEntry';
-                d.npc.root.visible = true;
-                d.npc.root.position.set(d.npc.walkDirX * 2.2, 0, 1.45);
-                d.npc.root.rotation.y = d.npc.walkDirX > 0 ? -Math.PI / 2 : Math.PI / 2;
-                d.npc.umbrella.visible = isRaining;
-              }
-            }
-            break;
-          }
-          case 'OpeningForExit': {
-            d.openAmount = easeInOutCubic(d.stateTimer / openDur);
-            if (d.openAmount >= 0.85 && d.stateTimer >= openDur + 0.15) {
-              d.openAmount = 1;
-              d.state = 'NpcExiting';
-              d.stateTimer = 0;
-              d.npc.progress = 0;
-            }
-            break;
-          }
-          case 'NpcExiting': {
-            d.openAmount = 1;
-            d.npc.progress += dt * 0.42;
-            const p = Math.min(1, d.npc.progress);
-            // Walk straight out through foyer (-0.95 -> +1.35) then turn onto sidewalk
-            if (p < 0.48) {
-              const u = p / 0.48;
-              d.npc.root.position.set(0, 0, -0.95 + u * 2.3);
-              d.npc.root.rotation.y = 0;
-              d.npc.umbrella.visible = isRaining && u > 0.55;
-            } else {
-              const u = (p - 0.48) / 0.52;
-              d.npc.root.position.set(d.npc.walkDirX * u * 2.8, 0, 1.35);
-              d.npc.root.rotation.y = d.npc.walkDirX > 0 ? Math.PI / 2 : -Math.PI / 2;
-              d.npc.umbrella.visible = isRaining;
-            }
-            d.npc.walkPhase += dt * 7.2;
-            const s = Math.sin(d.npc.walkPhase);
-            d.npc.leftLeg.rotation.x = s * 0.48;
-            d.npc.rightLeg.rotation.x = -s * 0.48;
-            d.npc.leftArm.rotation.x = -s * 0.36;
-            d.npc.rightArm.rotation.x = d.npc.umbrella.visible ? -1.1 : s * 0.36;
-            if (p >= 1) {
-              d.npc.root.visible = false;
-              d.state = 'ClosingAfterExit';
-              d.stateTimer = 0;
-            }
-            break;
-          }
-          case 'ClosingAfterExit': {
-            d.openAmount = 1 - easeInOutCubic(d.stateTimer / closeDur);
-            if (d.stateTimer >= closeDur) {
-              d.openAmount = 0;
-              d.state = 'IdleClosed';
-              d.stateTimer = 0;
-              d.idleCooldown = 4.2 + (i % 3) * 1.9;
-            }
-            break;
-          }
-          case 'OpeningForEntry': {
-            d.openAmount = easeInOutCubic(d.stateTimer / openDur);
-            // Street NPC walks from sidewalk up to threshold while door opens
-            const approach = Math.min(1, d.stateTimer / openDur);
-            d.npc.root.position.set(d.npc.walkDirX * (1 - approach) * 1.8, 0, 1.45);
-            d.npc.root.rotation.y = d.npc.walkDirX > 0 ? -Math.PI / 2 : Math.PI / 2;
-            d.npc.umbrella.visible = isRaining;
-            d.npc.walkPhase += dt * 6.8;
-            const s = Math.sin(d.npc.walkPhase);
-            d.npc.leftLeg.rotation.x = s * 0.44;
-            d.npc.rightLeg.rotation.x = -s * 0.44;
-            if (d.openAmount >= 0.85 && d.stateTimer >= openDur) {
-              d.openAmount = 1;
-              d.state = 'NpcEntering';
-              d.stateTimer = 0;
-              d.npc.progress = 0;
-            }
-            break;
-          }
-          case 'NpcEntering': {
-            d.openAmount = 1;
-            d.npc.progress += dt * 0.62;
-            const p = Math.min(1, d.npc.progress);
-            d.npc.root.position.set(0, 0, 1.45 - p * 2.45);
-            d.npc.root.rotation.y = Math.PI;
-            d.npc.umbrella.visible = isRaining && p < 0.42;
-            d.npc.walkPhase += dt * 7.2;
-            const s = Math.sin(d.npc.walkPhase);
-            d.npc.leftLeg.rotation.x = s * 0.46;
-            d.npc.rightLeg.rotation.x = -s * 0.46;
-            d.npc.leftArm.rotation.x = -s * 0.35;
-            d.npc.rightArm.rotation.x = d.npc.umbrella.visible ? -1.1 : s * 0.35;
-            if (p >= 1) {
-              d.npc.root.visible = false;
-              d.state = 'ClosingAfterEntry';
-              d.stateTimer = 0;
-            }
-            break;
-          }
-          case 'ClosingAfterEntry': {
-            d.openAmount = 1 - easeInOutCubic(d.stateTimer / closeDur);
-            if (d.stateTimer >= closeDur) {
-              d.openAmount = 0;
-              d.state = 'IdleClosed';
-              d.stateTimer = 0;
-              d.idleCooldown = 4.5 + (i % 3) * 1.8;
-            }
-            break;
-          }
+        if (d.openTarget) {
+          d.linearProgress = Math.min(1, d.linearProgress + dt / openDur);
+        } else {
+          d.linearProgress = Math.max(0, d.linearProgress - dt / closeDur);
         }
+        d.openAmount = easeInOutCubic(d.linearProgress);
 
         // Apply door kinematic transforms
         if (d.hingePivot) {
@@ -2119,15 +1913,31 @@ export function addSurrounding360Context(
         ctxGroup.add(eaveL);
       });
 
-      // Lush Higashiyama forested hills closing BOTH -X and +X horizons
+      // Lush sculpted Higashiyama forested hills closing BOTH -X and +X horizons (zero party-hat cones!)
+      const kyotoHillMat = createSharedMountainMaterial();
+      const kyotoHillTier = resolveMountainGraphicsTier();
       [
-        [-72, -12, 34, 24],
-        [-64, -36, 30, 20],
-        [72, -12, 34, 24],
-        [66, -34, 30, 20],
-      ].forEach(([hx, hz, hr, hh]) => {
-        const hill = new THREE.Mesh(new THREE.ConeGeometry(hr, hh, 8), hillMat);
-        hill.position.set(hx, hh * 0.42 - 2, hz);
+        { x: -72, z: -12, rx: 36, rz: 28, h: 24, seed: 811 },
+        { x: -64, z: -36, rx: 32, rz: 26, h: 20, seed: 823 },
+        { x: 72, z: -12, rx: 36, rz: 28, h: 24, seed: 839 },
+        { x: 66, z: -34, rx: 32, rz: 26, h: 20, seed: 853 },
+      ].forEach((hb, hIdx) => {
+        const hill = createRidgedPeakMesh(
+          {
+            seed: hb.seed,
+            radiusX: hb.rx,
+            radiusZ: hb.rz,
+            height: hb.h,
+            baseY: -2.0,
+            skirtFloorY: -12,
+            ridgeStretch: 0.32,
+            palette: MAYON_FOOTHILLS,
+            tier: kyotoHillTier,
+          },
+          kyotoHillMat,
+          `kyoto_flank_hill_${hIdx}`
+        );
+        hill.position.set(hb.x, 0, hb.z);
         ctxGroup.add(hill);
       });
 
@@ -2569,51 +2379,96 @@ export function addSurrounding360Context(
       ctxGroup.add(outerBendWall);
     });
 
-    // Natural corner rock outcrops tucked safely outside the L-junction bend
-    const ridgeRockMat = new THREE.MeshStandardMaterial({
-      color: isSnowBiome ? 0x475569 : isTropical ? 0x2f6331 : 0x233834,
-      roughness: 0.92,
-      flatShading: true,
-    });
-    const ridgeSnowMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f7ff,
-      roughness: 0.85,
-      flatShading: true,
-    });
+    // Phase D: Sculpted 360° perimeter mountain ribbons & corner rock outcrops (ZERO low-poly party-hat cones!)
+    const perimeterPalette =
+      sceneryId === 'mt_everest'
+        ? HIMALAYAN_HORN
+        : sceneryId === 'switzerland_hilltop'
+        ? SWISS_ALPINE
+        : sceneryId === 'hilltop_city_lights'
+        ? COASTAL_SIERRA
+        : MAYON_FOOTHILLS;
+    const perimeterSkirtY =
+      sceneryId === 'switzerland_hilltop'
+        ? -40
+        : sceneryId === 'hilltop_city_lights'
+        ? -36
+        : sceneryId === 'mt_everest'
+        ? -28
+        : -16;
+    const perimeterBaseY =
+      sceneryId === 'switzerland_hilltop'
+        ? -14
+        : sceneryId === 'hilltop_city_lights'
+        ? -12
+        : -2.5;
+    const perimeterMat = createSharedMountainMaterial();
+    const perimeterTier = resolveMountainGraphicsTier();
 
-    [-58, 58].forEach((endX) => {
-      const bluff = new THREE.Mesh(new THREE.ConeGeometry(22, 16, 7), ridgeRockMat);
-      bluff.position.set(endX, 5.2, -5.5);
+    // Sculpted corner rock shoulders tucked outside the L-junction bends on both flanks
+    [-60, 60].forEach((endX, bIdx) => {
+      const bluff = createRidgedPeakMesh(
+        {
+          seed: 911 + bIdx * 37,
+          radiusX: 26,
+          radiusZ: 22,
+          height: isSnowBiome ? 24 : 18,
+          baseY: perimeterBaseY,
+          skirtFloorY: perimeterSkirtY,
+          ridgeStretch: 0.34,
+          palette: perimeterPalette,
+          tier: perimeterTier,
+        },
+        perimeterMat,
+        `${sceneryId}_corner_bluff_${bIdx}`
+      );
+      bluff.position.set(endX, 0, -5.5);
       ctxGroup.add(bluff);
-      if (isSnowBiome) {
-        const bluffCap = new THREE.Mesh(new THREE.ConeGeometry(13, 9.5, 7), ridgeSnowMat);
-        bluffCap.position.set(endX, 9.0, -5.5);
-        ctxGroup.add(bluffCap);
-      }
     });
 
-    // 360° Distant Mountain / Ridge Ring wrapping Left, Right, and Rear
-    const ringPeakCount = 16;
-    for (let p = 0; p < ringPeakCount; p++) {
-      const ang = (p / ringPeakCount) * Math.PI * 2;
-      if (Math.sin(ang) < -0.55) continue;
-      const dist = 96 + (p % 3) * 14;
-      const px = Math.cos(ang) * dist;
-      const pz = Math.sin(ang) * dist - 14;
-      const radius = 26 + (p % 3) * 7;
-      const height = isSnowBiome ? 38 + (p % 4) * 9 : 18 + (p % 4) * 5;
-      const peak = new THREE.Mesh(new THREE.ConeGeometry(radius, height, 7), ridgeRockMat);
-      peak.position.set(px, height * 0.42 - 2, pz);
-      ctxGroup.add(peak);
-      if (isSnowBiome) {
-        const cap = new THREE.Mesh(
-          new THREE.ConeGeometry(radius * 0.56, height * 0.52, 7),
-          ridgeSnowMat
-        );
-        cap.position.set(px, height * 0.66 - 2, pz);
-        ctxGroup.add(cap);
-      }
-    }
+    // Continuous 360° sculpted mountain range ribbons wrapping Left flank, Rear horizon (+Z), and Right flank
+    // (Leaves front vista angle [-1.1, +1.1] completely open for the hero scenery panorama!)
+    const leftRearRibbon = createMountainRibbonMesh(
+      {
+        seed: 947,
+        centerX: 0,
+        centerZ: -12,
+        arcRadius: 108,
+        startAngle: -Math.PI - 0.18,
+        endAngle: -1.06,
+        depth: 38,
+        peakCount: 5,
+        minPeakHeight: isSnowBiome ? 34 : 18,
+        maxPeakHeight: isSnowBiome ? 58 : 30,
+        baseY: perimeterBaseY,
+        skirtFloorY: perimeterSkirtY,
+        palette: perimeterPalette,
+        tier: perimeterTier,
+      },
+      perimeterMat,
+      `${sceneryId}_perimeter_range_left_rear`
+    );
+    const rightRearRibbon = createMountainRibbonMesh(
+      {
+        seed: 983,
+        centerX: 0,
+        centerZ: -12,
+        arcRadius: 112,
+        startAngle: 1.06,
+        endAngle: Math.PI + 0.18,
+        depth: 38,
+        peakCount: 5,
+        minPeakHeight: isSnowBiome ? 34 : 18,
+        maxPeakHeight: isSnowBiome ? 56 : 29,
+        baseY: perimeterBaseY,
+        skirtFloorY: perimeterSkirtY,
+        palette: perimeterPalette,
+        tier: perimeterTier,
+      },
+      perimeterMat,
+      `${sceneryId}_perimeter_range_right_rear`
+    );
+    ctxGroup.add(leftRearRibbon, rightRearRibbon);
   }
 
   // =========================================================================
@@ -2937,6 +2792,7 @@ export function addSurrounding360Context(
   batchStaticMeshesByMaterial(ctxGroup);
 
   return {
+    doorways: neighborDoorHandle ? neighborDoorHandle.anchors : [],
     update: (
       isNight: boolean,
       climateState: ClimateState,

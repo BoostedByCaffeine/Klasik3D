@@ -402,8 +402,9 @@ export function createMountainRangeRibbon(
       const wx = centerX + Math.sin(angle) * radialDist;
       const wz = centerZ - Math.cos(angle) * radialDist;
 
+      const isSideSkirt = col === 0 || col === widthSegs;
       let wy: number;
-      if (isFrontSkirt || isBackSkirt) {
+      if (isFrontSkirt || isBackSkirt || isSideSkirt) {
         wy = skirtFloorY;
       } else {
         // Taper ribbon height smoothly near start/end edges so ends blend into horizon
@@ -435,7 +436,7 @@ export function createMountainRangeRibbon(
 
         // Deterministic 3-octave ridged FBM carving natural gullies, spurs & secondary crests
         const fbm = ridgedFbm2D(wx * 0.045 + seed * 0.17, wz * 0.045 - seed * 0.23, seed, crisp);
-        const isEdge = row === 1 || row === totalDepthRows - 2;
+        const isEdge = row === 1 || row === totalDepthRows - 2 || col === 1 || col === widthSegs - 1;
         if (isEdge) {
           wy = baseY;
         } else {
@@ -448,11 +449,7 @@ export function createMountainRangeRibbon(
         }
       }
 
-      // Slight horizontal offset for front/back skirt so vertices don't overlap identically
-      const outX = wx;
-      const outZ = wz;
-      const offsetY = isFrontSkirt || isBackSkirt ? wy : wy;
-      positions.push(outX, offsetY, outZ);
+      positions.push(wx, wy, wz);
       void halfDepth;
     }
   }

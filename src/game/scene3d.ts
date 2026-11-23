@@ -52,6 +52,7 @@ import { SceneryManager, buildMiniSceneryDiorama } from './sceneries/SceneryMana
 import { getSharedGlowSpriteTexture, disposeObject3D } from './sceneries/sceneryTypes';
 import { applyPatronOutfitToRig, buildPatronOutfitPreviewMesh } from './patronOutfits3d';
 import { applySecretNpcLookToRig, createSecretNpcHeartSprite } from './secretNpc3d';
+import { DoorwayTrafficController } from './doorwayTraffic';
 import { OutdoorOverlookController, OutdoorVantageKey } from './OutdoorOverlookController';
 import { ThumbnailStudio } from './ThumbnailStudio';
 import {
@@ -807,6 +808,7 @@ export class KlasikCafeScene3D {
 
   // Pooled Outdoor Living World (Full-Quality Pedestrians & Stylized Traffic) + 2D Static Colliders
   private pedestrianPool: PooledPedestrian[] = [];
+  private doorwayTraffic = new DoorwayTrafficController();
   private lastPedestrianOutfitSyncKey = '';
   private trafficPool: PooledTrafficVehicle[] = [];
   private staticColliders: StaticCollider2D[] = [];
@@ -11398,6 +11400,7 @@ export class KlasikCafeScene3D {
     const nextScenery = newState.activeScenery || 'busy_street';
     const sceneryChanged = prevScenery !== nextScenery;
     if (sceneryChanged && this.sceneryManager) {
+      this.doorwayTraffic.reset(this.pedestrianPool);
       this.sceneryManager.loadScenery(nextScenery);
       this.syncOutdoorBiomeAndLod(true);
       for (let i = 0; i < this.deliveryScooters.length; i++) {
@@ -13977,9 +13980,18 @@ export class KlasikCafeScene3D {
     const sidewalkObstacles = isPlayerOutsideNow
       ? getSidewalkObstacles(isMiataOutsideNow, isUrbanNow, activeSceneryNow)
       : [];
+    if (isPlayerOutsideNow) {
+      this.doorwayTraffic.update(
+        dt,
+        this.sceneryManager.getActiveDoorways(),
+        this.pedestrianPool,
+        isRainActive,
+        true
+      );
+    }
     for (let i = 0; isPlayerOutsideNow && i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
-      if (!p.actor.group.visible) continue;
+      if (!p.actor.group.visible || this.doorwayTraffic.isPedestrianClaimed(i)) continue;
 
       // Outdoor-only scenic photo / ridge gaze pause near the lookout railing
       const isScenicGazer =
