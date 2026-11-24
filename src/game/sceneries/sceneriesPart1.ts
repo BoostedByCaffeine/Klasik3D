@@ -25,6 +25,7 @@ import {
   resolveMountainGraphicsTier,
 } from './mountainRanges';
 import { getHilltopUrbanLandmassTexture } from './mountainTextures';
+import { createMayonOverlookLife } from './mayonOverlookLife';
 import {
   type ArticulatedOutdoorNpcRig,
   type KyotoCyclistInstance,
@@ -805,11 +806,12 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     root.add(mayonRoadOverlay);
   }
 
-  // Phase 5: Outdoor-only animated detail group (culled + skipped indoors for locked cafe FPS)
+  // Phase 5 & 7: Outdoor-only animated detail group (culled + skipped indoors for locked cafe FPS)
   const outdoorOnlyGroup = new THREE.Group();
   outdoorOnlyGroup.name = 'mayon_outdoor_only';
   outdoorOnlyGroup.userData.outdoorOnly = true;
   outdoorOnlyGroup.userData.noMerge = true;
+  outdoorOnlyGroup.userData.skipStaticBatch = true;
   root.add(outdoorOnlyGroup);
 
   // Terraced Bicol emerald rice paddies & glistening irrigation channels in midground
@@ -841,8 +843,8 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   root.add(windowBackdropGroup);
 
   // Replace sharp flanking cones with rolling tropical MAYON_FOOTHILLS ridge ribbons (Mayon Volcano cone stays untouched!)
-  const mayonFoothillMat = createSharedMountainMaterial();
   const mayonTier = resolveMountainGraphicsTier();
+  const mayonFoothillMat = createSharedMountainMaterial('highland', mayonTier);
   const leftFoothills = createMountainRibbonMesh(
     {
       seed: 101,
@@ -1143,130 +1145,10 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
     });
   });
 
-  // Phase A: Full-Detail Articulated Sightseeing Tourists with strict bone-parented backpacks, totes, cameras, hats & umbrellas
-  interface SightseeingTourist {
-    rig: ArticulatedOutdoorNpcRig;
-    baseX: number;
-    baseZ: number;
-    baseRotY: number;
-    phase: number;
-    hasCamera: boolean;
-    strollAmp: number;
-    flashMesh?: THREE.Mesh;
-    umbrellaGroup: THREE.Group;
-  }
-  const tourists: SightseeingTourist[] = [];
-  const cameraBodyMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.38, metalness: 0.4 });
-  const lensMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.18, metalness: 0.7 });
-  const touristUmbStemGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.88, 6);
-  const touristUmbCanopyGeo = new THREE.ConeGeometry(0.56, 0.22, 10);
-  const touristUmbStemMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 });
-  const touristUmbPalette = [0xef4444, 0x2563eb, 0x10b981, 0xf59e0b, 0xec4899];
-  const toteStrapGeo = new THREE.TorusGeometry(0.075, 0.012, 5, 10, Math.PI);
-  const flashMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0,
-  });
-
-  const touristSpecs = [
-    { x: -12.4, z: -18.7, rotY: Math.PI + 0.14, shirt: 0xef4444, pants: 0x334155, hat: 0xfef3c7, pack: 0x1e293b, hasCamera: false, strollAmp: 0.34 },
-    { x: -10.4, z: -19.0, rotY: Math.PI - 0.18, shirt: 0x06b6d4, pants: 0x1e293b, hat: 0xffffff, pack: 0x334155, hasCamera: false, strollAmp: 0.28 },
-    { x: -7.2, z: -19.5, rotY: Math.PI + 0.12, shirt: 0x8b5cf6, pants: 0x334155, hat: 0xfef08a, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.3 },
-    { x: -3.2, z: -20.3, rotY: Math.PI + 0.08, shirt: 0x2563eb, pants: 0x475569, hat: 0xfde047, pack: 0x0f766e, hasCamera: true, strollAmp: 0.14 },
-    { x: -1.7, z: -20.6, rotY: Math.PI - 0.16, shirt: 0xf59e0b, pants: 0x1e3a5f, hat: 0xffffff, pack: 0x92400e, hasCamera: false, strollAmp: 0.24 },
-    { x: 0.9, z: -21.2, rotY: Math.PI + 0.04, shirt: 0xf43f5e, pants: 0x1e293b, hat: 0xfef3c7, pack: 0x0f766e, hasCamera: true, strollAmp: 0.12 },
-    { x: 2.8, z: -21.0, rotY: Math.PI + 0.16, shirt: 0x10b981, pants: 0x292524, hat: 0xd97706, pack: 0x334155, hasCamera: true, strollAmp: 0.12 },
-    { x: 7.2, z: -19.4, rotY: Math.PI - 0.1, shirt: 0xec4899, pants: 0x3b82f6, hat: 0xfef3c7, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.34 },
-    { x: 11.8, z: -18.8, rotY: Math.PI - 0.22, shirt: 0x14b8a6, pants: 0x1e293b, hat: 0xfde68a, pack: 0x475569, hasCamera: false, strollAmp: 0.28 },
-    // Sightseeing pair admiring Cagsawa Ruins belfry & framing Mayon Volcano
-    { x: 6.4, z: -27.2, rotY: Math.PI + 0.28, shirt: 0xf97316, pants: 0x334155, hat: 0xffffff, pack: 0x1e293b, hasCamera: true, strollAmp: 0.16 },
-    { x: 7.9, z: -26.8, rotY: Math.PI - 0.24, shirt: 0x3b82f6, pants: 0x475569, hat: 0xfef3c7, pack: 0x7c2d12, hasCamera: false, strollAmp: 0.26 },
-  ];
-
-  touristSpecs.forEach((ts, idx) => {
-    const rig = createArticulatedOutdoorNpc({
-      shirtHex: ts.shirt,
-      pantsHex: ts.pants,
-      skinHex: 0xe2b192,
-      hairHex: 0x1e1b18,
-      shoeHex: 0xf8fafc,
-      hairStyle: idx % 3 === 0 ? 'bun' : idx % 3 === 1 ? 'short' : 'bob',
-    });
-
-    // Strict bone-parented backpack in rig.slots.backProp (moves rigidly with torso!)
-    const packMat = new THREE.MeshStandardMaterial({ color: ts.pack, roughness: 0.82 });
-    const packBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.115, 0.18, 4, 8), packMat);
-    packBody.scale.set(1.12, 1.0, 0.65);
-    rig.slots.backProp.add(packBody);
-
-    // Strict bone-parented sun hat in rig.slots.headwear
-    const hatMat = new THREE.MeshStandardMaterial({ color: ts.hat, roughness: 0.85 });
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.032, 12), hatMat);
-    brim.position.y = 0.0;
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.16, 0.095, 10), hatMat);
-    crown.position.y = 0.06;
-    rig.slots.headwear.add(brim, crown);
-
-    // Strict bone-parented DSLR camera OR woven pasalubong tote bag in rig.slots.rightHandProp
-    let flashMesh: THREE.Mesh | undefined;
-    if (ts.hasCamera) {
-      const camGroup = new THREE.Group();
-      const cam = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.095, 0.085), cameraBodyMat);
-      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.06, 8), lensMat);
-      lens.rotation.x = Math.PI / 2;
-      lens.position.set(0, 0, 0.065);
-      flashMesh = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 5), flashMat.clone());
-      flashMesh.position.set(0, 0.02, 0.1);
-      camGroup.add(cam, lens, flashMesh);
-      camGroup.position.set(-0.04, 0.02, 0.04);
-      rig.slots.rightHandProp.add(camGroup);
-    } else if (idx % 2 === 0) {
-      // Woven pasalubong tote bag locked firmly inside rightHandProp (zero floating/detaching!)
-      const toteGroup = new THREE.Group();
-      const toteMat = craftMats[idx % craftMats.length];
-      const toteBag = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.22, 0.08), toteMat);
-      toteBag.position.y = -0.17;
-      const toteStrap = new THREE.Mesh(toteStrapGeo, toteMat);
-      toteStrap.position.y = -0.05;
-      toteGroup.add(toteBag, toteStrap);
-      rig.slots.rightHandProp.add(toteGroup);
-    }
-
-    // Strict bone-parented rain umbrella in rig.slots.leftHandProp
-    const umbrellaGroup = new THREE.Group();
-    const umbStem = new THREE.Mesh(touristUmbStemGeo, touristUmbStemMat);
-    umbStem.position.y = 0.44;
-    const umbCanopy = new THREE.Mesh(
-      touristUmbCanopyGeo,
-      new THREE.MeshStandardMaterial({
-        color: touristUmbPalette[idx % touristUmbPalette.length],
-        roughness: 0.58,
-        side: THREE.DoubleSide,
-      })
-    );
-    umbCanopy.position.y = 0.88;
-    umbrellaGroup.add(umbStem, umbCanopy);
-    umbrellaGroup.rotation.x = 1.05; // Compensates for raised forearm pitch so canopy stays upright!
-    umbrellaGroup.visible = false;
-    rig.slots.leftHandProp.add(umbrellaGroup);
-
-    rig.root.position.set(ts.x, 0.02, ts.z);
-    rig.root.rotation.y = ts.rotY;
-    outdoorOnlyGroup.add(rig.root);
-
-    tourists.push({
-      rig,
-      baseX: ts.x,
-      baseZ: ts.z,
-      baseRotY: ts.rotY,
-      phase: idx * 1.4,
-      hasCamera: ts.hasCamera,
-      strollAmp: ts.strollAmp,
-      flashMesh,
-      umbrellaGroup,
-    });
-  });
+  // Phase 7: Living Overlook Crowds, Long-Duration (60-90s) Picnic Families & Rare L-Junction Pull-Over Car
+  // Replaces all frozen tourists & walk-in-place stall customers while preserving the 4 animated Bicol market vendors above.
+  const mayonOverlookLife = createMayonOverlookLife();
+  outdoorOnlyGroup.add(mayonOverlookLife.group);
 
   // Single smooth continuous curved dirt-and-stone trail winding organically from viewing terrace past Cagsawa Ruins
   const trailMat = new THREE.MeshStandardMaterial({
@@ -1622,33 +1504,8 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
         });
       }
 
-      // Articulated sightseeing tourists (all backpacks, totes, cameras, hats & umbrellas strictly bone-parented)
-      for (let i = 0; i < tourists.length; i++) {
-        const t = tourists[i];
-        const stroll = Math.sin(elapsed * 0.48 + t.phase);
-        t.rig.root.position.x = t.baseX + stroll * t.strollAmp;
-        t.rig.root.rotation.y = t.baseRotY + Math.sin(elapsed * 0.55 + t.phase) * 0.22;
-        t.umbrellaGroup.visible = isRain;
-
-        updateArticulatedNpcPose(t.rig, dt, {
-          mode: t.hasCamera ? 'photo_pose' : t.strollAmp > 0.2 ? 'walk' : 'idle_browse',
-          elapsed,
-          phase: t.phase,
-          speed: 0.48,
-          holdingLeftProp: isRain,
-          lookUpPitch: -0.14 + Math.sin(elapsed * 0.6 + t.phase) * 0.05,
-        });
-
-        if (t.flashMesh) {
-          const m = t.flashMesh.material as THREE.MeshBasicMaterial;
-          if (isRain) {
-            m.opacity = 0;
-          } else {
-            const cycle = (elapsed + t.phase * 2.1) % 6.5;
-            m.opacity = cycle < 0.16 ? (1 - cycle / 0.16) * 0.95 : 0;
-          }
-        }
-      }
+      // Phase 7: Living Overlook Crowds, Stall Shoppers, Long-Duration Picnic Families & L-Junction Sightseeing Car
+      mayonOverlookLife.update(dt, elapsed, isRain, isNight, outside);
     },
   };
 }

@@ -329,9 +329,9 @@ export function createEiffelParkLife(
       : EIFFEL_PARK_WALK_BOUNDS.sideAlleyRightX;
     const alleyZ = b.z > -40 ? -32.75 : -47.25;
 
-    let startX = alleyX;
-    let startZ = alleyZ;
-    let startYaw = b.rotY;
+    let startX: number = alleyX;
+    let startZ: number = alleyZ;
+    let startYaw: number = b.rotY;
     let initPhase: BenchPhase = 'walk_to_bench';
     let initTimer = 18 + idx * 4;
 
