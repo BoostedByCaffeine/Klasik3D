@@ -13977,9 +13977,11 @@ export class KlasikCafeScene3D {
     this.syncOutdoorBiomeAndLod(false);
     const isPlayerOutsideNow = this.outdoorOverlook.active || this.gameState.phase === 'title';
     const isUrbanNow = isUrbanStreetScenery(activeSceneryNow);
-    const sidewalkObstacles = isPlayerOutsideNow
-      ? getSidewalkObstacles(isMiataOutsideNow, isUrbanNow, activeSceneryNow)
-      : [];
+    const sidewalkObstacles = getSidewalkObstacles(
+      isPlayerOutsideNow ? isMiataOutsideNow : false,
+      isUrbanNow,
+      activeSceneryNow
+    );
     if (isPlayerOutsideNow) {
       this.doorwayTraffic.update(
         dt,
@@ -13989,9 +13991,9 @@ export class KlasikCafeScene3D {
         true
       );
     }
-    for (let i = 0; isPlayerOutsideNow && i < this.pedestrianPool.length; i++) {
+    for (let i = 0; i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
-      if (!p.actor.group.visible || this.doorwayTraffic.isPedestrianClaimed(i)) continue;
+      if (!p.actor.group.visible || (isPlayerOutsideNow && this.doorwayTraffic.isPedestrianClaimed(i))) continue;
 
       // Outdoor-only scenic photo / ridge gaze pause near the lookout railing
       const isScenicGazer =
@@ -14090,25 +14092,52 @@ export class KlasikCafeScene3D {
       p.actor.group.position.set(pedCorner.x, pedFootY, pedCorner.z);
       p.actor.group.rotation.y = pedYaw;
 
-      const strideMult = p.behavior === 'jogger' ? 6.8 : 5.0;
+      // Brazilian Favela rhythmic TikTok passinho / funk walking groove (alternates 5.6s groove with casual stroll)
+      const grooveCycle = (this.elapsed + i * 3.7) % 10.5;
+      const isFavelaGrooving =
+        isPlayerOutsideNow &&
+        p.behavior === 'favela_tiktok_dance' &&
+        !isRainActive &&
+        grooveCycle < 5.6;
+
+      const strideMult = p.behavior === 'jogger' ? 6.8 : isFavelaGrooving ? 6.0 : 5.0;
       p.walkPhase += p.speed * dt * strideMult;
       const s = Math.sin(p.walkPhase);
       const c = Math.cos(p.walkPhase);
-      const legAmp = p.behavior === 'jogger' ? 0.68 : 0.48;
-      p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * (p.behavior === 'jogger' ? 0.055 : 0.032);
-      p.actor.pelvisGroup.rotation.z = s * 0.03;
-      p.actor.torsoGroup.rotation.y = -s * 0.07;
-      p.actor.leftHipJoint.rotation.x = s * legAmp;
-      p.actor.rightHipJoint.rotation.x = -s * legAmp;
-      p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.04));
-      p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.04));
+      const legAmp = p.behavior === 'jogger' ? 0.68 : isFavelaGrooving ? 0.56 : 0.48;
+      if (isFavelaGrooving) {
+        const beat = this.elapsed * 8.6 + i * 1.9;
+        const halfBeat = Math.sin(beat * 0.5);
+        const fastBeat = Math.sin(beat);
+        const dblBeat = Math.sin(beat * 2.0);
+        // Snappy passinho double-bounce pelvis dip + confident hip-shoulder groove sway
+        p.actor.pelvisGroup.position.y = 0.56 + Math.abs(fastBeat) * 0.068;
+        p.actor.pelvisGroup.rotation.z = halfBeat * 0.14;
+        p.actor.torsoGroup.rotation.y = fastBeat * 0.28;
+        p.actor.leftHipJoint.rotation.x = s * legAmp + Math.max(0, fastBeat) * 0.16;
+        p.actor.rightHipJoint.rotation.x = -s * legAmp + Math.max(0, -fastBeat) * 0.16;
+        p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.14)) + Math.abs(dblBeat) * 0.14;
+        p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.14)) + Math.abs(dblBeat) * 0.14;
+      } else {
+        p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * (p.behavior === 'jogger' ? 0.055 : 0.032);
+        p.actor.pelvisGroup.rotation.z = s * 0.03;
+        p.actor.torsoGroup.rotation.y = -s * 0.07;
+        p.actor.leftHipJoint.rotation.x = s * legAmp;
+        p.actor.rightHipJoint.rotation.x = -s * legAmp;
+        p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.04));
+        p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.04));
+      }
 
-      // Rain umbrella vs neon umbrella vs normal left-arm swing
+      // Rain umbrella vs neon umbrella vs Favela TikTok groove vs normal left-arm swing
       const holdingNeonUmbrella = isPlayerOutsideNow && p.behavior === 'neon_umbrella';
-      p.actor.umbrellaGroup.visible = isRainActive && !holdingNeonUmbrella;
-      if (isRainActive || holdingNeonUmbrella) {
+      p.actor.umbrellaGroup.visible = isPlayerOutsideNow && isRainActive && !holdingNeonUmbrella;
+      if ((isPlayerOutsideNow && isRainActive) || holdingNeonUmbrella) {
         p.actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03;
         p.actor.leftElbowJoint.rotation.x = -0.3;
+      } else if (isFavelaGrooving) {
+        const beat = this.elapsed * 8.6 + i * 1.9;
+        p.actor.leftShoulderJoint.rotation.x = -0.78 + Math.sin(beat) * 0.52;
+        p.actor.leftElbowJoint.rotation.x = -1.12 - Math.max(0, Math.cos(beat)) * 0.45;
       } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
         p.actor.leftShoulderJoint.rotation.x = -s * 0.72;
         p.actor.leftElbowJoint.rotation.x = -1.18;
@@ -14119,7 +14148,12 @@ export class KlasikCafeScene3D {
 
       // Outdoor-only right-arm & head behavior poses
       let targetNeckPitch = 0;
-      if (isPlayerOutsideNow && p.behavior === 'phone_browse') {
+      if (isFavelaGrooving) {
+        const beat = this.elapsed * 8.6 + i * 1.9;
+        p.actor.rightShoulderJoint.rotation.x = -0.82 - Math.sin(beat) * 0.56;
+        p.actor.rightElbowJoint.rotation.x = -1.18 - Math.max(0, -Math.cos(beat)) * 0.48;
+        targetNeckPitch = Math.sin(beat * 2.0) * 0.12;
+      } else if (isPlayerOutsideNow && p.behavior === 'phone_browse') {
         p.actor.rightShoulderJoint.rotation.x = -0.68;
         p.actor.rightElbowJoint.rotation.x = -1.08;
         targetNeckPitch = 0.34;
@@ -14284,8 +14318,8 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // 8c. Advance Pooled Outdoor Street Traffic Vehicles (completely bypassed while indoors for 60 FPS brewing!)
-    if (isPlayerOutsideNow && this.trafficPool.length > 0) {
+    // 8c. Advance Pooled Street Traffic Vehicles (balanced 1-2 window-visible cars indoors, full lanes outdoors)
+    if (this.trafficPool.length > 0) {
       while (this.trafficStepInputsBuffer.length < this.trafficPool.length) {
         this.trafficStepInputsBuffer.push({ x: 0, dir: 1, speed: 0, visible: false });
       }

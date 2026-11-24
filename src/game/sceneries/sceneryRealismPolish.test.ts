@@ -43,8 +43,14 @@ import {
   createSharedMountainMaterial,
 } from './mountainRanges';
 import { CYBER_OPEN_ALLEY_XS, createRecessedCyberAlley } from './cyberpunkAssets';
-import { EIFFEL_PARK_WALK_BOUNDS, createEiffelParkLife } from './eiffelParkLife';
+import {
+  EIFFEL_BOX_GARDEN_OBSTACLES,
+  EIFFEL_PARK_WALK_BOUNDS,
+  createEiffelParkLife,
+  isPointInsideEiffelObstacle,
+} from './eiffelParkLife';
 import { createMayonOverlookLife } from './mayonOverlookLife';
+import { getHilltopUrbanLandmassTexture } from './mountainTextures';
 import { buildHilltopCityLightsScenery, buildMayonVolcanoScenery } from './sceneriesPart1';
 import {
   buildCyberpunkNeonScenery,
@@ -53,6 +59,7 @@ import {
   buildSwitzerlandHilltopScenery,
 } from './sceneriesPart2';
 import { attachExpeditionWinterGear, createArticulatedOutdoorNpc } from '../outdoorNpcRig';
+import { getOutdoorLodBudgets, getSceneryOutdoorBehaviors } from '../outdoorLod';
 
 test('Phase 1: Mountain geometries generate world-scaled UVs and matte MeshStandardMaterial', () => {
   const peakGeo = createRidgedPeakGeometry({
@@ -227,4 +234,158 @@ test('Phase 7: Mayon Volcano living overlook runs all 5 state machines cleanly a
   assert.ok(mayon.outdoorOnlyGroup, 'Mayon scenery must expose outdoorOnlyGroup');
   mayon.update?.(0.05, 2.0, false, 'summer', 'morning', true);
   mayon.update?.(0.05, 2.05, false, 'summer', 'rainy', true);
+});
+
+test('Optimization 1 & 4: Indoor ambient window traffic/passersby active & Favela TikTok groove assigned', () => {
+  const indoorRoadMed = getOutdoorLodBudgets({
+    isPlayerOutside: false,
+    graphicsQuality: 'medium',
+    isSoftwareGl: false,
+    sceneryId: 'busy_street',
+  });
+  assert.equal(indoorRoadMed.maxTraffic, 2, 'Indoor medium traffic scenery shows 2 ambient cars');
+  assert.equal(indoorRoadMed.maxPedestrians, 3, 'Indoor medium scenery shows 3 ambient passersby');
+  assert.equal(indoorRoadMed.showCloudsAndBirds, false, 'Indoor sky flocks stay culled');
+  assert.equal(indoorRoadMed.enableRichNpcBehaviors, false, 'Indoor rich NPC props stay disabled');
+
+  const indoorRoadLow = getOutdoorLodBudgets({
+    isPlayerOutside: false,
+    graphicsQuality: 'low',
+    isSoftwareGl: false,
+    sceneryId: 'eiffel_tower',
+  });
+  assert.equal(indoorRoadLow.maxTraffic, 1, 'Indoor low traffic scenery shows 1 ambient car');
+  assert.equal(indoorRoadLow.maxPedestrians, 2, 'Indoor low scenery shows 2 ambient passersby');
+
+  const indoorFootOnly = getOutdoorLodBudgets({
+    isPlayerOutside: false,
+    graphicsQuality: 'max',
+    isSoftwareGl: false,
+    sceneryId: 'mayon_volcano',
+  });
+  assert.equal(indoorFootOnly.maxTraffic, 0, 'Non-traffic scenery never spawns cars indoors');
+  assert.equal(indoorFootOnly.maxPedestrians, 3, 'Non-traffic scenery still shows ambient passersby indoors');
+
+  const favelaBehaviors = getSceneryOutdoorBehaviors('brazilian_favela');
+  const danceSlots = favelaBehaviors.filter((b) => b === 'favela_tiktok_dance');
+  assert.ok(
+    danceSlots.length >= 1 && danceSlots.length <= 2,
+    `Expected 1-2 favela_tiktok_dance slots, got ${danceSlots.length}`
+  );
+});
+
+test('Optimization 2: Mayon Volcano road & L-junction lanes are tree-free and Cagsawa Ruins has stonework relief', () => {
+  const mayon = buildMayonVolcanoScenery();
+  const ruins = mayon.root.getObjectByName('mayon_cagsawa_belfry_ruins');
+  assert.ok(ruins, 'Cagsawa ruins group must exist');
+  let foundTexturedStoneMesh = false;
+  ruins.traverse((obj) => {
+    if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+      if (obj.material.map && obj.material.bumpMap) {
+        foundTexturedStoneMesh = true;
+      }
+    }
+  });
+  assert.ok(foundTexturedStoneMesh, 'Cagsawa ruins must use weathered volcanic stonework albedo + bump map');
+  assert.ok(ruins.children.length >= 18, 'Cagsawa ruins must include quoins, arch lintels, bell, moss, and rubble');
+
+  // Verify zero surrounding tropical trees spawn inside Mayon's asphalt carriageway or L-junction turns
+  const m = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  let roadBlockingTrees = 0;
+  mayon.root.traverse((obj) => {
+    if (obj instanceof THREE.InstancedMesh && obj.geometry instanceof THREE.CylinderGeometry) {
+      const p = obj.geometry.parameters;
+      if (p.height >= 4.0 && p.radiusBottom <= 0.4) {
+        for (let i = 0; i < obj.count; i++) {
+          obj.getMatrixAt(i, m);
+          pos.setFromMatrixPosition(m);
+          const inMainRoadBand = pos.z >= -18.0 && pos.z <= -6.0 && Math.abs(pos.x) <= 60;
+          const inLJunctionLane =
+            Math.abs(Math.abs(pos.x) - 33.8) <= 5.8 && pos.z >= -18.0 && pos.z <= 23.0;
+          if (inMainRoadBand || inLJunctionLane) {
+            roadBlockingTrees++;
+          }
+        }
+      }
+    }
+  });
+  assert.equal(roadBlockingTrees, 0, 'No surrounding trees may sit inside Mayon road or L-junction lanes');
+});
+
+test('Optimization 3: Hilltop urban landmass uses non-repeating natural ground + localized urban patches', () => {
+  const urbanTex = getHilltopUrbanLandmassTexture();
+  assert.ok(urbanTex, 'Hilltop urban landmass texture must be generated');
+  assert.equal(urbanTex.wrapS, THREE.ClampToEdgeWrapping, 'Hilltop landmass must not tile horizontally');
+  assert.equal(urbanTex.wrapT, THREE.ClampToEdgeWrapping, 'Hilltop landmass must not tile vertically');
+  assert.equal(urbanTex.repeat.x, 1);
+  assert.equal(urbanTex.repeat.y, 1);
+});
+
+test('Optimization 5: Eiffel Park NPCs walk cleanly around all 4 box-garden beds without clipping', () => {
+  assert.equal(EIFFEL_BOX_GARDEN_OBSTACLES.length, 4, 'Must define all 4 raised box-garden obstacles');
+  const parkLife = createEiffelParkLife(EIFFEL_PARK_WALK_BOUNDS.parkY, [
+    { x: -3.2, z: -36.8, rotY: Math.PI / 2 },
+    { x: 4.2, z: -43.0, rotY: -Math.PI / 2 },
+    { x: -3.2, z: -49.5, rotY: Math.PI / 2 },
+    { x: 4.2, z: -49.5, rotY: -Math.PI / 2 },
+  ]);
+
+  // Simulate 120 seconds of full park walking & bench/picnic transitions
+  for (let step = 0; step < 1200; step++) {
+    parkLife.update(0.1, step * 0.1, false, true);
+    const positions = parkLife.getActiveNpcPositions();
+    for (const npc of positions) {
+      assert.equal(
+        isPointInsideEiffelObstacle(npc.x, npc.z, 0.05),
+        false,
+        `NPC ${npc.role} clipped box garden/fountain at (${npc.x.toFixed(2)}, ${npc.z.toFixed(2)}) at t=${(
+          step * 0.1
+        ).toFixed(1)}s`
+      );
+    }
+  }
+});
+
+test('Optimization 6: Switzerland Hilltop cable-car lodges sit proudly atop mountain ridges', () => {
+  const swiss = buildSwitzerlandHilltopScenery();
+  const westLodge = swiss.windowBackdropGroup?.getObjectByName('swiss_cable_station_west');
+  const eastLodge = swiss.windowBackdropGroup?.getObjectByName('swiss_cable_station_east');
+  assert.ok(westLodge && eastLodge, 'Both Swiss cable-car lodges must exist');
+  assert.ok(
+    westLodge.position.y >= 13.5,
+    `West Alpine lodge Y (${westLodge.position.y.toFixed(2)}) must sit proudly above ridge crest`
+  );
+  assert.ok(
+    eastLodge.position.y >= 13.5,
+    `East Alpine lodge Y (${eastLodge.position.y.toFixed(2)}) must sit proudly above ridge crest`
+  );
+});
+
+test('Optimization 7: Mt. Everest summit pyramid uses broad pyramidal Himalayan flanks (no icepick needle)', () => {
+  const everest = buildMtEverestScenery();
+  const summit = everest.windowBackdropGroup?.getObjectByName('everest_summit_pyramid') as
+    | THREE.Mesh
+    | undefined;
+  assert.ok(summit, 'Everest summit pyramid mesh must exist');
+  const pos = summit.geometry.attributes.position as THREE.BufferAttribute;
+  let maxY = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    if (pos.getY(i) > maxY) maxY = pos.getY(i);
+  }
+  // Measure horizontal breadth of vertices in the upper 75%+ summit zone -> broad pyramid, never a needle!
+  let upperRadiusSum = 0;
+  let upperCount = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y >= maxY * 0.72 && y < maxY * 0.99) {
+      upperRadiusSum += Math.hypot(pos.getX(i), pos.getZ(i));
+      upperCount++;
+    }
+  }
+  const avgUpperRadius = upperCount > 0 ? upperRadiusSum / upperCount : 0;
+  assert.ok(
+    avgUpperRadius >= 9.0,
+    `Everest summit upper zone avg radius (${avgUpperRadius.toFixed(2)}) must be broad pyramidal (>=9.0), not an icepick`
+  );
 });

@@ -24,7 +24,10 @@ import {
   createSharedMountainMaterial,
   resolveMountainGraphicsTier,
 } from './mountainRanges';
-import { getHilltopUrbanLandmassTexture } from './mountainTextures';
+import {
+  getCagsawaRuinStoneTexture,
+  getHilltopUrbanLandmassTexture,
+} from './mountainTextures';
 import { createMayonOverlookLife } from './mayonOverlookLife';
 import {
   type ArticulatedOutdoorNpcRig,
@@ -949,56 +952,114 @@ export function buildMayonVolcanoScenery(): SceneryRuntimeInstance {
   mayonGroup.userData.alwaysVisibleBackdrop = true;
   windowBackdropGroup.add(mayonGroup);
 
-  // Weathered volcanic-stone Cagsawa Church Belfry Ruin (upgraded with cornices & stone wall)
+  // Weathered volcanic-stone Cagsawa Church Belfry Ruin (textured ashlar stonework, basalt quoins, bell lintels & moss)
   const belfry = new THREE.Group();
+  belfry.name = 'mayon_cagsawa_belfry_ruins';
   belfry.position.set(8.6, 0, -33.5);
   belfry.rotation.y = -0.22;
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x7c7265, roughness: 0.95 });
-  const darkStoneMat = new THREE.MeshStandardMaterial({ color: 0x4b443c, roughness: 0.96 });
-  const mossMat = new THREE.MeshStandardMaterial({ color: 0x3f6b32, roughness: 0.9 });
+  const cagsawaTex = getCagsawaRuinStoneTexture();
+  const stoneMat = new THREE.MeshStandardMaterial({
+    color: cagsawaTex.map ? 0xe6dfd3 : 0x7c7265,
+    map: cagsawaTex.map,
+    bumpMap: cagsawaTex.bumpMap,
+    bumpScale: cagsawaTex.bumpScale,
+    roughness: 0.96,
+    metalness: 0.0,
+  });
+  const darkStoneMat = new THREE.MeshStandardMaterial({
+    color: 0x4b443c,
+    bumpMap: cagsawaTex.bumpMap,
+    bumpScale: 0.45,
+    roughness: 0.96,
+  });
+  const mossMat = new THREE.MeshStandardMaterial({ color: 0x3b682e, roughness: 0.92 });
+  const bellBronzeMat = new THREE.MeshStandardMaterial({ color: 0x5c4b2c, roughness: 0.58, metalness: 0.55 });
 
+  // Grounded stone plinth & tiered weathered masonry tower
+  const basePlinth = new THREE.Mesh(new THREE.BoxGeometry(3.86, 0.55, 3.86), darkStoneMat);
+  basePlinth.position.y = 0.27;
+  belfry.add(basePlinth);
   const tier1 = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.6, 3.4), stoneMat);
   tier1.position.y = 1.8;
   belfry.add(tier1);
-  const cornice1 = new THREE.Mesh(new THREE.BoxGeometry(3.75, 0.24, 3.75), darkStoneMat);
+  const cornice1 = new THREE.Mesh(new THREE.BoxGeometry(3.82, 0.26, 3.82), darkStoneMat);
   cornice1.position.y = 3.62;
   belfry.add(cornice1);
   const tier2 = new THREE.Mesh(new THREE.BoxGeometry(2.7, 2.7, 2.7), stoneMat);
   tier2.position.y = 4.95;
   belfry.add(tier2);
-  const cornice2 = new THREE.Mesh(new THREE.BoxGeometry(2.98, 0.2, 2.98), darkStoneMat);
+  const cornice2 = new THREE.Mesh(new THREE.BoxGeometry(3.04, 0.22, 3.04), darkStoneMat);
   cornice2.position.y = 6.32;
   belfry.add(cornice2);
   const tier3 = new THREE.Mesh(new THREE.BoxGeometry(2.05, 1.9, 2.05), stoneMat);
   tier3.position.y = 7.25;
   belfry.add(tier3);
+  const cornice3 = new THREE.Mesh(new THREE.BoxGeometry(2.26, 0.16, 2.26), darkStoneMat);
+  cornice3.position.y = 8.18;
+  belfry.add(cornice3);
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(0.95, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
     stoneMat
   );
-  dome.position.y = 8.15;
+  dome.position.y = 8.2;
   belfry.add(dome);
   const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.95, 0.14), darkStoneMat);
-  crossV.position.y = 9.45;
+  crossV.position.y = 9.48;
   belfry.add(crossV);
   const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.14, 0.14), darkStoneMat);
-  crossH.position.y = 9.6;
+  crossH.position.y = 9.63;
   belfry.add(crossH);
 
-  // Crossed bell-tower arched voids
-  const archVoidA = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.35, 2.85), darkStoneMat);
+  // Corner basalt pilasters / quoins giving crisp architectural relief along tower edges
+  [
+    [-1.66, -1.66],
+    [1.66, -1.66],
+    [-1.66, 1.66],
+    [1.66, 1.66],
+  ].forEach(([qx, qz]) => {
+    const quoin = new THREE.Mesh(new THREE.BoxGeometry(0.24, 3.35, 0.24), darkStoneMat);
+    quoin.position.set(qx, 1.92, qz);
+    belfry.add(quoin);
+  });
+
+  // Crossed bell-tower arched voids with carved stone lintels & hanging weathered bronze bell
+  const archVoidA = new THREE.Mesh(new THREE.BoxGeometry(0.88, 1.38, 2.86), darkStoneMat);
   archVoidA.position.y = 5.05;
   belfry.add(archVoidA);
-  const archVoidB = new THREE.Mesh(new THREE.BoxGeometry(2.85, 1.35, 0.85), darkStoneMat);
+  const archVoidB = new THREE.Mesh(new THREE.BoxGeometry(2.86, 1.38, 0.88), darkStoneMat);
   archVoidB.position.y = 5.05;
   belfry.add(archVoidB);
+  const lintelFront = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.18, 2.94), stoneMat);
+  lintelFront.position.y = 5.82;
+  belfry.add(lintelFront);
+  const bellBody = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 0.44, 8), bellBronzeMat);
+  bellBody.position.set(0, 5.18, 0);
+  belfry.add(bellBody);
 
-  const ruinWall = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.45, 0.58), stoneMat);
+  // Crumbling stepped adobe facade wall + creeping moss strips + fallen volcanic stone rubble
+  const ruinWall = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.45, 0.62), stoneMat);
   ruinWall.position.set(-3.5, 0.72, 0.4);
   belfry.add(ruinWall);
-  const mossPatch = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.22, 2.8), mossMat);
+  const ruinWallStep = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.68, 0.58), stoneMat);
+  ruinWallStep.position.set(-2.2, 1.68, 0.4);
+  belfry.add(ruinWallStep);
+  const mossPatch = new THREE.Mesh(new THREE.BoxGeometry(2.85, 0.22, 2.85), mossMat);
   mossPatch.position.y = 3.74;
   belfry.add(mossPatch);
+  const wallMoss = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.16, 0.68), mossMat);
+  wallMoss.position.set(-3.45, 1.48, 0.4);
+  belfry.add(wallMoss);
+  [
+    [-5.8, 0.24, 0.65, 0.62, 0.48, 0.52],
+    [-4.9, 0.18, 1.28, 0.46, 0.34, 0.42],
+    [2.3, 0.22, 1.55, 0.54, 0.42, 0.48],
+    [1.7, 0.16, 2.1, 0.38, 0.3, 0.36],
+  ].forEach(([rx, ry, rz, rw, rh, rd], rIdx) => {
+    const rubble = new THREE.Mesh(new THREE.BoxGeometry(rw, rh, rd), rIdx % 2 === 0 ? stoneMat : darkStoneMat);
+    rubble.position.set(rx, ry, rz);
+    rubble.rotation.y = rIdx * 0.65;
+    belfry.add(rubble);
+  });
   root.add(belfry);
 
   // Low stone park plaza border & paved souvenir viewing plaza (z = -17.6..-24)

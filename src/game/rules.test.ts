@@ -1912,7 +1912,8 @@ test('Bugfix Phase C & Polish Phase 1: Scenic Overlook hidden on 4 street-corrid
   });
   assert.equal(inside.showCloudsAndBirds, false);
   assert.equal(inside.enableRichNpcBehaviors, false);
-  assert.ok(inside.maxTraffic <= 2 && inside.maxPedestrians <= 2);
+  assert.ok(inside.maxTraffic >= 1 && inside.maxTraffic <= 2);
+  assert.ok(inside.maxPedestrians >= 2 && inside.maxPedestrians <= 3);
   assert.equal(outside.showCloudsAndBirds, true);
   assert.equal(outside.enableRichNpcBehaviors, true);
   assert.equal(outside.maxTraffic, 6);
@@ -1920,6 +1921,7 @@ test('Bugfix Phase C & Polish Phase 1: Scenic Overlook hidden on 4 street-corrid
   assert.ok(getSceneryOutdoorBehaviors('busy_street').includes('dog_walker'));
   assert.ok(getSceneryOutdoorBehaviors('mt_everest').includes('everest_hiker'));
   assert.ok(getSceneryOutdoorBehaviors('japanese_tranquility').includes('lantern_stroll'));
+  assert.ok(getSceneryOutdoorBehaviors('brazilian_favela').includes('favela_tiktok_dance'));
 
   // 7. Two-lane traffic spacing prevents overlapping even when vehicles start close together
   const vehicles = [
@@ -1955,8 +1957,8 @@ test('Polish Phases 4 & 5: Cyberpunk Neon runs sleek ground cyber-cars alongside
     sceneryId: 'cyberpunk_neon',
   });
   assert.ok(cyberOutside.maxTraffic > 0);
-  assert.equal(cyberInside.maxTraffic, 0);
-  assert.equal(cyberInside.maxPedestrians, 0);
+  assert.ok(cyberInside.maxTraffic >= 1 && cyberInside.maxTraffic <= 2);
+  assert.ok(cyberInside.maxPedestrians >= 2 && cyberInside.maxPedestrians <= 3);
   // Busy Street, Eiffel Tower, and Brazilian Favela all support ground street traffic
   assert.equal(hasStreetTrafficScenery('busy_street'), true);
   assert.equal(hasStreetTrafficScenery('eiffel_tower'), true);
@@ -2053,7 +2055,7 @@ test('Scenery Detail Overhaul Phases 2–5: smooth 90-degree corner turns, 9 uni
 });
 
 test('Detail Polishing & Performance Optimization Plan (Phases 1–5): indoor hard-cull, T/L road network, Eiffel downhill slope, Cyberpunk aerial 90-degree banking turns, Anton cap-safe hair, and Favela grounding', () => {
-  // 1. Phase 1: Every scenery hard-culls traffic, pedestrians, sky/birds & rich NPC props while indoors
+  // 1. Phase 1 + Balanced Indoor Ambient Life: light 1-2 cars & 2-3 passersby indoors while culling sky/birds & rich props
   for (const item of SCENERY_CATALOG) {
     const indoor = getOutdoorLodBudgets({
       isPlayerOutside: false,
@@ -2061,8 +2063,13 @@ test('Detail Polishing & Performance Optimization Plan (Phases 1–5): indoor ha
       isSoftwareGl: false,
       sceneryId: item.id,
     });
-    assert.equal(indoor.maxTraffic, 0, `${item.id} must cull indoor traffic to 0`);
-    assert.equal(indoor.maxPedestrians, 0, `${item.id} must cull indoor pedestrians to 0`);
+    const expectsTraffic = hasStreetTrafficScenery(item.id);
+    assert.equal(
+      indoor.maxTraffic,
+      expectsTraffic ? 2 : 0,
+      `${item.id} indoor traffic must match balanced window budget`
+    );
+    assert.equal(indoor.maxPedestrians, 3, `${item.id} indoor passersby must match balanced window budget`);
     assert.equal(indoor.showCloudsAndBirds, false);
     assert.equal(indoor.enableRichNpcBehaviors, false);
   }

@@ -25,7 +25,11 @@ export interface RidgedPeakOptions {
   height: number;
   baseY: number;
   skirtFloorY: number; // e.g. -24 (Hilltop), -30 (Switzerland)
-  ridgeStretch?: number; // 0.15 - 0.45 elongates apex into a natural crest
+  ridgeStretch?: number; // 0.15 - 0.55 elongates apex into a natural crest
+  /** Slope falloff exponent (lower ~0.85-0.96 = broad pyramidal Himalayan flanks; higher ~1.38 = concave spire). */
+  slopeExponent?: number;
+  /** Minimum inner crest ring fraction (0.12-0.18 builds faceted ridge summits instead of sharp icepick tips). */
+  crestBroadness?: number;
   palette: MountainBiomePalette;
   tier: GraphicsTier;
 }
@@ -271,6 +275,8 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
     baseY,
     skirtFloorY,
     ridgeStretch = 0.28,
+    slopeExponent,
+    crestBroadness = 0.06,
     palette,
     tier,
   } = options;
@@ -279,6 +285,8 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
   const ringSegs = tier === 'low' ? 4 : 6;
   const totalRings = ringSegs + 2; // ring 0 = crest ridge, rings 1..ringSegs = slopes, last ring = vertical skirt bottom
   const crisp = palette.crispRidges ?? true;
+  const effectiveSlopePow = slopeExponent ?? (crisp ? 1.38 : 1.12);
+  const isBroadPyramid = effectiveSlopePow <= 1.05;
 
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -299,10 +307,11 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
   const asymX = (hash2D(seed, 23, 13) - 0.5) * 0.16;
   const asymZ = (hash2D(seed, 37, 19) - 0.5) * 0.16;
 
-  // Generate rings from inner crest (r = 0.08) out to rim (r = 1.0) plus skirt drop
+  // Generate rings from inner crest (r = crestBroadness) out to rim (r = 1.0) plus skirt drop
   for (let ring = 0; ring < totalRings; ring++) {
     const isSkirtBottom = ring === totalRings - 1;
-    const ringT = isSkirtBottom ? 1.0 : Math.max(0.06, ring / ringSegs);
+    const rawFrac = ring / ringSegs;
+    const ringT = isSkirtBottom ? 1.0 : crestBroadness + rawFrac * (1.0 - crestBroadness);
 
     for (let seg = 0; seg <= radialSegs; seg++) {
       const segFrac = seg / radialSegs;
@@ -310,7 +319,7 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
       const ca = Math.cos(theta);
       const sa = Math.sin(theta);
 
-      // Elongate inner crest along crestYaw so apex is an asymmetric ridge, never a needle point
+      // Elongate inner crest along crestYaw so apex is an asymmetric faceted ridge, never a needle spike
       const stretchFactor = 1.0 + (1.0 - ringT) * ridgeStretch;
       const localX = ca * radiusX * ringT * stretchFactor + asymX * radiusX * (1 - ringT);
       const localZ = sa * radiusZ * ringT + asymZ * radiusZ * (1 - ringT);
@@ -324,17 +333,24 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
         wy = skirtFloorY;
       } else {
         // Multi-directional arête spurs (3-4 radiating ridges) + 3-octave ridged FBM
-        const spurCount = crisp ? 3 : 2;
+        const spurCount = isBroadPyramid ? 4 : crisp ? 3 : 2;
         const spurWave = 0.5 + 0.5 * Math.cos(theta * spurCount + seed * 1.37);
         const fbm = ridgedFbm2D(wx * 0.055 + seed * 0.31, wz * 0.055 - seed * 0.27, seed, crisp);
-        const profilePow = crisp ? 1.38 : 1.12;
-        const falloff = Math.pow(Math.max(0, 1.0 - ringT), profilePow);
-        const crestMod = 0.86 + 0.14 * Math.cos(theta * 2 + seed);
+        const falloff = Math.pow(Math.max(0, 1.0 - rawFrac), effectiveSlopePow);
+        // Secondary shoulder shelf bump around mid-slope for authentic Himalayan step-ridges
+        const shoulderShelf = isBroadPyramid
+          ? Math.sin(rawFrac * Math.PI) * 0.14 * (0.5 + 0.5 * Math.cos(theta * 3 - seed * 0.8))
+          : 0;
+        const crestMod = isBroadPyramid
+          ? 0.90 + 0.10 * Math.cos(theta * 2 + seed)
+          : 0.86 + 0.14 * Math.cos(theta * 2 + seed);
         const elev =
           height *
-          falloff *
+          Math.min(1.02, falloff + shoulderShelf * (1 - rawFrac * 0.5)) *
           crestMod *
-          (0.68 + 0.24 * fbm + 0.16 * spurWave * (1 - ringT * 0.4));
+          (isBroadPyramid
+            ? 0.68 + 0.26 * fbm + 0.18 * spurWave * (1 - rawFrac * 0.35)
+            : 0.68 + 0.24 * fbm + 0.16 * spurWave * (1 - ringT * 0.4));
         wy = ring === ringSegs ? baseY : baseY + elev;
       }
 
@@ -345,14 +361,15 @@ export function createRidgedPeakGeometry(options: RidgedPeakOptions): THREE.Buff
     }
   }
 
-  // Summit cap center vertex (raised slightly above inner crest ring so top is closed cleanly)
+  // Summit cap center vertex (blunt faceted crown on broad Himalayan pyramids, never a sharp icepick tip!)
   const apexIndex = positions.length / 3;
+  const apexHeightMult = isBroadPyramid ? 0.965 : 1.01;
   positions.push(
     asymX * radiusX * cosYaw - asymZ * radiusZ * sinYaw,
-    baseY + height * 1.01,
+    baseY + height * apexHeightMult,
     asymX * radiusX * sinYaw + asymZ * radiusZ * cosYaw
   );
-  uvs.push(peakCircumferenceRepeats * 0.5, (height * 1.01 * 0.92) / peakTileSpan);
+  uvs.push(peakCircumferenceRepeats * 0.5, (height * apexHeightMult * 0.92) / peakTileSpan);
 
   const stride = radialSegs + 1;
   // Cap inner crest ring to apex (CCW outward)

@@ -2232,6 +2232,21 @@ export function addSurrounding360Context(
       ctxGroup.add(cg);
     });
 
+    // Corridor safety filter: NEVER spawn trees inside the active asphalt road, sidewalks,
+    // or L-junction turning lanes (fixes trees colliding with cars & passersby in Mayon Volcano!).
+    const isBlockedByRoadCorridor = (tx: number, tz: number): boolean => {
+      // Near & far sidewalks + full east-west road carriageway (z in [-18.2, -5.8])
+      if (sceneryId === 'mayon_volcano') {
+        if (tz >= -18.4 && tz <= -5.6) return true;
+        // West & East L-junction turning lanes around x = ±33.8 extending toward +Z
+        if (Math.abs(Math.abs(tx) - 33.8) <= 6.2 && tz >= -18.4 && tz <= 24.0) return true;
+      } else {
+        // Keep near sidewalk & main walkway corridor clear on all nature sceneries
+        if (Math.abs(tx) < 28.0 && tz >= -17.8 && tz <= -6.2) return true;
+      }
+      return false;
+    };
+
     // Instanced Multi-Tier Biome Trees Wrapping Left, Right, Rear, and Closing Both Road Ends (-X / +X)
     const treeCoords: Array<[number, number, number]> = [];
     for (let i = 0; i < 46; i++) {
@@ -2241,27 +2256,46 @@ export function addSurrounding360Context(
       const tx = Math.cos(ang) * radius;
       const tz = Math.sin(ang) * radius + 1.5;
       if (Math.abs(tx) < 13 && tz > -9 && tz < 7) continue;
+      if (isBlockedByRoadCorridor(tx, tz)) continue;
       treeCoords.push([tx, tz, 0.85 + (i % 4) * 0.22]);
     }
-    // Dense tree groves explicitly closing the -X and +X road ends (x = ±36..±54, z = -16..-8)
-    // Phase 4 Title Screen Miata Clearance: foreground flanking alpine pines shifted laterally outward
-    // from ±6.5 to ±10.4 (>= 3.9u outward, well clear of the parked 1990 Mazda Miata MX-5 windshield!)
-    [
-      [-14.2, -7.2, 1.05],
-      [-10.4, -7.4, 0.94],
-      [10.4, -7.4, 0.96],
-      [14.2, -7.2, 1.1],
-      [-22.0, -9.5, 1.18],
-      [22.0, -9.5, 1.16],
-      [-36.0, -11.5, 1.35],
-      [-40.5, -13.5, 1.45],
-      [-45.0, -10.5, 1.4],
-      [-48.0, -14.0, 1.5],
-      [36.0, -11.5, 1.35],
-      [40.5, -13.5, 1.45],
-      [45.0, -10.5, 1.4],
-      [48.0, -14.0, 1.5],
-    ].forEach((pt) => treeCoords.push(pt as [number, number, number]));
+    // Flanking biome trees outside the road corridor (shifted clear of road & L-junction lanes on Mayon!)
+    const flankTreeSpots: Array<[number, number, number]> = isTropical
+      ? [
+          [-16.5, -20.8, 1.08],
+          [16.5, -20.8, 1.06],
+          [-23.5, -20.2, 1.18],
+          [23.5, -20.2, 1.16],
+          [-43.5, -20.5, 1.35],
+          [-47.5, -23.5, 1.45],
+          [43.5, -20.5, 1.35],
+          [47.5, -23.5, 1.45],
+          [-14.2, -3.4, 1.02],
+          [14.2, -3.4, 1.02],
+          [-22.5, -2.2, 1.14],
+          [22.5, -2.2, 1.14],
+        ]
+      : [
+          [-14.2, -7.2, 1.05],
+          [-10.4, -7.4, 0.94],
+          [10.4, -7.4, 0.96],
+          [14.2, -7.2, 1.1],
+          [-22.0, -9.5, 1.18],
+          [22.0, -9.5, 1.16],
+          [-36.0, -11.5, 1.35],
+          [-40.5, -13.5, 1.45],
+          [-45.0, -10.5, 1.4],
+          [-48.0, -14.0, 1.5],
+          [36.0, -11.5, 1.35],
+          [40.5, -13.5, 1.45],
+          [45.0, -10.5, 1.4],
+          [48.0, -14.0, 1.5],
+        ];
+    flankTreeSpots.forEach((pt) => {
+      if (!isBlockedByRoadCorridor(pt[0], pt[1])) {
+        treeCoords.push(pt);
+      }
+    });
 
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c3d26, roughness: 0.9 });
     const foliageHex =

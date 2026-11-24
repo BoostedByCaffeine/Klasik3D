@@ -221,106 +221,307 @@ export function getMountainSurfaceTextures(
   return entry;
 }
 
+let cagsawaStoneTextureCache: MountainSurfaceTextureSet | null = null;
+
 /**
- * Cached 512x512 matte aerial urban-landmass CanvasTexture for Hilltop City Lights
- * (dark asphalt road grid, charcoal city blocks, dark highland foliage patches, subtle distant street micro-specks).
+ * Cached non-repeating 1024x512 matte aerial valley floor CanvasTexture for Hilltop City Lights:
+ * vast dark natural highland open ground across the valley & flanks with organically feathered
+ * urbanization patches concentrated beneath the downtown building clusters and viaduct corridor
+ * (zero repeating tile grid!).
  */
 export function getHilltopUrbanLandmassTexture(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   if (hilltopLandmassTextureCache) return hilltopLandmassTextureCache;
 
-  const size = 512;
+  const width = 1024;
+  const height = 512;
   const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
+
   if (ctx) {
-    // Deep matte dark soil / asphalt base (zero bright sheen)
-    ctx.fillStyle = '#121720';
-    ctx.fillRect(0, 0, size, size);
+    // 1. Vast dark natural highland open-ground base (deep matte earth / nocturnal scrubland)
+    const baseGrad = ctx.createLinearGradient(0, 0, 0, height);
+    baseGrad.addColorStop(0, '#0f1817'); // Near shoreline/far valley mist
+    baseGrad.addColorStop(0.55, '#121c18'); // Central natural basin
+    baseGrad.addColorStop(1, '#162119'); // Foreground ridge foothill skirt
+    ctx.fillStyle = baseGrad;
+    ctx.fillRect(0, 0, width, height);
 
-    // Organic dark highland foliage & ridge soil patches
-    for (let i = 0; i < 42; i++) {
-      const px = hash2Periodic(i, 3, 64, 701) * size;
-      const py = hash2Periodic(i, 11, 64, 709) * size;
-      const rx = 22 + hash2Periodic(i, 19, 64, 719) * 58;
-      const ry = 18 + hash2Periodic(i, 23, 64, 727) * 48;
-      ctx.fillStyle = i % 3 === 0 ? 'rgba(20, 35, 29, 0.52)' : 'rgba(24, 30, 40, 0.45)';
-      ctx.beginPath();
-      ctx.ellipse(px, py, rx, ry, (i * 0.41) % Math.PI, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Matte charcoal city blocks
-    const blockStep = 32;
-    for (let gx = 0; gx < size; gx += blockStep) {
-      for (let gy = 0; gy < size; gy += blockStep) {
-        const h = hash2Periodic(gx / blockStep, gy / blockStep, 16, 811);
-        if (h < 0.22) {
-          // Dark park/foliage pocket
-          ctx.fillStyle = '#16241e';
-        } else if (h < 0.65) {
-          ctx.fillStyle = '#1a202b';
-        } else {
-          ctx.fillStyle = '#1f2633';
-        }
-        ctx.fillRect(gx + 3, gy + 3, blockStep - 6, blockStep - 6);
-
-        // Subtle roof/courtyard sub-partition inside urban block
-        if (h > 0.32) {
-          ctx.fillStyle = '#141923';
-          ctx.fillRect(gx + 7, gy + 7, blockStep - 16, blockStep - 16);
-        }
+    // 2. Organic large-scale dark highland terrain patches (hillsides, wooded ravines, open meadow clearings)
+    for (let i = 0; i < 95; i++) {
+      const px = hash2Periodic(i, 3, 128, 701) * width;
+      const py = hash2Periodic(i, 11, 128, 709) * height;
+      const rx = 38 + hash2Periodic(i, 19, 128, 719) * 115;
+      const ry = 22 + hash2Periodic(i, 23, 128, 727) * 68;
+      const tone = i % 3;
+      const grad = ctx.createRadialGradient(px, py, rx * 0.08, px, py, rx);
+      if (tone === 0) {
+        grad.addColorStop(0, 'rgba(22, 39, 28, 0.56)');
+        grad.addColorStop(1, 'rgba(22, 39, 28, 0)');
+      } else if (tone === 1) {
+        grad.addColorStop(0, 'rgba(27, 34, 29, 0.48)');
+        grad.addColorStop(1, 'rgba(27, 34, 29, 0)');
+      } else {
+        grad.addColorStop(0, 'rgba(13, 21, 22, 0.52)');
+        grad.addColorStop(1, 'rgba(13, 21, 22, 0)');
       }
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate((i * 0.53) % Math.PI);
+      ctx.scale(1, ry / rx);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, rx, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
-    // Dark matte asphalt road grid (primary + secondary avenues)
-    ctx.strokeStyle = '#0d1118';
-    ctx.lineWidth = 4;
-    for (let g = 0; g <= size; g += blockStep) {
-      ctx.beginPath();
-      ctx.moveTo(g, 0);
-      ctx.lineTo(g, size);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, g);
-      ctx.lineTo(size, g);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = '#262b36';
-    ctx.lineWidth = 1;
-    for (let g = 0; g <= size; g += blockStep * 2) {
-      ctx.beginPath();
-      ctx.moveTo(g + 0.5, 0);
-      ctx.lineTo(g + 0.5, size);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, g + 0.5);
-      ctx.lineTo(size, g + 0.5);
-      ctx.stroke();
-    }
+    // 3. Localized Urbanization Patches concentrated organically under the actual downtown & midtown clusters
+    // Plane spans x in [-190, +190], z in [-124 (top v=0) .. +4 (bottom v=1)]
+    // Downtown towers cluster around x in [-68..+68], z in [-108..-42] => u in [0.32..0.68], v in [0.12..0.64]
+    const urbanDistricts: Array<{ cx: number; cy: number; rx: number; ry: number; density: number }> = [
+      { cx: 0.50 * width, cy: 0.34 * height, rx: 145, ry: 76, density: 1.0 }, // Central downtown core
+      { cx: 0.37 * width, cy: 0.42 * height, rx: 112, ry: 62, density: 0.85 }, // West commercial district
+      { cx: 0.63 * width, cy: 0.40 * height, rx: 118, ry: 64, density: 0.88 }, // East skyline cluster
+      { cx: 0.45 * width, cy: 0.56 * height, rx: 95, ry: 44, density: 0.72 }, // Near viaduct neighborhood
+      { cx: 0.57 * width, cy: 0.58 * height, rx: 88, ry: 42, density: 0.68 }, // East viaduct sub-patch
+      { cx: 0.28 * width, cy: 0.48 * height, rx: 72, ry: 38, density: 0.50 }, // Outer west foothill hamlet
+      { cx: 0.72 * width, cy: 0.49 * height, rx: 76, ry: 38, density: 0.52 }, // Outer east foothill hamlet
+    ];
 
-    // Subtle distant warm amber & soft sodium street micro-specks along avenues
-    for (let i = 0; i < 160; i++) {
-      const roadLine = Math.floor(hash2Periodic(i, 7, 128, 907) * 16) * blockStep;
-      const along = hash2Periodic(i, 13, 128, 919) * size;
-      const horiz = i % 2 === 0;
-      const sx = horiz ? along : roadLine + (hash2Periodic(i, 29, 128, 937) - 0.5) * 4;
-      const sy = horiz ? roadLine + (hash2Periodic(i, 31, 128, 941) - 0.5) * 4 : along;
-      const warm = hash2Periodic(i, 37, 128, 947) > 0.25;
-      ctx.fillStyle = warm ? 'rgba(255, 198, 118, 0.55)' : 'rgba(176, 214, 255, 0.36)';
-      ctx.fillRect(sx, sy, 1.6, 1.6);
-    }
+    urbanDistricts.forEach((d, dIdx) => {
+      // Soft feathered matte asphalt/concrete urban ground footprint
+      const padGrad = ctx.createRadialGradient(d.cx, d.cy, d.rx * 0.14, d.cx, d.cy, d.rx);
+      padGrad.addColorStop(0, `rgba(27, 32, 42, ${0.86 * d.density})`);
+      padGrad.addColorStop(0.58, `rgba(22, 27, 35, ${0.62 * d.density})`);
+      padGrad.addColorStop(1, 'rgba(18, 24, 28, 0)');
+      ctx.save();
+      ctx.translate(d.cx, d.cy);
+      ctx.scale(1, d.ry / d.rx);
+      ctx.fillStyle = padGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, d.rx, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Organic micro-blocks & dark rooftop pads strictly inside each urban patch (no uniform full-valley tiling!)
+      const parcelCount = Math.round(28 * d.density);
+      for (let p = 0; p < parcelCount; p++) {
+        const ang = hash2Periodic(dIdx * 31 + p, 5, 128, 811) * Math.PI * 2;
+        const rad = Math.sqrt(hash2Periodic(dIdx * 31 + p, 13, 128, 823)) * 0.82;
+        const bx = d.cx + Math.cos(ang) * d.rx * rad;
+        const by = d.cy + Math.sin(ang) * d.ry * rad;
+        const bw = 5 + hash2Periodic(p, dIdx + 17, 64, 839) * 12;
+        const bh = 4 + hash2Periodic(p, dIdx + 29, 64, 853) * 9;
+        ctx.fillStyle = p % 3 === 0 ? 'rgba(34, 41, 54, 0.72)' : 'rgba(24, 30, 40, 0.78)';
+        ctx.fillRect(bx - bw * 0.5, by - bh * 0.5, bw, bh);
+      }
+
+      // Subtle warm sodium-vapor micro-light clusters nested inside each urbanized pocket
+      const lightCount = Math.round(42 * d.density);
+      for (let l = 0; l < lightCount; l++) {
+        const ang = hash2Periodic(dIdx * 47 + l, 9, 128, 907) * Math.PI * 2;
+        const rad = Math.sqrt(hash2Periodic(dIdx * 47 + l, 21, 128, 919)) * 0.86;
+        const lx = d.cx + Math.cos(ang) * d.rx * rad;
+        const ly = d.cy + Math.sin(ang) * d.ry * rad;
+        const warm = hash2Periodic(l, dIdx + 37, 128, 947) > 0.22;
+        ctx.fillStyle = warm ? 'rgba(255, 200, 120, 0.62)' : 'rgba(182, 218, 255, 0.34)';
+        ctx.fillRect(lx, ly, 1.8, 1.8);
+      }
+    });
+
+    // 4. Organic curving arterial road ribbons linking the urban patches (instead of a rigid tiled grid)
+    ctx.lineCap = 'round';
+    const drawArterial = (
+      pts: Array<[number, number]>,
+      roadWidth: number,
+      glowAlpha: number
+    ) => {
+      ctx.strokeStyle = 'rgba(13, 16, 22, 0.85)';
+      ctx.lineWidth = roadWidth;
+      ctx.beginPath();
+      pts.forEach(([x, y], idx) => (idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(245, 190, 102, ${glowAlpha})`;
+      ctx.lineWidth = Math.max(1.0, roadWidth * 0.22);
+      ctx.beginPath();
+      pts.forEach(([x, y], idx) => (idx === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+      ctx.stroke();
+    };
+
+    drawArterial(
+      [
+        [0.18 * width, 0.56 * height],
+        [0.34 * width, 0.48 * height],
+        [0.50 * width, 0.44 * height],
+        [0.66 * width, 0.46 * height],
+        [0.82 * width, 0.54 * height],
+      ],
+      6.5,
+      0.24
+    );
+    drawArterial(
+      [
+        [0.26 * width, 0.63 * height],
+        [0.44 * width, 0.58 * height],
+        [0.58 * width, 0.57 * height],
+        [0.74 * width, 0.62 * height],
+      ],
+      4.5,
+      0.19
+    );
+    drawArterial(
+      [
+        [0.41 * width, 0.22 * height],
+        [0.43 * width, 0.40 * height],
+        [0.46 * width, 0.60 * height],
+      ],
+      4.0,
+      0.16
+    );
+    drawArterial(
+      [
+        [0.58 * width, 0.21 * height],
+        [0.56 * width, 0.41 * height],
+        [0.54 * width, 0.60 * height],
+      ],
+      4.0,
+      0.16
+    );
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(9, 7);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.repeat.set(1, 1);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   tex.needsUpdate = true;
 
   hilltopLandmassTextureCache = tex;
   return tex;
+}
+
+/**
+ * Cached 512x512 procedural weathered volcanic-adobe stone & moss texture set
+ * for the historic Cagsawa Church Belfry Ruins in Mayon Volcano View.
+ */
+export function getCagsawaRuinStoneTexture(): MountainSurfaceTextureSet {
+  const bumpScale = 0.85;
+  if (typeof document === 'undefined') {
+    return { map: null, bumpMap: null, bumpScale, dispose: () => {} };
+  }
+  if (cagsawaStoneTextureCache) return cagsawaStoneTextureCache;
+
+  const size = 512;
+  const albedoCanvas = document.createElement('canvas');
+  albedoCanvas.width = size;
+  albedoCanvas.height = size;
+  const aCtx = albedoCanvas.getContext('2d');
+
+  const bumpCanvas = document.createElement('canvas');
+  bumpCanvas.width = size;
+  bumpCanvas.height = size;
+  const bCtx = bumpCanvas.getContext('2d');
+
+  if (aCtx && bCtx) {
+    // Warm weathered volcanic-tuff mortar base
+    aCtx.fillStyle = '#524b42';
+    aCtx.fillRect(0, 0, size, size);
+    bCtx.fillStyle = '#383838';
+    bCtx.fillRect(0, 0, size, size);
+
+    // Irregular hand-hewn adobe / volcanic stone courses
+    const rows = 14;
+    const rowH = size / rows;
+    for (let r = 0; r < rows; r++) {
+      const y = r * rowH;
+      const offset = (r % 2) * 28 + hash2Periodic(r, 3, 32, 601) * 14;
+      const cols = 7;
+      const colW = size / cols;
+      for (let c = -1; c <= cols; c++) {
+        const h = hash2Periodic(c + 2, r, 32, 617);
+        const h2 = hash2Periodic(c + 5, r + 7, 32, 631);
+        const x = c * colW + offset;
+        const w = colW - 4.5;
+        const bh = rowH - 4.2;
+
+        // Individual volcanic stone hue variation (warm grey-ochre, weathered tan, dark basalt stone)
+        const baseL = 104 + Math.floor(h * 38);
+        const rCol = clampByte(baseL + 10);
+        const gCol = clampByte(baseL + 2);
+        const bCol = clampByte(baseL - 10);
+        aCtx.fillStyle = `rgb(${rCol},${gCol},${bCol})`;
+        aCtx.fillRect(x + 2, y + 2, w, bh);
+
+        // Chipped bevel & weathered inner pitting
+        aCtx.fillStyle = `rgba(38, 33, 28, ${0.14 + h2 * 0.22})`;
+        aCtx.fillRect(x + 2, y + 2 + bh * 0.65, w, bh * 0.35);
+
+        // Raised stone block height in bump map
+        const bVal = clampByte(150 + h * 75);
+        bCtx.fillStyle = `rgb(${bVal},${bVal},${bVal})`;
+        bCtx.fillRect(x + 2.5, y + 2.5, w - 1, bh - 1);
+      }
+    }
+
+    // Tropical rain-water vertical weathering streaks
+    for (let s = 0; s < 44; s++) {
+      const sx = hash2Periodic(s, 11, 64, 653) * size;
+      const sy = hash2Periodic(s, 19, 64, 661) * size * 0.65;
+      const sh = 65 + hash2Periodic(s, 29, 64, 673) * 185;
+      const sw = 2.5 + hash2Periodic(s, 31, 64, 683) * 7.5;
+      const streakGrad = aCtx.createLinearGradient(sx, sy, sx, sy + sh);
+      streakGrad.addColorStop(0, 'rgba(34, 31, 26, 0.36)');
+      streakGrad.addColorStop(1, 'rgba(34, 31, 26, 0)');
+      aCtx.fillStyle = streakGrad;
+      aCtx.fillRect(sx, sy, sw, sh);
+    }
+
+    // Creeping tropical moss & lichen blotches along joints and lower stone courses
+    for (let m = 0; m < 38; m++) {
+      const mx = hash2Periodic(m, 7, 64, 701) * size;
+      const my = (0.35 + hash2Periodic(m, 13, 64, 709) * 0.65) * size;
+      const mr = 8 + hash2Periodic(m, 23, 64, 719) * 24;
+      const mossGrad = aCtx.createRadialGradient(mx, my, mr * 0.1, mx, my, mr);
+      mossGrad.addColorStop(0, 'rgba(63, 104, 48, 0.56)');
+      mossGrad.addColorStop(0.6, 'rgba(54, 86, 42, 0.28)');
+      mossGrad.addColorStop(1, 'rgba(54, 86, 42, 0)');
+      aCtx.fillStyle = mossGrad;
+      aCtx.beginPath();
+      aCtx.arc(mx, my, mr, 0, Math.PI * 2);
+      aCtx.fill();
+    }
+  }
+
+  const map = new THREE.CanvasTexture(albedoCanvas);
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(1.5, 1.5);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
+  map.needsUpdate = true;
+
+  const bumpMap = new THREE.CanvasTexture(bumpCanvas);
+  bumpMap.wrapS = THREE.RepeatWrapping;
+  bumpMap.wrapT = THREE.RepeatWrapping;
+  bumpMap.repeat.set(1.5, 1.5);
+  bumpMap.anisotropy = 4;
+  bumpMap.needsUpdate = true;
+
+  const entry: MountainSurfaceTextureSet = {
+    map,
+    bumpMap,
+    bumpScale,
+    dispose: () => {
+      if (cagsawaStoneTextureCache === entry) cagsawaStoneTextureCache = null;
+      map.dispose();
+      bumpMap.dispose();
+    },
+  };
+  cagsawaStoneTextureCache = entry;
+  return entry;
 }

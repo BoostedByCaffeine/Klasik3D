@@ -24,6 +24,90 @@ export const EIFFEL_PARK_WALK_BOUNDS = {
   fountainClearRadius: 3.4,
 } as const;
 
+export interface EiffelBoxGardenObstacle {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+/**
+ * Exact 2D footprints of the 4 raised Champ de Mars topiary box-garden beds
+ * (`hx in {-5.35, +6.35}`, width 3.4; `hz in {-35.5, -49.2}`, depth 9.8).
+ */
+export const EIFFEL_BOX_GARDEN_OBSTACLES: readonly EiffelBoxGardenObstacle[] = [
+  { minX: -7.05, maxX: -3.65, minZ: -40.4, maxZ: -30.6 }, // Left-front parterre
+  { minX: 4.65, maxX: 8.05, minZ: -40.4, maxZ: -30.6 }, // Right-front parterre
+  { minX: -7.05, maxX: -3.65, minZ: -54.1, maxZ: -44.3 }, // Left-back parterre
+  { minX: 4.65, maxX: 8.05, minZ: -54.1, maxZ: -44.3 }, // Right-back parterre
+] as const;
+
+export const EIFFEL_BOX_GARDEN_PAD = 0.65;
+
+/**
+ * Pure predicate returning true if a point `(x, z)` encroaches on any raised box garden
+ * (expanded by `pad`) or the central stone fountain basin.
+ */
+export function isPointInsideEiffelObstacle(
+  x: number,
+  z: number,
+  pad: number = EIFFEL_BOX_GARDEN_PAD
+): boolean {
+  for (let i = 0; i < EIFFEL_BOX_GARDEN_OBSTACLES.length; i++) {
+    const b = EIFFEL_BOX_GARDEN_OBSTACLES[i];
+    if (x >= b.minX - pad && x <= b.maxX + pad && z >= b.minZ - pad && z <= b.maxZ + pad) {
+      return true;
+    }
+  }
+  const fdx = x - EIFFEL_PARK_WALK_BOUNDS.fountainCenterX;
+  const fdz = z - EIFFEL_PARK_WALK_BOUNDS.fountainCenterZ;
+  return fdx * fdx + fdz * fdz < EIFFEL_PARK_WALK_BOUNDS.fountainClearRadius * EIFFEL_PARK_WALK_BOUNDS.fountainClearRadius;
+}
+
+/**
+ * Pushes any `(x, z)` out of the 4 padded box gardens and central fountain onto the nearest
+ * clear gravel avenue edge so zero park NPCs can ever walk through a raised garden bed.
+ */
+export function resolveEiffelObstacleClearance(
+  x: number,
+  z: number,
+  pad: number = EIFFEL_BOX_GARDEN_PAD
+): { x: number; z: number } {
+  let rx = x;
+  let rz = z;
+  for (let i = 0; i < EIFFEL_BOX_GARDEN_OBSTACLES.length; i++) {
+    const b = EIFFEL_BOX_GARDEN_OBSTACLES[i];
+    const minX = b.minX - pad;
+    const maxX = b.maxX + pad;
+    const minZ = b.minZ - pad;
+    const maxZ = b.maxZ + pad;
+    if (rx > minX && rx < maxX && rz > minZ && rz < maxZ) {
+      const dl = rx - minX;
+      const dr = maxX - rx;
+      const dt = rz - minZ;
+      const db = maxZ - rz;
+      const m = Math.min(dl, dr, dt, db);
+      if (m === dl) rx = minX;
+      else if (m === dr) rx = maxX;
+      else if (m === dt) rz = minZ;
+      else rz = maxZ;
+    }
+  }
+  const fdx = rx - EIFFEL_PARK_WALK_BOUNDS.fountainCenterX;
+  const fdz = rz - EIFFEL_PARK_WALK_BOUNDS.fountainCenterZ;
+  const fDist = Math.hypot(fdx, fdz);
+  const fMin = EIFFEL_PARK_WALK_BOUNDS.fountainClearRadius + 0.04;
+  if (fDist < fMin) {
+    if (fDist < 0.001) {
+      rx = EIFFEL_PARK_WALK_BOUNDS.fountainCenterX + fMin;
+    } else {
+      rx = EIFFEL_PARK_WALK_BOUNDS.fountainCenterX + (fdx / fDist) * fMin;
+      rz = EIFFEL_PARK_WALK_BOUNDS.fountainCenterZ + (fdz / fDist) * fMin;
+    }
+  }
+  return { x: rx, z: rz };
+}
+
 export interface EiffelBenchSpot {
   x: number;
   z: number;
@@ -40,10 +124,78 @@ export interface EiffelParkLifeController {
     picnicPairCount: number;
     activePicnics: number;
   };
+  /** Returns active world positions of all moving park NPCs for box-garden collision assertions. */
+  getActiveNpcPositions: () => Array<{ x: number; z: number; role: string }>;
 }
 
 function clampParkX(x: number): number {
   return Math.max(EIFFEL_PARK_WALK_BOUNDS.minX, Math.min(EIFFEL_PARK_WALK_BOUNDS.maxX, x));
+}
+
+/**
+ * Builds an obstacle-free orthogonal gravel walkway path between a side alley and any
+ * bench or open grass picnic spot without ever cutting across the 4 raised box gardens.
+ */
+function buildClearGravelPath(
+  fromX: number,
+  fromZ: number,
+  toX: number,
+  toZ: number
+): Waypoint[] {
+  const outerLaneX = (fromX + toX) * 0.5 < 0.5 ? -8.6 : 9.5;
+  const centerLaneX = (fromX + toX) * 0.5 < 0.5 ? -1.75 : 2.75;
+  // Choose nearest open cross-avenue (front -28.0, mid -42.35, or rear -56.4)
+  const crossZs = [-28.0, -42.35, -56.4];
+  const midZ = (fromZ + toZ) * 0.5;
+  let crossZ = crossZs[0];
+  let bestD = Math.abs(midZ - crossZ);
+  for (let i = 1; i < crossZs.length; i++) {
+    const d = Math.abs(midZ - crossZs[i]);
+    if (d < bestD) {
+      bestD = d;
+      crossZ = crossZs[i];
+    }
+  }
+
+  const pts: Waypoint[] = [];
+  const push = (x: number, z: number) => {
+    const prev = pts[pts.length - 1];
+    if (!prev || Math.hypot(prev.x - x, prev.z - z) > 0.25) {
+      pts.push({ x, z });
+    }
+  };
+
+  const fromOuter = Math.abs(fromX) > 7.4;
+  const toOuter = Math.abs(toX) > 7.4;
+
+  if (fromOuter && !toOuter) {
+    // Side alley -> outer gravel promenade -> open cross-avenue -> central esplanade -> destination
+    push(outerLaneX, fromZ);
+    push(outerLaneX, crossZ);
+    if (Math.abs(toX) < 3.6) {
+      push(centerLaneX, crossZ);
+      push(centerLaneX, toZ);
+    } else {
+      push(toX, crossZ);
+    }
+    push(toX, toZ);
+  } else if (!fromOuter && toOuter) {
+    // Destination -> central esplanade -> open cross-avenue -> outer gravel promenade -> side alley
+    if (Math.abs(fromX) < 3.6) {
+      push(centerLaneX, fromZ);
+      push(centerLaneX, crossZ);
+    } else {
+      push(fromX, crossZ);
+    }
+    push(outerLaneX, crossZ);
+    push(outerLaneX, toZ);
+    push(toX, toZ);
+  } else {
+    push(outerLaneX, fromZ);
+    push(outerLaneX, toZ);
+    push(toX, toZ);
+  }
+  return pts;
 }
 
 function createParisUmbrella(colorHex: number): THREE.Group {
@@ -93,6 +245,8 @@ interface ParkBenchSitter {
   timer: number;
   exitAlleyX: number;
   exitAlleyZ: number;
+  path: Waypoint[];
+  pathIdx: number;
   x: number;
   z: number;
   yaw: number;
@@ -115,6 +269,8 @@ interface ParkPicnicPair {
   spotZ: number;
   alleyX: number;
   alleyZ: number;
+  path: Waypoint[];
+  pathIdx: number;
   x: number;
   z: number;
   yaw: number;
@@ -152,7 +308,7 @@ export function createEiffelParkLife(
     umbHex: number;
     waypoints: Waypoint[];
   }> = [
-    // Couple 1: emerges left alley (-32.75) -> strolls central esplanade south around fountain -> exits right alley (-47.25)
+    // Couple 1: left alley -> outer left lane -> front cross-avenue (-28.0) -> central esplanade around fountain -> rear cross-avenue (-56.4) -> right alley
     {
       isCouple: true,
       speed: 1.08,
@@ -161,16 +317,21 @@ export function createEiffelParkLife(
       umbHex: 0x9f1239,
       waypoints: [
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyLeftX, z: -32.75 },
-        { x: -8.4, z: -32.75 },
-        { x: -1.3, z: -28.5 },
-        { x: -1.3, z: -38.4 },
-        { x: -3.2, z: -42.5 },
-        { x: -1.3, z: -47.25 },
-        { x: 9.2, z: -47.25 },
+        { x: -8.6, z: -32.75 },
+        { x: -8.6, z: -28.0 },
+        { x: -1.65, z: -28.0 },
+        { x: -1.65, z: -38.6 },
+        { x: -2.98, z: -39.8 },
+        { x: -3.02, z: -42.5 },
+        { x: -2.98, z: -45.2 },
+        { x: -1.65, z: -46.4 },
+        { x: -1.65, z: -56.4 },
+        { x: 9.5, z: -56.4 },
+        { x: 9.5, z: -47.25 },
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyRightX, z: -47.25 },
       ],
     },
-    // Couple 2: emerges right alley (-32.75) -> promenades north/east around fountain -> exits left alley (-47.25)
+    // Couple 2: right alley -> outer right lane -> front cross-avenue (-28.0) -> east central esplanade around fountain -> rear cross-avenue (-56.4) -> left alley
     {
       isCouple: true,
       speed: 1.02,
@@ -179,16 +340,21 @@ export function createEiffelParkLife(
       umbHex: 0x1d4ed8,
       waypoints: [
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyRightX, z: -32.75 },
-        { x: 9.2, z: -32.75 },
-        { x: 2.2, z: -28.5 },
-        { x: 2.2, z: -38.4 },
-        { x: 4.1, z: -42.5 },
-        { x: 2.2, z: -47.25 },
-        { x: -8.4, z: -47.25 },
+        { x: 9.5, z: -32.75 },
+        { x: 9.5, z: -28.0 },
+        { x: 2.55, z: -28.0 },
+        { x: 2.55, z: -38.6 },
+        { x: 3.98, z: -39.8 },
+        { x: 4.02, z: -42.5 },
+        { x: 3.98, z: -45.2 },
+        { x: 2.55, z: -46.4 },
+        { x: 2.55, z: -56.4 },
+        { x: -8.6, z: -56.4 },
+        { x: -8.6, z: -47.25 },
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyLeftX, z: -47.25 },
       ],
     },
-    // Solo Walker 1: left gravel side promenade loop between alleys
+    // Solo Walker 1: outer left gravel lane -> front cross-avenue (-28.0) -> outer right lane -> right alley
     {
       isCouple: false,
       speed: 1.24,
@@ -197,15 +363,15 @@ export function createEiffelParkLife(
       umbHex: 0x0f766e,
       waypoints: [
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyLeftX, z: -47.25 },
-        { x: -8.5, z: -47.25 },
-        { x: -8.5, z: -28.5 },
-        { x: 0.5, z: -28.5 },
-        { x: 9.4, z: -28.5 },
-        { x: 9.4, z: -32.75 },
+        { x: -8.6, z: -47.25 },
+        { x: -8.6, z: -28.0 },
+        { x: 0.5, z: -28.0 },
+        { x: 9.5, z: -28.0 },
+        { x: 9.5, z: -32.75 },
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyRightX, z: -32.75 },
       ],
     },
-    // Solo Walker 2: far south gravel loop returning through opposite alley
+    // Solo Walker 2: outer right gravel lane -> rear cross-avenue (-56.4) -> outer left lane -> left alley
     {
       isCouple: false,
       speed: 1.18,
@@ -214,15 +380,15 @@ export function createEiffelParkLife(
       umbHex: 0xd97706,
       waypoints: [
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyRightX, z: -47.25 },
-        { x: 9.4, z: -47.25 },
-        { x: 9.4, z: -56.0 },
-        { x: 0.5, z: -56.0 },
-        { x: -8.5, z: -56.0 },
-        { x: -8.5, z: -32.75 },
+        { x: 9.5, z: -47.25 },
+        { x: 9.5, z: -56.4 },
+        { x: 0.5, z: -56.4 },
+        { x: -8.6, z: -56.4 },
+        { x: -8.6, z: -32.75 },
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyLeftX, z: -32.75 },
       ],
     },
-    // Solo Walker 3: diagonal cross-promenade strollers
+    // Solo Walker 3: middle gravel cross-avenue loop cleanly between front & back box gardens around central fountain
     {
       isCouple: false,
       speed: 1.12,
@@ -231,10 +397,16 @@ export function createEiffelParkLife(
       umbHex: 0x7c3aed,
       waypoints: [
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyLeftX, z: -32.75 },
-        { x: -8.4, z: -32.75 },
-        { x: -8.4, z: -56.0 },
-        { x: 9.4, z: -56.0 },
-        { x: 9.4, z: -47.25 },
+        { x: -8.6, z: -32.75 },
+        { x: -8.6, z: -42.35 },
+        { x: -3.02, z: -42.35 },
+        { x: -2.95, z: -39.6 },
+        { x: -1.75, z: -38.6 },
+        { x: 2.75, z: -38.6 },
+        { x: 3.98, z: -39.6 },
+        { x: 4.05, z: -42.35 },
+        { x: 9.5, z: -42.35 },
+        { x: 9.5, z: -47.25 },
         { x: EIFFEL_PARK_WALK_BOUNDS.sideAlleyRightX, z: -47.25 },
       ],
     },
@@ -347,6 +519,13 @@ export function createEiffelParkLife(
     rig.root.position.set(startX, groundY, startZ);
     rig.root.rotation.y = startYaw;
 
+    const initApproachX = b.x + Math.sin(b.rotY) * 0.48;
+    const initApproachZ = b.z + Math.cos(b.rotY) * 0.48;
+    const initPath =
+      initPhase === 'walk_to_bench'
+        ? buildClearGravelPath(startX, startZ, initApproachX, initApproachZ)
+        : [];
+
     benchSitters.push({
       rig,
       umbrella: umb,
@@ -356,6 +535,8 @@ export function createEiffelParkLife(
       timer: initTimer,
       exitAlleyX: alleyX,
       exitAlleyZ: alleyZ,
+      path: initPath,
+      pathIdx: 0,
       x: startX,
       z: startZ,
       yaw: startYaw,
@@ -469,6 +650,8 @@ export function createEiffelParkLife(
       spotZ: ps.spotZ,
       alleyX: ps.alleyX,
       alleyZ: ps.alleyZ,
+      path: [],
+      pathIdx: 0,
       x: ps.startActive ? ps.spotX : ps.alleyX,
       z: ps.startActive ? ps.spotZ : ps.alleyZ,
       yaw: 0,
@@ -527,11 +710,32 @@ export function createEiffelParkLife(
       picnicPairCount: picnicPairs.length,
       activePicnics: picnicPairs.filter((p) => p.phase === 'picnic_sit').length,
     }),
+    getActiveNpcPositions: () => {
+      const res: Array<{ x: number; z: number; role: string }> = [];
+      for (let i = 0; i < strollers.length; i++) {
+        res.push({ x: strollers[i].group.position.x, z: strollers[i].group.position.z, role: 'stroller' });
+      }
+      for (let i = 0; i < benchSitters.length; i++) {
+        if (benchSitters[i].rig.root.visible) {
+          res.push({
+            x: benchSitters[i].rig.root.position.x,
+            z: benchSitters[i].rig.root.position.z,
+            role: 'bench_sitter',
+          });
+        }
+      }
+      for (let i = 0; i < picnicPairs.length; i++) {
+        if (picnicPairs[i].rigA.root.visible) {
+          res.push({ x: picnicPairs[i].x, z: picnicPairs[i].z, role: 'picnic_pair' });
+        }
+      }
+      return res;
+    },
     update: (dt, elapsed, isRain, isPlayerOutside) => {
       if (!isPlayerOutside) return;
       const safeDt = Math.min(0.1, Math.max(0, dt));
 
-      // 1. Update alleyway walkers & strolling couples
+      // 1. Update alleyway walkers & strolling couples (strictly clear of all 4 box gardens & fountain)
       for (let i = 0; i < strollers.length; i++) {
         const st = strollers[i];
         const target = st.waypoints[st.wpIndex];
@@ -543,7 +747,6 @@ export function createEiffelParkLife(
           st.x = target.x;
           st.z = target.z;
           st.wpIndex = (st.wpIndex + 1) % st.waypoints.length;
-          // If wrapping from exit alley back to start alley, teleport smoothly inside hidden side alley
           if (st.wpIndex === 0) {
             st.x = st.waypoints[0].x;
             st.z = st.waypoints[0].z;
@@ -554,12 +757,14 @@ export function createEiffelParkLife(
           st.z += (dz / dist) * step;
           st.yaw = Math.atan2(dx, dz);
         }
-        // Only clamp interior park waypoints; side-alley entry/exit points sit inside alley gaps
         const inAlleyGap =
           Math.abs(st.z - EIFFEL_PARK_WALK_BOUNDS.sideAlleyZs[0]) < 1.1 ||
           Math.abs(st.z - EIFFEL_PARK_WALK_BOUNDS.sideAlleyZs[1]) < 1.1;
-        const finalX = inAlleyGap ? st.x : clampParkX(st.x);
-        st.group.position.set(finalX, groundY, st.z);
+        const clampedX = inAlleyGap ? st.x : clampParkX(st.x);
+        const cleared = resolveEiffelObstacleClearance(clampedX, st.z);
+        st.x = cleared.x;
+        st.z = cleared.z;
+        st.group.position.set(cleared.x, groundY, cleared.z);
         st.group.rotation.y = st.yaw;
 
         for (let u = 0; u < st.umbrellas.length; u++) {
@@ -576,7 +781,7 @@ export function createEiffelParkLife(
         }
       }
 
-      // 2. Update periodic bench sitters
+      // 2. Update periodic bench sitters along obstacle-free gravel avenues
       for (let i = 0; i < benchSitters.length; i++) {
         const bs = benchSitters[i];
         bs.umbrella.visible = isRain;
@@ -584,7 +789,6 @@ export function createEiffelParkLife(
           bs.timer -= safeDt;
           bs.rig.root.visible = false;
           if (bs.timer <= 0 && benches.length > 0) {
-            // Pick first unoccupied bench
             let chosen = -1;
             for (let k = 0; k < benches.length; k++) {
               const cand = (bs.benchIdx + 1 + k) % benches.length;
@@ -604,7 +808,11 @@ export function createEiffelParkLife(
               bs.exitAlleyZ = b.z > -40 ? -32.75 : -47.25;
               bs.x = bs.exitAlleyX;
               bs.z = bs.exitAlleyZ;
-              bs.sitDuration = 16 + ((i * 5 + Math.floor(elapsed)) % 13); // 16-28s
+              const approachX = b.x + Math.sin(b.rotY) * 0.48;
+              const approachZ = b.z + Math.cos(b.rotY) * 0.48;
+              bs.path = buildClearGravelPath(bs.x, bs.z, approachX, approachZ);
+              bs.pathIdx = 0;
+              bs.sitDuration = 16 + ((i * 5 + Math.floor(elapsed)) % 13);
               bs.phase = 'walk_to_bench';
               bs.rig.root.visible = true;
             } else {
@@ -616,21 +824,32 @@ export function createEiffelParkLife(
 
         const bench = benches[bs.benchIdx];
         if (bs.phase === 'walk_to_bench') {
-          const approachX = bench.x + Math.sin(bench.rotY) * 0.42;
-          const approachZ = bench.z + Math.cos(bench.rotY) * 0.42;
-          const dx = approachX - bs.x;
-          const dz = approachZ - bs.z;
+          const wp =
+            bs.path[bs.pathIdx] ?? {
+              x: bench.x + Math.sin(bench.rotY) * 0.48,
+              z: bench.z + Math.cos(bench.rotY) * 0.48,
+            };
+          const dx = wp.x - bs.x;
+          const dz = wp.z - bs.z;
           const dist = Math.hypot(dx, dz);
           const step = bs.speed * safeDt;
           if (dist <= step + 0.1) {
-            bs.x = bench.x;
-            bs.z = bench.z;
-            bs.yaw = bench.rotY;
-            bs.timer = bs.sitDuration;
-            bs.phase = 'sitting';
+            bs.x = wp.x;
+            bs.z = wp.z;
+            bs.pathIdx++;
+            if (bs.pathIdx >= bs.path.length) {
+              bs.x = bench.x;
+              bs.z = bench.z;
+              bs.yaw = bench.rotY;
+              bs.timer = bs.sitDuration;
+              bs.phase = 'sitting';
+            }
           } else {
             bs.x += (dx / dist) * step;
             bs.z += (dz / dist) * step;
+            const cleared = resolveEiffelObstacleClearance(bs.x, bs.z);
+            bs.x = cleared.x;
+            bs.z = cleared.z;
             bs.yaw = Math.atan2(dx, dz);
           }
           bs.rig.root.position.set(bs.x, groundY, bs.z);
@@ -656,20 +875,31 @@ export function createEiffelParkLife(
             benchOccupied[bs.benchIdx] = false;
             bs.x = bench.x + Math.sin(bench.rotY) * 0.55;
             bs.z = bench.z + Math.cos(bench.rotY) * 0.55;
+            bs.path = buildClearGravelPath(bs.x, bs.z, bs.exitAlleyX, bs.exitAlleyZ);
+            bs.pathIdx = 0;
             bs.phase = 'walk_exit';
           }
         } else if (bs.phase === 'walk_exit') {
-          const dx = bs.exitAlleyX - bs.x;
-          const dz = bs.exitAlleyZ - bs.z;
+          const wp = bs.path[bs.pathIdx] ?? { x: bs.exitAlleyX, z: bs.exitAlleyZ };
+          const dx = wp.x - bs.x;
+          const dz = wp.z - bs.z;
           const dist = Math.hypot(dx, dz);
           const step = bs.speed * safeDt;
-          if (dist <= step + 0.15) {
-            bs.phase = 'cooldown';
-            bs.timer = 6 + i * 3;
-            bs.rig.root.visible = false;
+          if (dist <= step + 0.14) {
+            bs.x = wp.x;
+            bs.z = wp.z;
+            bs.pathIdx++;
+            if (bs.pathIdx >= bs.path.length) {
+              bs.phase = 'cooldown';
+              bs.timer = 6 + i * 3;
+              bs.rig.root.visible = false;
+            }
           } else {
             bs.x += (dx / dist) * step;
             bs.z += (dz / dist) * step;
+            const cleared = resolveEiffelObstacleClearance(bs.x, bs.z);
+            bs.x = cleared.x;
+            bs.z = cleared.z;
             bs.yaw = Math.atan2(dx, dz);
             bs.rig.root.position.set(bs.x, groundY, bs.z);
             bs.rig.root.rotation.y = bs.yaw;
@@ -684,7 +914,7 @@ export function createEiffelParkLife(
         }
       }
 
-      // 3. Update timed grass picnic pairs (45-75s duration -> stand up, pack blanket/basket, walk out alley)
+      // 3. Update timed grass picnic pairs along obstacle-free gravel walkways
       for (let i = 0; i < picnicPairs.length; i++) {
         const pp = picnicPairs[i];
         pp.umbrellaA.visible = isRain && pp.phase !== 'picnic_sit';
@@ -694,12 +924,14 @@ export function createEiffelParkLife(
           pp.propsGroup.visible = false;
           pp.rigA.root.visible = false;
           pp.rigB.root.visible = false;
-          if (isRain) continue; // Don't start new grass picnic in the rain
+          if (isRain) continue;
           pp.timer -= safeDt;
           if (pp.timer <= 0) {
             pp.x = pp.alleyX;
             pp.z = pp.alleyZ;
-            pp.picnicDuration = 48 + ((i * 13 + Math.floor(elapsed)) % 26); // 48-73s
+            pp.path = buildClearGravelPath(pp.alleyX, pp.alleyZ, pp.spotX, pp.spotZ);
+            pp.pathIdx = 0;
+            pp.picnicDuration = 48 + ((i * 13 + Math.floor(elapsed)) % 26);
             pp.rigA.root.visible = true;
             pp.rigB.root.visible = true;
             pp.phase = 'walk_in';
@@ -709,19 +941,28 @@ export function createEiffelParkLife(
 
         if (pp.phase === 'walk_in') {
           pp.propsGroup.visible = false;
-          const dx = pp.spotX - pp.x;
-          const dz = pp.spotZ - pp.z;
+          const wp = pp.path[pp.pathIdx] ?? { x: pp.spotX, z: pp.spotZ };
+          const dx = wp.x - pp.x;
+          const dz = wp.z - pp.z;
           const dist = Math.hypot(dx, dz);
           const step = pp.speed * safeDt;
           if (dist <= step + 0.12) {
-            pp.x = pp.spotX;
-            pp.z = pp.spotZ;
-            pp.propsGroup.visible = true;
-            pp.timer = pp.picnicDuration;
-            pp.phase = 'picnic_sit';
+            pp.x = wp.x;
+            pp.z = wp.z;
+            pp.pathIdx++;
+            if (pp.pathIdx >= pp.path.length) {
+              pp.x = pp.spotX;
+              pp.z = pp.spotZ;
+              pp.propsGroup.visible = true;
+              pp.timer = pp.picnicDuration;
+              pp.phase = 'picnic_sit';
+            }
           } else {
             pp.x += (dx / dist) * step;
             pp.z += (dz / dist) * step;
+            const cleared = resolveEiffelObstacleClearance(pp.x, pp.z);
+            pp.x = cleared.x;
+            pp.z = cleared.z;
             pp.yaw = Math.atan2(dx, dz);
             const perpX = Math.cos(pp.yaw) * 0.36;
             const perpZ = -Math.sin(pp.yaw) * 0.36;
@@ -761,27 +1002,37 @@ export function createEiffelParkLife(
             elapsed,
             phase: pp.animPhase + 1.4,
           });
-          // Pack up and leave cleanly when picnic timer expires OR if rain starts!
           if (pp.timer <= 0 || isRain) {
             pp.propsGroup.visible = false;
             pp.x = pp.spotX;
             pp.z = pp.spotZ;
+            pp.path = buildClearGravelPath(pp.spotX, pp.spotZ, pp.alleyX, pp.alleyZ);
+            pp.pathIdx = 0;
             pp.phase = 'walk_out';
           }
         } else if (pp.phase === 'walk_out') {
           pp.propsGroup.visible = false;
-          const dx = pp.alleyX - pp.x;
-          const dz = pp.alleyZ - pp.z;
+          const wp = pp.path[pp.pathIdx] ?? { x: pp.alleyX, z: pp.alleyZ };
+          const dx = wp.x - pp.x;
+          const dz = wp.z - pp.z;
           const dist = Math.hypot(dx, dz);
           const step = pp.speed * safeDt;
           if (dist <= step + 0.15) {
-            pp.phase = 'cooldown';
-            pp.timer = 14 + i * 6;
-            pp.rigA.root.visible = false;
-            pp.rigB.root.visible = false;
+            pp.x = wp.x;
+            pp.z = wp.z;
+            pp.pathIdx++;
+            if (pp.pathIdx >= pp.path.length) {
+              pp.phase = 'cooldown';
+              pp.timer = 14 + i * 6;
+              pp.rigA.root.visible = false;
+              pp.rigB.root.visible = false;
+            }
           } else {
             pp.x += (dx / dist) * step;
             pp.z += (dz / dist) * step;
+            const cleared = resolveEiffelObstacleClearance(pp.x, pp.z);
+            pp.x = cleared.x;
+            pp.z = cleared.z;
             pp.yaw = Math.atan2(dx, dz);
             const perpX = Math.cos(pp.yaw) * 0.36;
             const perpZ = -Math.sin(pp.yaw) * 0.36;

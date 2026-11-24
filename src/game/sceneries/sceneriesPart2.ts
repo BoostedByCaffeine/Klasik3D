@@ -2358,11 +2358,52 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   swissRightCornerMassif.position.set(96, 0, -68);
   windowBackdropGroup.add(alpineRangeBack, alpineRangeMid, swissLeftCornerMassif, swissRightCornerMassif);
 
-  // Phase 5: Distant Aerial Cable-Car anchored into TWO Chunky Lit Swiss Alpine Station Lodges (inside windowBackdropGroup!)
-  const gondolaStart = new THREE.Vector3(-42, 7.4, -97.5);
-  const gondolaEnd = new THREE.Vector3(24, 13.8, -104.5);
+  // Helper: sample maximum surface elevation of the mid alpine ridge near (tx, tz)
+  // so both cable-car station lodges perch proudly ON TOP of the mountain shoulders (never buried!).
+  const sampleAlpineRidgePeakY = (
+    tx: number,
+    tz: number,
+    radius: number
+  ): { x: number; y: number; z: number } => {
+    const posAttr = alpineRangeMid.geometry.getAttribute('position');
+    let bestX = tx;
+    let bestY = -20;
+    let bestZ = tz;
+    const r2 = radius * radius;
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = posAttr.getX(i);
+      const vz = posAttr.getZ(i);
+      const d2 = (vx - tx) * (vx - tx) + (vz - tz) * (vz - tz);
+      if (d2 <= r2) {
+        const vy = posAttr.getY(i);
+        if (vy > bestY) {
+          bestX = vx;
+          bestY = vy;
+          bestZ = vz;
+        }
+      }
+    }
+    return { x: bestX, y: bestY, z: bestZ };
+  };
+
+  // Phase 5 + Lodge Reposition Polish: Anchor both Swiss Alpine Cable-Car Station Lodges on the framed ridge shoulders
+  // (x ≈ -42 & +24) with deep 34u rock piers embedded solidly into the mountain slope so they NEVER bury AND NEVER float!
+  const westPeak = sampleAlpineRidgePeakY(-43, -96.5, 9.0);
+  const eastPeak = sampleAlpineRidgePeakY(24, -102.5, 9.0);
+  const westStationCenter = new THREE.Vector3(
+    westPeak.x + 1.5,
+    Math.max(13.8, westPeak.y - 1.4),
+    westPeak.z + 2.8
+  );
+  const eastStationCenter = new THREE.Vector3(
+    eastPeak.x - 1.0,
+    Math.max(14.8, eastPeak.y - 1.4),
+    eastPeak.z + 2.8
+  );
+  const gondolaStart = new THREE.Vector3(westStationCenter.x + 6.0, westStationCenter.y + 0.9, westStationCenter.z);
+  const gondolaEnd = new THREE.Vector3(eastStationCenter.x - 6.0, eastStationCenter.y + 0.9, eastStationCenter.z);
   const alpineLodgeTimberMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.86 });
-  const alpineLodgeStoneMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.94, flatShading: true });
+  const alpineLodgeStoneMat = new THREE.MeshStandardMaterial({ color: 0x4b5869, roughness: 0.95, flatShading: true });
   const alpineLodgeSnowRoofMat = new THREE.MeshStandardMaterial({ color: 0xf4f9ff, roughness: 0.88, flatShading: true });
   const alpineLodgeGlowMat = new THREE.MeshStandardMaterial({
     color: 0xffdf99,
@@ -2375,7 +2416,7 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
   const gondolaSteelMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.55, metalness: 0.62 });
 
   const buildAlpineCableStationLodge = (
-    anchorPos: THREE.Vector3,
+    stationCenter: THREE.Vector3,
     cableDirSign: 1 | -1,
     name: string
   ): THREE.Group => {
@@ -2383,18 +2424,19 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     station.name = name;
     station.userData.alwaysVisibleBackdrop = true;
 
-    // Tapered alpine stone retaining plinth that seats cleanly onto the ridge crest without protruding down the front slope
-    const foundationH = 4.6;
+    // Deep tapered stone cliff pier plunging 34 units straight down into the mountain body
+    // so the station is 100% rooted into the alpine slope from every camera angle (zero floating gap!)
+    const foundationH = 34.0;
     const stoneFoundation = new THREE.Mesh(
-      new THREE.CylinderGeometry(7.2, 9.6, foundationH, 6),
+      new THREE.CylinderGeometry(5.6, 8.0, foundationH, 6),
       alpineLodgeStoneMat
     );
-    stoneFoundation.position.set(0, -foundationH * 0.5 - 0.8, -0.8);
+    stoneFoundation.position.set(0, -foundationH * 0.5 - 0.5, -1.6);
     station.add(stoneFoundation);
 
-    // Wide cantilevered stone & timber terrace apron
-    const deckBase = new THREE.Mesh(new THREE.BoxGeometry(12.6, 1.4, 10.2), alpineLodgeStoneMat);
-    deckBase.position.set(0, -0.7, 0);
+    // Subtle cantilevered stone terrace apron around the lodge base
+    const deckBase = new THREE.Mesh(new THREE.BoxGeometry(12.2, 1.35, 9.8), alpineLodgeStoneMat);
+    deckBase.position.set(0, -0.65, 0);
     station.add(deckBase);
 
     // Lower stone service hall + dark timber chalet upper deck
@@ -2452,17 +2494,12 @@ export function buildSwitzerlandHilltopScenery(): SceneryRuntimeInstance {
     chimney.position.set(-cableDirSign * 3.2, 9.6, -1.6);
     station.add(chimney);
 
-    // Position lodge so its pulley wheel / cable bay aligns right onto anchorPos
-    station.position.set(
-      anchorPos.x - cableDirSign * 6.0,
-      anchorPos.y - 0.9,
-      anchorPos.z
-    );
+    station.position.copy(stationCenter);
     return station;
   };
 
-  const westCableLodge = buildAlpineCableStationLodge(gondolaStart, 1, 'swiss_cable_station_west');
-  const eastCableLodge = buildAlpineCableStationLodge(gondolaEnd, -1, 'swiss_cable_station_east');
+  const westCableLodge = buildAlpineCableStationLodge(westStationCenter, 1, 'swiss_cable_station_west');
+  const eastCableLodge = buildAlpineCableStationLodge(eastStationCenter, -1, 'swiss_cable_station_east');
   windowBackdropGroup.add(westCableLodge, eastCableLodge);
 
   // Twin-strand steel track & haul cables stretched cleanly between the two Alpine station cable bays
@@ -3170,223 +3207,242 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   const everestTier = resolveMountainGraphicsTier();
   const himalayanMat = createSharedMountainMaterial('himalayan', everestTier);
 
-  // Tuned Kala Patthar rock-vs-snow sub-palettes (~65-75% bright snow broken sharply by dark charcoal granite ribs)
+  // Crisp high-contrast snow ridges broken sharply by dark exposed Himalayan granite cliffs
+  // Threshold tuned to broad ~45deg pyramidal slopes (upDot 0.68..0.85) so steep facets stay dark charcoal granite!
   const everestSummitPalette = {
     ...HIMALAYAN_HORN,
-    baseColor: 0x94a3b8,
-    midRockColor: 0x333c48,
-    steepCliffColor: 0x1a2029,
-    snowColor: 0xf6fbff,
-    snowlineNormalized: 0.28,
-    steepnessRockThreshold: 0.54,
+    baseColor: 0xdce8f4,
+    midRockColor: 0x1e2836,
+    steepCliffColor: 0x0d131d,
+    snowColor: 0xfdffff,
+    snowlineNormalized: 0.24,
+    steepnessRockThreshold: 0.82,
   };
   const everestSnowWallPalette = {
     ...HIMALAYAN_HORN,
-    baseColor: 0xdbe9f6,
-    midRockColor: 0x384352,
-    steepCliffColor: 0x1a2029,
-    snowColor: 0xf7fbff,
-    snowlineNormalized: 0.14,
-    steepnessRockThreshold: 0.42,
+    baseColor: 0xd8e6f4,
+    midRockColor: 0x222d3c,
+    steepCliffColor: 0x101722,
+    snowColor: 0xfcffff,
+    snowlineNormalized: 0.22,
+    steepnessRockThreshold: 0.78,
   };
   const nuptseDarkSpurPalette = {
     ...HIMALAYAN_HORN,
-    baseColor: 0x4b5868,
-    midRockColor: 0x35404f,
-    steepCliffColor: 0x242c38,
-    snowColor: 0xf4f9ff,
-    snowlineNormalized: 0.54,
-    steepnessRockThreshold: 0.50,
+    baseColor: 0x263140,
+    midRockColor: 0x19222e,
+    steepCliffColor: 0x0c111a,
+    snowColor: 0xf8fcff,
+    snowlineNormalized: 0.48,
+    steepnessRockThreshold: 0.86,
   };
   const khumbuIcefallPalette = {
     ...HIMALAYAN_HORN,
-    baseColor: 0x7c8a99,
-    midRockColor: 0xcbd9e8,
-    steepCliffColor: 0x475569,
-    snowColor: 0xf8fbff,
-    snowlineNormalized: 0.12,
-    steepnessRockThreshold: 0.34,
+    baseColor: 0x9fb2c7,
+    midRockColor: 0x4b5c70,
+    steepCliffColor: 0x1a2433,
+    snowColor: 0xfcffff,
+    snowlineNormalized: 0.16,
+    steepnessRockThreshold: 0.72,
   };
 
-  // 1. MT. EVEREST SUMMIT PYRAMID (Left-Center Back): Broad dark-ribbed granite pyramid behind the sweeping West Shoulder
+  // 1. MT. EVEREST SUMMIT PYRAMID (Dominant Central Crown): Broad ~48deg Himalayan pyramid with stark snow ridges & dark granite faces
   const everestSummit = createRidgedPeakMesh(
     {
       seed: 809,
-      radiusX: 44,
-      radiusZ: 34,
-      height: 59,
+      radiusX: 56,
+      radiusZ: 44,
+      height: 50,
       baseY: -0.4,
       skirtFloorY: -26,
-      ridgeStretch: 0.42,
+      ridgeStretch: 0.32,
+      slopeExponent: 0.84,
+      crestBroadness: 0.16,
       palette: everestSummitPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_summit_pyramid'
   );
-  everestSummit.position.set(-14, 0, -10);
+  everestSummit.position.set(2, 0, -12);
   everestGroup.add(everestSummit);
 
-  // Sweeping bright snow-blanketed West Shoulder sloping gracefully down to the left of Everest
+  // Sweeping broad West Shoulder stepping down cleanly to the left of Everest
   const westShoulder = createRidgedPeakMesh(
     {
       seed: 823,
-      radiusX: 48,
-      radiusZ: 30,
-      height: 39,
+      radiusX: 52,
+      radiusZ: 38,
+      height: 34,
       baseY: -0.4,
       skirtFloorY: -26,
-      ridgeStretch: 0.48,
+      ridgeStretch: 0.36,
+      slopeExponent: 0.86,
+      crestBroadness: 0.16,
       palette: everestSnowWallPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_west_shoulder'
   );
-  westShoulder.position.set(-46, 0, 2);
+  westShoulder.position.set(-38, 0, 0);
   everestGroup.add(westShoulder);
 
   const farWestFlank = createRidgedPeakMesh(
     {
       seed: 839,
-      radiusX: 38,
-      radiusZ: 28,
-      height: 35,
+      radiusX: 46,
+      radiusZ: 34,
+      height: 38,
       baseY: -0.4,
       skirtFloorY: -26,
-      ridgeStretch: 0.36,
-      palette: everestSnowWallPalette,
+      ridgeStretch: 0.34,
+      slopeExponent: 0.85,
+      crestBroadness: 0.16,
+      palette: everestSummitPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_changtse_flank'
   );
-  farWestFlank.position.set(-76, 0, 12);
+  farWestFlank.position.set(-76, 0, 8);
   everestGroup.add(farWestFlank);
 
-  // 2. DOMINANT NUPTSE WALL (Right-Center Foreground): Taller, closer jagged serrated snow wall + fluted ice buttresses
+  // 2. NUPTSE / LHOTSE EAST FLANKING MASSIF: Broad pyramidal sister massif framing the right flank
   const nuptseMainWall = createRidgedPeakMesh(
     {
       seed: 857,
-      radiusX: 44,
-      radiusZ: 28,
-      height: 62,
+      radiusX: 52,
+      radiusZ: 36,
+      height: 39,
       baseY: -0.4,
       skirtFloorY: -26,
-      ridgeStretch: 0.44,
-      palette: everestSnowWallPalette,
+      ridgeStretch: 0.34,
+      slopeExponent: 0.86,
+      crestBroadness: 0.16,
+      palette: everestSummitPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_nuptse_dominant_wall'
   );
-  nuptseMainWall.position.set(24, 0, 13);
+  nuptseMainWall.position.set(42, 0, 4);
   everestGroup.add(nuptseMainWall);
 
-  // Sculpted fluted vertical snow buttresses interlocking along Nuptse's serrated ridge
+  // Interlocking lower pyramidal sub-shoulders creating the layered Himalayan foreground ridges
   const nuptseWestButtress = createRidgedPeakMesh(
     {
       seed: 863,
-      radiusX: 28,
-      radiusZ: 22,
-      height: 46,
+      radiusX: 34,
+      radiusZ: 26,
+      height: 26,
       baseY: -0.4,
       skirtFloorY: -26,
-      ridgeStretch: 0.38,
+      ridgeStretch: 0.32,
+      slopeExponent: 0.88,
+      crestBroadness: 0.15,
       palette: everestSnowWallPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_nuptse_fluted_buttress_w'
   );
-  nuptseWestButtress.position.set(8, 0, 16);
+  nuptseWestButtress.position.set(-20, 0, 14);
   everestGroup.add(nuptseWestButtress);
 
   const nuptseEastButtress = createRidgedPeakMesh(
     {
       seed: 877,
-      radiusX: 36,
-      radiusZ: 26,
-      height: 49,
+      radiusX: 44,
+      radiusZ: 32,
+      height: 32,
       baseY: -0.4,
       skirtFloorY: -26,
-      ridgeStretch: 0.42,
+      ridgeStretch: 0.34,
+      slopeExponent: 0.86,
+      crestBroadness: 0.16,
       palette: everestSnowWallPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_nuptse_fluted_buttress_e'
   );
-  nuptseEastButtress.position.set(48, 0, 10);
+  nuptseEastButtress.position.set(74, 0, 10);
   everestGroup.add(nuptseEastButtress);
 
-  // Prominent exposed granite buttress fused into Nuptse's lower center-right face (Kala Patthar landmark!)
+  // Prominent exposed dark-granite foreground buttress adding stark black-vs-white crag depth
   const nuptseDarkRockSpur = createRidgedPeakMesh(
     {
       seed: 883,
-      radiusX: 22.0,
-      radiusZ: 16.0,
-      height: 26,
+      radiusX: 28.0,
+      radiusZ: 20.0,
+      height: 22,
       baseY: -0.4,
       skirtFloorY: -24,
-      ridgeStretch: 0.42,
+      ridgeStretch: 0.32,
+      slopeExponent: 0.88,
+      crestBroadness: 0.15,
       palette: nuptseDarkSpurPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_nuptse_dark_rock_spur'
   );
-  nuptseDarkRockSpur.position.set(22, 0, 20);
+  nuptseDarkRockSpur.position.set(22, 0, 18);
   everestGroup.add(nuptseDarkRockSpur);
 
-  // 3. KHUMBU ICEFALL & GLACIAL MORAINE APRON: Fractured bright white icefall tying Everest & Nuptse seamlessly into Base Camp
+  // 3. KHUMBU ICEFALL & GLACIAL MORAINE APRON: Broad snowy glacier fans tying the massif cleanly into Base Camp
   const khumbuIcefallWest = createRidgedPeakMesh(
     {
       seed: 907,
-      radiusX: 32,
-      radiusZ: 20,
-      height: 21,
+      radiusX: 36,
+      radiusZ: 24,
+      height: 17,
       baseY: -0.5,
       skirtFloorY: -18,
-      ridgeStretch: 0.46,
+      ridgeStretch: 0.36,
+      slopeExponent: 0.92,
+      crestBroadness: 0.18,
       palette: khumbuIcefallPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_khumbu_icefall_west'
   );
-  khumbuIcefallWest.position.set(-14, 0, 21);
+  khumbuIcefallWest.position.set(-14, 0, 22);
   everestGroup.add(khumbuIcefallWest);
 
   const khumbuIcefallCenter = createRidgedPeakMesh(
     {
       seed: 911,
-      radiusX: 28,
-      radiusZ: 18,
-      height: 17,
+      radiusX: 32,
+      radiusZ: 22,
+      height: 14,
       baseY: -0.5,
       skirtFloorY: -18,
-      ridgeStretch: 0.4,
+      ridgeStretch: 0.34,
+      slopeExponent: 0.92,
+      crestBroadness: 0.18,
       palette: khumbuIcefallPalette,
       tier: everestTier,
     },
     himalayanMat,
     'everest_khumbu_icefall_center'
   );
-  khumbuIcefallCenter.position.set(2, 0, 26);
+  khumbuIcefallCenter.position.set(4, 0, 26);
   everestGroup.add(khumbuIcefallCenter);
 
-  // Sweeping Himalayan Serrated Arête Background Ridge Ribbon framing the full horizon behind Everest & Nuptse
+  // Sweeping Himalayan Background Ridge Ribbon framing the distant flanks behind the broad pyramids
   const himalayanRibbon = createMountainRibbonMesh(
     {
       seed: 919,
-      arcRadius: 128,
+      arcRadius: 132,
       startAngle: -1.24,
       endAngle: 1.24,
-      depth: 38,
+      depth: 42,
       peakCount: 6,
-      minPeakHeight: 30,
-      maxPeakHeight: 52,
+      minPeakHeight: 22,
+      maxPeakHeight: 34,
       baseY: -0.5,
       skirtFloorY: -26,
       palette: everestSnowWallPalette,
@@ -3397,23 +3453,23 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   );
   windowBackdropGroup.add(himalayanRibbon);
 
-  // Animated wind-blown Summit Spindrift Snow particle stream jetting off Mt. Everest's summit pyramid
-  const spinCount = 95;
+  // Subtle wind-blown Summit Spindrift Snow wisps anchored directly to Everest's broad summit crest
+  const spinCount = 72;
   const spinPos = new Float32Array(spinCount * 3);
   for (let i = 0; i < spinCount; i++) {
     const t = i / spinCount;
-    spinPos[i * 3] = -14 + t * 38;
-    spinPos[i * 3 + 1] = 56.5 + Math.sin(t * Math.PI) * 2.2 - t * 3.6 + (Math.random() - 0.5) * 1.5;
-    spinPos[i * 3 + 2] = -9 + (Math.random() - 0.5) * 3.2;
+    spinPos[i * 3] = 2.0 + t * 26;
+    spinPos[i * 3 + 1] = 47.4 + Math.sin(t * Math.PI) * 1.4 - t * 2.4 + (Math.random() - 0.5) * 1.0;
+    spinPos[i * 3 + 2] = -11 + (Math.random() - 0.5) * 2.4;
   }
   const spinGeo = new THREE.BufferGeometry();
   spinGeo.setAttribute('position', new THREE.BufferAttribute(spinPos, 3));
   const spinMat = new THREE.PointsMaterial({
-    size: 4.8,
-    color: 0xe0f2fe,
+    size: 2.8,
+    color: 0xf0f9ff,
     map: getSharedGlowSpriteTexture(),
     transparent: true,
-    opacity: 0.42,
+    opacity: 0.14,
     depthWrite: false,
   });
   everestGroup.add(new THREE.Points(spinGeo, spinMat));
@@ -3725,9 +3781,9 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
   const headlampPos = new Float32Array(headlampCount * 3);
   for (let i = 0; i < headlampCount; i++) {
     const t = i / (headlampCount - 1);
-    headlampPos[i * 3] = -36 + t * 22 + Math.sin(t * 9) * 0.8;
-    headlampPos[i * 3 + 1] = 20 + t * 35;
-    headlampPos[i * 3 + 2] = -88 - t * 14;
+    headlampPos[i * 3] = -22 + t * 23 + Math.sin(t * 9) * 0.7;
+    headlampPos[i * 3 + 1] = 15 + t * 30;
+    headlampPos[i * 3 + 2] = -86 - t * 18;
   }
   const headlampGeo = new THREE.BufferGeometry();
   headlampGeo.setAttribute('position', new THREE.BufferAttribute(headlampPos, 3));
@@ -4034,11 +4090,11 @@ export function buildMtEverestScenery(): SceneryRuntimeInstance {
       // Stream spindrift snow off Mt. Everest's summit pyramid in the high-altitude jet stream
       const attr = spinGeo.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < spinCount; i++) {
-        let sx = attr.getX(i) + dt * (6.2 + (i % 4) * 1.4);
-        let sy = attr.getY(i) - dt * 0.45 + Math.sin(elapsed * 2.5 + i) * dt * 0.5;
-        if (sx > 26) {
-          sx = -14.5 + (i % 3) * 0.6;
-          sy = 56.5 + ((i % 5) - 2) * 0.5;
+        let sx = attr.getX(i) + dt * (5.0 + (i % 4) * 1.1);
+        let sy = attr.getY(i) - dt * 0.35 + Math.sin(elapsed * 2.3 + i) * dt * 0.38;
+        if (sx > 28) {
+          sx = 2.0 + (i % 3) * 0.5;
+          sy = 47.4 + ((i % 5) - 2) * 0.4;
         }
         attr.setXY(i, sx, sy);
       }

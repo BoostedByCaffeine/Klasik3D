@@ -17,6 +17,7 @@ export type OutdoorNpcBehavior =
   | 'lantern_stroll'
   | 'neon_umbrella'
   | 'favela_football'
+  | 'favela_tiktok_dance'
   | 'ridge_gaze';
 
 export interface OutdoorLodBudgets {
@@ -504,10 +505,12 @@ export function getOutdoorLodBudgets(params: {
   const isMed = graphicsQuality === 'medium';
 
   if (!isPlayerOutside) {
+    // Balanced window-visible ambient street life indoors (1-2 cars, 2-3 plain-stroll passersby)
+    // while keeping heavy outdoorOnlyGroup crowds, doorway loops, sky flocks & rich NPC props culled.
     return {
       isPlayerOutside: false,
-      maxTraffic: 0,
-      maxPedestrians: 0,
+      maxTraffic: allowTraffic ? (isLow ? 1 : 2) : 0,
+      maxPedestrians: isLow ? 2 : 3,
       showCloudsAndBirds: false,
       enableRichNpcBehaviors: false,
     };
@@ -620,13 +623,13 @@ export function getSceneryOutdoorBehaviors(
       ];
     case 'brazilian_favela':
       return [
-        'favela_football',
+        'favela_tiktok_dance',
         'coffee_stroll',
+        'favela_football',
         'phone_call',
-        'favela_football',
+        'favela_tiktok_dance',
         'dog_walker',
-        'phone_browse',
-        'coffee_stroll',
+        'favela_football',
         'jogger',
       ];
     case 'cyberpunk_neon':
