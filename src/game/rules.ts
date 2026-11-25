@@ -75,6 +75,7 @@ import {
   ScenerySpec,
   SceneryWeatherRule,
   SecretNpcAppearance,
+  SecretNpcModelVariant,
   SecretNpcName,
   advanceSecretNpcNameIdx,
   canSpawnSecretNpc,
@@ -92,6 +93,7 @@ import {
   resolveClimateState,
   resolvePatronOutfitForSpawn,
   resolveSecretNpcAppearance,
+  resolveSecretNpcModelVariant,
   syncSceneryMilestones,
 } from './sceneryData';
 
@@ -127,6 +129,7 @@ export {
   resolveClimateState,
   resolvePatronOutfitForSpawn,
   resolveSecretNpcAppearance,
+  resolveSecretNpcModelVariant,
   syncSceneryMilestones,
 };
 export type {
@@ -140,6 +143,7 @@ export type {
   ScenerySpec,
   SceneryWeatherRule,
   SecretNpcAppearance,
+  SecretNpcModelVariant,
   SecretNpcName,
 };
 
@@ -1339,6 +1343,44 @@ export interface CustomerOrder {
   patronOutfitId?: PatronOutfitId | null;
   patronOutfitClimate?: ClimateState;
   socialBehavior: CustomerSocialBehavior;
+  /** Mood percentage (0..100) recorded at the moment the customer's order was served. */
+  servedMood?: number;
+  /** True when the customer received a wrong ingredient and leaves disappointed. */
+  complaintDeparting?: boolean;
+}
+
+export type CustomerFaceExpression = 'delighted' | 'happy' | 'neutral' | 'worried' | 'angry';
+
+/**
+ * Pure facial-expression resolver driven by customer mood meter (0..100) and served outcome:
+ * - Served with mood > 60 -> `'delighted'` (`^ ^` happy closed-arc eyes + wide `"D"` smile!)
+ * - Wrong ingredient or expired mood -> `'angry'`
+ * - Otherwise reacts dynamically to live mood percentage while waiting or enjoying drink.
+ */
+export function resolveCustomerFaceExpression(params: {
+  state: CustomerOrder['state'];
+  moodPercent: number;
+  servedMood?: number;
+  expired?: boolean;
+  moodExpired?: boolean;
+  complaintDeparting?: boolean;
+}): CustomerFaceExpression {
+  if (params.expired || params.moodExpired || params.complaintDeparting) {
+    return 'angry';
+  }
+  if (
+    (params.state === 'seated' || params.state === 'departing') &&
+    typeof params.servedMood === 'number'
+  ) {
+    if (params.servedMood > 60) return 'delighted';
+    if (params.servedMood >= 35) return 'happy';
+    return 'neutral';
+  }
+  const m = Number.isFinite(params.moodPercent) ? params.moodPercent : 100;
+  if (m >= 65) return 'happy';
+  if (m >= 35) return 'neutral';
+  if (m >= 18) return 'worried';
+  return 'angry';
 }
 
 export interface BizUpgradeItem {
@@ -3241,7 +3283,13 @@ export function serveCurrentCupToCustomer(
   if (validation.hasWrongIngredient) {
     const updatedAfterComplaint = state.customers.map((c) =>
       c.id === targetCustomer.id
-        ? { ...c, state: 'departing' as CustomerOrder['state'], seatedTimer: 4 }
+        ? {
+            ...c,
+            state: 'departing' as CustomerOrder['state'],
+            seatedTimer: 4,
+            servedMood: 0,
+            complaintDeparting: true,
+          }
         : c
     );
     const nextOrderingAfterComplaint = updatedAfterComplaint.find((c) => c.state === 'ordering');
@@ -3322,7 +3370,16 @@ export function serveCurrentCupToCustomer(
       ...c,
       state: (assignedSeat !== null ? 'seated' : 'departing') as CustomerOrder['state'],
       seatIndex: assignedSeat,
-      seatedTimer: assignedSeat !== null ? 24 : targetCustomer.isDeliveryRider ? 16 : isTakeoutOrder ? 9.5 : 5.5,
+      seatedTimer:
+        assignedSeat !== null
+          ? 24
+          : targetCustomer.isDeliveryRider
+          ? 16
+          : isTakeoutOrder
+          ? 9.5
+          : 5.5,
+      servedMood: Math.round(customerMood),
+      complaintDeparting: false,
     };
   });
 
@@ -4352,14 +4409,23 @@ export function advanceSimulationTick(
     };
   };
 
+  const activeSceneryId: SceneryId = state.activeScenery || 'busy_street';
   const makeSecretVariant = (baseOrder: CustomerOrder): CustomerOrder => {
     const secretName = getSecretNpcName(nextSecretNameIdx);
     nextSecretNameIdx = advanceSecretNpcNameIdx(nextSecretNameIdx);
     nextSecretCooldown = SECRET_NPC_COOLDOWN_SEC;
     isSecretActiveNow = true;
-    const appearance = resolveSecretNpcAppearance(climateState, Boolean(state.isRaining), rng);
+    const appearance = resolveSecretNpcAppearance(
+      climateState,
+      Boolean(state.isRaining),
+      rng,
+      activeSceneryId,
+      Boolean(baseOrder.isDeliveryRider)
+    );
     const warmDialogue =
-      SECRET_NPC_DIALOGUES[Math.floor(rng() * SECRET_NPC_DIALOGUES.length) % SECRET_NPC_DIALOGUES.length];
+      SECRET_NPC_DIALOGUES[
+        Math.floor(rng() * SECRET_NPC_DIALOGUES.length) % SECRET_NPC_DIALOGUES.length
+      ];
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.setItem(SECRET_NPC_STORAGE_KEY, String(nextSecretNameIdx));
@@ -4379,7 +4445,6 @@ export function advanceSimulationTick(
     };
   };
 
-  const activeSceneryId: SceneryId = state.activeScenery || 'busy_street';
   const spawnNextPatron = (seedOffset: number): CustomerOrder => {
     const riderProb = computeDeliveryRiderProbability(state.weather, regularSinceRider);
     const canSpawnRider =

@@ -10,6 +10,7 @@ import {
   CatLoadout,
   ClimateState,
   CupVesselType,
+  CustomerFaceExpression,
   CustomerOrder,
   CustomerSkinPackId,
   DeliveryRiderVariant,
@@ -23,6 +24,7 @@ import {
   SECRET_NPC_COOLDOWN_SEC,
   SceneryId,
   SecretNpcAppearance,
+  SecretNpcModelVariant,
   SyrupFlavor,
   WeatherMode,
   canSpawnSecretNpc,
@@ -39,7 +41,9 @@ import {
   isRainyWeather,
   isStepLockActive,
   resolveActivePatronOutfit,
+  resolveCustomerFaceExpression,
   resolveSecretNpcAppearance,
+  resolveSecretNpcModelVariant,
 } from './rules';
 import { SpotifyVinylState } from './spotifyManager';
 import { CounterAudioProps, HologramMetadata } from './audio/CounterAudioProps';
@@ -51,7 +55,13 @@ import {
 import { SceneryManager, buildMiniSceneryDiorama } from './sceneries/SceneryManager';
 import { getSharedGlowSpriteTexture, disposeObject3D } from './sceneries/sceneryTypes';
 import { applyPatronOutfitToRig, buildPatronOutfitPreviewMesh } from './patronOutfits3d';
-import { applySecretNpcLookToRig, createSecretNpcHeartSprite } from './secretNpc3d';
+import {
+  applySecretNpcLookToRig,
+  buildSecretNpcAssetRig,
+  createSecretNpcHeartSprite,
+  SecretNpcAssetRig,
+  updateSecretNpcAssetPose,
+} from './secretNpc3d';
 import {
   ACTIVE_CUP_STATION4_POS,
   CUP_SERVE_HITBOX_RADIUS,
@@ -485,6 +495,18 @@ interface ArticulatedCustomerActor {
   rightKneeJoint: THREE.Group;
   leftEyeMesh: THREE.Object3D;
   rightEyeMesh: THREE.Object3D;
+  leftHappyEyeArc: THREE.Object3D;
+  rightHappyEyeArc: THREE.Object3D;
+  leftBrowMesh: THREE.Object3D;
+  rightBrowMesh: THREE.Object3D;
+  smileMouthMesh: THREE.Object3D;
+  neutralMouthMesh: THREE.Object3D;
+  frownMouthMesh: THREE.Object3D;
+  bigDMouthGroup: THREE.Group;
+  cheekBlushMat: THREE.MeshStandardMaterial;
+  lastFaceExpression?: CustomerFaceExpression;
+  secretAssetRig?: SecretNpcAssetRig | null;
+  secretAssetVariant?: SecretNpcModelVariant;
   heldCup: THREE.Group;
   heldVesselVariants: Record<CupVesselType, THREE.Group>;
   appliedVesselType: CupVesselType;
@@ -10426,28 +10448,83 @@ export class KlasikCafeScene3D {
     nose.position.set(0, 0.188, 0.158);
     neckJoint.add(nose);
 
-    // Sculpted Warm Smile Mouth & Subtle Rosy Cheek Blush
+    // Dynamic Multi-Expression Mouth Set (Warm Smile, Calm Neutral, Worried/Angry Frown, and Joyful "D" Smile!)
     const mouthMat = new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.45 });
-    const smileArc = new THREE.Mesh(
-      new THREE.TorusGeometry(0.022, 0.0036, 8, 14, Math.PI),
+    const smileMouthMesh = new THREE.Mesh(
+      new THREE.TorusGeometry(0.022, 0.0038, 8, 14, Math.PI),
       mouthMat
     );
-    smileArc.rotation.z = Math.PI;
-    smileArc.rotation.x = -0.1;
-    smileArc.position.set(0, 0.152, 0.155);
-    neckJoint.add(smileArc);
+    smileMouthMesh.rotation.z = Math.PI;
+    smileMouthMesh.rotation.x = -0.1;
+    smileMouthMesh.position.set(0, 0.152, 0.155);
+    neckJoint.add(smileMouthMesh);
 
-    const blushMat = new THREE.MeshStandardMaterial({
+    const neutralMouthMesh = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.0036, 0.032, 4, 8),
+      mouthMat
+    );
+    neutralMouthMesh.rotation.z = Math.PI / 2;
+    neutralMouthMesh.position.set(0, 0.148, 0.156);
+    neutralMouthMesh.visible = false;
+    neckJoint.add(neutralMouthMesh);
+
+    const frownMouthMesh = new THREE.Mesh(
+      new THREE.TorusGeometry(0.021, 0.0038, 8, 14, Math.PI),
+      mouthMat
+    );
+    frownMouthMesh.rotation.x = 0.08;
+    frownMouthMesh.position.set(0, 0.138, 0.156);
+    frownMouthMesh.visible = false;
+    neckJoint.add(frownMouthMesh);
+
+    // Wide Joyful "D" Smile (flat top teeth edge + rounded happy open-mouth curve) for served mood > 60!
+    const bigDMouthGroup = new THREE.Group();
+    bigDMouthGroup.position.set(0, 0.152, 0.152);
+    bigDMouthGroup.visible = false;
+
+    const dShape = new THREE.Shape();
+    dShape.moveTo(-0.035, 0.011);
+    dShape.lineTo(0.035, 0.011);
+    dShape.absarc(0, 0.011, 0.035, 0, -Math.PI, true);
+    dShape.closePath();
+
+    const dMouthMat = new THREE.MeshStandardMaterial({
+      color: 0x881337,
+      roughness: 0.35,
+    });
+    const dCavity = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(dShape, { depth: 0.007, bevelEnabled: false }),
+      dMouthMat
+    );
+    bigDMouthGroup.add(dCavity);
+
+    const dTeeth = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.0085, 0.009),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.18 })
+    );
+    dTeeth.position.set(0, 0.0068, 0.0035);
+    bigDMouthGroup.add(dTeeth);
+
+    const dTongue = new THREE.Mesh(
+      new THREE.CircleGeometry(0.016, 12, 0, Math.PI),
+      new THREE.MeshStandardMaterial({ color: 0xfb7185, roughness: 0.42 })
+    );
+    dTongue.position.set(0, -0.022, 0.0076);
+    bigDMouthGroup.add(dTongue);
+
+    neckJoint.add(bigDMouthGroup);
+
+    const cheekBlushMat = new THREE.MeshStandardMaterial({
       color: 0xf43f5e,
       transparent: true,
       opacity: 0.28,
       roughness: 0.6,
     });
     [-0.088, 0.088].forEach((cx) => {
-      const cheekBlush = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), blushMat);
+      const cheekBlush = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), cheekBlushMat);
       cheekBlush.scale.set(1.2, 0.75, 0.35);
       cheekBlush.position.set(cx, 0.176, 0.14);
-       cheekBlush.rotation.y = cx < 0 ? -0.35 : 0.35;
+      cheekBlush.rotation.y = cx < 0 ? -0.35 : 0.35;
       neckJoint.add(cheekBlush);
     });
 
@@ -10460,6 +10537,7 @@ export class KlasikCafeScene3D {
     });
     const pupilMat = new THREE.MeshBasicMaterial({ color: 0x09090b });
     const catchlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const happyArcMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.35 });
 
     const buildExpressiveEye = (sideX: number): THREE.Group => {
       const eyeGroup = new THREE.Group();
@@ -10498,17 +10576,53 @@ export class KlasikCafeScene3D {
       return eyeGroup;
     };
 
+    // Crisp `^ ^` Closed-Arc Joyful Eyes shown when served an order with mood > 60!
+    const buildHappyCaretEye = (sideX: number): THREE.Group => {
+      const caretGroup = new THREE.Group();
+      caretGroup.position.set(sideX, 0.208, 0.16);
+      caretGroup.rotation.y = sideX < 0 ? -0.14 : 0.14;
+
+      const leftStroke = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.0044, 0.02, 4, 8),
+        happyArcMat
+      );
+      leftStroke.position.set(-0.01, -0.004, 0);
+      leftStroke.rotation.z = -0.68;
+      caretGroup.add(leftStroke);
+
+      const rightStroke = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.0044, 0.02, 4, 8),
+        happyArcMat
+      );
+      rightStroke.position.set(0.01, -0.004, 0);
+      rightStroke.rotation.z = 0.68;
+      caretGroup.add(rightStroke);
+
+      const apex = new THREE.Mesh(new THREE.SphereGeometry(0.0046, 8, 8), happyArcMat);
+      apex.position.set(0, 0.005, 0);
+      caretGroup.add(apex);
+
+      caretGroup.visible = false;
+      neckJoint.add(caretGroup);
+      return caretGroup;
+    };
+
     const leftEyeMesh = buildExpressiveEye(-0.054);
     const rightEyeMesh = buildExpressiveEye(0.054);
+    const leftHappyEyeArc = buildHappyCaretEye(-0.054);
+    const rightHappyEyeArc = buildHappyCaretEye(0.054);
 
-    // Expressive Eyebrows positioned cleanly above the eyes at z = 0.156
-    [-0.054, 0.054].forEach((bx) => {
+    // Expressive Dynamic Eyebrows positioned cleanly above the eyes at z = 0.154
+    const buildBrow = (bx: number): THREE.Mesh => {
       const brow = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.009, 0.014), hairMat);
       brow.position.set(bx, 0.244, 0.154);
       brow.rotation.z = bx < 0 ? 0.08 : -0.08;
       brow.rotation.y = bx < 0 ? -0.14 : 0.14;
       neckJoint.add(brow);
-    });
+      return brow;
+    };
+    const leftBrowMesh = buildBrow(-0.054);
+    const rightBrowMesh = buildBrow(0.054);
 
     // Multi-layered stylized semi-realistic hairstyle (cleanly toggled off when wearing hats/helmets/berets/patron headgear)
     const patronWearsHeadgear = Boolean(
@@ -10862,6 +10976,7 @@ export class KlasikCafeScene3D {
     phoneMesh.position.set(0, -0.25, 0.04);
     phoneMesh.rotation.x = Math.PI / 3;
     phoneMesh.visible = false;
+    phoneMesh.userData.isCustomerHeldProp = true;
     leftArm.elbowJoint.add(phoneMesh);
 
     // Phase 6: Procedural Rainy-Day 3D Umbrella attached to Left Hand (shown automatically outdoors in rain!)
@@ -10872,6 +10987,7 @@ export class KlasikCafeScene3D {
     umbrellaGroup.position.set(0.06, -0.22, 0.02);
     umbrellaGroup.rotation.set(Math.PI / 2, 0, -0.08);
     umbrellaGroup.visible = false;
+    umbrellaGroup.userData.isCustomerHeldProp = true;
     leftArm.elbowJoint.add(umbrellaGroup);
 
     // Held Authentic Multi-Vessel Drink Cup in Right Hand (Hot Mug / Iced Glass / Hot Takeout / Iced Takeout)
@@ -10880,6 +10996,7 @@ export class KlasikCafeScene3D {
     heldCup.position.set(0, -0.24, 0.06);
     heldCup.rotation.x = Math.PI / 2;
     heldCup.visible = false;
+    heldCup.userData.isCustomerHeldProp = true;
     rightArm.elbowJoint.add(heldCup);
 
     // Phase 6: Held Artisanal Pastry in Left Hand (Mini Porcelain Plate for Dine-In OR Kraft Paper Bag for Takeout/Delivery!)
@@ -10887,6 +11004,7 @@ export class KlasikCafeScene3D {
     heldPastryGroup.position.set(0, -0.24, 0.075);
     heldPastryGroup.rotation.x = Math.PI / 2;
     heldPastryGroup.visible = false;
+    heldPastryGroup.userData.isCustomerHeldProp = true;
 
     const heldPastryPlateGroup = new THREE.Group();
     const hpPlate = new THREE.Mesh(
@@ -10931,27 +11049,32 @@ export class KlasikCafeScene3D {
     activitySprite.visible = false;
     group.add(activitySprite);
 
-    // Phase 4 & 5: Apply Secret Easter Egg NPC look (immune to patron outfits!) OR modular Patron Outfit pack
+    // Phase 4 & 5: Apply Exact Imported Secret NPC `.js` Asset (4 variants: default, hat, helmet, hike) OR modular Patron Outfit pack
+    let resolvedSecretVariant: SecretNpcModelVariant | undefined;
     if (secretNpcAppearance) {
-      applySecretNpcLookToRig(
-        {
-          torsoGroup,
-          neckJoint,
-          leftArmJoint: leftArm.elbowJoint,
-          rightArmJoint: rightArm.elbowJoint,
-          leftHipJoint: leftLeg.hipJoint,
-          rightHipJoint: rightLeg.hipJoint,
-          leftKneeJoint: leftLeg.kneeJoint,
-          rightKneeJoint: rightLeg.kneeJoint,
-          skinMat,
-          jacketMat,
-          denimMat,
-          shoeMat,
-          hairMat,
-        },
-        secretNpcAppearance
-      );
+      resolvedSecretVariant =
+        secretNpcAppearance.modelVariant ??
+        resolveSecretNpcModelVariant({
+          activeScenery: this.gameState?.activeScenery || 'busy_street',
+          isDeliveryRider: isRider,
+          wearsCap: secretNpcAppearance.wearsCap,
+        });
+      // Hide procedural body meshes while keeping skeletal joint pivots active for held cup/pastry/umbrella/phone
+      const isInsideHeldProp = (obj: THREE.Object3D): boolean => {
+        let cur: THREE.Object3D | null = obj;
+        while (cur && cur !== pelvisGroup) {
+          if (cur.userData?.isCustomerHeldProp === true) return true;
+          cur = cur.parent;
+        }
+        return false;
+      };
+      pelvisGroup.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh && !isInsideHeldProp(child)) {
+          child.visible = false;
+        }
+      });
       group.userData.isSecretNpc = true;
+      group.userData.secretNpcVariant = resolvedSecretVariant;
       torsoGroup.userData.isSecretNpc = true;
       pelvisGroup.userData.isSecretNpc = true;
     } else if (patronOutfit && !isRider) {
@@ -10977,7 +11100,10 @@ export class KlasikCafeScene3D {
       );
     }
 
-    return {
+    const builtActor: Omit<
+      ArticulatedCustomerActor,
+      'currentPos' | 'lastPos' | 'waypoints' | 'finalGoalKey' | 'walkPhase' | 'walkBlend' | 'seatedBlend' | 'facingAngle'
+    > = {
       group,
       pelvisGroup,
       torsoGroup,
@@ -10992,6 +11118,18 @@ export class KlasikCafeScene3D {
       rightKneeJoint: rightLeg.kneeJoint,
       leftEyeMesh,
       rightEyeMesh,
+      leftHappyEyeArc,
+      rightHappyEyeArc,
+      leftBrowMesh,
+      rightBrowMesh,
+      smileMouthMesh,
+      neutralMouthMesh,
+      frownMouthMesh,
+      bigDMouthGroup,
+      cheekBlushMat,
+      lastFaceExpression: 'happy',
+      secretAssetRig: null,
+      secretAssetVariant: resolvedSecretVariant,
       heldCup,
       heldVesselVariants: heldVesselRig.variants,
       appliedVesselType: 'hot-mug' as CupVesselType,
@@ -11021,6 +11159,123 @@ export class KlasikCafeScene3D {
       riderVariant: deliveryRiderVariant,
       scooterStowTimer: 0,
     };
+
+    // Lazily load & attach the exact imported `.js` 3D Secret NPC asset + 11-joint articulated rig
+    if (secretNpcAppearance && resolvedSecretVariant) {
+      const variantToLoad = resolvedSecretVariant;
+      void buildSecretNpcAssetRig(variantToLoad)
+        .then((rig) => {
+          if (this.isDisposed) return;
+          if (group.userData.secretNpcNoCastShadow === true) {
+            rig.root.traverse((obj) => {
+              if ((obj as THREE.Mesh).isMesh) obj.castShadow = false;
+            });
+          }
+          group.add(rig.root);
+          builtActor.secretAssetRig = rig;
+          // Also sync into live customerActors / secretPasserby references if actor was cloned via spread
+          for (const liveActor of this.customerActors.values()) {
+            if (liveActor.group === group) {
+              liveActor.secretAssetRig = rig;
+            }
+          }
+          if (this.secretPasserby && this.secretPasserby.actor.group === group) {
+            this.secretPasserby.actor.secretAssetRig = rig;
+          }
+        })
+        .catch(() => {
+          // Fallback to procedural look only if dynamic module import unexpectedly fails
+          if (this.isDisposed) return;
+          pelvisGroup.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) child.visible = true;
+          });
+          applySecretNpcLookToRig(
+            {
+              torsoGroup,
+              neckJoint,
+              leftArmJoint: leftArm.elbowJoint,
+              rightArmJoint: rightArm.elbowJoint,
+              leftHipJoint: leftLeg.hipJoint,
+              rightHipJoint: rightLeg.hipJoint,
+              leftKneeJoint: leftLeg.kneeJoint,
+              rightKneeJoint: rightLeg.kneeJoint,
+              skinMat,
+              jacketMat,
+              denimMat,
+              shoeMat,
+              hairMat,
+            },
+            secretNpcAppearance
+          );
+        });
+    }
+
+    return builtActor;
+  }
+
+  /**
+   * Zero-GC dynamic facial expression updater driven by live customer mood & served outcome:
+   * - 'delighted' (served mood > 60): crisp `^ ^` eyes + wide `"D"` smile + warm rosy cheeks!
+   * - 'happy' (high mood): bright open eyes + gentle smile
+   * - 'neutral' (mid mood): level brows + calm neutral mouth
+   * - 'worried' (low mood): raised inner brows + soft frown
+   * - 'angry' (critical mood / expired / wrong order): furrowed V-brows + wide frown
+   */
+  private applyCustomerFaceExpression(
+    actor: ArticulatedCustomerActor,
+    expression: CustomerFaceExpression
+  ): void {
+    if (actor.lastFaceExpression === expression) return;
+    actor.lastFaceExpression = expression;
+
+    const isDelighted = expression === 'delighted';
+    actor.leftEyeMesh.visible = !isDelighted;
+    actor.rightEyeMesh.visible = !isDelighted;
+    actor.leftHappyEyeArc.visible = isDelighted;
+    actor.rightHappyEyeArc.visible = isDelighted;
+
+    actor.bigDMouthGroup.visible = isDelighted;
+    actor.smileMouthMesh.visible = expression === 'happy';
+    actor.neutralMouthMesh.visible = expression === 'neutral';
+    actor.frownMouthMesh.visible = expression === 'worried' || expression === 'angry';
+    actor.frownMouthMesh.scale.set(
+      expression === 'angry' ? 1.18 : 0.96,
+      expression === 'angry' ? 1.16 : 0.92,
+      1
+    );
+
+    if (expression === 'delighted') {
+      actor.leftBrowMesh.position.y = 0.251;
+      actor.rightBrowMesh.position.y = 0.251;
+      actor.leftBrowMesh.rotation.z = 0.12;
+      actor.rightBrowMesh.rotation.z = -0.12;
+      actor.cheekBlushMat.opacity = 0.52;
+    } else if (expression === 'happy') {
+      actor.leftBrowMesh.position.y = 0.246;
+      actor.rightBrowMesh.position.y = 0.246;
+      actor.leftBrowMesh.rotation.z = 0.08;
+      actor.rightBrowMesh.rotation.z = -0.08;
+      actor.cheekBlushMat.opacity = 0.28;
+    } else if (expression === 'neutral') {
+      actor.leftBrowMesh.position.y = 0.242;
+      actor.rightBrowMesh.position.y = 0.242;
+      actor.leftBrowMesh.rotation.z = 0;
+      actor.rightBrowMesh.rotation.z = 0;
+      actor.cheekBlushMat.opacity = 0.18;
+    } else if (expression === 'worried') {
+      actor.leftBrowMesh.position.y = 0.241;
+      actor.rightBrowMesh.position.y = 0.241;
+      actor.leftBrowMesh.rotation.z = 0.24;
+      actor.rightBrowMesh.rotation.z = -0.24;
+      actor.cheekBlushMat.opacity = 0.12;
+    } else {
+      // 'angry'
+      actor.leftBrowMesh.position.y = 0.236;
+      actor.rightBrowMesh.position.y = 0.236;
+      actor.leftBrowMesh.rotation.z = -0.28;
+      actor.rightBrowMesh.rotation.z = 0.28;
+      actor.cheekBlushMat.opacity = 0.38;
+    }
   }
 
   private createUmbrellaMesh(canopyHex: number): THREE.Group {
@@ -11560,7 +11815,16 @@ export class KlasikCafeScene3D {
           activePackId,
           cust.isDeliveryRider ? cust.riderVariant || 'green' : undefined,
           desiredPatronOutfit,
-          cust.isSecretNpc ? cust.secretNpcAppearance || { wearsCap: false, hoodUp: false, wearsCharcoalTee: false } : null
+          cust.isSecretNpc
+            ? cust.secretNpcAppearance ||
+                resolveSecretNpcAppearance(
+                  this.gameState.climateState || 'summer',
+                  isRainyWeather(this.gameState.weather),
+                  Math.random,
+                  this.gameState.activeScenery || 'busy_street',
+                  Boolean(cust.isDeliveryRider)
+                )
+            : null
         );
         // Delivery Rider arrives riding their assigned scooter!
         const assignedScooter = this.deliveryScooters.find((s) => s.customerId === cust.id);
@@ -14633,7 +14897,10 @@ export class KlasikCafeScene3D {
         const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
         const appearance = resolveSecretNpcAppearance(
           this.gameState.climateState || 'summer',
-          isRainActive
+          isRainActive,
+          Math.random,
+          this.gameState.activeScenery || 'busy_street',
+          false
         );
         const actor = this.createCustomerCharacter(
           777,
@@ -14644,6 +14911,7 @@ export class KlasikCafeScene3D {
           null,
           appearance
         );
+        actor.group.userData.secretNpcNoCastShadow = true;
         actor.group.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) child.castShadow = false;
         });
@@ -14695,6 +14963,31 @@ export class KlasikCafeScene3D {
         sp.actor.leftShoulderJoint.rotation.x = -0.15;
         sp.actor.leftElbowJoint.rotation.x = -0.25;
         sp.actor.neckJoint.rotation.y = Math.sin(this.elapsed * 2.5) * 0.12;
+        if (sp.actor.secretAssetRig) {
+          updateSecretNpcAssetPose(sp.actor.secretAssetRig, {
+            walkBlend: 0,
+            seatedBlend: 0,
+            walkPhase: sp.walkPhase,
+            elapsed: this.elapsed,
+            seed: sp.actor.seed,
+            pelvisYOffset: 0,
+            pelvisRollZ: 0,
+            torsoYawY: 0,
+            torsoRollZ: 0,
+            neckPitchX: 0,
+            neckYawY: sp.actor.neckJoint.rotation.y,
+            neckRollZ: 0,
+            leftHipX: 0,
+            rightHipX: 0,
+            leftKneeX: 0,
+            rightKneeX: 0,
+            leftShoulderX: sp.actor.leftShoulderJoint.rotation.x,
+            leftElbowX: sp.actor.leftElbowJoint.rotation.x,
+            rightShoulderX: sp.actor.rightShoulderJoint.rotation.x,
+            rightElbowX: sp.actor.rightElbowJoint.rotation.x,
+            isWaving: true,
+          });
+        }
       } else {
         sp.x += sp.dir * sp.speed * dt;
         sp.actor.group.position.set(sp.x, 0.08, sp.laneZ);
@@ -14711,6 +15004,30 @@ export class KlasikCafeScene3D {
         sp.actor.rightShoulderJoint.rotation.x = s * 0.38;
         sp.actor.leftElbowJoint.rotation.x = -0.22;
         sp.actor.rightElbowJoint.rotation.x = -0.22;
+        if (sp.actor.secretAssetRig) {
+          updateSecretNpcAssetPose(sp.actor.secretAssetRig, {
+            walkBlend: 1,
+            seatedBlend: 0,
+            walkPhase: sp.walkPhase,
+            elapsed: this.elapsed,
+            seed: sp.actor.seed,
+            pelvisYOffset: sp.actor.pelvisGroup.position.y - 0.58,
+            pelvisRollZ: s * 0.032,
+            torsoYawY: -s * 0.06,
+            torsoRollZ: -s * 0.02,
+            neckPitchX: 0.02,
+            neckYawY: s * 0.035,
+            neckRollZ: 0,
+            leftHipX: sp.actor.leftHipJoint.rotation.x,
+            rightHipX: sp.actor.rightHipJoint.rotation.x,
+            leftKneeX: sp.actor.leftKneeJoint.rotation.x,
+            rightKneeX: sp.actor.rightKneeJoint.rotation.x,
+            leftShoulderX: sp.actor.leftShoulderJoint.rotation.x,
+            leftElbowX: sp.actor.leftElbowJoint.rotation.x,
+            rightShoulderX: sp.actor.rightShoulderJoint.rotation.x,
+            rightElbowX: sp.actor.rightElbowJoint.rotation.x,
+          });
+        }
 
         if ((sp.dir === 1 && sp.x > 15.2) || (sp.dir === -1 && sp.x < -15.2)) {
           this.scene.remove(sp.actor.group);
@@ -15447,11 +15764,24 @@ export class KlasikCafeScene3D {
       }
       actor.group.rotation.y = actor.facingAngle;
 
-      // Periodic Eye Blinking
-      const blinkCycle = (this.elapsed + actor.seed * 0.37) % 3.6;
-      const eyeScaleY = blinkCycle < 0.12 ? 0.1 : 1.0;
-      actor.leftEyeMesh.scale.y = eyeScaleY;
-      actor.rightEyeMesh.scale.y = eyeScaleY;
+      // Dynamic Mood-Driven Facial Expressions (`^ ^` + `"D"` smile when served with mood > 60!)
+      const faceExpr = resolveCustomerFaceExpression({
+        state: cust.state,
+        moodPercent: cust.mood,
+        servedMood: cust.servedMood,
+        expired: cust.expired,
+        moodExpired: cust.moodExpired,
+        complaintDeparting: cust.complaintDeparting,
+      });
+      this.applyCustomerFaceExpression(actor, faceExpr);
+
+      // Periodic Eye Blinking (skipped while showing delighted `^ ^` closed-arc happy eyes)
+      if (faceExpr !== 'delighted') {
+        const blinkCycle = (this.elapsed + actor.seed * 0.37) % 3.6;
+        const eyeScaleY = blinkCycle < 0.12 ? 0.1 : 1.0;
+        actor.leftEyeMesh.scale.y = eyeScaleY;
+        actor.rightEyeMesh.scale.y = eyeScaleY;
+      }
 
       // Phase 6 & 7: Customer Rainy-Day 3D Umbrella — open outdoors (z < -6.25), NEVER on Delivery Riders (they wear helmet + weather jacket!)
       const customerNeedsUmbrella =
@@ -15682,6 +16012,32 @@ export class KlasikCafeScene3D {
             actor.neckJoint.rotation.x = 0;
           }
         }
+      }
+
+      // Mirror live locomotion, breathing, torso sway & limb flex onto the exact `.js` Secret NPC asset rig
+      if (actor.secretAssetRig) {
+        updateSecretNpcAssetPose(actor.secretAssetRig, {
+          walkBlend: actor.walkBlend,
+          seatedBlend: actor.seatedBlend,
+          walkPhase: actor.walkPhase,
+          elapsed: this.elapsed,
+          seed: actor.seed,
+          pelvisYOffset: actor.pelvisGroup.position.y - 0.58,
+          pelvisRollZ: actor.pelvisGroup.rotation.z,
+          torsoYawY: actor.torsoGroup.rotation.y,
+          torsoRollZ: actor.torsoGroup.rotation.z,
+          neckPitchX: actor.neckJoint.rotation.x,
+          neckYawY: actor.neckJoint.rotation.y,
+          neckRollZ: actor.neckJoint.rotation.z,
+          leftHipX: actor.leftHipJoint.rotation.x,
+          rightHipX: actor.rightHipJoint.rotation.x,
+          leftKneeX: actor.leftKneeJoint.rotation.x,
+          rightKneeX: actor.rightKneeJoint.rotation.x,
+          leftShoulderX: actor.leftShoulderJoint.rotation.x,
+          leftElbowX: actor.leftElbowJoint.rotation.x,
+          rightShoulderX: actor.rightShoulderJoint.rotation.x,
+          rightElbowX: actor.rightElbowJoint.rotation.x,
+        });
       }
     });
   }

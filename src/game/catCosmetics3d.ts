@@ -181,6 +181,204 @@ function buildThuglifeGlassesMesh(profile: CatFitProfile): THREE.Group {
   return g;
 }
 
+function buildSunglassesMesh(profile: CatFitProfile): THREE.Group {
+  const g = new THREE.Group();
+  const hs = profile.headScale;
+  g.scale.set(hs * profile.eyeWidth, hs, hs);
+  g.position.set(0, 0.001, profile.furOffset + 0.009);
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x111318,
+    roughness: 0.28,
+    metalness: 0.25,
+  });
+  const lensMat = new THREE.MeshStandardMaterial({
+    color: 0x090b10,
+    roughness: 0.08,
+    metalness: 0.65,
+    emissive: 0x0f172a,
+    emissiveIntensity: 0.14,
+  });
+  const glareMat = new THREE.MeshStandardMaterial({
+    color: 0xe2e8f0,
+    roughness: 0.1,
+    metalness: 0.3,
+    transparent: true,
+    opacity: 0.36,
+  });
+  const rivetMat = new THREE.MeshStandardMaterial({
+    color: 0xd4d4d8,
+    metalness: 0.9,
+    roughness: 0.2,
+  });
+
+  // Wayfarer top brow bar + sculpted trapezoidal lenses
+  const browBar = new THREE.Mesh(new THREE.BoxGeometry(0.118, 0.011, 0.01), frameMat);
+  browBar.position.set(0, 0.0155, 0.002);
+  g.add(browBar);
+
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.0085, 0.009), frameMat);
+  bridge.position.set(0, 0.008, 0.004);
+  g.add(bridge);
+
+  [-1, 1].forEach((side) => {
+    const lx = side * 0.033;
+    const frameRim = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.031, 0.009), frameMat);
+    frameRim.position.set(lx, 0.002, 0.001);
+    frameRim.rotation.z = side * -0.05;
+    g.add(frameRim);
+
+    const lens = new THREE.Mesh(new THREE.BoxGeometry(0.039, 0.024, 0.004), lensMat);
+    lens.position.set(lx, 0.0015, 0.005);
+    lens.rotation.z = side * -0.05;
+    g.add(lens);
+
+    // Subtle angled glossy lens highlight
+    const glare = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.021, 0.0015), glareMat);
+    glare.position.set(lx - 0.009, 0.002, 0.0074);
+    glare.rotation.z = -0.34;
+    g.add(glare);
+
+    // Metallic corner temple rivet
+    const rivet = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 6, 6), rivetMat);
+    rivet.position.set(side * 0.053, 0.013, 0.0068);
+    g.add(rivet);
+
+    // Curved side temple arm wrapping behind ears
+    const armCurve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(side * 0.057, 0.012, 0.0),
+      new THREE.Vector3(side * 0.064, 0.011, -0.036),
+      new THREE.Vector3(side * 0.058, 0.003, -0.072)
+    );
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(armCurve, 8, 0.0036, 6, false), frameMat));
+  });
+
+  return g;
+}
+
+function buildNecktieMesh(
+  variant: 'necktie_black' | 'necktie_white' | 'necktie_saul_yellow',
+  profile: CatFitProfile
+): THREE.Group {
+  const g = new THREE.Group();
+  const s = profile.neckRadius;
+  g.scale.set(s, s, s);
+  g.position.set(0, -0.003, 0.005);
+
+  const isSaul = variant === 'necktie_saul_yellow';
+  const mainHex =
+    variant === 'necktie_black'
+      ? 0x18181b
+      : variant === 'necktie_white'
+      ? 0xf8fafc
+      : 0xeab308;
+  const knotHex =
+    variant === 'necktie_black'
+      ? 0x111114
+      : variant === 'necktie_white'
+      ? 0xe2e8f0
+      : 0xca8a04;
+
+  const tieMat = new THREE.MeshStandardMaterial({
+    color: mainHex,
+    roughness: isSaul ? 0.36 : 0.42,
+    metalness: 0.08,
+    emissive: isSaul ? 0x713f12 : 0x000000,
+    emissiveIntensity: isSaul ? 0.1 : 0,
+  });
+  const knotMat = new THREE.MeshStandardMaterial({
+    color: knotHex,
+    roughness: 0.4,
+    metalness: 0.08,
+  });
+  const collarShirtMat = new THREE.MeshStandardMaterial({
+    color: variant === 'necktie_white' ? 0x1e293b : 0xf8fafc,
+    roughness: 0.65,
+  });
+
+  // Crisp snug collar band wrapping cleanly around neck
+  const collarRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.058, 0.0085, 8, 22),
+    collarShirtMat
+  );
+  collarRing.rotation.x = Math.PI / 2 + 0.34;
+  g.add(collarRing);
+
+  // Subtle folded shirt collar tips framing the Windsor knot
+  [-1, 1].forEach((side) => {
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.015, 0.006), collarShirtMat);
+    tip.position.set(side * 0.022, -0.016, 0.057);
+    tip.rotation.set(-0.22, side * -0.26, side * 0.38);
+    g.add(tip);
+  });
+
+  // Sculpted trapezoidal Windsor knot
+  const knot = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.009, 0.02, 4), knotMat);
+  knot.rotation.y = Math.PI / 4;
+  knot.scale.set(1.15, 1.0, 0.62);
+  knot.position.set(0, -0.021, 0.062);
+  g.add(knot);
+
+  // Tapered main tie blade draped smoothly down the upper chest
+  const bladeShape = new THREE.Shape();
+  bladeShape.moveTo(-0.008, 0);
+  bladeShape.lineTo(0.008, 0);
+  bladeShape.lineTo(0.0185, -0.068);
+  bladeShape.lineTo(0, -0.086);
+  bladeShape.lineTo(-0.0185, -0.068);
+  bladeShape.closePath();
+
+  const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, {
+    depth: 0.0055,
+    bevelEnabled: true,
+    bevelThickness: 0.0018,
+    bevelSize: 0.0014,
+    bevelSegments: 2,
+  });
+  bladeGeo.translate(0, 0, -0.00275);
+  const blade = new THREE.Mesh(bladeGeo, tieMat);
+  blade.position.set(0, -0.027, 0.062);
+  blade.rotation.x = -0.18;
+  g.add(blade);
+
+  // Signature Saul Goodman bold diagonal burgundy/navy power stripes on the yellow tie
+  if (isSaul) {
+    const stripeDarkMat = new THREE.MeshStandardMaterial({
+      color: 0x7f1d1d,
+      roughness: 0.38,
+      metalness: 0.1,
+    });
+    const stripeGoldMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      roughness: 0.32,
+      metalness: 0.12,
+    });
+    const stripeOffsets = [-0.018, -0.036, -0.054, -0.069];
+    stripeOffsets.forEach((sy, idx) => {
+      const w = 0.017 + idx * 0.0042;
+      const stripe = new THREE.Mesh(
+        new THREE.BoxGeometry(w, 0.0048, 0.0092),
+        idx % 2 === 0 ? stripeDarkMat : stripeGoldMat
+      );
+      stripe.position.set(0, sy, 0.001);
+      stripe.rotation.z = 0.34;
+      blade.add(stripe);
+    });
+  } else {
+    // Subtle satin center-fold ridge on Black / White ties
+    const seamMat = new THREE.MeshStandardMaterial({
+      color: variant === 'necktie_black' ? 0x27272a : 0xdbeafe,
+      roughness: 0.3,
+      metalness: 0.15,
+    });
+    const clip = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.0038, 0.0095), seamMat);
+    clip.position.set(0, -0.044, 0.001);
+    blade.add(clip);
+  }
+
+  return g;
+}
+
 function buildGoldChainMesh(profile: CatFitProfile): THREE.Group {
   const g = new THREE.Group();
   const s = profile.neckRadius;
@@ -879,28 +1077,57 @@ function buildCatSkeletonHeadHood(
     color: palette.socketHex,
     roughness: 0.92,
   });
-  // Subtle contrasting bone-edge highlight for Obsidian Black variant so ribs & skull pop
+  // Subtle contrasting bone-edge & tooth highlight so Obsidian Black / Gray / Warm White skull features read cleanly
   const accentBoneMat =
     palette.boneHex === 0x232830
       ? new THREE.MeshStandardMaterial({ color: 0x525b68, roughness: 0.65, metalness: 0.1 })
       : boneMat;
+  const toothMat = new THREE.MeshStandardMaterial({
+    color:
+      palette.boneHex === 0x232830
+        ? 0x94a3b8
+        : palette.boneHex === 0xb0b7c3
+        ? 0xe2e8f0
+        : 0xffffff,
+    roughness: 0.68,
+    metalness: 0.04,
+  });
 
-  // Rounded feline skull cap leaving cat's real face 100% open and adorable
+  // 1. Rounded feline skull cranium cap leaving the cat's real face 100% open & adorable
   const cranium = new THREE.Mesh(
-    new THREE.SphereGeometry(0.084, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    new THREE.SphereGeometry(0.085, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
     boneMat
   );
-  cranium.scale.set(1.06, 0.92, 1.08);
-  cranium.rotation.x = -0.3;
+  cranium.scale.set(1.07, 0.92, 1.1);
+  cranium.rotation.x = -0.32;
   cranium.position.set(0, -0.006, -0.01);
   g.add(cranium);
 
-  // Cute feline skull crest & paired skeletal cat-ear frames perched cleanly on the crown
-  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.114, 0.028, 0.056), boneMat);
-  brow.position.set(0, 0.042, 0.026);
+  // 2. Sculpted upper brow ridge & projecting feline nasal bone / snout perched above the cat's eyes
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.118, 0.036, 0.066), boneMat);
+  brow.position.set(0, 0.043, 0.026);
   g.add(brow);
 
+  const snoutBone = new THREE.Mesh(new THREE.SphereGeometry(0.046, 16, 12), boneMat);
+  snoutBone.scale.set(1.08, 0.62, 1.32);
+  snoutBone.position.set(0, 0.038, 0.068);
+  g.add(snoutBone);
+
+  // Sculpted protruding nasal ridge bridge along top of feline snout
+  const nasalBridge = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.018, 0.062), accentBoneMat);
+  nasalBridge.position.set(0, 0.053, 0.066);
+  nasalBridge.rotation.x = 0.14;
+  g.add(nasalBridge);
+
+  // Central piriform nasal cavity + paired feline nostrils on the snout tip
+  const nasalCavity = new THREE.Mesh(new THREE.ConeGeometry(0.012, 0.018, 3), socketMat);
+  nasalCavity.position.set(0, 0.04, 0.118);
+  nasalCavity.rotation.z = Math.PI;
+  nasalCavity.rotation.x = -0.22;
+  g.add(nasalCavity);
+
   [-1, 1].forEach((side) => {
+    // Skeletal feline ear frames perched cleanly on the crown
     const earOuter = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.056, 4), boneMat);
     earOuter.position.set(side * 0.046, 0.068, 0.002);
     earOuter.rotation.z = -side * 0.22;
@@ -912,31 +1139,78 @@ function buildCatSkeletonHeadHood(
     earInner.rotation.z = -side * 0.22;
     g.add(earInner);
 
-    // Decorative skull eye-socket markings on upper brow
-    const eyeSocket = new THREE.Mesh(new THREE.SphereGeometry(0.013, 10, 8), socketMat);
-    eyeSocket.scale.set(1.05, 0.82, 0.55);
-    eyeSocket.position.set(side * 0.028, 0.042, 0.052);
+    // Recessed feline skull orbital eye sockets on upper brow
+    const eyeSocket = new THREE.Mesh(new THREE.SphereGeometry(0.0155, 12, 10), socketMat);
+    eyeSocket.scale.set(0.92, 1.05, 0.65);
+    eyeSocket.position.set(side * 0.038, 0.041, 0.048);
+    eyeSocket.rotation.y = side * 0.28;
     g.add(eyeSocket);
 
-    // Cheekbone strap anchoring skull hood neatly down to the collar
+    // Paired recessed nostril cavities flanking the nasal septum
+    const nostril = new THREE.Mesh(new THREE.SphereGeometry(0.0072, 8, 8), socketMat);
+    nostril.scale.set(0.68, 0.95, 1.2);
+    nostril.position.set(side * 0.016, 0.042, 0.116);
+    g.add(nostril);
+
+    // Zygomatic cheekbone-to-jaw hinge connecting skull temples solidly down into the lower mandible
     const strapCurve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(side * 0.074, 0.005, 0.002),
-      new THREE.Vector3(side * 0.08, -0.052, 0.01),
-      new THREE.Vector3(side * 0.056, -0.108, 0.006)
+      new THREE.Vector3(side * 0.075, 0.006, 0.004),
+      new THREE.Vector3(side * 0.083, -0.054, 0.013),
+      new THREE.Vector3(side * 0.06, -0.112, 0.008)
     );
-    g.add(new THREE.Mesh(new THREE.TubeGeometry(strapCurve, 10, 0.013, 8, false), shadeMat));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(strapCurve, 10, 0.015, 8, false), shadeMat));
   });
 
-  // Small feline skull nasal cutout in center of brow + stitched bone grin crest
-  const noseCut = new THREE.Mesh(new THREE.ConeGeometry(0.009, 0.015, 3), socketMat);
-  noseCut.position.set(0, 0.036, 0.055);
-  noseCut.rotation.z = Math.PI;
-  g.add(noseCut);
+  // 3. Upper feline alveolar tooth ridge lining the projecting snout bone (above cat's eyes)
+  const upperToothGeo = new THREE.ConeGeometry(0.0065, 0.0165, 5);
+  upperToothGeo.rotateX(Math.PI);
+  const upperToothArc: Array<[number, number, number]> = [
+    [-0.044, 0.06, 0.92],
+    [-0.032, 0.088, 1.18], // feline fang!
+    [-0.015, 0.11, 0.86],
+    [0, 0.118, 0.82],
+    [0.015, 0.11, 0.86],
+    [0.032, 0.088, 1.18], // feline fang!
+    [0.044, 0.06, 0.92],
+  ];
+  upperToothArc.forEach(([tx, tz, sc]) => {
+    const tooth = new THREE.Mesh(upperToothGeo, toothMat);
+    tooth.scale.set(1, sc, 1);
+    tooth.position.set(tx, 0.014 - (sc - 1) * 0.004, tz);
+    g.add(tooth);
+  });
 
-  const collarArc = new THREE.Mesh(new THREE.TorusGeometry(0.056, 0.009, 8, 18, Math.PI), accentBoneMat);
-  collarArc.rotation.x = Math.PI / 2 + 0.12;
-  collarArc.position.set(0, -0.106, 0.01);
-  g.add(collarArc);
+  // 4. Solid under-chin mandible gusset + curved U-shaped feline lower jawbone anchored to cheek hinges
+  const chinGusset = new THREE.Mesh(new THREE.BoxGeometry(0.082, 0.019, 0.064), shadeMat);
+  chinGusset.position.set(0, -0.112, 0.042);
+  chinGusset.rotation.x = -0.12;
+  g.add(chinGusset);
+
+  const lowerJawCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.06, -0.112, 0.008),
+    new THREE.Vector3(-0.054, -0.107, 0.058),
+    new THREE.Vector3(-0.026, -0.102, 0.089),
+    new THREE.Vector3(0, -0.1, 0.098),
+    new THREE.Vector3(0.026, -0.102, 0.089),
+    new THREE.Vector3(0.054, -0.107, 0.058),
+    new THREE.Vector3(0.06, -0.112, 0.008),
+  ]);
+  const lowerJawMesh = new THREE.Mesh(
+    new THREE.TubeGeometry(lowerJawCurve, 18, 0.014, 8, false),
+    accentBoneMat
+  );
+  g.add(lowerJawMesh);
+
+  // 6 carved lower mandible teeth seated directly on top of the lower jawbone
+  const lowerToothGeo = new THREE.ConeGeometry(0.0058, 0.014, 5);
+  [0.24, 0.35, 0.45, 0.55, 0.65, 0.76].forEach((t, idx) => {
+    const pt = lowerJawCurve.getPoint(t);
+    const tooth = new THREE.Mesh(lowerToothGeo, toothMat);
+    const fangBoost = idx === 1 || idx === 4 ? 1.15 : 0.92;
+    tooth.scale.set(1, fangBoost, 1);
+    tooth.position.set(pt.x, pt.y + 0.0145, pt.z);
+    g.add(tooth);
+  });
 
   return g;
 }
@@ -1033,6 +1307,8 @@ export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Gr
   const wrap = new THREE.Group();
   if (cosmeticId === 'glasses') {
     wrap.add(buildRoundGlassesMesh(profile));
+  } else if (cosmeticId === 'sunglasses') {
+    wrap.add(buildSunglassesMesh(profile));
   } else if (cosmeticId === 'thuglife_glasses') {
     wrap.add(buildThuglifeGlassesMesh(profile));
   } else if (cosmeticId === 'mustache_black') {
@@ -1047,6 +1323,12 @@ export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Gr
     wrap.add(buildGoldChainMesh(profile));
   } else if (cosmeticId === 'platinum_chain') {
     wrap.add(buildPlatinumChainMesh(profile));
+  } else if (
+    cosmeticId === 'necktie_black' ||
+    cosmeticId === 'necktie_white' ||
+    cosmeticId === 'necktie_saul_yellow'
+  ) {
+    wrap.add(buildNecktieMesh(cosmeticId, profile));
   } else if (cosmeticId === 'beret') {
     wrap.add(buildBeretMesh(profile));
   } else if (cosmeticId === 'top_hat_white') {
@@ -1097,11 +1379,16 @@ export function attachCatCosmeticsRig(
 
   const cosmeticMeshes = new Map<CatCosmeticId, THREE.Object3D[]>();
 
-  // 1. Eyewear (Glasses, Thuglife, Mustache x3, Monocle)
+  // 1. Eyewear (Glasses, Sunglasses, Thuglife, Mustache x3, Monocle)
   const glasses = buildRoundGlassesMesh(profile);
   glasses.visible = false;
   sockets.anchorEyes.add(glasses);
   cosmeticMeshes.set('glasses', [glasses]);
+
+  const sunglasses = buildSunglassesMesh(profile);
+  sunglasses.visible = false;
+  sockets.anchorEyes.add(sunglasses);
+  cosmeticMeshes.set('sunglasses', [sunglasses]);
 
   const thuglife = buildThuglifeGlassesMesh(profile);
   thuglife.visible = false;
@@ -1125,7 +1412,7 @@ export function attachCatCosmeticsRig(
   sockets.anchorEyes.add(monocle);
   cosmeticMeshes.set('monocle', [monocle]);
 
-  // 2. Neck (Gold Chain & Platinum Chain)
+  // 2. Neck (Gold Chain, Platinum Chain, Necktie x3)
   const goldChain = buildGoldChainMesh(profile);
   goldChain.visible = false;
   sockets.anchorNeck.add(goldChain);
@@ -1135,6 +1422,18 @@ export function attachCatCosmeticsRig(
   platinumChain.visible = false;
   sockets.anchorNeck.add(platinumChain);
   cosmeticMeshes.set('platinum_chain', [platinumChain]);
+
+  const necktieIds: Array<'necktie_black' | 'necktie_white' | 'necktie_saul_yellow'> = [
+    'necktie_black',
+    'necktie_white',
+    'necktie_saul_yellow',
+  ];
+  necktieIds.forEach((id) => {
+    const tie = buildNecktieMesh(id, profile);
+    tie.visible = false;
+    sockets.anchorNeck.add(tie);
+    cosmeticMeshes.set(id, [tie]);
+  });
 
   // 3. Headwear (Beret & Cat Top Hat x3)
   const beret = buildBeretMesh(profile);
@@ -1229,9 +1528,15 @@ export function attachCatCosmeticsRig(
       }
     });
 
-    // Hide cat's stock collar while Gold Chain or Platinum Chain is equipped so they don't overlap
+    // Hide cat's stock collar while Gold Chain, Platinum Chain, or Necktie is equipped so they don't overlap
     if (onToggleBaseCollar) {
-      onToggleBaseCollar(!activeIds.has('gold_chain') && !activeIds.has('platinum_chain'));
+      onToggleBaseCollar(
+        !activeIds.has('gold_chain') &&
+          !activeIds.has('platinum_chain') &&
+          !activeIds.has('necktie_black') &&
+          !activeIds.has('necktie_white') &&
+          !activeIds.has('necktie_saul_yellow')
+      );
     }
   };
 

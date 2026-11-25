@@ -5,6 +5,7 @@ export type CatCosmeticSlot = 'eyewear' | 'headwear' | 'neckwear' | 'body' | 'fu
 
 export type CatCosmeticId =
   | 'glasses'
+  | 'sunglasses'
   | 'thuglife_glasses'
   | 'mustache_black'
   | 'mustache_brown'
@@ -12,6 +13,9 @@ export type CatCosmeticId =
   | 'monocle'
   | 'gold_chain'
   | 'platinum_chain'
+  | 'necktie_black'
+  | 'necktie_white'
+  | 'necktie_saul_yellow'
   | 'beret'
   | 'top_hat_white'
   | 'top_hat_black'
@@ -35,7 +39,7 @@ export interface CatCosmeticSpec {
   swatchHex?: string;
   meshColorHex: number;
   description: string;
-  variantGroup?: 'cloth' | 'top_hat' | 'mustache' | 'skeleton';
+  variantGroup?: 'cloth' | 'top_hat' | 'mustache' | 'skeleton' | 'necktie';
   /** If set, item stays completely invisible in the shop until this cosmetic ID is unlocked. */
   secretRequiresCosmetic?: CatCosmeticId;
 }
@@ -261,6 +265,16 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     description: 'Classic round wire-frame cafe glasses resting on the nose bridge.',
   },
   {
+    id: 'sunglasses',
+    name: 'Cat Sunglasses',
+    slot: 'eyewear',
+    unlockType: 'shop',
+    cost: 20,
+    swatchHex: '#111827',
+    meshColorHex: 0x111827,
+    description: 'Sleek dark-tinted wayfarer sunglasses with glossy lens reflection.',
+  },
+  {
     id: 'thuglife_glasses',
     name: 'Thuglife Cat Glasses',
     slot: 'eyewear',
@@ -334,6 +348,39 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     meshColorHex: 0xe5e7eb,
     description:
       'Mirror-polished heavy platinum Cuban-link chain & faceted pendant unlocked with the Golden Espresso Machine ($50,000).',
+  },
+  {
+    id: 'necktie_black',
+    name: 'Cat Necktie — Black',
+    slot: 'neckwear',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#18181b',
+    meshColorHex: 0x18181b,
+    variantGroup: 'necktie',
+    description: 'Tailored jet-black silk necktie with a crisp Windsor knot.',
+  },
+  {
+    id: 'necktie_white',
+    name: 'Cat Necktie — White',
+    slot: 'neckwear',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#f8fafc',
+    meshColorHex: 0xf8fafc,
+    variantGroup: 'necktie',
+    description: 'Clean ivory-white formal silk necktie for distinguished cafe cats.',
+  },
+  {
+    id: 'necktie_saul_yellow',
+    name: 'Cat Necktie — Saul Yellow',
+    slot: 'neckwear',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#eab308',
+    meshColorHex: 0xeab308,
+    variantGroup: 'necktie',
+    description: 'Bold Saul Goodman-inspired golden-yellow striped power necktie.',
   },
   {
     id: 'beret',

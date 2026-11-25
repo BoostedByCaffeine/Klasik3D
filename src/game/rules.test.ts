@@ -101,13 +101,24 @@ import {
   getSceneryDrinkTempBias,
   canStartOrderPrep,
   canServePreparedItem,
+  resolveCustomerFaceExpression,
   resolveSecretNpcAppearance,
+  resolveSecretNpcModelVariant,
   canSpawnSecretNpc,
   advanceSecretNpcNameIdx,
   ALL_SCENERY_IDS,
   ALL_PATRON_OUTFIT_IDS,
   getScenerySpec,
 } from './rules';
+import {
+  FAVELA_DANCER_WALK_START_X,
+  FAVELA_DANCER_WALK_END_X,
+  FAVELA_DANCER_PHASE_DURATIONS,
+} from './brazilianLRLRLRLRDance';
+import {
+  buildSecretNpcAssetRig,
+  updateSecretNpcAssetPose,
+} from './secretNpc3d';
 import {
   CAT_COSMETICS_CATALOG,
   BASE_CAT_COSMETIC_IDS,
@@ -1481,7 +1492,7 @@ test('Expansion Phase 3: New cats Amby ($1,500), Gigi ($500 kitten), and Secret 
 
 test('Expansion Phase 4: Adaptive Cat Cosmetics, CAT_FIT_PROFILES, Dinosaur Costume 9/9 Meta-Unlock, and full_suit override work cleanly', () => {
   assert.equal(BASE_CAT_COSMETIC_IDS.length, 9);
-  assert.equal(CAT_COSMETICS_CATALOG.length, 21);
+  assert.equal(CAT_COSMETICS_CATALOG.length, 25);
   assert.equal(BERET_REVENUE_MILESTONE, 10000);
   assert.equal(MONOCLE_REVENUE_MILESTONE, 50000);
 
@@ -2757,6 +2768,202 @@ test('Radio & External Audio Overhaul: strictly allows PH & US channels only, in
   assert.equal(sp.title, 'Coffee Shop Jazz');
   assert.equal(sp.artist, 'Cozy Beats');
   assert.equal(sp.sourceApp, 'Spotify Web');
+});
+
+test('Optimization Batch: Favela dancer walks cleanly from far off-view with extended sidewalk travel', () => {
+  assert.ok(FAVELA_DANCER_WALK_START_X <= -20, 'Dancer must enter from far off-view left');
+  assert.ok(FAVELA_DANCER_WALK_END_X >= 20, 'Dancer must exit far off-view right');
+  assert.ok(FAVELA_DANCER_PHASE_DURATIONS.walk_in >= 9, 'Walk-in duration must match natural stride');
+  assert.ok(FAVELA_DANCER_PHASE_DURATIONS.walk_out >= 9, 'Walk-out duration must match natural stride');
+});
+
+test('Optimization Batch: Customer dynamic facial expressions react to mood meter and show ^ ^ + D smile when served above 60 mood', () => {
+  // Live mood meter states while ordering
+  assert.equal(resolveCustomerFaceExpression({ state: 'ordering', moodPercent: 88 }), 'happy');
+  assert.equal(resolveCustomerFaceExpression({ state: 'ordering', moodPercent: 50 }), 'neutral');
+  assert.equal(resolveCustomerFaceExpression({ state: 'ordering', moodPercent: 25 }), 'worried');
+  assert.equal(resolveCustomerFaceExpression({ state: 'ordering', moodPercent: 10 }), 'angry');
+
+  // Served above 60 mood -> delighted (^ ^ eyes + "D" smile)
+  assert.equal(
+    resolveCustomerFaceExpression({ state: 'seated', moodPercent: 80, servedMood: 61 }),
+    'delighted'
+  );
+  assert.equal(
+    resolveCustomerFaceExpression({ state: 'departing', moodPercent: 75, servedMood: 85 }),
+    'delighted'
+  );
+  // Served at or below 60 mood -> regular happy / neutral
+  assert.equal(
+    resolveCustomerFaceExpression({ state: 'seated', moodPercent: 60, servedMood: 60 }),
+    'happy'
+  );
+  assert.equal(
+    resolveCustomerFaceExpression({ state: 'seated', moodPercent: 30, servedMood: 30 }),
+    'neutral'
+  );
+  // Expired or wrong-order complaint -> angry
+  assert.equal(
+    resolveCustomerFaceExpression({ state: 'departing', moodPercent: 0, moodExpired: true }),
+    'angry'
+  );
+  assert.equal(
+    resolveCustomerFaceExpression({ state: 'departing', moodPercent: 90, complaintDeparting: true }),
+    'angry'
+  );
+
+  // End-to-end serve stamps servedMood > 60 on the customer order
+  let state = createInitialGameState();
+  state = acceptCustomerOrder(state, 'cust-initial-1');
+  state.customers = state.customers.map((c) =>
+    c.id === 'cust-initial-1' ? { ...c, mood: 82, patience: 82 } : c
+  );
+  state.currentCup = {
+    hasGrounds: true,
+    isTamped: true,
+    hasEspresso: true,
+    hasSteepedTea: false,
+    hasSteamedMilk: true,
+    hasIce: false,
+    syrup: 'none',
+    createdAt: Date.now(),
+  };
+  const served = serveCurrentCupToCustomer(state);
+  const maya = served.customers.find((c) => c.id === 'cust-initial-1');
+  assert.ok(maya);
+  assert.equal(maya.servedMood, 82);
+  assert.equal(
+    resolveCustomerFaceExpression({
+      state: maya.state,
+      moodPercent: maya.mood,
+      servedMood: maya.servedMood,
+    }),
+    'delighted'
+  );
+});
+
+test('Optimization Batch: Cat Shop Sunglasses ($20) and 3 Necktie variants ($50 each incl. Saul Goodman yellow) purchase, equip, and persist', () => {
+  const shadesSpec = getCatCosmeticSpec('sunglasses');
+  assert.equal(shadesSpec.slot, 'eyewear');
+  assert.equal(shadesSpec.cost, 20);
+
+  const tieIds = ['necktie_black', 'necktie_white', 'necktie_saul_yellow'] as const;
+  for (const id of tieIds) {
+    const spec = getCatCosmeticSpec(id);
+    assert.equal(spec.slot, 'neckwear');
+    assert.equal(spec.cost, 50);
+    assert.equal(spec.variantGroup, 'necktie');
+  }
+
+  let state = createInitialGameState();
+  state.cash = 500;
+  state = purchaseCatCosmetic(state, 'sunglasses');
+  assert.equal(state.cash, 480);
+  assert.ok(state.unlockedCosmetics.includes('sunglasses'));
+
+  for (const id of tieIds) {
+    state = purchaseCatCosmetic(state, id);
+    assert.ok(state.unlockedCosmetics.includes(id));
+  }
+  assert.equal(state.cash, 480 - 150);
+
+  state = equipCatCosmetic(state, 'champy', 'sunglasses', 'eyewear');
+  state = equipCatCosmetic(state, 'champy', 'necktie_saul_yellow', 'neckwear');
+  const restored = importSaveJson(exportSaveJson(state));
+  assert.ok(restored);
+  assert.equal(restored.catLoadouts.champy?.eyewear, 'sunglasses');
+  assert.equal(restored.catLoadouts.champy?.neckwear, 'necktie_saul_yellow');
+});
+
+test('Optimization Batch: Secret NPC variant routing enforces helmet for delivery, exclusive hike for Mt. Everest, and all 4 exact .js assets partition & animate cleanly', async () => {
+  // Delivery always uses helmet (even on Mt. Everest)
+  assert.equal(
+    resolveSecretNpcModelVariant({ activeScenery: 'mt_everest', isDeliveryRider: true, wearsCap: false }),
+    'helmet'
+  );
+  assert.equal(
+    resolveSecretNpcModelVariant({ activeScenery: 'busy_street', isDeliveryRider: true, wearsCap: true }),
+    'helmet'
+  );
+
+  // Mt. Everest non-delivery ALWAYS uses hike exclusively
+  assert.equal(
+    resolveSecretNpcModelVariant({ activeScenery: 'mt_everest', isDeliveryRider: false, wearsCap: true }),
+    'hike'
+  );
+  assert.equal(
+    resolveSecretNpcModelVariant({ activeScenery: 'mt_everest', isDeliveryRider: false, wearsCap: false }),
+    'hike'
+  );
+
+  // Other sceneries NEVER use hike; alternate cleanly between hat and default
+  for (const scenery of ALL_SCENERY_IDS) {
+    if (scenery === 'mt_everest') continue;
+    assert.equal(
+      resolveSecretNpcModelVariant({ activeScenery: scenery, isDeliveryRider: false, wearsCap: true }),
+      'hat'
+    );
+    assert.equal(
+      resolveSecretNpcModelVariant({ activeScenery: scenery, isDeliveryRider: false, wearsCap: false }),
+      'default'
+    );
+  }
+
+  // Verify all 4 imported `.js` modules build, partition into articulated joints, and animate cleanly
+  const prevDoc = (globalThis as { document?: unknown }).document;
+  if (!prevDoc) {
+    (globalThis as { document?: unknown }).document = {
+      createElementNS: () => ({
+        addEventListener() {},
+        removeEventListener() {},
+        src: '',
+      }),
+    };
+  }
+  try {
+    for (const variant of ['default', 'hat', 'helmet', 'hike'] as const) {
+      const rig = await buildSecretNpcAssetRig(variant);
+      assert.equal(rig.variant, variant);
+      assert.ok(rig.meshCounts.total >= 80, `${variant} should contain >= 80 meshes, got ${rig.meshCounts.total}`);
+      assert.ok(rig.meshCounts.neck > 0, `${variant} missing head/neck meshes`);
+      assert.ok(rig.meshCounts.torso > 0, `${variant} missing torso meshes`);
+      assert.ok(rig.meshCounts.leftUpperArm + rig.meshCounts.leftForearm > 0, `${variant} missing left arm meshes`);
+      assert.ok(rig.meshCounts.rightUpperArm + rig.meshCounts.rightForearm > 0, `${variant} missing right arm meshes`);
+      assert.ok(rig.meshCounts.leftThigh + rig.meshCounts.leftShin > 0, `${variant} missing left leg meshes`);
+      assert.ok(rig.meshCounts.rightThigh + rig.meshCounts.rightShin > 0, `${variant} missing right leg meshes`);
+
+      // Drive a lively walk pose & verify joints respond without NaN
+      updateSecretNpcAssetPose(rig, {
+        walkBlend: 1,
+        seatedBlend: 0,
+        walkPhase: 1.2,
+        elapsed: 4.5,
+        seed: 7,
+        pelvisYOffset: 0.02,
+        pelvisRollZ: 0.03,
+        torsoYawY: -0.05,
+        torsoRollZ: -0.02,
+        neckPitchX: 0.04,
+        neckYawY: 0.08,
+        neckRollZ: 0,
+        leftHipX: 0.42,
+        rightHipX: -0.42,
+        leftKneeX: 0.3,
+        rightKneeX: 0.05,
+        leftShoulderX: -0.35,
+        leftElbowX: -0.25,
+        rightShoulderX: 0.35,
+        rightElbowX: -0.25,
+      });
+      assert.ok(Number.isFinite(rig.pelvisPivot.position.y));
+      assert.ok(Math.abs(rig.leftHipPivot.rotation.x) > 0.1);
+      assert.ok(Math.abs(rig.torsoPivot.rotation.y) > 0.01);
+    }
+  } finally {
+    if (!prevDoc) {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  }
 });
 
 

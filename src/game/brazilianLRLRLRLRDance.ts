@@ -127,12 +127,15 @@ export type FavelaDancerPhase =
   | 'walk_out'
   | 'cooldown';
 
+export const FAVELA_DANCER_WALK_START_X = -23.5;
+export const FAVELA_DANCER_WALK_END_X = 24.5;
+
 export const FAVELA_DANCER_PHASE_DURATIONS: Record<FavelaDancerPhase, number> = {
-  walk_in: 3.4,
+  walk_in: 10.2,
   place_boombox: 1.15,
   dancing: FAVELA_DANCE_PHRASE_DURATION_SEC * FAVELA_DANCE_PHRASE_COUNT, // 11.30s (4 full phrases)
   pickup_boombox: 1.15,
-  walk_out: 3.6,
+  walk_out: 10.8,
   cooldown: 22.0,
 };
 
@@ -562,69 +565,112 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
 
   const boneRefs: Record<MixamoBoneName, THREE.Group> = {} as Record<MixamoBoneName, THREE.Group>;
 
-  // 1. Hips
+  const jerseyBlueMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.48 });
+  const sockStripeMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.55 });
+  const laceMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.45 });
+  const smileMat = new THREE.MeshStandardMaterial({ color: 0xfefce8, roughness: 0.32 });
+
+  // 1. Hips (sculpted athletic pelvis & relaxed shorts waistband with drawstring)
   const hips = new THREE.Group();
   hips.name = 'Hips';
   hips.position.set(0, hipHeight, 0);
   rigRoot.add(hips);
   boneRefs.Hips = hips;
 
-  const pelvisMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.145, 0.15, 14), shortsMat);
-  pelvisMesh.scale.set(1.12, 1, 0.76);
+  const pelvisMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.174, 0.184, 0.185, 16), shortsMat);
+  pelvisMesh.scale.set(1.14, 1, 0.84);
+  pelvisMesh.position.y = -0.01;
   hips.add(pelvisMesh);
 
-  // 2. Spine -> Spine1 -> Spine2 -> Neck -> Head
+  const waistband = new THREE.Mesh(new THREE.TorusGeometry(0.168, 0.016, 8, 20), jerseyAccentMat);
+  waistband.rotation.x = Math.PI / 2;
+  waistband.scale.set(1.12, 0.82, 1);
+  waistband.position.y = 0.082;
+  hips.add(waistband);
+
+  // 2. Spine -> Spine1 -> Spine2 -> Neck -> Head (draped volumetric Rio football jersey!)
   const spine = new THREE.Group();
   spine.name = 'Spine';
   spine.position.set(0, 0.1, 0);
   hips.add(spine);
   boneRefs.Spine = spine;
-  const waistMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.148, 0.142, 0.14, 14), jerseyMat);
-  waistMesh.scale.set(1.08, 1, 0.75);
-  waistMesh.position.y = 0.07;
+
+  const waistMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.172, 0.182, 0.16, 16), jerseyMat);
+  waistMesh.scale.set(1.14, 1, 0.84);
+  waistMesh.position.y = 0.068;
   spine.add(waistMesh);
+
+  const jerseyHem = new THREE.Mesh(new THREE.TorusGeometry(0.178, 0.012, 8, 20), jerseyAccentMat);
+  jerseyHem.rotation.x = Math.PI / 2;
+  jerseyHem.scale.set(1.13, 0.84, 1);
+  jerseyHem.position.y = -0.008;
+  spine.add(jerseyHem);
 
   const spine1 = new THREE.Group();
   spine1.name = 'Spine1';
   spine1.position.set(0, 0.14, 0);
   spine.add(spine1);
   boneRefs.Spine1 = spine1;
-  const midTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.16, 14), jerseyMat);
-  midTorso.scale.set(1.12, 1, 0.76);
-  midTorso.position.y = 0.08;
+
+  const midTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.194, 0.172, 0.175, 16), jerseyMat);
+  midTorso.scale.set(1.15, 1, 0.85);
+  midTorso.position.y = 0.082;
   spine1.add(midTorso);
 
-  const chestStripe = new THREE.Mesh(new THREE.CylinderGeometry(0.172, 0.162, 0.052, 14), jerseyAccentMat);
-  chestStripe.scale.set(1.12, 1, 0.77);
+  const chestStripe = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.197, 0.186, 0.055, 16),
+    jerseyAccentMat
+  );
+  chestStripe.scale.set(1.15, 1, 0.86);
   chestStripe.position.y = 0.095;
   spine1.add(chestStripe);
+
+  // Classic Brazil crest patch + subtle chest number badge
+  const crestBadge = new THREE.Mesh(new THREE.CircleGeometry(0.026, 10), jerseyBlueMat);
+  crestBadge.position.set(0.082, 0.135, 0.166);
+  spine1.add(crestBadge);
 
   const spine2 = new THREE.Group();
   spine2.name = 'Spine2';
   spine2.position.set(0, 0.16, 0);
   spine1.add(spine2);
   boneRefs.Spine2 = spine2;
-  const upperChest = new THREE.Mesh(new THREE.CylinderGeometry(0.184, 0.168, 0.16, 14), jerseyMat);
-  upperChest.scale.set(1.15, 1, 0.76);
-  upperChest.position.y = 0.08;
+
+  const upperChest = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.192, 0.165, 16), jerseyMat);
+  upperChest.scale.set(1.18, 1, 0.84);
+  upperChest.position.y = 0.075;
   spine2.add(upperChest);
 
-  const vCollar = new THREE.Mesh(new THREE.TorusGeometry(0.082, 0.012, 8, 16), jerseyAccentMat);
-  vCollar.rotation.x = Math.PI / 2 + 0.14;
-  vCollar.position.set(0, 0.155, 0.015);
+  // Rounded trapezius & upper shoulder yoke so torso connects organically into the arms
+  const shoulderYoke = new THREE.Mesh(new THREE.CapsuleGeometry(0.088, 0.28, 8, 14), jerseyMat);
+  shoulderYoke.rotation.z = Math.PI / 2;
+  shoulderYoke.scale.set(1, 1, 0.92);
+  shoulderYoke.position.set(0, 0.132, 0);
+  spine2.add(shoulderYoke);
+
+  const vCollar = new THREE.Mesh(new THREE.TorusGeometry(0.086, 0.015, 8, 18), jerseyAccentMat);
+  vCollar.rotation.x = Math.PI / 2 + 0.16;
+  vCollar.position.set(0, 0.162, 0.016);
   spine2.add(vCollar);
-  const chain = new THREE.Mesh(new THREE.TorusGeometry(0.092, 0.0045, 6, 16), goldMat);
-  chain.rotation.x = Math.PI / 2 + 0.34;
-  chain.position.set(0, 0.132, 0.032);
+
+  const chain = new THREE.Mesh(new THREE.TorusGeometry(0.102, 0.0065, 6, 18), goldMat);
+  chain.rotation.x = Math.PI / 2 + 0.36;
+  chain.position.set(0, 0.132, 0.044);
   spine2.add(chain);
+
+  const chainPendant = new THREE.Mesh(new THREE.OctahedronGeometry(0.014, 0), goldMat);
+  chainPendant.scale.set(0.9, 1.2, 0.45);
+  chainPendant.position.set(0, 0.068, 0.166);
+  spine2.add(chainPendant);
 
   const neck = new THREE.Group();
   neck.name = 'Neck';
   neck.position.set(0, 0.17, 0);
   spine2.add(neck);
   boneRefs.Neck = neck;
-  const neckCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.06, 0.09, 10), skinMat);
-  neckCyl.position.y = 0.04;
+
+  const neckCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.072, 0.105, 12), skinMat);
+  neckCyl.position.y = 0.046;
   neck.add(neckCyl);
 
   const head = new THREE.Group();
@@ -633,56 +679,109 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
   neck.add(head);
   boneRefs.Head = head;
 
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.142, 16, 14), skinMat);
-  skull.scale.set(0.92, 1.08, 0.96);
-  skull.position.y = 0.145;
+  // Sculpted expressive head with jaw, ears, nose, confident grin & sleek street shades
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.15, 18, 16), skinMat);
+  skull.scale.set(0.94, 1.08, 0.98);
+  skull.position.y = 0.15;
   head.add(skull);
 
-  const shadesMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.12, metalness: 0.72 });
-  const shades = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.044, 0.03), shadesMat);
-  shades.position.set(0, 0.16, 0.134);
-  head.add(shades);
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.112, 14, 10), skinMat);
+  jaw.scale.set(0.92, 0.78, 0.96);
+  jaw.position.set(0, 0.078, 0.022);
+  head.add(jaw);
 
-  const hairCrown = new THREE.Mesh(
-    new THREE.SphereGeometry(0.15, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.56),
+  [-0.142, 0.142].forEach((ex) => {
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), skinMat);
+    ear.scale.set(0.48, 1.08, 0.76);
+    ear.position.set(ex, 0.142, -0.004);
+    head.add(ear);
+  });
+
+  const nose = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.022, 6, 8), skinMat);
+  nose.rotation.x = 0.25;
+  nose.position.set(0, 0.136, 0.148);
+  head.add(nose);
+
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.006, 8, 14, Math.PI), smileMat);
+  smile.rotation.z = Math.PI;
+  smile.position.set(0, 0.102, 0.138);
+  head.add(smile);
+
+  const shadesMat = new THREE.MeshStandardMaterial({
+    color: 0x090b10,
+    roughness: 0.1,
+    metalness: 0.78,
+  });
+  const shadesFrame = new THREE.Mesh(new THREE.BoxGeometry(0.205, 0.05, 0.026), shadesMat);
+  shadesFrame.position.set(0, 0.168, 0.136);
+  head.add(shadesFrame);
+  [-0.105, 0.105].forEach((sx) => {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.016, 0.145), shadesMat);
+    arm.position.set(sx, 0.172, 0.072);
+    head.add(arm);
+  });
+
+  // Tapered Rio curly high-top fade hair
+  const hairFade = new THREE.Mesh(
+    new THREE.SphereGeometry(0.156, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
     hairMat
   );
-  hairCrown.scale.set(0.98, 0.95, 1.02);
-  hairCrown.position.set(0, 0.162, -0.008);
-  head.add(hairCrown);
-  [
-    [-0.06, 0.275, 0.03],
-    [0.0, 0.292, 0.02],
-    [0.06, 0.275, 0.03],
-    [-0.045, 0.27, -0.05],
-    [0.045, 0.27, -0.05],
-  ].forEach(([cx, cy, cz]) => {
-    const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.052, 8, 8), hairMat);
+  hairFade.scale.set(0.99, 0.96, 1.03);
+  hairFade.position.set(0, 0.17, -0.01);
+  hairFade.rotation.x = -0.14;
+  head.add(hairFade);
+
+  const hairCurls: Array<[number, number, number, number]> = [
+    [-0.072, 0.278, 0.036, 0.056],
+    [0.0, 0.298, 0.032, 0.064],
+    [0.072, 0.278, 0.036, 0.056],
+    [-0.056, 0.285, -0.048, 0.058],
+    [0.056, 0.285, -0.048, 0.058],
+    [0.0, 0.265, -0.095, 0.056],
+    [-0.095, 0.242, -0.02, 0.048],
+    [0.095, 0.242, -0.02, 0.048],
+  ];
+  hairCurls.forEach(([cx, cy, cz, r]) => {
+    const tuft = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), hairMat);
     tuft.position.set(cx, cy, cz);
     head.add(tuft);
   });
 
-  // 3. Arms
+  // 3. Sculpted Athletic Arms (broad draped sleeves, volumetric biceps/forearms, sweatband, sculpted hands)
   const buildMixamoArm = (prefix: 'Left' | 'Right', sideSign: -1 | 1) => {
     const shoulder = new THREE.Group();
     shoulder.name = `${prefix}Shoulder`;
-    shoulder.position.set(sideSign * 0.17, 0.135, 0);
+    shoulder.position.set(sideSign * 0.178, 0.135, 0);
     spine2.add(shoulder);
     boneRefs[`${prefix}Shoulder`] = shoulder;
 
     const arm = new THREE.Group();
     arm.name = `${prefix}Arm`;
-    arm.position.set(sideSign * 0.065, -0.01, 0);
+    arm.position.set(sideSign * 0.068, -0.01, 0);
     shoulder.add(arm);
     boneRefs[`${prefix}Arm`] = arm;
 
-    const deltoid = new THREE.Mesh(new THREE.SphereGeometry(0.054, 10, 8), jerseyMat);
+    const deltoid = new THREE.Mesh(new THREE.SphereGeometry(0.078, 12, 10), jerseyMat);
+    deltoid.scale.set(1.04, 1.08, 0.98);
     arm.add(deltoid);
-    const sleeveMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.045, 0.14, 10), jerseyMat);
-    sleeveMesh.position.y = -0.07;
+
+    const sleeveMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.076, 0.068, 0.155, 12),
+      jerseyMat
+    );
+    sleeveMesh.position.y = -0.076;
     arm.add(sleeveMesh);
-    const upperSkin = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.039, 0.12, 10), skinMat);
-    upperSkin.position.y = -0.19;
+
+    const sleeveTrim = new THREE.Mesh(new THREE.TorusGeometry(0.068, 0.0085, 6, 16), jerseyAccentMat);
+    sleeveTrim.rotation.x = Math.PI / 2;
+    sleeveTrim.position.y = -0.152;
+    arm.add(sleeveTrim);
+
+    const upperSkin = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.054, 0.09, 6, 10),
+      skinMat
+    );
+    upperSkin.position.y = -0.205;
     arm.add(upperSkin);
 
     const foreArm = new THREE.Group();
@@ -690,39 +789,70 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
     foreArm.position.set(0, -0.25, 0);
     arm.add(foreArm);
     boneRefs[`${prefix}ForeArm`] = foreArm;
-    const lowerMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.031, 0.23, 10), skinMat);
-    lowerMesh.position.y = -0.115;
+
+    const elbowCap = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), skinMat);
+    foreArm.add(elbowCap);
+
+    const lowerMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.052, 0.041, 0.225, 12),
+      skinMat
+    );
+    lowerMesh.position.y = -0.112;
     foreArm.add(lowerMesh);
+
+    if (prefix === 'Left') {
+      const sweatband = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.046, 0.045, 0.042, 12),
+        jerseyAccentMat
+      );
+      sweatband.position.y = -0.19;
+      foreArm.add(sweatband);
+    }
 
     const hand = new THREE.Group();
     hand.name = `${prefix}Hand`;
     hand.position.set(0, -0.235, 0);
     foreArm.add(hand);
     boneRefs[`${prefix}Hand`] = hand;
-    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.072, 0.028), skinMat);
-    palm.position.y = -0.035;
+
+    const palm = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 10), skinMat);
+    palm.scale.set(0.88, 1.16, 0.65);
+    palm.position.y = -0.036;
     hand.add(palm);
+
+    const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.013, 0.026, 4, 6), skinMat);
+    thumb.position.set(-sideSign * 0.032, -0.025, 0.022);
+    thumb.rotation.z = sideSign * 0.55;
+    hand.add(thumb);
   };
   buildMixamoArm('Left', -1);
   buildMixamoArm('Right', 1);
 
-  // 4. Legs
+  // 4. Sculpted Athletic Legs (relaxed baggy shorts, fuller thighs & calves, striped crew socks, chunky street sneakers)
   const buildMixamoLeg = (prefix: 'Left' | 'Right', sideSign: -1 | 1) => {
     const upLeg = new THREE.Group();
     upLeg.name = `${prefix}UpLeg`;
-    upLeg.position.set(sideSign * 0.105, -0.02, 0);
+    upLeg.position.set(sideSign * 0.112, -0.02, 0);
     hips.add(upLeg);
     boneRefs[`${prefix}UpLeg`] = upLeg;
 
+    const hipCap = new THREE.Mesh(new THREE.SphereGeometry(0.096, 12, 10), shortsMat);
+    upLeg.add(hipCap);
+
     const shortLeg = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.078, 0.07, 0.24, 10),
+      new THREE.CylinderGeometry(0.102, 0.096, 0.265, 14),
       shortsMat
     );
-    shortLeg.position.y = -0.12;
+    shortLeg.position.y = -0.132;
     upLeg.add(shortLeg);
 
+    const shortTrim = new THREE.Mesh(new THREE.TorusGeometry(0.096, 0.008, 6, 16), jerseyMat);
+    shortTrim.rotation.x = Math.PI / 2;
+    shortTrim.position.y = -0.262;
+    upLeg.add(shortTrim);
+
     const thighSkin = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.058, 0.05, thighLen - 0.22, 10),
+      new THREE.CylinderGeometry(0.074, 0.064, thighLen - 0.22, 12),
       skinMat
     );
     thighSkin.position.y = -0.22 - (thighLen - 0.22) * 0.5;
@@ -734,13 +864,34 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
     upLeg.add(leg);
     boneRefs[`${prefix}Leg`] = leg;
 
-    const calf = new THREE.Mesh(new THREE.CylinderGeometry(0.049, 0.039, shinLen - 0.08, 10), skinMat);
-    calf.position.y = -(shinLen - 0.08) * 0.5;
-    leg.add(calf);
+    const kneeCap = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), skinMat);
+    leg.add(kneeCap);
 
-    const sock = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.04, 0.09, 10), sneakerMat);
-    sock.position.y = -(shinLen - 0.045);
+    // Tapered muscular calf contour
+    const upperCalf = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.065, 0.058, (shinLen - 0.1) * 0.55, 12),
+      skinMat
+    );
+    upperCalf.position.y = -(shinLen - 0.1) * 0.275;
+    leg.add(upperCalf);
+
+    const lowerCalf = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.058, 0.047, (shinLen - 0.1) * 0.45, 12),
+      skinMat
+    );
+    lowerCalf.position.y = -(shinLen - 0.1) * 0.775;
+    leg.add(lowerCalf);
+
+    const sock = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.048, 0.115, 12), sneakerMat);
+    sock.position.y = -(shinLen - 0.052);
     leg.add(sock);
+
+    const sockStripe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0535, 0.0535, 0.018, 12),
+      sockStripeMat
+    );
+    sockStripe.position.y = -(shinLen - 0.092);
+    leg.add(sockStripe);
 
     const foot = new THREE.Group();
     foot.name = `${prefix}Foot`;
@@ -748,12 +899,26 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
     leg.add(foot);
     boneRefs[`${prefix}Foot`] = foot;
 
-    const sneakerUpper = new THREE.Mesh(new THREE.BoxGeometry(0.096, 0.058, 0.195), sneakerMat);
-    sneakerUpper.position.set(0, -footHeight * 0.45, 0.042);
-    foot.add(sneakerUpper);
+    const sneakerHeel = new THREE.Mesh(new THREE.BoxGeometry(0.112, 0.066, 0.14), sneakerMat);
+    sneakerHeel.position.set(0, -footHeight * 0.44, 0.015);
+    foot.add(sneakerHeel);
 
-    const sneakerSole = new THREE.Mesh(new THREE.BoxGeometry(0.102, 0.024, 0.205), soleMat);
-    sneakerSole.position.set(0, -footHeight + 0.012, 0.042);
+    const toeCap = new THREE.Mesh(new THREE.SphereGeometry(0.056, 12, 10), sneakerMat);
+    toeCap.scale.set(1.0, 0.58, 1.38);
+    toeCap.position.set(0, -footHeight * 0.54, 0.095);
+    foot.add(toeCap);
+
+    const sneakerStripe = new THREE.Mesh(new THREE.BoxGeometry(0.116, 0.022, 0.065), jerseyAccentMat);
+    sneakerStripe.position.set(0, -footHeight * 0.46, 0.036);
+    foot.add(sneakerStripe);
+
+    const tongue = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.02, 0.068), laceMat);
+    tongue.position.set(0, -footHeight * 0.16, 0.055);
+    tongue.rotation.x = 0.28;
+    foot.add(tongue);
+
+    const sneakerSole = new THREE.Mesh(new THREE.BoxGeometry(0.118, 0.028, 0.228), soleMat);
+    sneakerSole.position.set(0, -footHeight + 0.014, 0.048);
     foot.add(sneakerSole);
   };
   buildMixamoLeg('Left', -1);
@@ -885,11 +1050,13 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
     boneRefs.LeftForeArm.rotation.set(-0.45, 0, 0);
   };
 
-  const GROUND_BOX_POS = new THREE.Vector3(0.66, 0, 0.04);
-  const WALK_START_X = -6.6;
-  const WALK_END_X = 6.8;
+  const GROUND_BOX_POS = new THREE.Vector3(0.68, 0, 0.06);
+  const WALK_START_X = FAVELA_DANCER_WALK_START_X;
+  const WALK_END_X = FAVELA_DANCER_WALK_END_X;
+  const DANCE_FACING_Y = 0.14;
 
   let lifecycle = createInitialFavelaDancerLifecycle();
+  let walkCyclePhase = 0;
 
   return {
     root,
@@ -926,33 +1093,48 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
       boombox.visible = true;
 
       if (lifecycle.phase === 'walk_in') {
-        const smoothU = u * u * (3 - 2 * u);
-        const curX = WALK_START_X * (1 - smoothU);
+        // Constant natural street-walk cadence from far off-view (-23.5) decelerating smoothly in the final 10%
+        const decelStart = 0.88;
+        const posU =
+          u < decelStart
+            ? (u / decelStart) * 0.94
+            : 0.94 + 0.06 * Math.sin(((u - decelStart) / (1 - decelStart)) * (Math.PI / 2));
+        const curX = WALK_START_X * (1 - posU);
         npcMover.position.set(curX, 0, 0);
-        // Face direction of walk (+X -> rotation.y = Math.PI/2), smoothly turning toward storefront at end
-        const turnT = u > 0.84 ? (u - 0.84) / 0.16 : 0;
-        npcMover.rotation.y = (Math.PI / 2) * (1 - turnT);
-        applyWalkCarryPose(elapsed * 7.8);
+        // Face +X along sidewalk until arrival, then smoothly pivot to face cafe storefront
+        const turnT = u > 0.9 ? (u - 0.9) / 0.1 : 0;
+        const smoothTurn = turnT * turnT * (3 - 2 * turnT);
+        npcMover.rotation.y = Math.PI / 2 + (DANCE_FACING_Y - Math.PI / 2) * smoothTurn;
+
+        const strideSpeed = u < decelStart ? 7.6 : 7.6 * Math.max(0.25, 1 - (u - decelStart) / (1 - decelStart));
+        walkCyclePhase += dt * strideSpeed;
+        applyWalkCarryPose(walkCyclePhase);
 
         // Boombox carried comfortably beside his right hand while walking
-        const handBob = Math.sin(elapsed * 7.8) * 0.025;
-        boombox.position.set(curX + 0.14 * turnT, 0.56 + handBob, 0.28 * (1 - turnT) + 0.24 * turnT);
-        boombox.rotation.set(0, npcMover.rotation.y - Math.PI / 2, 0.05 * Math.sin(elapsed * 7.8));
+        const handBob = Math.sin(walkCyclePhase) * 0.022;
+        boombox.position.set(
+          curX + 0.16 * smoothTurn,
+          0.56 + handBob,
+          0.3 * (1 - smoothTurn) + 0.24 * smoothTurn
+        );
+        boombox.rotation.set(0, npcMover.rotation.y - Math.PI / 2, 0.04 * Math.sin(walkCyclePhase));
         boomboxLedMat.emissiveIntensity = isNight ? 0.45 : 0.2;
         return;
       }
 
       if (lifecycle.phase === 'place_boombox') {
         npcMover.position.set(0, 0, 0);
-        npcMover.rotation.y = 0;
-        // Down (0..0.55) -> release boombox -> stand up (0.55..1.0)
-        const crouch = u < 0.55 ? Math.sin((u / 0.55) * (Math.PI / 2)) : Math.cos(((u - 0.55) / 0.45) * (Math.PI / 2));
+        npcMover.rotation.y = DANCE_FACING_Y;
+        const crouch =
+          u < 0.55
+            ? Math.sin((u / 0.55) * (Math.PI / 2))
+            : Math.cos(((u - 0.55) / 0.45) * (Math.PI / 2));
         applyBendBoomboxPose(crouch);
 
         const placeT = Math.min(1, u / 0.55);
         const easePlace = placeT * placeT * (3 - 2 * placeT);
         boombox.position.set(
-          0.14 + (GROUND_BOX_POS.x - 0.14) * easePlace,
+          0.16 + (GROUND_BOX_POS.x - 0.16) * easePlace,
           0.56 * (1 - easePlace),
           0.24 + (GROUND_BOX_POS.z - 0.24) * easePlace
         );
@@ -963,7 +1145,7 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
 
       if (lifecycle.phase === 'dancing') {
         npcMover.position.set(0, 0, 0);
-        npcMover.rotation.y = 0;
+        npcMover.rotation.y = DANCE_FACING_Y;
         boombox.position.copy(GROUND_BOX_POS);
         boombox.rotation.set(0, -0.28, 0);
 
@@ -987,7 +1169,12 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
             }
           } else if (isMuted && !audio.paused) {
             audio.pause();
-          } else if (!isMuted && audioStartedForVisit && audio.paused && lifecycle.phaseTime < phaseDur - 0.3) {
+          } else if (
+            !isMuted &&
+            audioStartedForVisit &&
+            audio.paused &&
+            lifecycle.phaseTime < phaseDur - 0.3
+          ) {
             audio.play().catch(() => {});
           }
           if (audio.currentTime >= FAVELA_DANCE_LOOP_END_SEC - 0.05) {
@@ -1021,14 +1208,17 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
       if (lifecycle.phase === 'pickup_boombox') {
         stopAudio();
         npcMover.position.set(0, 0, 0);
-        npcMover.rotation.y = 0;
-        const crouch = u < 0.45 ? Math.sin((u / 0.45) * (Math.PI / 2)) : Math.cos(((u - 0.45) / 0.55) * (Math.PI / 2));
+        npcMover.rotation.y = DANCE_FACING_Y;
+        const crouch =
+          u < 0.45
+            ? Math.sin((u / 0.45) * (Math.PI / 2))
+            : Math.cos(((u - 0.45) / 0.55) * (Math.PI / 2));
         applyBendBoomboxPose(crouch);
 
         const liftT = u < 0.45 ? 0 : (u - 0.45) / 0.55;
         const easeLift = liftT * liftT * (3 - 2 * liftT);
         boombox.position.set(
-          GROUND_BOX_POS.x + (0.14 - GROUND_BOX_POS.x) * easeLift,
+          GROUND_BOX_POS.x + (0.16 - GROUND_BOX_POS.x) * easeLift,
           0.56 * easeLift,
           GROUND_BOX_POS.z + (0.24 - GROUND_BOX_POS.z) * easeLift
         );
@@ -1040,17 +1230,29 @@ export function createBrazilianStreetDancerRig(): BrazilianStreetDancerHandle {
         return;
       }
 
-      // walk_out
-      const smoothU = u * u * (3 - 2 * u);
-      const curX = WALK_END_X * smoothU;
+      // walk_out — smoothly accelerate & walk all the way past the far-right street edge (+24.5) out of sight
+      const accelEnd = 0.1;
+      const posU =
+        u < accelEnd
+          ? 0.05 * (1 - Math.cos((u / accelEnd) * (Math.PI / 2)))
+          : 0.05 + 0.95 * ((u - accelEnd) / (1 - accelEnd));
+      const curX = WALK_END_X * posU;
       npcMover.position.set(curX, 0, 0);
-      const turnT = u < 0.16 ? u / 0.16 : 1;
-      npcMover.rotation.y = (Math.PI / 2) * turnT;
-      applyWalkCarryPose(elapsed * 7.8);
+      const turnT = u < 0.09 ? u / 0.09 : 1;
+      const smoothTurn = turnT * turnT * (3 - 2 * turnT);
+      npcMover.rotation.y = DANCE_FACING_Y + (Math.PI / 2 - DANCE_FACING_Y) * smoothTurn;
 
-      const handBob = Math.sin(elapsed * 7.8) * 0.025;
-      boombox.position.set(curX + 0.14 * (1 - turnT), 0.56 + handBob, 0.24 * (1 - turnT) + 0.28 * turnT);
-      boombox.rotation.set(0, npcMover.rotation.y - Math.PI / 2, 0.05 * Math.sin(elapsed * 7.8));
+      const strideSpeed = u < accelEnd ? 3.5 + 4.1 * (u / accelEnd) : 7.6;
+      walkCyclePhase += dt * strideSpeed;
+      applyWalkCarryPose(walkCyclePhase);
+
+      const handBob = Math.sin(walkCyclePhase) * 0.022;
+      boombox.position.set(
+        curX + 0.16 * (1 - smoothTurn),
+        0.56 + handBob,
+        0.24 * (1 - smoothTurn) + 0.3 * smoothTurn
+      );
+      boombox.rotation.set(0, npcMover.rotation.y - Math.PI / 2, 0.04 * Math.sin(walkCyclePhase));
       boomboxLedMat.emissiveIntensity = isNight ? 0.35 : 0.15;
     },
   };

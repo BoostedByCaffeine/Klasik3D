@@ -552,10 +552,13 @@ export const SECRET_NPC_DIALOGUES: readonly string[] = [
   'Saw the Miata parked clean and had to swing by! Take it easy on my order.',
 ];
 
+export type SecretNpcModelVariant = 'default' | 'hat' | 'helmet' | 'hike';
+
 export interface SecretNpcAppearance {
   wearsCap: boolean;
   hoodUp: boolean;
   wearsCharcoalTee: boolean;
+  modelVariant?: SecretNpcModelVariant;
 }
 
 export function normalizeSecretNpcNameIdx(idx: unknown): number {
@@ -573,25 +576,54 @@ export function advanceSecretNpcNameIdx(idx: number): number {
 }
 
 /**
- * Resolves the Secret NPC's outfit & headwear:
- * - ~40% chance to wear brown-caramel Polo RL baseball cap (`#A66B3C` + `#1B2845` pony).
- * - Hood always stays neatly down behind the windbreaker collar (never pulled over the head).
- * - On non-winter Clear days, ~25% chance to wear the dark charcoal tee (`#595B60`) instead of the windbreaker.
+ * Resolves which exact imported `.js` 3D module variant the Secret NPC uses:
+ * - Delivery orders -> `'helmet'` (`secretnpchelmet.js`)
+ * - Mt. Everest scenery (exclusive!) -> `'hike'` (`secretnpchike.js`)
+ * - All other sceneries -> randomly alternates `'hat'` (`secretnpchat.js`) & `'default'` (`secretnpc.js`)
+ */
+export function resolveSecretNpcModelVariant(params: {
+  activeScenery?: SceneryId;
+  isDeliveryRider?: boolean;
+  wearsCap?: boolean;
+}): SecretNpcModelVariant {
+  if (params.isDeliveryRider) {
+    return 'helmet';
+  }
+  if (params.activeScenery === 'mt_everest') {
+    return 'hike';
+  }
+  return params.wearsCap ? 'hat' : 'default';
+}
+
+/**
+ * Resolves the Secret NPC's outfit, headwear, and exact 3D model variant:
+ * - Randomly alternates (~50/50) between default (`secretnpc.js`) and Polo RL cap (`secretnpchat.js`)
+ *   in regular sceneries.
+ * - Uses `secretnpchelmet.js` for delivery orders.
+ * - Uses `secretnpchike.js` exclusively & by default in the Mt. Everest scenery.
  */
 export function resolveSecretNpcAppearance(
   climateState: ClimateState,
   isRaining: boolean,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  activeScenery?: SceneryId,
+  isDeliveryRider = false
 ): SecretNpcAppearance {
   const isWinterOrSnow = climateState === 'winter';
-  const wearsCap = rng() < 0.4;
+  const wearsCap = rng() < 0.5;
   const isClearNonWinter = !isWinterOrSnow && !isRaining;
   const wearsCharcoalTee = isClearNonWinter && rng() < 0.25;
   const hoodUp = false;
+  const modelVariant = resolveSecretNpcModelVariant({
+    activeScenery,
+    isDeliveryRider,
+    wearsCap,
+  });
   return {
     wearsCap,
     hoodUp,
     wearsCharcoalTee,
+    modelVariant,
   };
 }
 

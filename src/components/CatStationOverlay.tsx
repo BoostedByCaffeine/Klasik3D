@@ -102,13 +102,18 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
       isCatCosmeticVisibleInShop(item, gameState.unlockedCosmetics)
   );
 
-  const swatchConfig: { label: string; group: 'cloth' | 'top_hat' | 'mustache' | 'skeleton' } | null =
+  const swatchConfig: {
+    label: string;
+    group: 'cloth' | 'top_hat' | 'mustache' | 'skeleton' | 'necktie';
+  } | null =
     wardrobeTab === 'body'
       ? { label: 'Knit Colors:', group: 'cloth' }
       : wardrobeTab === 'headwear'
       ? { label: 'Top Hat:', group: 'top_hat' }
       : wardrobeTab === 'eyewear'
       ? { label: 'Mustache:', group: 'mustache' }
+      : wardrobeTab === 'neckwear'
+      ? { label: 'Necktie:', group: 'necktie' }
       : wardrobeTab === 'full_suit'
       ? { label: 'Skeleton:', group: 'skeleton' }
       : null;

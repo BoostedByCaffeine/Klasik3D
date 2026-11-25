@@ -3329,6 +3329,28 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     hasTank: boolean;
   }> = [];
 
+  const FAVELA_ALLEY_STAIR_XS = [-18.5, -5.2, 6.2, 26.8] as const;
+  const isHouseBlockingAlleyCorridor = (hx: number, hz: number, w: number, d: number): boolean => {
+    const halfW = w * 0.5;
+    const halfD = d * 0.5;
+    // Check front, center, and back Z planes of the house against each winding Selarón staircase corridor
+    const sampleZs = [hz - halfD, hz, hz + halfD];
+    for (let s = 0; s < FAVELA_ALLEY_STAIR_XS.length; s++) {
+      const sx = FAVELA_ALLEY_STAIR_XS[s];
+      for (let zi = 0; zi < sampleZs.length; zi++) {
+        const sz = sampleZs[zi];
+        if (sz > -16.2 || sz < -36.0) continue;
+        const stepApprox = Math.max(0, Math.min(18, (-17.6 - sz) / 0.922));
+        const stairCenterX = sx + Math.sin(stepApprox * 0.38) * 1.15;
+        // Clear 1.45u half-corridor around the 1.5u-wide staircase so downhill walkers NEVER touch a wall!
+        if (Math.abs(hx - stairCenterX) < halfW + 1.45) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   for (let tier = 0; tier < 7; tier++) {
     for (let col = 0; col < 25; col++) {
       const idx = tier * 25 + col;
@@ -3340,6 +3362,8 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
       const w = 2.75 + (idx % 3) * 0.62;
       const h = 2.45 + (idx % 4) * 0.54;
       const d = 2.55 + (idx % 2) * 0.52;
+      // Carve clean open downhill alleyway corridors around every Selarón mosaic staircase!
+      if (isHouseBlockingAlleyCorridor(hx, hz, w, d)) continue;
       // Exact terrain elevation snap at downhill corner + anti-burial floor elevation
       const hy = computeFavelaHouseFloorY(hx, hz, d);
       houseSpecs.push({
@@ -3420,24 +3444,33 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   plinths.userData.alwaysVisibleBackdrop = true;
   root.add(plinths, houses, roofs, waterTanks);
 
-  // Vibrant Selarón-style colorful mosaic staircases (Escadarias) snapped cleanly onto hillside elevation
+  // Vibrant Selarón-style colorful mosaic staircases (Escadarias) centered in open carved downhill alleys
   const mosaicMats = [
     new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.65 }),
     new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.65 }),
     new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.65 }),
     new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.65 }),
   ];
-  [-18.5, -5.2, 6.2, 26.8].forEach((sx, sIdx) => {
+  const alleyCurbMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.88 });
+  FAVELA_ALLEY_STAIR_XS.forEach((sx, sIdx) => {
     for (let step = 0; step < 18; step++) {
+      const stepT = step / 18;
+      const tz = -17.6 + (-34.2 - -17.6) * stepT;
       const tx = sx + Math.sin(step * 0.38) * 1.15;
-      const tz = -18.0 - step * 0.95;
       const ty = getFavelaHillHeight(tx, tz) + 0.2;
       const tread = new THREE.Mesh(
-        new THREE.BoxGeometry(1.5, 0.55, 0.78),
+        new THREE.BoxGeometry(1.65, 0.56, 0.96),
         mosaicMats[(sIdx + step) % mosaicMats.length]
       );
       tread.position.set(tx, ty, tz);
       root.add(tread);
+
+      // Low plastered side curbs framing the open stepped alleyway cleanly
+      [-0.92, 0.92].forEach((sideOffset) => {
+        const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.78, 0.98), alleyCurbMat);
+        curb.position.set(tx + sideOffset, ty + 0.14, tz);
+        root.add(curb);
+      });
     }
   });
 
@@ -3717,10 +3750,10 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
 
   interface FavelaAlleyWalker {
     group: THREE.Group;
-    leftLeg: THREE.Mesh;
-    rightLeg: THREE.Mesh;
-    leftArm: THREE.Mesh;
-    rightArm: THREE.Mesh;
+    leftHip: THREE.Group;
+    rightHip: THREE.Group;
+    leftShoulder: THREE.Group;
+    rightShoulder: THREE.Group;
     alleyBaseX: number;
     t: number;
     dir: 1 | -1;
@@ -3728,48 +3761,86 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     phase: number;
   }
   const favelaAlleyWalkers: FavelaAlleyWalker[] = [];
-  const favSkinMat = new THREE.MeshStandardMaterial({ color: 0xc6865c, roughness: 0.72 });
-  const favHairMat = new THREE.MeshStandardMaterial({ color: 0x171412, roughness: 0.88 });
-  const alleyWalkerSpecs: Array<{ alleyX: number; startT: number; dir: 1 | -1; speed: number; shirt: number; shorts: number }> = [
-    { alleyX: -18.5, startT: 0.82, dir: -1, speed: 0.085, shirt: 0xfacc15, shorts: 0x1d4ed8 },
-    { alleyX: -5.2, startT: 0.18, dir: 1, speed: 0.075, shirt: 0x16a34a, shorts: 0x1e293b },
-    { alleyX: 6.2, startT: 0.65, dir: -1, speed: 0.09, shirt: 0xec4899, shorts: 0x0f172a },
-    { alleyX: -5.2, startT: 0.92, dir: -1, speed: 0.072, shirt: 0x38bdf8, shorts: 0x334155 },
+  const favSkinMat = new THREE.MeshStandardMaterial({ color: 0xc6865c, roughness: 0.68 });
+  const favHairMat = new THREE.MeshStandardMaterial({ color: 0x171412, roughness: 0.84 });
+  const favShoeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.45 });
+  const alleyWalkerSpecs: Array<{
+    alleyX: number;
+    startT: number;
+    dir: 1 | -1;
+    speed: number;
+    shirt: number;
+    shorts: number;
+  }> = [
+    { alleyX: -18.5, startT: 0.82, dir: -1, speed: 0.082, shirt: 0xfacc15, shorts: 0x1d4ed8 },
+    { alleyX: -5.2, startT: 0.18, dir: 1, speed: 0.074, shirt: 0x16a34a, shorts: 0x1e293b },
+    { alleyX: 6.2, startT: 0.65, dir: -1, speed: 0.086, shirt: 0xec4899, shorts: 0x0f172a },
+    { alleyX: -5.2, startT: 0.9, dir: -1, speed: 0.07, shirt: 0x38bdf8, shorts: 0x334155 },
   ];
   alleyWalkerSpecs.forEach((ws, idx) => {
     const wg = new THREE.Group();
-    const sMat = new THREE.MeshStandardMaterial({ color: ws.shirt, roughness: 0.78 });
-    const pMat = new THREE.MeshStandardMaterial({ color: ws.shorts, roughness: 0.84 });
+    const sMat = new THREE.MeshStandardMaterial({ color: ws.shirt, roughness: 0.72 });
+    const pMat = new THREE.MeshStandardMaterial({ color: ws.shorts, roughness: 0.82 });
 
-    const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.048, 0.68, 6), pMat);
-    leftLeg.position.set(-0.09, 0.34, 0);
-    const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.048, 0.68, 6), pMat);
-    rightLeg.position.set(0.09, 0.34, 0);
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.5, 0.2), sMat);
-    torso.position.y = 0.96;
-    const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.44, 5), favSkinMat);
-    leftArm.position.set(-0.23, 0.94, 0);
-    const rightArm = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.44, 5), favSkinMat);
-    rightArm.position.set(0.23, 0.94, 0);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 8, 7), favSkinMat);
-    head.position.y = 1.35;
+    const buildAlleyLeg = (sx: number): THREE.Group => {
+      const hip = new THREE.Group();
+      hip.position.set(sx, 0.76, 0);
+      const shortMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.074, 0.28, 8), pMat);
+      shortMesh.position.y = -0.14;
+      const calfMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.044, 0.42, 8), favSkinMat);
+      calfMesh.position.y = -0.49;
+      const shoeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.06, 0.17), favShoeMat);
+      shoeMesh.position.set(0, -0.73, 0.03);
+      hip.add(shortMesh, calfMesh, shoeMesh);
+      return hip;
+    };
+
+    const leftHip = buildAlleyLeg(-0.098);
+    const rightHip = buildAlleyLeg(0.098);
+
+    const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.152, 0.14, 10), pMat);
+    pelvis.scale.set(1.12, 1, 0.78);
+    pelvis.position.y = 0.78;
+
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.148, 0.48, 10), sMat);
+    torso.scale.set(1.12, 1, 0.76);
+    torso.position.y = 1.07;
+
+    const buildAlleyArm = (sx: number): THREE.Group => {
+      const sh = new THREE.Group();
+      sh.position.set(sx, 1.26, 0);
+      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.052, 0.16, 8), sMat);
+      sleeve.position.y = -0.08;
+      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.036, 0.32, 8), favSkinMat);
+      fore.position.y = -0.3;
+      sh.add(sleeve, fore);
+      return sh;
+    };
+    const leftShoulder = buildAlleyArm(-0.22);
+    const rightShoulder = buildAlleyArm(0.22);
+
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.058, 0.08, 8), favSkinMat);
+    neck.position.y = 1.33;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 10, 8), favSkinMat);
+    head.scale.set(0.94, 1.08, 0.96);
+    head.position.y = 1.47;
     const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(0.142, 7, 5, 0, Math.PI * 2, 0, Math.PI * 0.56),
+      new THREE.SphereGeometry(0.142, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.56),
       favHairMat
     );
-    hair.position.set(0, 1.37, -0.01);
+    hair.position.set(0, 1.49, -0.01);
 
-    wg.add(leftLeg, rightLeg, torso, leftArm, rightArm, head, hair);
+    wg.add(leftHip, rightHip, pelvis, torso, leftShoulder, rightShoulder, neck, head, hair);
     wg.userData.outdoorOnly = true;
     wg.userData.noMerge = true;
     favelaOutdoorGroup.add(wg);
 
     favelaAlleyWalkers.push({
       group: wg,
-      leftLeg,
-      rightLeg,
-      leftArm,
-      rightArm,
+      leftHip,
+      rightHip,
+      leftShoulder,
+      rightShoulder,
       alleyBaseX: ws.alleyX,
       t: ws.startT,
       dir: ws.dir,
@@ -3779,9 +3850,10 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   });
 
   // Dedicated Brazilian Favela Street Dancer (20-bone Mixamo rig running exact L-R-L-RLR-L-R-L-R 70 BPM clip)
+  // Root rotation stays 0 so walk-in/walk-out stays strictly aligned along the sidewalk (dance facing handled internally!)
   const streetDancer = createBrazilianStreetDancerRig();
   streetDancer.root.position.set(-1.6, 0.08, -16.85);
-  streetDancer.root.rotation.y = 0.14;
+  streetDancer.root.rotation.y = 0;
   favelaOutdoorGroup.add(streetDancer.root);
 
   const ctx = addSurrounding360Context(root, 'brazilian_favela');
@@ -3844,11 +3916,11 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
         const ahead = interpolateAlleyStepY(lookT, w.alleyBaseX);
         w.group.position.set(curr.x, curr.y, curr.z);
         w.group.rotation.y = Math.atan2(ahead.x - curr.x, ahead.z - curr.z);
-        const stride = Math.sin(elapsed * 6.5 + w.phase) * 0.42;
-        w.leftLeg.rotation.x = stride;
-        w.rightLeg.rotation.x = -stride;
-        w.leftArm.rotation.x = -stride * 0.75;
-        w.rightArm.rotation.x = stride * 0.75;
+        const stride = Math.sin(elapsed * 6.5 + w.phase) * 0.44;
+        w.leftHip.rotation.x = stride;
+        w.rightHip.rotation.x = -stride;
+        w.leftShoulder.rotation.x = -stride * 0.72;
+        w.rightShoulder.rotation.x = stride * 0.72;
       }
     },
   };

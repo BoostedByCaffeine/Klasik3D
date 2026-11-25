@@ -463,9 +463,9 @@ export function buildFrontRightTeapotGroup(
 }
 
 /**
- * Builds 6 rich multi-layered stylized semi-realistic hairstyles for indoor customers so they
- * read as natural, distinct individuals rather than plain sphere caps.
- * Returned group is cleanly toggleable when hats/helmets/berets/beanies are worn.
+ * Builds 6 refined, skull-conformed stylized hairstyles for indoor customers so every
+ * silhouette frames the face cleanly without floating lumps, weird spheres, or temple gaps.
+ * Matches headMesh (Sphere 0.162 scaled 0.93 x 1.09 x 0.96 at y = 0.194).
  */
 export function buildStylizedCustomerHairstyle(
   styleVariant: number,
@@ -474,129 +474,192 @@ export function buildStylizedCustomerHairstyle(
   const hairGroup = new THREE.Group();
   hairGroup.name = `customer_hair_style_${styleVariant}`;
 
-  // Base contoured skull volume (tilted gently back so brows & expressive eyes stay crisp)
+  // Tightly conformed base skull cap hugging the cranium strictly ABOVE the eyebrows (y >= 0.275 in front)
   const baseCap = new THREE.Mesh(
-    new THREE.SphereGeometry(0.168, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    new THREE.SphereGeometry(0.167, 22, 16, 0, Math.PI * 2, 0, Math.PI * 0.44),
     hairMat
   );
-  baseCap.scale.set(0.99, 1.03, 1.03);
-  baseCap.position.set(0, 0.214, -0.008);
-  baseCap.rotation.x = -0.22;
+  baseCap.scale.set(0.955, 1.08, 0.99);
+  baseCap.position.set(0, 0.212, -0.01);
+  baseCap.rotation.x = -0.24;
   hairGroup.add(baseCap);
 
-  // Contoured nape coverage so the back of the head never looks bald
+  // Seamless back-of-head & nape coverage hugging the lower occiput (-Z hemisphere: phi = PI .. 2*PI in SphereGeometry)
   const napeBack = new THREE.Mesh(
-    new THREE.SphereGeometry(0.156, 14, 10, Math.PI * 0.58, Math.PI * 0.84, Math.PI * 0.34, Math.PI * 0.42),
+    new THREE.SphereGeometry(
+      0.164,
+      18,
+      12,
+      Math.PI * 1.06,
+      Math.PI * 0.88,
+      Math.PI * 0.28,
+      Math.PI * 0.48
+    ),
     hairMat
   );
-  napeBack.position.set(0, 0.195, -0.01);
+  napeBack.scale.set(0.95, 1.07, 0.99);
+  napeBack.position.set(0, 0.198, -0.008);
   hairGroup.add(napeBack);
+
+  // Subtle tapered sideburns tucking cleanly in front of the ears
+  [-1, 1].forEach((side) => {
+    const temple = new THREE.Mesh(new THREE.CapsuleGeometry(0.016, 0.052, 5, 8), hairMat);
+    temple.scale.set(0.55, 1.0, 1.15);
+    temple.position.set(side * 0.146, 0.218, 0.012);
+    temple.rotation.z = side * 0.08;
+    hairGroup.add(temple);
+  });
 
   const variant = ((styleVariant % 6) + 6) % 6;
 
   if (variant === 0) {
-    // 0: High messy bun + softly swept framing bangs
-    const bunCore = new THREE.Mesh(new THREE.SphereGeometry(0.068, 14, 12), hairMat);
-    bunCore.scale.set(1.08, 0.9, 1.02);
-    bunCore.position.set(0, 0.382, -0.048);
+    // 0: Neat high bun with sleek swept hairline & fabric scrunchie
+    const bunCore = new THREE.Mesh(new THREE.SphereGeometry(0.062, 16, 12), hairMat);
+    bunCore.scale.set(1.06, 0.88, 1.02);
+    bunCore.position.set(0, 0.378, -0.058);
     hairGroup.add(bunCore);
 
-    const bunWrap = new THREE.Mesh(new THREE.TorusGeometry(0.056, 0.014, 8, 16), hairMat);
-    bunWrap.rotation.x = Math.PI / 2 - 0.18;
-    bunWrap.position.set(0, 0.354, -0.042);
-    hairGroup.add(bunWrap);
+    const scrunchie = new THREE.Mesh(
+      new THREE.TorusGeometry(0.048, 0.012, 8, 18),
+      new THREE.MeshStandardMaterial({ color: 0x9f1239, roughness: 0.58 })
+    );
+    scrunchie.rotation.x = Math.PI / 2 - 0.32;
+    scrunchie.position.set(0, 0.35, -0.048);
+    hairGroup.add(scrunchie);
 
-    [-0.082, 0.082].forEach((sx) => {
-      const tendril = new THREE.Mesh(new THREE.CapsuleGeometry(0.018, 0.095, 6, 8), hairMat);
-      tendril.position.set(sx, 0.225, 0.095);
-      tendril.rotation.set(0.18, 0, sx < 0 ? 0.28 : -0.28);
-      hairGroup.add(tendril);
-    });
+    // Smooth face-framing side-swept bang hugging the upper forehead hairline
+    const frontSweep = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), hairMat);
+    frontSweep.scale.set(0.114, 0.032, 0.052);
+    frontSweep.position.set(0.018, 0.314, 0.108);
+    frontSweep.rotation.set(0.22, 0.12, -0.2);
+    hairGroup.add(frontSweep);
   } else if (variant === 1) {
-    // 1: Textured side-parted modern layered crop
-    const sweeps: Array<[number, number, number, number, number, number, number]> = [
-      [-0.055, 0.335, 0.048, 0.058, 0.045, 0.098, 0.26],
-      [0.025, 0.348, 0.042, 0.072, 0.046, 0.105, -0.18],
-      [0.088, 0.312, 0.022, 0.048, 0.04, 0.086, -0.35],
-      [-0.02, 0.294, 0.118, 0.065, 0.026, 0.052, 0.14],
-    ];
-    for (const [x, y, z, sx, sy, sz, rz] of sweeps) {
-      const lock = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), hairMat);
-      lock.scale.set(sx, sy, sz);
-      lock.position.set(x, y, z);
-      lock.rotation.z = rz;
-      hairGroup.add(lock);
-    }
-  } else if (variant === 2) {
-    // 2: Layered chin-length wavy bob with side-swept bangs
-    [-0.144, 0.144].forEach((sx) => {
-      const sideWave = new THREE.Mesh(new THREE.CapsuleGeometry(0.044, 0.165, 8, 10), hairMat);
-      sideWave.scale.set(0.75, 1.0, 1.25);
-      sideWave.position.set(sx, 0.155, -0.01);
-      sideWave.rotation.z = sx < 0 ? 0.08 : -0.08;
-      hairGroup.add(sideWave);
-    });
-    const backBob = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.162, 0.18, 16, 1, false, Math.PI * 0.55, Math.PI * 0.9), hairMat);
-    backBob.position.set(0, 0.14, -0.015);
-    hairGroup.add(backBob);
+    // 1: Modern side-parted textured short crop (clean layered quiff wave)
+    const crownVolume = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), hairMat);
+    crownVolume.scale.set(0.142, 0.062, 0.145);
+    crownVolume.position.set(0.014, 0.344, 0.004);
+    crownVolume.rotation.z = -0.1;
+    hairGroup.add(crownVolume);
 
-    const sweptBang = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), hairMat);
-    sweptBang.scale.set(0.11, 0.036, 0.062);
-    sweptBang.position.set(0.028, 0.286, 0.114);
-    sweptBang.rotation.z = -0.24;
-    hairGroup.add(sweptBang);
+    const quiffWave = new THREE.Mesh(new THREE.CapsuleGeometry(0.034, 0.104, 6, 10), hairMat);
+    quiffWave.scale.set(1.0, 0.8, 1.04);
+    quiffWave.rotation.set(0.16, 0.18, Math.PI / 2 - 0.22);
+    quiffWave.position.set(0.012, 0.332, 0.094);
+    hairGroup.add(quiffWave);
+
+    const sideSweep = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), hairMat);
+    sideSweep.scale.set(0.07, 0.032, 0.074);
+    sideSweep.position.set(-0.088, 0.312, 0.042);
+    sideSweep.rotation.z = 0.32;
+    hairGroup.add(sideSweep);
+  } else if (variant === 2) {
+    // 2: Sleek chin-length contoured bob hugging cheeks cleanly with high soft bangs
+    const bobWrap = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        0.155,
+        0.163,
+        0.205,
+        22,
+        1,
+        false,
+        Math.PI * 0.28,
+        Math.PI * 1.44
+      ),
+      hairMat
+    );
+    bobWrap.scale.set(0.97, 1.0, 1.02);
+    bobWrap.position.set(0, 0.156, -0.014);
+    hairGroup.add(bobWrap);
+
+    // Smooth curved lower bob hem curling subtly inward along the jaw
+    const bobHem = new THREE.Mesh(
+      new THREE.TorusGeometry(0.152, 0.022, 10, 22, Math.PI * 1.42),
+      hairMat
+    );
+    bobHem.rotation.x = Math.PI / 2;
+    bobHem.rotation.z = Math.PI * 0.79;
+    bobHem.scale.set(0.98, 1.02, 1);
+    bobHem.position.set(0, 0.062, -0.012);
+    hairGroup.add(bobHem);
+
+    // Soft straight-across curved bangs clearing eyebrows cleanly (bottom at y = 0.284)
+    const bangs = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.152, 0.154, 0.046, 18, 1, false, -Math.PI * 0.3, Math.PI * 0.6),
+      hairMat
+    );
+    bangs.scale.set(0.95, 1, 1.0);
+    bangs.position.set(0, 0.308, 0.004);
+    hairGroup.add(bangs);
   } else if (variant === 3) {
-    // 3: Sculpted natural voluminous curls
-    const curls: Array<[number, number, number, number]> = [
-      [0, 0.355, -0.01, 0.085],
-      [-0.095, 0.315, 0.01, 0.078],
-      [0.095, 0.315, 0.01, 0.078],
-      [-0.125, 0.235, -0.03, 0.072],
-      [0.125, 0.235, -0.03, 0.072],
-      [-0.062, 0.305, -0.105, 0.078],
-      [0.062, 0.305, -0.105, 0.078],
-      [0, 0.23, -0.135, 0.074],
+    // 3: Soft cohesive textured curls / rounded sculpted afro crown (no floating balls!)
+    const curlCore = new THREE.Mesh(new THREE.SphereGeometry(0.18, 18, 14), hairMat);
+    curlCore.scale.set(1.02, 0.86, 1.0);
+    curlCore.position.set(0, 0.288, -0.028);
+    hairGroup.add(curlCore);
+
+    // Tightly nestled perimeter texture ridges blended into the crown core
+    const curlRidges: Array<[number, number, number, number]> = [
+      [0, 0.372, -0.01, 0.068],
+      [-0.088, 0.34, 0.005, 0.064],
+      [0.088, 0.34, 0.005, 0.064],
+      [-0.128, 0.262, -0.028, 0.06],
+      [0.128, 0.262, -0.028, 0.06],
+      [-0.068, 0.312, -0.102, 0.066],
+      [0.068, 0.312, -0.102, 0.066],
+      [0, 0.242, -0.132, 0.064],
+      [0, 0.322, 0.095, 0.054],
     ];
-    for (const [cx, cy, cz, cr] of curls) {
+    for (const [cx, cy, cz, cr] of curlRidges) {
       const puff = new THREE.Mesh(new THREE.SphereGeometry(cr, 12, 10), hairMat);
+      puff.scale.set(1.06, 0.86, 1.02);
       puff.position.set(cx, cy, cz);
       hairGroup.add(puff);
     }
   } else if (variant === 4) {
-    // 4: Sleek low ponytail + parted curtain bangs
+    // 4: Sleek low ponytail with warm hair tie & parted forehead framing
     const ponyTie = new THREE.Mesh(
-      new THREE.TorusGeometry(0.034, 0.008, 6, 14),
-      new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.45 })
+      new THREE.TorusGeometry(0.032, 0.0085, 8, 16),
+      new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.42 })
     );
-    ponyTie.position.set(0, 0.175, -0.165);
-    ponyTie.rotation.x = 0.5;
+    ponyTie.position.set(0, 0.168, -0.162);
+    ponyTie.rotation.x = 0.45;
     hairGroup.add(ponyTie);
 
-    const ponyTail = new THREE.Mesh(new THREE.CapsuleGeometry(0.042, 0.17, 8, 10), hairMat);
-    ponyTail.position.set(0, 0.095, -0.205);
-    ponyTail.rotation.x = -0.35;
+    const ponyTail = new THREE.Mesh(new THREE.CapsuleGeometry(0.038, 0.165, 8, 12), hairMat);
+    ponyTail.scale.set(1.05, 1.0, 0.88);
+    ponyTail.position.set(0, 0.072, -0.198);
+    ponyTail.rotation.x = -0.24;
     hairGroup.add(ponyTail);
 
-    [-0.068, 0.068].forEach((cx) => {
-      const curtain = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), hairMat);
-      curtain.scale.set(0.068, 0.032, 0.056);
-      curtain.position.set(cx, 0.285, 0.11);
-      curtain.rotation.z = cx < 0 ? 0.38 : -0.38;
+    [-1, 1].forEach((side) => {
+      const curtain = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), hairMat);
+      curtain.scale.set(0.074, 0.034, 0.056);
+      curtain.position.set(side * 0.066, 0.3, 0.106);
+      curtain.rotation.set(0.18, side * -0.22, side * -0.34);
       hairGroup.add(curtain);
     });
   } else {
-    // 5: Middle-part layered curtain flow (clean modern barista/cafe regular silhouette)
-    [-0.074, 0.074].forEach((cx) => {
-      const topWave = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), hairMat);
-      topWave.scale.set(0.074, 0.048, 0.108);
-      topWave.position.set(cx, 0.328, 0.025);
-      topWave.rotation.z = cx < 0 ? 0.25 : -0.25;
-      hairGroup.add(topWave);
+    // 5: Modern middle-part curtain flow (clean café regular layered silhouette)
+    [-1, 1].forEach((side) => {
+      const crownWave = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), hairMat);
+      crownWave.scale.set(0.082, 0.052, 0.125);
+      crownWave.position.set(side * 0.062, 0.338, 0.008);
+      crownWave.rotation.z = side * -0.22;
+      hairGroup.add(crownWave);
 
-      const cheekFrame = new THREE.Mesh(new THREE.CapsuleGeometry(0.026, 0.088, 6, 8), hairMat);
-      cheekFrame.position.set(cx * 1.72, 0.215, 0.045);
-      cheekFrame.rotation.z = cx < 0 ? 0.14 : -0.14;
-      hairGroup.add(cheekFrame);
+      // Smooth curved curtain fringe hugging the upper temples cleanly
+      const fringe = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, 0.074, 6, 10), hairMat);
+      fringe.scale.set(0.85, 1.0, 0.72);
+      fringe.position.set(side * 0.094, 0.278, 0.096);
+      fringe.rotation.set(0.22, side * -0.35, side * -0.46);
+      hairGroup.add(fringe);
+
+      // Sleek layered back-side hair tapering smoothly behind the ear
+      const sideLayer = new THREE.Mesh(new THREE.CapsuleGeometry(0.034, 0.095, 6, 10), hairMat);
+      sideLayer.scale.set(0.7, 1.0, 1.15);
+      sideLayer.position.set(side * 0.146, 0.175, -0.025);
+      sideLayer.rotation.z = side * -0.08;
+      hairGroup.add(sideLayer);
     });
   }
 
