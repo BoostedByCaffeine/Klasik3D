@@ -24,6 +24,7 @@ import {
 import {
   AudioModeId,
   MusicPlayerSnapshot,
+  RadioCountryFilter,
   musicPlayerController,
 } from '../game/audio/MusicPlayerController';
 
@@ -41,9 +42,19 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [radioQuery, setRadioQuery] = useState('');
   const [isSearchingRadio, setIsSearchingRadio] = useState(false);
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualArtist, setManualArtist] = useState('');
 
   const handleModeSwitch = (mode: AudioModeId) => {
     musicPlayerController.setMode(mode);
+  };
+
+  const handleManualTrackSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualTitle.trim()) return;
+    musicPlayerController.setExternalManualTrack(manualTitle, manualArtist);
+    setManualTitle('');
+    setManualArtist('');
   };
 
   const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -329,9 +340,41 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
             </div>
           )}
 
-          {/* MODE 2: LIVE AUDIO RADIO (PH FM + SOMAFM + RADIO BROWSER API) */}
+          {/* MODE 2: LIVE AUDIO RADIO (STRICTLY PHILIPPINES & UNITED STATES) */}
           {snapshot.mode === 'radio' && (
             <div className="space-y-2.5" data-testid="audio-panel-radio">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1" role="group" aria-label="Radio Region Filter">
+                  {(
+                    [
+                      { id: 'ALL', label: 'All (PH & US)' },
+                      { id: 'PH', label: 'Philippines' },
+                      { id: 'US', label: 'United States' },
+                    ] as Array<{ id: RadioCountryFilter; label: string }>
+                  ).map((opt) => {
+                    const active = snapshot.radioCountryFilter === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        data-testid={`radio-filter-${opt.id.toLowerCase()}`}
+                        onClick={() => musicPlayerController.setRadioCountryFilter(opt.id)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
+                          active
+                            ? 'hud-platinum-pill'
+                            : 'bg-[#18181B] text-[#A1A1AA] hover:text-white border border-white/10'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-[10px] font-mono text-[#A1A1AA]">
+                  {snapshot.radioStations.length} Verified Streams
+                </span>
+              </div>
+
               <form onSubmit={handleRadioSearch} className="flex items-center gap-1.5">
                 <div className="relative flex-1 min-w-0">
                   <Search
@@ -342,7 +385,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     type="text"
                     value={radioQuery}
                     onChange={(e) => setRadioQuery(e.target.value)}
-                    placeholder="Search live stations (e.g. Manila, jazz, lo-fi, acoustic)..."
+                    placeholder="Search PH & US stations (e.g. Love Radio, Bombo, 101.5, jazz)..."
                     className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-[#18181B] border border-white/15 text-xs text-white placeholder:text-[#71717A] focus:outline-none focus:border-white/45"
                   />
                 </div>
@@ -361,7 +404,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
               </form>
 
               <p className="text-[10px] text-[#A1A1AA] px-0.5">
-                Streams over Wi-Fi / Mobile Data (no earphones required) · Automatic HTTPS backup failover
+                Verified Philippines &amp; US HTTPS streams · Automatic same-region backup failover
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -382,12 +425,12 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                       <div className="flex items-center gap-2 min-w-0">
                         <span
                           className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
-                            station.layer === 'curated'
-                              ? 'bg-white/[0.10] text-white border border-white/25'
+                            station.countryCode === 'PH'
+                              ? 'bg-[#F59E0B]/15 text-[#FDE68A] border border-[#F59E0B]/35'
                               : 'bg-[#BAE6FD]/15 text-[#BAE6FD] border border-[#BAE6FD]/35'
                           }`}
                         >
-                          {station.freqLabel || 'WEB'}
+                          {station.countryCode}
                         </span>
                         <div className="min-w-0">
                           <div className="text-xs font-bold text-white truncate">
@@ -414,7 +457,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
             </div>
           )}
 
-          {/* MODE 3: EXTERNAL HOLOGRAM MODE */}
+          {/* MODE 3: EXTERNAL HOLOGRAM MODE (NATIVE ANDROID BRIDGE + BROWSER TAB CAPTURE) */}
           {snapshot.mode === 'external' && (
             <div className="space-y-2.5" data-testid="audio-panel-external">
               <div className="p-3 rounded-xl bg-gradient-to-br from-[#27272A]/70 via-[#18181B] to-[#09090B] border border-white/18 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
@@ -424,9 +467,13 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                   </div>
                   <div className="min-w-0">
                     <div className="text-[10px] font-mono uppercase tracking-wider text-[#A1A1AA]">
-                      3D Counter Hologram Active
+                      {snapshot.externalMedia.isBrowserCaptureActive
+                        ? snapshot.externalMedia.isBrowserCaptureMuted
+                          ? 'Tab Audio Paused'
+                          : 'Live Tab Audio Linked'
+                        : '3D Counter Hologram Active'}
                     </div>
-                    <div className="text-sm font-bold text-white truncate">
+                    <div className="text-sm font-bold text-white truncate" data-testid="external-now-playing-title">
                       {snapshot.externalMedia.title}
                     </div>
                     <div className="text-[11px] text-[#A1A1AA] truncate">
@@ -440,7 +487,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     {snapshot.externalMedia.isActive && (
                       <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#34D399]/16 border border-[#34D399]/45 text-[#34D399] text-[10px] font-bold">
                         <Check className="w-3 h-3 shrink-0" strokeWidth={2.4} />
-                        <span>External Audio Detected (Active)</span>
+                        <span>Active</span>
                       </span>
                     )}
                     {snapshot.hasNotificationAccess ? (
@@ -462,7 +509,7 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     <button
                       type="button"
                       data-testid="btn-refresh-external-audio"
-                      onClick={() => musicPlayerController.refreshExternalAudioStatus(true)}
+                      onClick={() => musicPlayerController.refreshExternalAudioStatus(true, true)}
                       className="p-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-[#E4E4E7] cursor-pointer"
                       title="Refresh External Audio Status"
                       aria-label="Refresh External Audio Status"
@@ -471,18 +518,100 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#34D399]/16 border border-[#34D399]/45 text-[#34D399] text-[10px] font-bold">
-                      <Check className="w-3 h-3 shrink-0" strokeWidth={2.4} />
-                      <span>
-                        {isApkVersion
-                          ? 'External Background Mode Ready'
-                          : 'External Background Mode Active'}
-                      </span>
-                    </span>
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    {snapshot.externalMedia.isBrowserCaptureActive ? (
+                      <button
+                        type="button"
+                        data-testid="btn-stop-tab-capture"
+                        onClick={() => musicPlayerController.stopBrowserAudioCapture(true)}
+                        className="px-3 py-1.5 rounded-lg bg-[#F87171]/16 hover:bg-[#F87171]/25 border border-[#F87171]/45 text-[#FCA5A5] font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                        <span>Stop Capture</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="btn-capture-tab-audio"
+                        onClick={() => musicPlayerController.startBrowserAudioCapture()}
+                        className="px-3 py-1.5 rounded-lg hud-platinum-pill font-bold text-[11px] flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Waves className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} />
+                        <span>{isApkVersion ? 'Link Audio Source' : 'Capture Tab Audio'}</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
+
+              {/* Live Capture Signal Meter + Error Feedback */}
+              {snapshot.externalMedia.isBrowserCaptureActive && (
+                <div className="px-2.5 py-2 rounded-xl bg-[#18181B]/75 border border-white/10 space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-[#A1A1AA]">
+                    <span>Live Audio Detector Signal</span>
+                    <span className="text-[#34D399] font-bold">
+                      {snapshot.externalMedia.isBrowserCaptureMuted
+                        ? 'PAUSED'
+                        : `${Math.round(snapshot.externalMedia.signalLevel * 100)}%`}
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-[#27272A] overflow-hidden">
+                    <div
+                      className="h-full bg-[#34D399] transition-all duration-150"
+                      style={{
+                        width: `${Math.max(4, Math.round(snapshot.externalMedia.signalLevel * 100))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {snapshot.externalMedia.captureError && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#F59E0B]/12 border border-[#F59E0B]/35 text-[10px] text-[#FDE68A]">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" strokeWidth={2.2} />
+                  <span>{snapshot.externalMedia.captureError}</span>
+                </div>
+              )}
+
+              {/* Quick Song Title Sync for Desktop/External Apps (Spotify App, Apple Music, etc.) */}
+              {!snapshot.isNativeAndroid && (
+                <form
+                  onSubmit={handleManualTrackSubmit}
+                  className="p-2.5 rounded-xl bg-[#18181B]/75 border border-white/10 space-y-1.5"
+                >
+                  <div className="text-[10px] font-bold text-[#E4E4E7]">
+                    Now Playing Display (3D Counter Hologram)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-1.5">
+                    <input
+                      type="text"
+                      value={manualTitle}
+                      onChange={(e) => setManualTitle(e.target.value)}
+                      placeholder="Song title..."
+                      aria-label="External Song Title"
+                      data-testid="input-external-song-title"
+                      className="px-2.5 py-1.5 rounded-lg bg-[#09090B] border border-white/15 text-xs text-white placeholder:text-[#71717A] focus:outline-none focus:border-white/45"
+                    />
+                    <input
+                      type="text"
+                      value={manualArtist}
+                      onChange={(e) => setManualArtist(e.target.value)}
+                      placeholder="Artist (optional)..."
+                      aria-label="External Song Artist"
+                      data-testid="input-external-song-artist"
+                      className="px-2.5 py-1.5 rounded-lg bg-[#09090B] border border-white/15 text-xs text-white placeholder:text-[#71717A] focus:outline-none focus:border-white/45"
+                    />
+                    <button
+                      type="submit"
+                      data-testid="btn-sync-external-title"
+                      disabled={!manualTitle.trim()}
+                      className="px-3 py-1.5 rounded-lg hud-platinum-pill font-bold text-[11px] cursor-pointer disabled:opacity-45"
+                    >
+                      Set Title
+                    </button>
+                  </div>
+                </form>
+              )}
 
               {/* Cafe Ambience SFX Balance Slider */}
               <div className="p-2.5 rounded-xl bg-[#18181B]/75 border border-white/10 space-y-1.5">
@@ -507,8 +636,9 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
                   className="w-full hud-platinum-slider cursor-pointer"
                 />
                 <p className="text-[10px] text-[#A1A1AA]">
-                  Internal music stays silent in External Mode so your Spotify, YouTube Music, or
-                  Apple Music plays uninterrupted alongside warm espresso steam, rain &amp; cafe cats.
+                  Use Capture Tab Audio to auto-detect YouTube Music or Spotify Web titles and live
+                  beats, or use the Play/Pause transport below alongside warm espresso steam &amp; cafe
+                  cats.
                 </p>
               </div>
             </div>

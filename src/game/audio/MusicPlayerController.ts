@@ -32,6 +32,8 @@ export interface RadioStationItem {
   bitrate?: number;
 }
 
+export type RadioCountryFilter = 'ALL' | 'PH' | 'US';
+
 export interface ExternalMediaSnapshot {
   isActive: boolean;
   title: string;
@@ -39,6 +41,10 @@ export interface ExternalMediaSnapshot {
   sourceApp: string;
   hasPermission: boolean;
   isNativeBridgeAvailable: boolean;
+  isBrowserCaptureActive: boolean;
+  isBrowserCaptureMuted: boolean;
+  signalLevel: number; // 0..1 live audio meter from browser tab capture
+  captureError: string | null;
 }
 
 export interface UnifiedAudioState {
@@ -56,6 +62,7 @@ export interface UnifiedAudioState {
   directoryStations: RadioStationItem[];
   directoryLoading: boolean;
   directoryLoaded: boolean;
+  radioCountryFilter: RadioCountryFilter;
   currentRadioId: string;
   externalMedia: ExternalMediaSnapshot;
   lastPlayedNonExternalMode: 'vinyl' | 'radio';
@@ -75,6 +82,7 @@ export interface SnapshotRadioStation {
   id: string;
   name: string;
   region: string;
+  countryCode: 'PH' | 'US';
   genre: string;
   streamUrl: string;
   codec: string;
@@ -92,6 +100,7 @@ export interface MusicPlayerSnapshot {
   vinylTracks: SnapshotVinylTrack[];
   activeVinylIndex: number;
   radioStations: SnapshotRadioStation[];
+  radioCountryFilter: RadioCountryFilter;
   activeStationId: string;
   radioStatus: 'idle' | 'connecting' | 'playing' | 'fallback' | 'error';
   statusMessage: string | null;
@@ -103,6 +112,10 @@ export interface MusicPlayerSnapshot {
     title: string;
     artist: string;
     sourceApp: string;
+    isBrowserCaptureActive: boolean;
+    isBrowserCaptureMuted: boolean;
+    signalLevel: number;
+    captureError: string | null;
   };
 }
 
@@ -133,9 +146,82 @@ export interface RadioBrowserRawStation {
   tags?: string;
 }
 
-export const RADIO_DIRECTORY_CACHE_KEY = 'klasik3d_radio_directory_cache_v1';
+export const RADIO_DIRECTORY_CACHE_KEY = 'klasik3d_radio_directory_cache_v2';
 
-// Pure testable Radio Browser API station filter (strict HTTPS + MP3/AAC only)
+/** Strictly permitted radio countries (Philippines & United States ONLY — excludes India, Pakistan, and all others). */
+export const ALLOWED_RADIO_COUNTRIES: ReadonlySet<string> = new Set(['PH', 'US']);
+
+export function isAllowedRadioCountry(countryCode: string | undefined | null): countryCode is 'PH' | 'US' {
+  if (!countryCode) return false;
+  return ALLOWED_RADIO_COUNTRIES.has(countryCode.trim().toUpperCase());
+}
+
+/**
+ * Parses a browser tab/window capture label (e.g. "Artist - Song - YouTube" or "Track · Artist | Spotify")
+ * into clean Now-Playing metadata for the Audio Deck & 3D Counter Hologram.
+ */
+export function parseCapturedTabTitle(rawLabel: string): {
+  title: string;
+  artist: string;
+  sourceApp: string;
+} {
+  const cleaned = (rawLabel || '')
+    .replace(/^\(\d+\)\s*/, '')
+    .replace(/^tab:\d+:\d+\s*/i, '')
+    .trim();
+
+  if (!cleaned || /^window:|^screen:|^monitor:/i.test(cleaned)) {
+    return {
+      title: 'Background Tab Audio',
+      artist: 'Live Browser Capture',
+      sourceApp: 'Browser Tab',
+    };
+  }
+
+  let sourceApp = 'Browser Tab';
+  let core = cleaned;
+  const appMatchers: Array<[RegExp, string]> = [
+    [/\s*[-–|•·]\s*YouTube Music$/i, 'YouTube Music'],
+    [/\s*[-–|•·]\s*YouTube$/i, 'YouTube'],
+    [/\s*[-–|•·]\s*Spotify.*$/i, 'Spotify Web'],
+    [/\s*[-–|•·]\s*Apple Music$/i, 'Apple Music'],
+    [/\s*[-–|•·]\s*SoundCloud$/i, 'SoundCloud'],
+    [/\s*[-–|•·]\s*Twitch$/i, 'Twitch'],
+  ];
+  for (const [re, label] of appMatchers) {
+    if (re.test(core)) {
+      sourceApp = label;
+      core = core.replace(re, '').trim();
+      break;
+    }
+  }
+
+  const bulletMatch = core.split(/\s+[•·]\s+/);
+  if (bulletMatch.length >= 2) {
+    return {
+      title: bulletMatch[0].trim().slice(0, 64) || core.slice(0, 64),
+      artist: bulletMatch.slice(1).join(' · ').trim().slice(0, 64) || sourceApp,
+      sourceApp,
+    };
+  }
+
+  const dashMatch = core.split(/\s+[-–—]\s+/);
+  if (dashMatch.length >= 2) {
+    return {
+      artist: dashMatch[0].trim().slice(0, 64) || sourceApp,
+      title: dashMatch.slice(1).join(' - ').trim().slice(0, 64) || core.slice(0, 64),
+      sourceApp,
+    };
+  }
+
+  return {
+    title: core.slice(0, 64) || 'Background Tab Audio',
+    artist: 'Live Browser Capture',
+    sourceApp,
+  };
+}
+
+// Pure testable Radio Browser API station filter (strict PH/US countries + HTTPS + MP3/AAC only)
 export function filterVerifiedRadioStations(
   rawList: RadioBrowserRawStation[]
 ): RadioStationItem[] {
@@ -145,21 +231,25 @@ export function filterVerifiedRadioStations(
     const url = (s.url_resolved || '').trim();
     const codec = (s.codec || '').trim();
     const name = (s.name || '').trim();
+    const cc = (s.countrycode || '').trim().toUpperCase();
     if (!url || !name) continue;
+    if (!isAllowedRadioCountry(cc)) continue;
     if (!url.startsWith('https://')) continue;
     if (!/mp3|aac/i.test(codec)) continue;
+    // Skip known broken radioca.st or 403 brigadanews web wrappers
+    if (/radioca\.st|brigadanews\.ph\/?$/i.test(url)) continue;
     if (seenUrls.has(url)) continue;
     seenUrls.add(url);
     verified.push({
       id: `rb-${s.stationuuid || verified.length}`,
       name: name.slice(0, 42),
-      subtitle: `${(s.countrycode || 'PH').toUpperCase()} • ${codec.toUpperCase()}${
+      subtitle: `${cc === 'PH' ? 'Philippines' : 'United States'} • ${codec.toUpperCase()}${
         s.bitrate ? ` ${s.bitrate}k` : ''
       }`,
       category: 'directory',
       streamUrl: url,
       codec: codec.toUpperCase(),
-      countryCode: (s.countrycode || 'PH').toUpperCase(),
+      countryCode: cc,
       bitrate: s.bitrate,
     });
   }
@@ -230,131 +320,200 @@ export const DEFAULT_VINYL_CRATE: VinylTrackItem[] = [
   },
 ];
 
-// Layer 1: Curated PH FM & Cafe Lo-Fi / Jazz Streams (strict HTTPS MP3/AAC streams + multi-mirror failover)
+// Layer 1: Live-Verified Philippines (PH) & United States (US) Radio Streams ONLY
+// Every primary & backup URL was live-tested for HTTP 200 audio/mpeg or audio/aac over HTTPS.
 export const CURATED_RADIO_STATIONS: RadioStationItem[] = [
-  // Curated Philippine FM Stations (each with verified HTTPS fallback relays)
+  // Curated Philippine FM & AM Stations (PH)
+  {
+    id: 'ph-love-radio-907',
+    name: '90.7 Love Radio Manila',
+    subtitle: 'PH FM • OPM, Pop & Kailangan Pa Bang I-Memorize Yan',
+    category: 'ph_fm',
+    streamUrl: 'https://azura.loveradio.com.ph/listen/love_radio_manila/radio.mp3',
+    backupUrls: [
+      'https://radio.1017yourlovefm.com/listen/sanibpwersa/radio.mp3',
+      'https://azura.easyrock.com.ph/listen/easy_rock_manila/radio.mp3',
+    ],
+    codec: 'MP3',
+    countryCode: 'PH',
+    bitrate: 128,
+  },
+  {
+    id: 'ph-yes-1011',
+    name: '101.1 Yes! FM Manila',
+    subtitle: 'PH FM • 101 Hit Music & Good Vibes',
+    category: 'ph_fm',
+    streamUrl: 'https://azura.yesfm.com.ph/listen/yes_fm_manila/radio.mp3',
+    backupUrls: [
+      'https://icecast.theanchor.app/bbbc',
+      'https://azura.loveradio.com.ph/listen/love_radio_manila/radio.mp3',
+    ],
+    codec: 'MP3',
+    countryCode: 'PH',
+    bitrate: 128,
+  },
+  {
+    id: 'ph-1015-fm',
+    name: '101.5 / 101.7 Your Love FM',
+    subtitle: 'PH FM • 101 OPM & Classic Favorites',
+    category: 'ph_fm',
+    streamUrl: 'https://radio.1017yourlovefm.com/listen/sanibpwersa/radio.mp3',
+    backupUrls: [
+      'https://listen.radioking.com/radio/453221/stream/508076',
+      'https://azura.yesfm.com.ph/listen/yes_fm_manila/radio.mp3',
+    ],
+    codec: 'MP3',
+    countryCode: 'PH',
+    bitrate: 128,
+  },
+  {
+    id: 'ph-bombo-radyo',
+    name: 'Bombo Radyo Philippines',
+    subtitle: 'PH News & Music • Basta Radyo, Bombo!',
+    category: 'ph_fm',
+    streamUrl: 'https://stream.zenolive.com/n6wgdtu78heuv',
+    backupUrls: [
+      'https://stream.zenolive.com/gzvmgtp78heuv',
+      'https://stream.zeno.fm/s10z665mz9duv',
+      'https://stream.zenolive.com/g2ak4fu78heuv',
+    ],
+    codec: 'AAC',
+    countryCode: 'PH',
+    bitrate: 128,
+  },
   {
     id: 'ph-easy-rock-963',
     name: '96.3 Easy Rock Manila',
     subtitle: 'PH FM • Lite & Mellow Classics',
     category: 'ph_fm',
-    streamUrl: 'https://easyrock.radioca.st/stream',
+    streamUrl: 'https://azura.easyrock.com.ph/listen/easy_rock_manila/radio.mp3',
     backupUrls: [
-      'https://ice2.somafm.com/groovesalad-128-mp3',
-      'https://ice4.somafm.com/groovesalad-128-mp3',
+      'https://stream.zeno.fm/kc3cct89sxquv',
+      'https://azura.loveradio.com.ph/listen/love_radio_manila/radio.mp3',
     ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
   },
   {
-    id: 'ph-wish-1075',
-    name: 'Wish 107.5 FM',
-    subtitle: 'PH FM • OPM & Easy Listening',
+    id: 'ph-star-fm-1027',
+    name: '102.7 Star FM Manila',
+    subtitle: 'PH FM • It\'s All For You Hits',
     category: 'ph_fm',
-    streamUrl: 'https://stream.zeno.fm/4d299444138uv',
+    streamUrl: 'https://stream.zeno.fm/kg6tx8w4t9duv',
     backupUrls: [
-      'https://ice2.somafm.com/lush-128-mp3',
-      'https://ice4.somafm.com/lush-128-mp3',
+      'https://stream.zeno.fm/60cb36c29heuv',
+      'https://stream.zeno.fm/kw40qqc29heuv',
     ],
     codec: 'MP3',
     countryCode: 'PH',
-    bitrate: 128,
+    bitrate: 96,
   },
   {
-    id: 'ph-magic-899',
-    name: 'Magic 89.9 Manila',
-    subtitle: 'PH FM • Pop & Good Vibes',
+    id: 'ph-lite-fm-1067',
+    name: '106.7 Lite FM Mega Manila',
+    subtitle: 'PH FM • Relaxing Cafe Easy Listening',
     category: 'ph_fm',
-    streamUrl: 'https://stream.zeno.fm/8g9q1w3072zuv',
+    streamUrl: 'https://stream.zeno.fm/kc3cct89sxquv',
     backupUrls: [
-      'https://ice1.somafm.com/beatblender-128-mp3',
-      'https://ice2.somafm.com/beatblender-128-mp3',
+      'https://azura.easyrock.com.ph/listen/easy_rock_manila/radio.mp3',
+      'https://cast3.my-control-panel.com/proxy/ronald/stream',
     ],
     codec: 'MP3',
     countryCode: 'PH',
     bitrate: 128,
   },
   {
-    id: 'ph-mellow-947',
-    name: 'Mellow 94.7 Manila',
-    subtitle: 'PH FM • Sounds Good Acoustic',
+    id: 'ph-energy-fm',
+    name: '106.7 Energy FM PH',
+    subtitle: 'PH FM • Wag Mong Sabihing Radyo, Sabihin Mo Energy!',
     category: 'ph_fm',
-    streamUrl: 'https://stream.zeno.fm/y2t2a07v4zquv',
+    streamUrl: 'https://s1.free-shoutcast.com/stream/18178',
     backupUrls: [
-      'https://ice1.somafm.com/illstreet-128-mp3',
-      'https://ice2.somafm.com/illstreet-128-mp3',
+      'https://dj.amfm.link:8010/dyhc64',
+      'https://azura.yesfm.com.ph/listen/yes_fm_manila/radio.mp3',
     ],
     codec: 'MP3',
     countryCode: 'PH',
-    bitrate: 128,
+    bitrate: 64,
   },
   {
-    id: 'ph-monster-rx931',
-    name: 'Monster RX 93.1',
-    subtitle: 'PH FM • Manila Hit Radio',
+    id: 'ph-90s-pinoy',
+    name: '90s Pinoy Alternative',
+    subtitle: 'PH OPM • Classic Pinoy Rock & Acoustic',
     category: 'ph_fm',
-    streamUrl: 'https://stream.zeno.fm/0r0xa792kwzuv',
+    streamUrl: 'https://cast3.my-control-panel.com/proxy/ronald/stream',
     backupUrls: [
-      'https://ice1.somafm.com/sonicuniverse-128-mp3',
-      'https://ice2.somafm.com/sonicuniverse-128-mp3',
+      'https://azura.easyrock.com.ph/listen/easy_rock_manila/radio.mp3',
     ],
     codec: 'MP3',
     countryCode: 'PH',
-    bitrate: 128,
+    bitrate: 192,
   },
-  // Curated Cafe Lo-Fi & Jazz Streams (SomaFM verified HTTPS + mirror backups)
+  // Curated United States Cafe, Lo-Fi & Jazz Streams (US)
   {
-    id: 'cafe-somafm-groovesalad',
-    name: 'SomaFM Groove Salad',
-    subtitle: 'Cafe Ambient • Downtempo Beats',
+    id: 'us-litt-lofi-jazz',
+    name: 'LITT Live Lo-Fi & Jazz',
+    subtitle: 'US Cafe • Chill & Instrumental Jazz Beats',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice1.somafm.com/groovesalad-128-mp3',
+    streamUrl: 'https://das-sa39.cdnstream1.com/5582_128',
     backupUrls: [
-      'https://ice2.somafm.com/groovesalad-128-mp3',
-      'https://ice4.somafm.com/groovesalad-128-mp3',
+      'https://stream.emergent.fm/stream',
+      'https://das-edge16-live365-dal02.cdnstream.com/a24494',
     ],
     codec: 'MP3',
     countryCode: 'US',
     bitrate: 128,
   },
   {
-    id: 'cafe-somafm-lush',
-    name: 'SomaFM Lush',
-    subtitle: 'Cafe Chill • Sensuous Lo-Fi Vocals',
+    id: 'us-coffee-loves-tea',
+    name: 'CoffeeLovesTea Radio',
+    subtitle: 'US Cafe • Warm Coffeehouse Acoustic & Chill',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice1.somafm.com/lush-128-mp3',
+    streamUrl: 'https://a7.asurahosting.com/listen/coffeelovestea/radio.mp3',
     backupUrls: [
-      'https://ice2.somafm.com/lush-128-mp3',
-      'https://ice4.somafm.com/lush-128-mp3',
+      'https://das-edge16-live365-dal02.cdnstream.com/a24494',
+      'https://das-sa39.cdnstream1.com/5582_128',
+    ],
+    codec: 'MP3',
+    countryCode: 'US',
+    bitrate: 192,
+  },
+  {
+    id: 'us-smooth-jazz',
+    name: 'SmoothJazz.com Global',
+    subtitle: 'US Jazz • Contemporary Cafe Smooth Jazz',
+    category: 'lofi_jazz',
+    streamUrl: 'https://smoothjazz.cdnstream1.com/2585_128.mp3',
+    backupUrls: [
+      'https://icecast.walmradio.com:8443/classic',
     ],
     codec: 'MP3',
     countryCode: 'US',
     bitrate: 128,
   },
   {
-    id: 'cafe-somafm-sonicuniverse',
-    name: 'SomaFM Sonic Universe',
-    subtitle: 'Cafe Jazz • Nu-Jazz & Avant Groove',
+    id: 'us-classic-vinyl',
+    name: 'Classic Vinyl HD',
+    subtitle: 'US Hi-Fi • Warm Analog Standards & Crooners',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice1.somafm.com/sonicuniverse-128-mp3',
+    streamUrl: 'https://icecast.walmradio.com:8443/classic',
     backupUrls: [
-      'https://ice2.somafm.com/sonicuniverse-128-mp3',
-      'https://ice4.somafm.com/sonicuniverse-128-mp3',
+      'https://www.hodlharmony.com/radio/electric-midnight.mp3',
     ],
     codec: 'MP3',
     countryCode: 'US',
-    bitrate: 128,
+    bitrate: 320,
   },
   {
-    id: 'cafe-somafm-dronezone',
-    name: 'SomaFM Drone Zone',
-    subtitle: 'Atmospheric • Late Night Cafe Focus',
+    id: 'us-pax-lofi',
+    name: 'PAX Lo-Fi Cafe Beats',
+    subtitle: 'US Lo-Fi • Study & Late-Night Espresso Beats',
     category: 'lofi_jazz',
-    streamUrl: 'https://ice1.somafm.com/dronezone-128-mp3',
+    streamUrl: 'https://das-edge16-live365-dal02.cdnstream.com/a24494',
     backupUrls: [
-      'https://ice2.somafm.com/dronezone-128-mp3',
-      'https://ice4.somafm.com/dronezone-128-mp3',
+      'https://stream.emergent.fm/stream',
+      'https://a7.asurahosting.com/listen/coffeelovestea/radio.mp3',
     ],
     codec: 'MP3',
     countryCode: 'US',
@@ -534,17 +693,29 @@ export class MusicPlayerController {
     directoryStations: [],
     directoryLoading: false,
     directoryLoaded: false,
+    radioCountryFilter: 'ALL',
     currentRadioId: CURATED_RADIO_STATIONS[0].id,
     externalMedia: {
       isActive: false,
-      title: 'External Audio Active',
-      artist: 'Playing from your device',
+      title: 'External Audio Ready',
+      artist: 'Connect tab audio or play on device',
       sourceApp: 'System Media',
       hasPermission: false,
       isNativeBridgeAvailable: false,
+      isBrowserCaptureActive: false,
+      isBrowserCaptureMuted: false,
+      signalLevel: 0,
+      captureError: null,
     },
     lastPlayedNonExternalMode: 'vinyl',
   };
+
+  // Browser Tab Audio Capture state (Web External Audio Detector)
+  private captureStream: MediaStream | null = null;
+  private captureAudioCtx: AudioContext | null = null;
+  private captureAnalyser: AnalyserNode | null = null;
+  private captureMeterTimerId: number | null = null;
+  private captureFreqBuf: Uint8Array<ArrayBuffer> | null = null;
 
   // Dedicated Vinyl Audio element (local/offline WAV/BYO files)
   private ensureAudioElement(): HTMLAudioElement | null {
@@ -644,7 +815,11 @@ export class MusicPlayerController {
       0,
       s.vinylTracks.findIndex((t) => t.id === s.currentVinylId)
     );
-    const combinedStations = [...s.radioStations, ...s.directoryStations];
+    const combinedStations = [...s.radioStations, ...s.directoryStations].filter((st) => {
+      if (!isAllowedRadioCountry(st.countryCode)) return false;
+      if (s.radioCountryFilter === 'ALL') return true;
+      return st.countryCode === s.radioCountryFilter;
+    });
     const radioStatus: MusicPlayerSnapshot['radioStatus'] = s.streamError
       ? 'fallback'
       : s.isLoadingStream
@@ -657,9 +832,14 @@ export class MusicPlayerController {
       s.streamError ||
       (s.isLoadingStream ? 'Tuning...' : null);
 
+    const effectiveIsPlaying =
+      s.mode === 'external'
+        ? s.externalMedia.isActive && !s.externalMedia.isBrowserCaptureMuted
+        : s.isPlaying;
+
     return {
       mode: s.mode,
-      isPlaying: s.isPlaying,
+      isPlaying: effectiveIsPlaying,
       volume: s.musicVolume,
       ambienceVolume: s.ambienceVolume,
       crackleEnabled: s.vinylCrackle,
@@ -677,13 +857,15 @@ export class MusicPlayerController {
       radioStations: combinedStations.map((st) => ({
         id: st.id,
         name: st.name,
-        region: st.countryCode === 'PH' ? 'Philippines' : st.countryCode || 'Global',
+        region: st.countryCode === 'PH' ? 'Philippines' : 'United States',
+        countryCode: st.countryCode === 'PH' ? 'PH' : 'US',
         genre: st.subtitle,
         streamUrl: st.streamUrl,
         codec: st.codec,
         layer: st.category === 'directory' ? 'directory' : 'curated',
         freqLabel: st.bitrate ? `${st.bitrate}k ${st.codec}` : st.codec,
       })),
+      radioCountryFilter: s.radioCountryFilter,
       activeStationId: s.currentRadioId,
       radioStatus,
       statusMessage,
@@ -691,10 +873,14 @@ export class MusicPlayerController {
       hasNotificationAccess: s.externalMedia.hasPermission,
       externalMedia: {
         isActive: s.externalMedia.isActive,
-        isPlaying: s.externalMedia.isActive,
+        isPlaying: s.externalMedia.isActive && !s.externalMedia.isBrowserCaptureMuted,
         title: s.externalMedia.title,
         artist: s.externalMedia.artist,
         sourceApp: s.externalMedia.sourceApp,
+        isBrowserCaptureActive: s.externalMedia.isBrowserCaptureActive,
+        isBrowserCaptureMuted: s.externalMedia.isBrowserCaptureMuted,
+        signalLevel: s.externalMedia.signalLevel,
+        captureError: s.externalMedia.captureError,
       },
     };
   }
@@ -780,6 +966,7 @@ export class MusicPlayerController {
       const hasPerm = this.safeCheckNativePermission();
       this.setState({
         externalMedia: {
+          ...this.state.externalMedia,
           ...meta,
           isActive: extActive,
           hasPermission: hasPerm,
@@ -817,7 +1004,13 @@ export class MusicPlayerController {
       if (!raw) return;
       const parsed = JSON.parse(raw) as RadioStationItem[];
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const safe = parsed.filter((s) => s && typeof s.streamUrl === 'string' && s.streamUrl.startsWith('https://'));
+        const safe = parsed.filter(
+          (s) =>
+            s &&
+            typeof s.streamUrl === 'string' &&
+            s.streamUrl.startsWith('https://') &&
+            isAllowedRadioCountry(s.countryCode)
+        );
         if (safe.length > 0) {
           this.setState({ directoryStations: safe, directoryLoaded: true });
         }
@@ -889,6 +1082,7 @@ export class MusicPlayerController {
     const hasPerm = this.safeCheckNativePermission();
     this.setState({
       externalMedia: {
+        ...this.state.externalMedia,
         isActive,
         title: (detail.title || '').trim() || 'External Audio Active',
         artist: (detail.artist || '').trim() || 'Playing from your device',
@@ -925,6 +1119,7 @@ export class MusicPlayerController {
     const hasPerm = this.safeCheckNativePermission();
     this.setState({
       externalMedia: {
+        ...this.state.externalMedia,
         ...meta,
         isActive: extActive,
         hasPermission: hasPerm,
@@ -1013,8 +1208,9 @@ export class MusicPlayerController {
       this.setState({
         mode: 'external',
         externalMedia: {
+          ...this.state.externalMedia,
           ...meta,
-          isActive: isActive || true,
+          isActive: isActive || this.state.externalMedia.isBrowserCaptureActive || true,
           hasPermission: hasPerm,
           isNativeBridgeAvailable: Boolean(window.KlasikNativeAudio),
         },
@@ -1281,11 +1477,18 @@ export class MusicPlayerController {
   }
 
   public fallbackToCafeChillRadio() {
-    this.playRadioStation('cafe-somafm-groovesalad');
+    this.playRadioStation('us-litt-lofi-jazz');
   }
 
-  // Phase 5 Layer 2: Multi-mirror Radio Browser API HTTPS MP3/AAC resolution with lastcheckok=1 + localStorage cache
-  public async fetchPhilippineStations(query = ''): Promise<RadioStationItem[]> {
+  public setRadioCountryFilter(filter: RadioCountryFilter) {
+    this.setState({ radioCountryFilter: filter });
+  }
+
+  // Phase 5 Layer 2: Multi-mirror Radio Browser API strictly restricted to PH & US HTTPS MP3/AAC streams
+  public async fetchPhilippineStations(
+    query = '',
+    countryFilter: RadioCountryFilter = this.state.radioCountryFilter
+  ): Promise<RadioStationItem[]> {
     if (typeof fetch === 'undefined') return [];
     this.setState({ directoryLoading: true });
     const mirrors = [
@@ -1293,24 +1496,38 @@ export class MusicPlayerController {
       'https://nl1.api.radio-browser.info',
       'https://at1.api.radio-browser.info',
     ];
-    const qParam = query.trim()
-      ? `&name=${encodeURIComponent(query.trim())}`
-      : '&countrycode=PH';
+    const trimmed = query.trim();
+    const nameParam = trimmed ? `&name=${encodeURIComponent(trimmed)}` : '';
+    const countryCodes: Array<'PH' | 'US'> =
+      countryFilter === 'PH' ? ['PH'] : countryFilter === 'US' ? ['US'] : ['PH', 'US'];
 
     for (const host of mirrors) {
       try {
-        const url = `${host}/json/stations/search?limit=30&order=clickcount&reverse=true&hidebroken=true&lastcheckok=1${qParam}`;
-        const controller = new AbortController();
-        const abortTimer = window.setTimeout(() => controller.abort(), 6000);
-        const res = await fetch(url, { signal: controller.signal });
-        window.clearTimeout(abortTimer);
-        if (!res.ok) continue;
-        const raw = (await res.json()) as RadioBrowserRawStation[];
-        const verified = filterVerifiedRadioStations(raw);
+        const perCountryLimit = countryCodes.length > 1 ? 18 : 28;
+        const responses = await Promise.all(
+          countryCodes.map(async (cc) => {
+            const url = `${host}/json/stations/search?limit=${perCountryLimit}&order=clickcount&reverse=true&hidebroken=true&lastcheckok=1&countrycode=${cc}${nameParam}`;
+            const controller = new AbortController();
+            const abortTimer = window.setTimeout(() => controller.abort(), 6000);
+            try {
+              const res = await fetch(url, { signal: controller.signal });
+              if (!res.ok) return [] as RadioBrowserRawStation[];
+              const json = (await res.json()) as RadioBrowserRawStation[];
+              return Array.isArray(json) ? json : [];
+            } finally {
+              window.clearTimeout(abortTimer);
+            }
+          })
+        );
+        const mergedRaw = responses.flat();
+        const verified = filterVerifiedRadioStations(mergedRaw);
         if (verified.length > 0 || host === mirrors[mirrors.length - 1]) {
           if (verified.length > 0) {
             try {
-              window.localStorage.setItem(RADIO_DIRECTORY_CACHE_KEY, JSON.stringify(verified.slice(0, 24)));
+              window.localStorage.setItem(
+                RADIO_DIRECTORY_CACHE_KEY,
+                JSON.stringify(verified.slice(0, 28))
+              );
             } catch {
               // ignore quota errors
             }
@@ -1432,11 +1649,247 @@ export class MusicPlayerController {
     }
   }
 
-  public sendExternalMediaCommand(action: 'play_pause' | 'next' | 'prev') {
+  /**
+   * Starts Browser Tab / System Audio Capture on Web so players can detect background music
+   * playing in another tab (YouTube Music, Spotify Web, SoundCloud, etc.), display its title
+   * on the Audio Deck & 3D Hologram, watch real-time audio levels, and mute/pause cleanly.
+   */
+  public async startBrowserAudioCapture(): Promise<boolean> {
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getDisplayMedia !== 'function'
+    ) {
+      this.setState({
+        externalMedia: {
+          ...this.state.externalMedia,
+          captureError:
+            'Tab audio capture is not supported in this browser — enter your track title manually below.',
+        },
+      });
+      return false;
+    }
+
+    this.stopBrowserAudioCapture(false);
+
     try {
-      window.KlasikNativeAudio?.sendMediaKey?.(action);
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+      const rawLabel = (audioTrack?.label || videoTrack?.label || '').trim();
+      // Immediately release video track so no screen capture stays open after reading tab label
+      stream.getVideoTracks().forEach((vt) => vt.stop());
+
+      if (!audioTrack) {
+        this.setState({
+          externalMedia: {
+            ...this.state.externalMedia,
+            isBrowserCaptureActive: false,
+            captureError:
+              'No audio track shared — check "Share tab audio" in the browser picker.',
+          },
+        });
+        return false;
+      }
+
+      const parsed = parseCapturedTabTitle(rawLabel);
+      this.captureStream = stream;
+
+      const AudioCtxCtor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtxCtor) {
+        const ctx = new AudioCtxCtor();
+        const src = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.72;
+        src.connect(analyser);
+        // Intentionally do NOT connect to ctx.destination so the captured tab never double-plays/echoes
+        this.captureAudioCtx = ctx;
+        this.captureAnalyser = analyser;
+        this.captureFreqBuf = new Uint8Array(analyser.frequencyBinCount);
+
+        this.captureMeterTimerId = window.setInterval(() => {
+          if (!this.captureAnalyser || !this.captureFreqBuf) return;
+          if (this.state.externalMedia.isBrowserCaptureMuted) {
+            if (this.state.externalMedia.signalLevel !== 0) {
+              this.setState({
+                externalMedia: { ...this.state.externalMedia, signalLevel: 0 },
+              });
+            }
+            return;
+          }
+          this.captureAnalyser.getByteTimeDomainData(this.captureFreqBuf);
+          let sumSq = 0;
+          for (let i = 0; i < this.captureFreqBuf.length; i++) {
+            const norm = (this.captureFreqBuf[i] - 128) / 128;
+            sumSq += norm * norm;
+          }
+          const rms = Math.sqrt(sumSq / this.captureFreqBuf.length);
+          const level = Math.min(1, Number((rms * 3.8).toFixed(2)));
+          const detected = level > 0.03;
+          if (
+            Math.abs(level - this.state.externalMedia.signalLevel) >= 0.04 ||
+            detected !== this.state.externalMedia.isActive
+          ) {
+            this.setState({
+              externalMedia: {
+                ...this.state.externalMedia,
+                signalLevel: level,
+                isActive: detected || this.state.externalMedia.isBrowserCaptureActive,
+              },
+            });
+          }
+        }, 220);
+      }
+
+      audioTrack.addEventListener('ended', () => {
+        this.stopBrowserAudioCapture(true);
+      });
+
+      this.switchToExternalSilently();
+      this.setState({
+        mode: 'external',
+        externalMedia: {
+          ...this.state.externalMedia,
+          isActive: true,
+          title: parsed.title,
+          artist: parsed.artist,
+          sourceApp: parsed.sourceApp,
+          isBrowserCaptureActive: true,
+          isBrowserCaptureMuted: false,
+          signalLevel: 0.25,
+          captureError: null,
+        },
+      });
+      this.syncBrowserMediaSession(parsed.title, parsed.artist, 'playing');
+      return true;
     } catch {
-      // ignore if native bridge unavailable
+      this.setState({
+        externalMedia: {
+          ...this.state.externalMedia,
+          isBrowserCaptureActive: false,
+          captureError:
+            'Audio capture canceled. Pick a music tab with "Share tab audio" enabled, or enter your song below.',
+        },
+      });
+      return false;
+    }
+  }
+
+  public stopBrowserAudioCapture(notify = true) {
+    if (this.captureMeterTimerId !== null) {
+      window.clearInterval(this.captureMeterTimerId);
+      this.captureMeterTimerId = null;
+    }
+    if (this.captureStream) {
+      this.captureStream.getTracks().forEach((t) => t.stop());
+      this.captureStream = null;
+    }
+    if (this.captureAudioCtx) {
+      this.captureAudioCtx.close().catch(() => {});
+      this.captureAudioCtx = null;
+    }
+    this.captureAnalyser = null;
+    this.captureFreqBuf = null;
+    if (notify) {
+      this.setState({
+        externalMedia: {
+          ...this.state.externalMedia,
+          isBrowserCaptureActive: false,
+          isBrowserCaptureMuted: false,
+          signalLevel: 0,
+        },
+      });
+    }
+  }
+
+  /** Allows players on web/desktop to set or update the Now-Playing song shown on the Audio Deck & 3D Hologram. */
+  public setExternalManualTrack(title: string, artist?: string, sourceApp?: string) {
+    const cleanTitle = title.trim().slice(0, 64);
+    if (!cleanTitle) return;
+    const cleanArtist = (artist || '').trim().slice(0, 64) || 'Now Playing';
+    const cleanSource = (sourceApp || '').trim().slice(0, 32) || this.state.externalMedia.sourceApp || 'External Music';
+    this.setState({
+      externalMedia: {
+        ...this.state.externalMedia,
+        isActive: true,
+        isBrowserCaptureMuted: false,
+        title: cleanTitle,
+        artist: cleanArtist,
+        sourceApp: cleanSource,
+        captureError: null,
+      },
+    });
+    this.syncBrowserMediaSession(cleanTitle, cleanArtist, 'playing');
+  }
+
+  private syncBrowserMediaSession(
+    title: string,
+    artist: string,
+    playbackState: 'playing' | 'paused'
+  ) {
+    try {
+      if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+        if (typeof MediaMetadata !== 'undefined') {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title,
+            artist,
+            album: 'Klasik Cafe External Audio',
+          });
+        }
+        navigator.mediaSession.playbackState = playbackState;
+      }
+    } catch {
+      // ignore on unsupported browsers
+    }
+  }
+
+  public sendExternalMediaCommand(action: 'play_pause' | 'next' | 'prev') {
+    const native = typeof window !== 'undefined' ? window.KlasikNativeAudio : undefined;
+    if (native && typeof native.sendMediaKey === 'function') {
+      try {
+        native.sendMediaKey(action);
+      } catch {
+        // ignore if native bridge throws
+      }
+      if (action === 'play_pause') {
+        const nextActive = !this.state.externalMedia.isActive;
+        this.setState({
+          externalMedia: { ...this.state.externalMedia, isActive: nextActive },
+        });
+      }
+      window.setTimeout(() => this.refreshExternalAudioStatus(true, true), 320);
+      return;
+    }
+
+    // Web / Browser fallback: toggle live capture mute/pause state & Media Session playbackState
+    if (action === 'play_pause') {
+      const currentlyPlaying =
+        this.state.externalMedia.isActive && !this.state.externalMedia.isBrowserCaptureMuted;
+      const nextMuted = currentlyPlaying;
+      if (this.captureStream) {
+        this.captureStream.getAudioTracks().forEach((tr) => {
+          tr.enabled = !nextMuted;
+        });
+      }
+      this.setState({
+        externalMedia: {
+          ...this.state.externalMedia,
+          isActive: !nextMuted,
+          isBrowserCaptureMuted: nextMuted,
+          signalLevel: nextMuted ? 0 : this.state.externalMedia.signalLevel,
+        },
+      });
+      this.syncBrowserMediaSession(
+        this.state.externalMedia.title,
+        this.state.externalMedia.artist,
+        nextMuted ? 'paused' : 'playing'
+      );
     }
   }
 
@@ -1475,7 +1928,7 @@ export class MusicPlayerController {
   }
 
   public refreshRadioBrowserStations(query = ''): Promise<RadioStationItem[]> {
-    return this.fetchPhilippineStations(query);
+    return this.fetchPhilippineStations(query, this.state.radioCountryFilter);
   }
 
   public setCrackleEnabled(enabled: boolean) {
@@ -1503,6 +1956,7 @@ export class MusicPlayerController {
   }
 
   public dispose() {
+    this.stopBrowserAudioCapture(false);
     this.clearRadioTimeout();
     if (this.fadeTimerId !== null) {
       window.clearInterval(this.fadeTimerId);

@@ -52,6 +52,24 @@ import { SceneryManager, buildMiniSceneryDiorama } from './sceneries/SceneryMana
 import { getSharedGlowSpriteTexture, disposeObject3D } from './sceneries/sceneryTypes';
 import { applyPatronOutfitToRig, buildPatronOutfitPreviewMesh } from './patronOutfits3d';
 import { applySecretNpcLookToRig, createSecretNpcHeartSprite } from './secretNpc3d';
+import {
+  ACTIVE_CUP_STATION4_POS,
+  CUP_SERVE_HITBOX_RADIUS,
+  ICE_COMPARTMENT_POS,
+  MILK_PITCHER_REST_POS,
+  POST_PULL_HANDOFF_DURATION_SEC,
+  TEA_POT_REST_POS,
+  evaluateMilkPourPose,
+  evaluateTeaSteepPose,
+  resolveBaristaCameraTarget,
+} from './baristaChoreography';
+import {
+  buildFrontRightTeapotGroup,
+  buildSculptedMilkPitcherGroup,
+  buildStylizedCustomerHairstyle,
+  getAnalogPressureGaugeTexture,
+  getMinimalistPidScreenTexture,
+} from './minimalistBarEquipment';
 import { DoorwayTrafficController } from './doorwayTraffic';
 import { OutdoorOverlookController, OutdoorVantageKey } from './OutdoorOverlookController';
 import { ThumbnailStudio } from './ThumbnailStudio';
@@ -821,10 +839,14 @@ export class KlasikCafeScene3D {
   private upgradeMiataStageGroup!: THREE.Group;
   private upgradeGuildCharterGroup!: THREE.Group;
 
-  // Subtle Diegetic Step Halo Ring
+  // Diegetic Step Halo Ring & Floating 3D Inverted Triangle Next-Step Beacon (Guided Mode only)
   private stepHaloGroup!: THREE.Group;
   private stepHaloGlowMat!: THREE.MeshBasicMaterial;
   private stepHaloRingMat!: THREE.MeshBasicMaterial;
+  private stepTriangleGroup!: THREE.Group;
+  private stepTriangleCoreMat!: THREE.MeshStandardMaterial;
+  private stepTriangleGlowMat!: THREE.MeshBasicMaterial;
+  private stepTriangleRingMat!: THREE.MeshBasicMaterial;
 
   // 1990 Mazda Miata MX-5 (NA Generation) Showroom Rig
   private miataGroup!: THREE.Group;
@@ -912,11 +934,21 @@ export class KlasikCafeScene3D {
   private espressoStreamsGroup!: THREE.Group;
   private steamWandPivot!: THREE.Group;
   private milkPitcherGroup!: THREE.Group;
+  private milkPitcherSpoutTip!: THREE.Object3D;
   private pitcherMilkMesh!: THREE.Mesh;
   private milkPourStreamMesh!: THREE.Mesh;
   private teaPotGroup!: THREE.Group;
+  private teaPotSpoutTip!: THREE.Object3D;
   private teaPourStreamMesh!: THREE.Mesh;
+  private pullTransitionHoldTimer = 0;
+  private readonly streamSpoutScratch = new THREE.Vector3();
+  private readonly streamTargetScratch = new THREE.Vector3();
+  private readonly streamDirScratch = new THREE.Vector3();
+  private readonly streamMidScratch = new THREE.Vector3();
+  private readonly streamAxisY = new THREE.Vector3(0, 1, 0);
   private iceScoopGroup!: THREE.Group;
+  private iceLidPivot!: THREE.Group;
+  private iceLidOpenAmount = 0;
   private syrupPumpHeads: Map<string, THREE.Group> = new Map();
   private syrupBottleGroups: Map<string, THREE.Group> = new Map();
   private syrupBottleBaseX: Map<string, number> = new Map();
@@ -3557,6 +3589,60 @@ export class KlasikCafeScene3D {
 
     this.stepHaloGroup.position.set(-0.82, 1.004, 0.22);
     this.scene.add(this.stepHaloGroup);
+
+    // Floating 3D Inverted Triangle Beacon (▼) hovering above the active next-step asset in Guided Mode
+    this.stepTriangleGroup = new THREE.Group();
+    this.stepTriangleCoreMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0xd97706,
+      emissiveIntensity: 1.15,
+      roughness: 0.24,
+      metalness: 0.18,
+    });
+    const triCoreGeo = new THREE.ConeGeometry(0.06, 0.104, 3);
+    const triCore = new THREE.Mesh(triCoreGeo, this.stepTriangleCoreMat);
+    triCore.rotation.x = Math.PI; // Apex points straight downward at the asset
+    this.stepTriangleGroup.add(triCore);
+
+    // Subtle dark-espresso silhouette outline so the golden ▼ stays razor-sharp against bright daylight glass
+    const triEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(triCoreGeo),
+      new THREE.LineBasicMaterial({ color: 0x78350f, transparent: true, opacity: 0.9 })
+    );
+    triEdges.rotation.x = Math.PI;
+    this.stepTriangleGroup.add(triEdges);
+
+    this.stepTriangleGlowMat = new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
+      transparent: true,
+      opacity: 0.34,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const triOuterGlow = new THREE.Mesh(
+      new THREE.ConeGeometry(0.08, 0.132, 3),
+      this.stepTriangleGlowMat
+    );
+    triOuterGlow.rotation.x = Math.PI;
+    this.stepTriangleGroup.add(triOuterGlow);
+
+    this.stepTriangleRingMat = new THREE.MeshBasicMaterial({
+      color: 0xfde047,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+    });
+    const triTopCap = new THREE.Mesh(
+      new THREE.TorusGeometry(0.048, 0.0055, 8, 3),
+      this.stepTriangleRingMat
+    );
+    triTopCap.rotation.x = Math.PI / 2;
+    triTopCap.position.y = 0.052;
+    this.stepTriangleGroup.add(triTopCap);
+
+    this.stepTriangleGroup.visible = false;
+    this.scene.add(this.stepTriangleGroup);
   }
 
   // Detailed Procedural 1990 Mazda Miata MX-5 (NA Generation) — parks outside storefront on Title Screen & sits on indoor Showroom Plinth during gameplay
@@ -6866,95 +6952,121 @@ export class KlasikCafeScene3D {
   private buildStation2EspressoBar() {
     const st2Group = new THREE.Group();
 
-    const brushedSteelMat = new THREE.MeshStandardMaterial({
-      color: 0xe5e7eb,
+    // Minimalist Modern Matte Palette: Architectural Matte Slate + Satin Anodized Aluminum + subtle walnut ergonomics
+    const matteSlateChassisMat = new THREE.MeshStandardMaterial({
+      color: 0x262b33,
+      roughness: 0.52,
+      metalness: 0.34,
+    });
+    this.espressoChassisMat = matteSlateChassisMat;
+
+    // Dedicated satin aluminum material for Knock Box, Rinser & Trash Chute (never overridden by machine skins)
+    const counterStainlessMat = new THREE.MeshStandardMaterial({
+      color: 0xcfd6df,
+      roughness: 0.28,
+      metalness: 0.8,
+    });
+    const chromeMat = new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
       roughness: 0.2,
       metalness: 0.88,
     });
-    this.espressoChassisMat = brushedSteelMat;
-    // Dedicated stainless material for Knock Box and Rinse Sink so Espresso Machine Skins only skin the Espresso Machine!
-    const counterStainlessMat = new THREE.MeshStandardMaterial({
-      color: 0xe2e8f0,
-      roughness: 0.22,
-      metalness: 0.86,
-    });
-    const chromeMat = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
-      roughness: 0.1,
-      metalness: 0.96,
-    });
     const matteBlackMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: 0.5,
-      metalness: 0.35,
+      color: 0x16191f,
+      roughness: 0.62,
+      metalness: 0.22,
     });
     this.grinderBodyMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: 0.45,
-      metalness: 0.45,
-    });
-    const brassMat = new THREE.MeshStandardMaterial({
-      color: 0xd97706,
-      roughness: 0.22,
-      metalness: 0.88,
+      color: 0x232830,
+      roughness: 0.54,
+      metalness: 0.32,
     });
     const beanMat = new THREE.MeshStandardMaterial({
       color: 0x3b1d0e,
       roughness: 0.55,
       metalness: 0.05,
     });
+    const maxAniso = this.renderer?.capabilities?.getMaxAnisotropy?.() ?? 4;
 
-    // 1. Knock Box at x = -1.08, z = 0.34
+    // 1. Minimalist Knock Box at x = -0.98, z = 0.36
     const knockBoxGroup = new THREE.Group();
-    const kbOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.2), counterStainlessMat);
-    kbOuter.position.y = 0.06;
+    const kbOuter = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.115, 0.2), matteBlackMat);
+    kbOuter.position.y = 0.058;
     knockBoxGroup.add(kbOuter);
 
-    const kbInterior = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.025, 0.17), matteBlackMat);
-    kbInterior.position.y = 0.112;
+    const kbTopRim = new THREE.Mesh(new THREE.BoxGeometry(0.188, 0.012, 0.208), counterStainlessMat);
+    kbTopRim.position.y = 0.114;
+    knockBoxGroup.add(kbTopRim);
+
+    const kbInterior = new THREE.Mesh(new THREE.BoxGeometry(0.156, 0.016, 0.176), matteBlackMat);
+    kbInterior.position.y = 0.115;
     knockBoxGroup.add(kbInterior);
 
     const knockBar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.014, 0.014, 0.17, 12),
-      matteBlackMat
+      new THREE.CylinderGeometry(0.013, 0.013, 0.174, 14),
+      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.78 })
     );
     knockBar.rotation.z = Math.PI / 2;
-    knockBar.position.set(0, 0.118, 0.01);
+    knockBar.position.set(0, 0.122, 0.01);
     knockBoxGroup.add(knockBar);
 
-    const spentPuck = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.02, 16), beanMat);
+    const spentPuck = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.042, 0.018, 16), beanMat);
     spentPuck.position.set(-0.02, 0.12, -0.03);
-    spentPuck.rotation.z = 0.2;
+    spentPuck.rotation.z = 0.18;
     knockBoxGroup.add(spentPuck);
 
     knockBoxGroup.position.set(-0.98, 1.0, 0.36);
     st2Group.add(knockBoxGroup);
 
-    // 2. Conical Burr Grinder at x = -0.82, z = 0.22
+    // 2. Minimalist Matte Conical Burr Grinder at x = -0.78, z = 0.22
     this.grinderGroup = new THREE.Group();
     const grinderBaseFoot = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.135, 0.04, 24),
-      this.grinderBodyMat
+      new THREE.CylinderGeometry(0.122, 0.132, 0.034, 24),
+      matteBlackMat
     );
-    grinderBaseFoot.position.y = 0.02;
+    grinderBaseFoot.position.y = 0.017;
     this.grinderGroup.add(grinderBaseFoot);
 
+    const grinderBaseAccent = new THREE.Mesh(
+      new THREE.TorusGeometry(0.124, 0.004, 8, 28),
+      counterStainlessMat
+    );
+    grinderBaseAccent.rotation.x = Math.PI / 2;
+    grinderBaseAccent.position.y = 0.034;
+    this.grinderGroup.add(grinderBaseAccent);
+
     const grinderTower = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.105, 0.12, 0.34, 24),
+      new THREE.CylinderGeometry(0.104, 0.116, 0.34, 28),
       this.grinderBodyMat
     );
-    grinderTower.position.y = 0.2;
+    grinderTower.position.y = 0.202;
     grinderTower.castShadow = true;
     this.grinderGroup.add(grinderTower);
 
+    // Precision stepped satin-aluminum grind-setting dial collar
     const grindCollar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.115, 0.115, 0.045, 24),
-      this.grinderBodyMat
+      new THREE.CylinderGeometry(0.116, 0.116, 0.04, 28),
+      counterStainlessMat
     );
-    grindCollar.position.y = 0.39;
+    grindCollar.position.y = 0.388;
     this.grinderGroup.add(grindCollar);
 
-    const forkLeft = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.012, 0.11), chromeMat);
+    const dialMarker = new THREE.Mesh(
+      new THREE.BoxGeometry(0.012, 0.032, 0.01),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.35 })
+    );
+    dialMarker.position.set(0, 0.388, 0.116);
+    this.grinderGroup.add(dialMarker);
+
+    // Minimalist front display badge & magnetic dosing fork
+    const grinderDialScreen = new THREE.Mesh(
+      new THREE.BoxGeometry(0.068, 0.038, 0.012),
+      matteBlackMat
+    );
+    grinderDialScreen.position.set(0, 0.32, 0.106);
+    this.grinderGroup.add(grinderDialScreen);
+
+    const forkLeft = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.01, 0.11), chromeMat);
     forkLeft.position.set(-0.042, 0.13, 0.13);
     this.grinderGroup.add(forkLeft);
     const forkRight = forkLeft.clone();
@@ -6962,32 +7074,34 @@ export class KlasikCafeScene3D {
     this.grinderGroup.add(forkRight);
 
     const chute = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.032, 0.026, 0.14, 16),
-      this.grinderBodyMat
+      new THREE.CylinderGeometry(0.03, 0.025, 0.135, 18),
+      counterStainlessMat
     );
     chute.rotation.x = 0.45;
-    chute.position.set(0, 0.27, 0.12);
+    chute.position.set(0, 0.268, 0.118);
     this.grinderGroup.add(chute);
 
     const useTrans = this.shouldUsePhysicalTransmission();
     const hopperGlassMat = new THREE.MeshPhysicalMaterial({
-      color: 0xfffbeb,
+      color: 0xdbeafe,
       roughness: 0.08,
-      metalness: 0,
+      metalness: 0.02,
       transmission: useTrans ? 0.78 : 0,
       transparent: true,
-      opacity: useTrans ? 0.92 : 0.38,
+      opacity: useTrans ? 0.88 : 0.36,
+      depthWrite: false,
     });
     const hopper = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.155, 0.095, 0.24, 24),
+      new THREE.CylinderGeometry(0.15, 0.095, 0.23, 28),
       hopperGlassMat
     );
-    hopper.position.y = 0.52;
+    hopper.position.y = 0.515;
+    hopper.renderOrder = 2;
     this.grinderGroup.add(hopper);
 
     this.hopperBeansGroup = new THREE.Group();
-    this.hopperBeansGroup.position.y = 0.49;
-    const beanCore = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.085, 0.14, 20), beanMat);
+    this.hopperBeansGroup.position.y = 0.488;
+    const beanCore = new THREE.Mesh(new THREE.CylinderGeometry(0.128, 0.085, 0.138, 20), beanMat);
     this.hopperBeansGroup.add(beanCore);
 
     const singleBeanGeo = new THREE.SphereGeometry(0.018, 8, 8);
@@ -6996,18 +7110,25 @@ export class KlasikCafeScene3D {
       const angle = (i / 24) * Math.PI * 2;
       const r = 0.03 + (i % 4) * 0.024;
       const bean = new THREE.Mesh(singleBeanGeo, beanMat);
-      bean.position.set(Math.cos(angle) * r, 0.075 + (i % 3) * 0.01, Math.sin(angle) * r);
+      bean.position.set(Math.cos(angle) * r, 0.072 + (i % 3) * 0.01, Math.sin(angle) * r);
       bean.rotation.set(i * 0.5, angle, 0.3);
       this.hopperBeansGroup.add(bean);
     }
     this.grinderGroup.add(this.hopperBeansGroup);
 
     const hopperLid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.162, 0.158, 0.024, 24),
+      new THREE.CylinderGeometry(0.156, 0.154, 0.02, 28),
       matteBlackMat
     );
-    hopperLid.position.y = 0.65;
+    hopperLid.position.y = 0.64;
     this.grinderGroup.add(hopperLid);
+
+    const hopperKnob = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.024, 0.024, 0.016, 16),
+      counterStainlessMat
+    );
+    hopperKnob.position.y = 0.656;
+    this.grinderGroup.add(hopperKnob);
 
     this.groundStreamGroup = new THREE.Group();
     this.groundStreamGroup.position.set(0, 0.19, 0.15);
@@ -7034,27 +7155,40 @@ export class KlasikCafeScene3D {
     );
     st2Group.add(this.grinderGroup);
 
-    // 3. Silicone Tamping Mat & Calibrated Tamper at x = -0.48, y = 1.0, z = 0.36
+    // 3. Minimalist Matte Silicone Tamping Mat & Calibrated Precision Tamper at x = -0.48, y = 1.0, z = 0.36
     const tampStationGroup = new THREE.Group();
     const siliconeMat = new THREE.Mesh(
-      new THREE.BoxGeometry(0.28, 0.02, 0.24),
-      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.88 })
+      new THREE.BoxGeometry(0.28, 0.016, 0.24),
+      new THREE.MeshStandardMaterial({ color: 0x181c22, roughness: 0.9 })
     );
-    siliconeMat.position.y = 0.01;
+    siliconeMat.position.y = 0.008;
     tampStationGroup.add(siliconeMat);
 
+    // Raised silicone tamper rest ring on mat
+    const matRestRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.048, 0.005, 8, 22),
+      new THREE.MeshStandardMaterial({ color: 0x262b33, roughness: 0.85 })
+    );
+    matRestRing.rotation.x = Math.PI / 2;
+    matRestRing.position.set(-0.075, 0.018, -0.02);
+    tampStationGroup.add(matRestRing);
+
     this.tamperMeshGroup = new THREE.Group();
-    const tBase = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.022, 24), chromeMat);
-    tBase.position.y = 0.011;
+    const tBase = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.018, 24), chromeMat);
+    tBase.position.y = 0.009;
     this.tamperMeshGroup.add(tBase);
 
-    const tNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.036, 0.03, 20), chromeMat);
-    tNeck.position.y = 0.036;
+    const tCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.046, 0.012, 24), matteBlackMat);
+    tCollar.position.y = 0.024;
+    this.tamperMeshGroup.add(tCollar);
+
+    const tNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.032, 0.028, 20), chromeMat);
+    tNeck.position.y = 0.042;
     this.tamperMeshGroup.add(tNeck);
 
-    const tGrip = new THREE.Mesh(new THREE.SphereGeometry(0.036, 20, 16), this.counterWoodMat);
-    tGrip.scale.set(1, 1.35, 1);
-    tGrip.position.y = 0.082;
+    const tGrip = new THREE.Mesh(new THREE.SphereGeometry(0.033, 20, 16), this.counterWoodMat);
+    tGrip.scale.set(1, 1.32, 1);
+    tGrip.position.y = 0.084;
     this.tamperMeshGroup.add(tGrip);
 
     this.tamperMeshGroup.position.set(-0.075, 0.02, -0.02);
@@ -7084,7 +7218,7 @@ export class KlasikCafeScene3D {
     );
     st2Group.add(tampStationGroup);
 
-    // 4. Articulated Portafilter with Distinct fluffyGroundsMesh (y = 0.028) & tampedPuckMesh (y = 0.026 > basketInner y = 0.022)
+    // 4. Articulated Portafilter with Distinct fluffyGroundsMesh & tampedPuckMesh
     this.portafilterGroup = new THREE.Group();
     const pfBasket = new THREE.Mesh(
       new THREE.CylinderGeometry(0.058, 0.05, 0.044, 24),
@@ -7092,7 +7226,6 @@ export class KlasikCafeScene3D {
     );
     this.portafilterGroup.add(pfBasket);
 
-    // Inner Basket Rim Top Surface strictly at y = 0.022
     const basketInner = new THREE.Mesh(
       new THREE.CylinderGeometry(0.052, 0.048, 0.004, 24),
       matteBlackMat
@@ -7107,20 +7240,24 @@ export class KlasikCafeScene3D {
       this.portafilterGroup.add(spout);
     });
 
-    const pfCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 12), chromeMat);
+    const pfCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 14), chromeMat);
     pfCollar.rotation.x = Math.PI / 2;
     pfCollar.position.set(0, 0.004, 0.075);
     this.portafilterGroup.add(pfCollar);
 
     const pfWoodHandle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.018, 0.025, 0.16, 16),
+      new THREE.CylinderGeometry(0.017, 0.023, 0.16, 16),
       this.counterWoodMat
     );
     pfWoodHandle.rotation.x = Math.PI / 2;
     pfWoodHandle.position.set(0, 0.004, 0.165);
     this.portafilterGroup.add(pfWoodHandle);
 
-    // 1. fluffyGroundsMesh: Textured mound of fresh coffee grounds at y = 0.028
+    const pfEndCap = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.012, 16), chromeMat);
+    pfEndCap.rotation.x = Math.PI / 2;
+    pfEndCap.position.set(0, 0.004, 0.246);
+    this.portafilterGroup.add(pfEndCap);
+
     this.fluffyGroundsMesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.05, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
       new THREE.MeshStandardMaterial({ color: 0x4a220d, roughness: 0.92 })
@@ -7129,7 +7266,6 @@ export class KlasikCafeScene3D {
     this.fluffyGroundsMesh.visible = false;
     this.portafilterGroup.add(this.fluffyGroundsMesh);
 
-    // 2. tampedPuckMesh: Bevelled dark-roast espresso puck cylinder at y = 0.026 (strictly above basketInner y = 0.022!)
     this.tampedPuckMesh = new THREE.Mesh(
       new THREE.CylinderGeometry(0.051, 0.051, 0.012, 24),
       new THREE.MeshStandardMaterial({
@@ -7145,59 +7281,99 @@ export class KlasikCafeScene3D {
     this.portafilterGroup.position.set(-0.43, 1.05, 0.37);
     st2Group.add(this.portafilterGroup);
 
-    // 5. Commercial Dual-Boiler Espresso Machine at x = -0.02, y = 1.0, z = 0.16 (drip tray grate at z = 0.30)
+    // 5. Minimalist Modern Matte Dual-Boiler Commercial Espresso Machine at x = -0.02, y = 1.0, z = 0.16
     const espressoGroup = new THREE.Group();
-    // Rear Boiler Cabinet (leaves z = +0.02..+0.26 open above the drip tray for cups!)
+
+    // Rear Matte-Slate Boiler Housing
     const mainChassis = new THREE.Mesh(
       new THREE.BoxGeometry(0.68, 0.48, 0.24),
-      brushedSteelMat
+      this.espressoChassisMat
     );
     mainChassis.position.set(0, 0.26, -0.09);
     mainChassis.castShadow = true;
     espressoGroup.add(mainChassis);
 
-    // Upper Grouphead Overhang Header
-    const upperHeader = new THREE.Mesh(
-      new THREE.BoxGeometry(0.68, 0.16, 0.22),
-      brushedSteelMat
+    // Satin-aluminum brushed backplate inside brewing bay for clean architectural contrast
+    const bayBackplate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.62, 0.32, 0.016),
+      counterStainlessMat
     );
-    upperHeader.position.set(0, 0.42, 0.11);
+    bayBackplate.position.set(0, 0.2, 0.032);
+    espressoGroup.add(bayBackplate);
+
+    // Upper Grouphead Overhang Fascia with chamfered horizontal satin accent strip
+    const upperHeader = new THREE.Mesh(
+      new THREE.BoxGeometry(0.68, 0.155, 0.22),
+      this.espressoChassisMat
+    );
+    upperHeader.position.set(0, 0.422, 0.11);
     upperHeader.castShadow = true;
     espressoGroup.add(upperHeader);
 
-    const topHood = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.21, 0.21, 0.66, 20, 1, false, 0, Math.PI),
-      brushedSteelMat
+    const fasciaTrimLine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.682, 0.012, 0.224),
+      counterStainlessMat
     );
-    topHood.rotation.z = Math.PI / 2;
-    topHood.scale.set(0.25, 1, 1);
-    topHood.position.set(0, 0.5, -0.01);
-    espressoGroup.add(topHood);
+    fasciaTrimLine.position.set(0, 0.352, 0.11);
+    espressoGroup.add(fasciaTrimLine);
 
-    [-0.345, 0.345].forEach((sx) => {
+    // Low-profile architectural satin top deck
+    const topDeck = new THREE.Mesh(
+      new THREE.BoxGeometry(0.66, 0.022, 0.42),
+      counterStainlessMat
+    );
+    topDeck.position.set(0, 0.506, 0.01);
+    espressoGroup.add(topDeck);
+
+    // Sleek satin-aluminum architectural side cheeks with minimalist recessed walnut touch accent
+    [-0.348, 0.348].forEach((sx) => {
       const cheek = new THREE.Mesh(
-        new THREE.BoxGeometry(0.028, 0.44, 0.4),
+        new THREE.BoxGeometry(0.022, 0.46, 0.42),
+        counterStainlessMat
+      );
+      cheek.position.set(sx, 0.265, 0.0);
+      espressoGroup.add(cheek);
+
+      const cheekAccent = new THREE.Mesh(
+        new THREE.BoxGeometry(0.025, 0.042, 0.36),
         this.counterWoodMat
       );
-      cheek.position.set(sx, 0.26, -0.01);
-      espressoGroup.add(cheek);
+      cheekAccent.position.set(sx, 0.42, 0.01);
+      espressoGroup.add(cheekAccent);
     });
 
-    // Slotted Stainless Drip Tray & Red Water-Level Float in Open Front Brewing Bay
-    const dripTrayBox = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.048, 0.24), matteBlackMat);
+    // Precision Matte Drip Tray Basin + Multi-Slatted Stainless Drip Grate
+    const dripTrayBox = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.048, 0.24), matteBlackMat);
     dripTrayBox.position.set(0, 0.024, 0.14);
     espressoGroup.add(dripTrayBox);
 
-    const dripGrate = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.01, 0.21), chromeMat);
-    dripGrate.position.set(0, 0.05, 0.14);
-    espressoGroup.add(dripGrate);
-
-    const redFloat = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.011, 0.011, 0.018, 12),
-      new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 })
+    const dripFrontLip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.655, 0.042, 0.012),
+      counterStainlessMat
     );
-    redFloat.position.set(0.26, 0.056, 0.21);
-    espressoGroup.add(redFloat);
+    dripFrontLip.position.set(0, 0.024, 0.26);
+    espressoGroup.add(dripFrontLip);
+
+    const dripGrateBase = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.008, 0.2), matteBlackMat);
+    dripGrateBase.position.set(0, 0.048, 0.14);
+    espressoGroup.add(dripGrateBase);
+
+    for (let si = -4; si <= 4; si++) {
+      const slat = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.006, 0.012), chromeMat);
+      slat.position.set(0, 0.052, 0.14 + si * 0.021);
+      espressoGroup.add(slat);
+    }
+
+    // Minimalist Matte Shot-Brew Paddle Levers (Walnut tips) on upper header
+    [-0.14, 0.14].forEach((px) => {
+      const leverBase = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.018, 12), chromeMat);
+      leverBase.rotation.x = Math.PI / 2;
+      leverBase.position.set(px, 0.48, 0.222);
+      espressoGroup.add(leverBase);
+      const leverPaddle = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.032, 0.042), this.counterWoodMat);
+      leverPaddle.position.set(px, 0.48, 0.242);
+      espressoGroup.add(leverPaddle);
+    });
 
     this.groupHeadLedMat = new THREE.MeshStandardMaterial({
       color: 0xfef3c7,
@@ -7206,77 +7382,119 @@ export class KlasikCafeScene3D {
     });
     this.gaugeNeedles = [];
 
+    const gaugeTex = getAnalogPressureGaugeTexture(maxAniso);
+    const gaugeFaceMat = gaugeTex
+      ? new THREE.MeshBasicMaterial({ map: gaugeTex })
+      : new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+
     [-0.14, 0.14].forEach((gx) => {
       const shroud = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.072, 0.064, 0.095, 24),
+        new THREE.CylinderGeometry(0.068, 0.062, 0.09, 26),
         chromeMat
       );
-      shroud.position.set(gx, 0.32, 0.16);
+      shroud.position.set(gx, 0.316, 0.16);
       espressoGroup.add(shroud);
 
       const bayonetRing = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.058, 0.058, 0.025, 24),
+        new THREE.CylinderGeometry(0.058, 0.058, 0.024, 24),
         matteBlackMat
       );
-      bayonetRing.position.set(gx, 0.265, 0.16);
+      bayonetRing.position.set(gx, 0.264, 0.16);
       espressoGroup.add(bayonetRing);
 
       const ledRing = new THREE.Mesh(
-        new THREE.TorusGeometry(0.066, 0.005, 8, 24),
+        new THREE.TorusGeometry(0.064, 0.0042, 8, 24),
         this.groupHeadLedMat
       );
       ledRing.rotation.x = Math.PI / 2;
-      ledRing.position.set(gx, 0.355, 0.16);
+      ledRing.position.set(gx, 0.354, 0.16);
       espressoGroup.add(ledRing);
 
+      // Precision machined satin-aluminum pressure gauge bezel + high-res analog dial face
       const gaugeBezel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.044, 0.044, 0.022, 24),
-        this.espressoChassisMat
+        new THREE.CylinderGeometry(0.043, 0.045, 0.018, 26),
+        counterStainlessMat
       );
       gaugeBezel.rotation.x = Math.PI / 2;
-      gaugeBezel.position.set(gx, 0.425, 0.215);
+      gaugeBezel.position.set(gx, 0.422, 0.218);
       espressoGroup.add(gaugeBezel);
 
-      const gaugeFace = new THREE.Mesh(
-        new THREE.CircleGeometry(0.036, 20),
-        new THREE.MeshBasicMaterial({ color: 0xfefce8 })
-      );
-      gaugeFace.position.set(gx, 0.425, 0.228);
+      const gaugeFace = new THREE.Mesh(new THREE.CircleGeometry(0.036, 24), gaugeFaceMat);
+      gaugeFace.position.set(gx, 0.422, 0.228);
       espressoGroup.add(gaugeFace);
 
       const needle = new THREE.Mesh(
-        new THREE.BoxGeometry(0.005, 0.028, 0.004),
+        new THREE.BoxGeometry(0.0042, 0.027, 0.003),
         new THREE.MeshBasicMaterial({ color: 0xdc2626 })
       );
-      needle.position.set(gx, 0.425, 0.231);
+      needle.position.set(gx, 0.422, 0.231);
       needle.rotation.z = 0.8;
       espressoGroup.add(needle);
       this.gaugeNeedles.push(needle);
     });
 
+    // Recessed Minimalist OLED PID Display (93.0°C · 27.4s)
+    const pidBezel = new THREE.Mesh(new THREE.BoxGeometry(0.122, 0.052, 0.012), matteBlackMat);
+    pidBezel.position.set(0, 0.422, 0.22);
+    espressoGroup.add(pidBezel);
+
+    const pidTex = getMinimalistPidScreenTexture(maxAniso);
     const pidScreen = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.11, 0.042),
-      new THREE.MeshStandardMaterial({
-        color: 0x1e293b,
-        emissive: 0xf59e0b,
-        emissiveIntensity: 0.75,
-      })
+      new THREE.PlaneGeometry(0.112, 0.042),
+      pidTex
+        ? new THREE.MeshBasicMaterial({ map: pidTex })
+        : new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            emissive: 0xf59e0b,
+            emissiveIntensity: 0.55,
+          })
     );
-    pidScreen.position.set(0, 0.425, 0.222);
+    pidScreen.position.set(0, 0.422, 0.227);
     espressoGroup.add(pidScreen);
 
-    const warmerRail = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.03, 0.36), this.espressoChassisMat);
-    warmerRail.position.set(0, 0.52, -0.01);
-    espressoGroup.add(warmerRail);
+    // Open Minimalist Tubular Satin Cup-Warmer Guard Rail on Top Deck
+    const railPostCoords: Array<[number, number]> = [
+      [-0.29, -0.17],
+      [0.29, -0.17],
+      [-0.29, 0.14],
+      [0.29, 0.14],
+    ];
+    railPostCoords.forEach(([rx, rz]) => {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.048, 10), chromeMat);
+      post.position.set(rx, 0.538, rz);
+      espressoGroup.add(post);
+    });
+    const backRail = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.58, 10), chromeMat);
+    backRail.rotation.z = Math.PI / 2;
+    backRail.position.set(0, 0.56, -0.17);
+    espressoGroup.add(backRail);
+    [-0.29, 0.29].forEach((sx) => {
+      const sideRail = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.31, 10), chromeMat);
+      sideRail.rotation.x = Math.PI / 2;
+      sideRail.position.set(sx, 0.56, -0.015);
+      espressoGroup.add(sideRail);
+    });
 
     [-0.2, -0.07, 0.07, 0.2].forEach((cx) => {
       const stackedCup = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.038, 0.048, 0.072, 16),
+        new THREE.CylinderGeometry(0.036, 0.044, 0.068, 18),
         this.ceramicMugMat
       );
-      stackedCup.position.set(cx, 0.568, -0.03);
+      stackedCup.position.set(cx, 0.552, -0.02);
       espressoGroup.add(stackedCup);
     });
+
+    // Knurled Minimalist Steam Valve Knob + Articulated Cool-Touch Stainless Steam Wand
+    const steamKnob = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.026, 0.028, 0.026, 20),
+      matteBlackMat
+    );
+    steamKnob.rotation.x = Math.PI / 2;
+    steamKnob.position.set(0.275, 0.425, 0.228);
+    espressoGroup.add(steamKnob);
+    const steamKnobRing = new THREE.Mesh(new THREE.TorusGeometry(0.025, 0.003, 8, 20), chromeMat);
+    steamKnobRing.position.set(0.275, 0.425, 0.241);
+    espressoGroup.add(steamKnobRing);
 
     this.steamWandPivot = new THREE.Group();
     this.steamWandPivot.position.set(0.28, 0.34, 0.18);
@@ -7285,12 +7503,26 @@ export class KlasikCafeScene3D {
     this.steamWandPivot.add(ballJoint);
 
     const wandTube = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.007, 0.006, 0.22, 12),
+      new THREE.CylinderGeometry(0.0068, 0.0058, 0.22, 14),
       chromeMat
     );
     wandTube.position.set(0.025, -0.1, 0.025);
     wandTube.rotation.z = 0.22;
     this.steamWandPivot.add(wandTube);
+
+    // Cool-touch matte silicone grip sleeve + multi-hole steam tip
+    const wandGrip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0105, 0.0105, 0.048, 12),
+      matteBlackMat
+    );
+    wandGrip.position.set(0.015, -0.055, 0.025);
+    wandGrip.rotation.z = 0.22;
+    this.steamWandPivot.add(wandGrip);
+
+    const wandTip = new THREE.Mesh(new THREE.CylinderGeometry(0.0082, 0.0062, 0.02, 12), chromeMat);
+    wandTip.position.set(0.049, -0.205, 0.025);
+    wandTip.rotation.z = 0.22;
+    this.steamWandPivot.add(wandTip);
 
     espressoGroup.add(this.steamWandPivot);
 
@@ -7317,7 +7549,7 @@ export class KlasikCafeScene3D {
     this.registerInteractiveTool(
       'espresso',
       espressoGroup,
-      'Commercial Dual-Boiler Espresso Machine — Click to Pull 9-Bar Double Shot',
+      'Minimalist Dual-Boiler Espresso Machine — Click to Pull 9-Bar Double Shot',
       3,
       () => this.callbacks.onToolAction('pull_espresso')
     );
@@ -7460,12 +7692,12 @@ export class KlasikCafeScene3D {
     this.activeIcedTakeoutLidMesh.visible = false;
     this.activeBaristaCupGroup.position.copy(this.cupCurrentPos);
 
-    // Invisible cup click-to-serve hitbox (active only when drink + pastry are ready to serve!)
+    // Invisible cup click-to-serve hitbox (sized cleanly so adjacent Milk Pitcher & Front-Right Teapot are never blocked!)
     const cupServeHitbox = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.1, 0.22, 12),
+      new THREE.CylinderGeometry(CUP_SERVE_HITBOX_RADIUS, CUP_SERVE_HITBOX_RADIUS * 0.94, 0.2, 12),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    cupServeHitbox.position.y = 0.11;
+    cupServeHitbox.position.y = 0.1;
     this.activeBaristaCupGroup.add(cupServeHitbox);
     this.registerInteractiveTool(
       'serve-ready-cup',
@@ -7530,107 +7762,61 @@ export class KlasikCafeScene3D {
     this.scene.add(st2Group);
   }
 
-  // Station 3 (x: 0.44 to 1.55): Milk Pitcher (0.44, 0.36), Dedicated Drink Assembly Coaster (0.62, 0.38), Recessed Ice Bin (0.85, 0.16), Tiered Syrup Rack (1.22, 0.18), Matcha Chawan & Whisk (1.48, 0.34)
+  // Station 3 (Milk, Front-Right Steep Tea, Ice, Syrups & Matcha) — Minimalist Modern Matte Craft
   private buildStation3MilkSyrupsAndIce() {
     const st3Group = new THREE.Group();
 
     const chromeMat = new THREE.MeshStandardMaterial({
-      color: 0xe2e8f0,
-      roughness: 0.15,
-      metalness: 0.92,
+      color: 0xd4dbe3,
+      roughness: 0.24,
+      metalness: 0.84,
     });
     this.pitcherBodyMat = new THREE.MeshStandardMaterial({
-      color: 0xe2e8f0,
-      roughness: 0.15,
-      metalness: 0.92,
+      color: 0xd4dbe3,
+      roughness: 0.24,
+      metalness: 0.84,
     });
+    // Satin anodized aluminum pumps & hardware (Minimalist Modern Matte finish)
     const brassPumpMat = new THREE.MeshStandardMaterial({
-      color: 0xfbbf24,
-      roughness: 0.22,
-      metalness: 0.88,
+      color: 0xcfd6df,
+      roughness: 0.26,
+      metalness: 0.82,
     });
 
-    // 1. Dedicated Drink Assembly Mat / Coaster at x = 0.78, y = 1.0, z = 0.38
+    // 1. Minimalist Drink Assembly Coaster at (1.18, 1.0, 0.38)
     const assemblyCoasterGroup = new THREE.Group();
     const coasterDisc = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.115, 0.016, 24),
-      this.counterWoodMat
+      new THREE.CylinderGeometry(0.105, 0.11, 0.014, 24),
+      new THREE.MeshStandardMaterial({ color: 0x262b33, roughness: 0.56, metalness: 0.24 })
     );
-    coasterDisc.position.y = 0.008;
+    coasterDisc.position.y = 0.007;
     assemblyCoasterGroup.add(coasterDisc);
 
-    const coasterBrassInlay = new THREE.Mesh(
-      new THREE.TorusGeometry(0.095, 0.004, 8, 24),
+    const coasterInlay = new THREE.Mesh(
+      new THREE.TorusGeometry(0.092, 0.0032, 8, 24),
       brassPumpMat
     );
-    coasterBrassInlay.rotation.x = Math.PI / 2;
-    coasterBrassInlay.position.y = 0.017;
-    assemblyCoasterGroup.add(coasterBrassInlay);
+    coasterInlay.rotation.x = Math.PI / 2;
+    coasterInlay.position.y = 0.015;
+    assemblyCoasterGroup.add(coasterInlay);
 
-    assemblyCoasterGroup.position.set(1.18, 1.0, 0.38);
+    assemblyCoasterGroup.position.set(
+      ACTIVE_CUP_STATION4_POS.x,
+      1.0,
+      ACTIVE_CUP_STATION4_POS.z
+    );
     st3Group.add(assemblyCoasterGroup);
 
-    // 1b. Kyoto Borosilicate Glass Teapot & Botanical Infuser at x = 1.18, y = 1.0, z = 0.14
-    this.teaPotGroup = new THREE.Group();
-    const teapotWarmerBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.082, 0.025, 20),
-      brassPumpMat
-    );
-    teapotWarmerBase.position.y = 0.0125;
-    this.teaPotGroup.add(teapotWarmerBase);
-
+    // 1b. Relocated Kyoto Borosilicate Glass Teapot on clear walnut wooden coaster at FRONT-RIGHT (1.44, 1.0, 0.42)
+    // Unobstructed in Realism Mode so players can always tap/click it cleanly beside the cup!
     const useTrans = this.shouldUsePhysicalTransmission();
-    const teapotGlassMat = new THREE.MeshPhysicalMaterial({
-      color: 0xecfccb,
-      roughness: 0.1,
-      transmission: useTrans ? 0.78 : 0,
-      transparent: true,
-      opacity: useTrans ? 0.88 : 0.45,
-    });
-    const teapotBelly = new THREE.Mesh(
-      new THREE.SphereGeometry(0.078, 20, 16),
-      teapotGlassMat
-    );
-    teapotBelly.scale.set(1, 0.82, 1);
-    teapotBelly.position.y = 0.082;
-    this.teaPotGroup.add(teapotBelly);
+    const teapotBuild = buildFrontRightTeapotGroup(this.counterWoodMat, useTrans);
+    teapotBuild.coasterGroup.position.set(TEA_POT_REST_POS.x, TEA_POT_REST_POS.y, TEA_POT_REST_POS.z);
+    st3Group.add(teapotBuild.coasterGroup);
 
-    // Inner Stainless & Botanical Leaf Infuser Core
-    const infuserCore = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.032, 0.028, 0.085, 16),
-      new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.55 })
-    );
-    infuserCore.position.y = 0.082;
-    this.teaPotGroup.add(infuserCore);
-
-    const teapotLid = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.042, 0.048, 0.018, 18),
-      brassPumpMat
-    );
-    teapotLid.position.y = 0.145;
-    this.teaPotGroup.add(teapotLid);
-
-    const lidKnob = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 12), this.counterWoodMat);
-    lidKnob.position.y = 0.162;
-    this.teaPotGroup.add(lidKnob);
-
-    const teapotSpout = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.012, 0.02, 0.075, 12),
-      teapotGlassMat
-    );
-    teapotSpout.position.set(0, 0.095, 0.072);
-    teapotSpout.rotation.x = 0.65;
-    this.teaPotGroup.add(teapotSpout);
-
-    const teapotHandle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.042, 0.008, 10, 20, Math.PI),
-      this.counterWoodMat
-    );
-    teapotHandle.rotation.y = Math.PI / 2;
-    teapotHandle.position.set(0, 0.088, -0.072);
-    this.teaPotGroup.add(teapotHandle);
-
-    this.teaPotGroup.position.set(1.18, 1.0, 0.14);
+    this.teaPotGroup = teapotBuild.teaPotGroup;
+    this.teaPotSpoutTip = teapotBuild.spoutTip;
+    this.teaPotGroup.position.set(TEA_POT_REST_POS.x, TEA_POT_REST_POS.y, TEA_POT_REST_POS.z);
     this.registerInteractiveTool(
       'tea',
       this.teaPotGroup,
@@ -7640,140 +7826,238 @@ export class KlasikCafeScene3D {
     );
     st3Group.add(this.teaPotGroup);
 
+    // Unit-height tapered amber-green tea pour stream dynamically anchored spoutTip -> cup center
     this.teaPourStreamMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.009, 0.005, 0.21, 12),
+      new THREE.CylinderGeometry(0.0065, 0.0038, 1.0, 12),
       new THREE.MeshStandardMaterial({
         color: 0x84cc16,
         emissive: 0x4d7c0f,
-        emissiveIntensity: 0.35,
+        emissiveIntensity: 0.3,
+        roughness: 0.14,
+        transparent: true,
+        opacity: 0.9,
       })
     );
     this.teaPourStreamMesh.visible = false;
     st3Group.add(this.teaPourStreamMesh);
 
-    // 2. Stainless Milk Pitcher at x = 0.96, y = 1.0, z = 0.38
-    this.milkPitcherGroup = new THREE.Group();
-    const pitcherBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.064, 0.076, 0.175, 24, 1, true),
-      this.pitcherBodyMat
+    // 2. Sculpted Closed-Wall LatheGeometry Satin-Aluminum Milk Pitcher at (0.96, 1.0, 0.38)
+    const pitcherBuild = buildSculptedMilkPitcherGroup(this.pitcherBodyMat);
+    pitcherBuild.padGroup.position.set(
+      MILK_PITCHER_REST_POS.x,
+      MILK_PITCHER_REST_POS.y,
+      MILK_PITCHER_REST_POS.z
     );
-    pitcherBody.position.y = 0.088;
-    this.milkPitcherGroup.add(pitcherBody);
+    st3Group.add(pitcherBuild.padGroup);
 
-    const pitcherBottom = new THREE.Mesh(new THREE.CircleGeometry(0.076, 24), this.pitcherBodyMat);
-    pitcherBottom.rotation.x = Math.PI / 2;
-    pitcherBottom.position.y = 0.002;
-    this.milkPitcherGroup.add(pitcherBottom);
-
-    const spoutLip = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.02, 0.01, 0.035, 12),
-      this.pitcherBodyMat
+    this.milkPitcherGroup = pitcherBuild.group;
+    this.pitcherMilkMesh = pitcherBuild.milkMesh;
+    this.milkPitcherSpoutTip = pitcherBuild.spoutTip;
+    this.milkPitcherGroup.position.set(
+      MILK_PITCHER_REST_POS.x,
+      MILK_PITCHER_REST_POS.y,
+      MILK_PITCHER_REST_POS.z
     );
-    spoutLip.position.set(0.062, 0.162, 0);
-    spoutLip.rotation.z = -0.45;
-    this.milkPitcherGroup.add(spoutLip);
-
-    const pHandle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.042, 0.008, 10, 20, Math.PI),
-      this.pitcherBodyMat
-    );
-    pHandle.rotation.z = Math.PI / 2;
-    pHandle.position.set(-0.068, 0.092, 0);
-    this.milkPitcherGroup.add(pHandle);
-
-    this.pitcherMilkMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.068, 0.12, 20),
-      new THREE.MeshStandardMaterial({ color: 0xfffbeb, roughness: 0.25 })
-    );
-    this.pitcherMilkMesh.position.y = 0.068;
-    this.milkPitcherGroup.add(this.pitcherMilkMesh);
-
-    const tempBand = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.071, 0.073, 0.028, 24),
-      new THREE.MeshStandardMaterial({
-        color: 0x10b981,
-        emissive: 0x059669,
-        emissiveIntensity: 0.45,
-      })
-    );
-    tempBand.position.y = 0.062;
-    this.milkPitcherGroup.add(tempBand);
-
-    this.milkPitcherGroup.position.set(0.96, 1.0, 0.38);
     this.registerInteractiveTool(
       'milk',
       this.milkPitcherGroup,
-      'Stainless Frothing Pitcher — Click to Steam 65°C Microfoam & Pour Latte Art',
+      'Precision Satin Frothing Pitcher — Click to Steam 65°C Microfoam & Pour Latte Art',
       4,
       () => this.callbacks.onToolAction('steam_milk')
     );
     st3Group.add(this.milkPitcherGroup);
 
+    // Unit-height tapered silky microfoam pour ribbon dynamically anchored spoutTip -> cup center
     this.milkPourStreamMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.01, 0.006, 0.22, 12),
+      new THREE.CylinderGeometry(0.0085, 0.0046, 1.0, 14),
       new THREE.MeshStandardMaterial({
-        color: 0xfffbeb,
+        color: 0xfffdf5,
         emissive: 0xfef3c7,
-        emissiveIntensity: 0.35,
+        emissiveIntensity: 0.28,
+        roughness: 0.16,
       })
     );
     this.milkPourStreamMesh.visible = false;
     st3Group.add(this.milkPourStreamMesh);
 
-    // 3. Recessed Polycarbonate Ice Bin at x = 1.44, y = 1.0, z = 0.16
+    // 3. Recessed Drop-In Stainless-Steel Ice Compartment with Animated Hinged Lid
+    // Positioned cleanly inside the counter below the rinsing sink:
+    //   [rinsing sink] [milk] [cup] [steep tea]
+    //   [ice compartment]
     const iceBinGroup = new THREE.Group();
-    const binRim = new THREE.Mesh(
-      new THREE.BoxGeometry(0.28, 0.035, 0.22),
-      new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.28, metalness: 0.72 })
-    );
-    binRim.position.y = 0.018;
-    iceBinGroup.add(binRim);
 
+    // Flush brushed-stainless counter bezel matching the adjacent rinsing sink
+    const binBezel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.026, 0.196),
+      chromeMat
+    );
+    binBezel.position.y = 0.013;
+    iceBinGroup.add(binBezel);
+
+    // Matte-slate insulated well interior collar inset flush into bezel
+    const binWellCollar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.252, 0.028, 0.168),
+      new THREE.MeshStandardMaterial({ color: 0x18202a, roughness: 0.5, metalness: 0.28 })
+    );
+    binWellCollar.position.y = 0.015;
+    iceBinGroup.add(binWellCollar);
+
+    // Recessed chilled ice bed seated cleanly below the closed hinged lid
     const iceSurface = new THREE.Mesh(
-      new THREE.BoxGeometry(0.24, 0.025, 0.18),
+      new THREE.BoxGeometry(0.232, 0.012, 0.148),
       new THREE.MeshStandardMaterial({
         color: 0xbae6fd,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.16,
         roughness: 0.12,
-        metalness: 0.1,
+        metalness: 0.08,
       })
     );
-    iceSurface.position.y = 0.032;
+    iceSurface.position.y = 0.018;
     iceBinGroup.add(iceSurface);
 
-    for (let i = 0; i < 8; i++) {
-      const c = new THREE.Mesh(
-        new THREE.BoxGeometry(0.032, 0.026, 0.032),
-        new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.1 })
+    const wellCubeMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      emissive: 0x7dd3fc,
+      emissiveIntensity: 0.1,
+      roughness: 0.1,
+      metalness: 0.06,
+    });
+    for (let i = 0; i < 10; i++) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.014, 0.022), wellCubeMat);
+      c.position.set(
+        -0.082 + (i % 5) * 0.041,
+        0.024 + (i % 2) * 0.002,
+        -0.03 + Math.floor(i / 5) * 0.058
       );
-      c.position.set(-0.075 + (i % 4) * 0.05, 0.048, -0.04 + Math.floor(i / 4) * 0.07);
-      c.rotation.set(0.2, i * 0.6, 0.1);
+      c.rotation.set(0.14 + (i % 3) * 0.08, i * 0.65, 0.1);
       iceBinGroup.add(c);
     }
 
+    // Stainless ice scoop resting neatly inside the recessed ice compartment strictly below lid height
     this.iceScoopGroup = new THREE.Group();
     const scoopBowl = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.028, 0.022, 0.07, 14, 1, false, 0, Math.PI),
+      new THREE.CylinderGeometry(0.016, 0.013, 0.056, 14, 1, false, 0, Math.PI),
       chromeMat
     );
     scoopBowl.rotation.z = Math.PI / 2;
     this.iceScoopGroup.add(scoopBowl);
 
     const scoopHandle = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.009, 0.012, 0.07, 12),
+      new THREE.CylinderGeometry(0.0065, 0.0085, 0.054, 12),
       this.counterWoodMat
     );
     scoopHandle.rotation.z = Math.PI / 2;
-    scoopHandle.position.set(0.06, 0.01, 0);
+    scoopHandle.position.set(0.048, 0.004, 0);
     this.iceScoopGroup.add(scoopHandle);
 
-    this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
+    this.iceScoopGroup.position.set(0.005, 0.022, 0.004);
     iceBinGroup.add(this.iceScoopGroup);
 
-    iceBinGroup.position.set(1.44, 1.0, 0.16);
+    // Animated Hinged Lid Pivot anchored along the rear top rim (y = 0.035 clears all cubes & scoop cleanly!)
+    this.iceLidPivot = new THREE.Group();
+    this.iceLidPivot.position.set(0, 0.035, -0.082);
+
+    const lidFrameMat = new THREE.MeshStandardMaterial({
+      color: 0x333a44,
+      roughness: 0.34,
+      metalness: 0.68,
+    });
+    // Four framed lid rails around a frosted viewing window so crystal ice peeks through when closed
+    const lidBackRail = new THREE.Mesh(new THREE.BoxGeometry(0.256, 0.011, 0.03), lidFrameMat);
+    lidBackRail.position.set(0, 0.006, 0.015);
+    this.iceLidPivot.add(lidBackRail);
+
+    const lidFrontRail = new THREE.Mesh(new THREE.BoxGeometry(0.256, 0.011, 0.034), lidFrameMat);
+    lidFrontRail.position.set(0, 0.006, 0.151);
+    this.iceLidPivot.add(lidFrontRail);
+
+    const lidLeftRail = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.011, 0.106), lidFrameMat);
+    lidLeftRail.position.set(-0.112, 0.006, 0.083);
+    this.iceLidPivot.add(lidLeftRail);
+
+    const lidRightRail = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.011, 0.106), lidFrameMat);
+    lidRightRail.position.set(0.112, 0.006, 0.083);
+    this.iceLidPivot.add(lidRightRail);
+
+    // Translucent frosted acrylic window inset in the hinged lid
+    const lidWindow = new THREE.Mesh(
+      new THREE.BoxGeometry(0.194, 0.006, 0.108),
+      new THREE.MeshStandardMaterial({
+        color: 0xdbeafe,
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.08,
+        roughness: 0.14,
+        metalness: 0.08,
+        transparent: true,
+        opacity: 0.42,
+      })
+    );
+    lidWindow.position.set(0, 0.007, 0.083);
+    this.iceLidPivot.add(lidWindow);
+
+    // Brushed chrome rear hinge knuckles
+    for (const hx of [-0.078, 0.078]) {
+      const hingePin = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.032, 10), chromeMat);
+      hingePin.rotation.z = Math.PI / 2;
+      hingePin.position.set(hx, 0.004, 0.001);
+      this.iceLidPivot.add(hingePin);
+    }
+
+    // Brushed stainless front bar handle for lifting the lid
+    const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, 0.106, 10), chromeMat);
+    handleBar.rotation.z = Math.PI / 2;
+    handleBar.position.set(0, 0.022, 0.151);
+    this.iceLidPivot.add(handleBar);
+    for (const px of [-0.042, 0.042]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.0045, 0.0045, 0.014, 8), chromeMat);
+      post.position.set(px, 0.015, 0.151);
+      this.iceLidPivot.add(post);
+    }
+
+    // Crisp engraved "ICE" nameplate on front counter bezel so players recognize it instantly
+    const iceLabelCanvas = document.createElement('canvas');
+    iceLabelCanvas.width = 160;
+    iceLabelCanvas.height = 48;
+    const iceCtx = iceLabelCanvas.getContext('2d');
+    if (iceCtx) {
+      iceCtx.fillStyle = '#1e293b';
+      iceCtx.fillRect(0, 0, 160, 48);
+      iceCtx.strokeStyle = '#94a3b8';
+      iceCtx.lineWidth = 3;
+      iceCtx.strokeRect(3, 3, 154, 42);
+      iceCtx.fillStyle = '#e0f2fe';
+      iceCtx.font = 'bold 26px sans-serif';
+      iceCtx.textAlign = 'center';
+      iceCtx.textBaseline = 'middle';
+      iceCtx.fillText('ICE', 80, 25);
+    }
+    const iceLabelTex = new THREE.CanvasTexture(iceLabelCanvas);
+    iceLabelTex.colorSpace = THREE.SRGBColorSpace;
+    const iceBadgeMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.068, 0.021),
+      new THREE.MeshBasicMaterial({ map: iceLabelTex })
+    );
+    iceBadgeMesh.rotation.x = -Math.PI / 2;
+    iceBadgeMesh.position.set(-0.082, 0.013, 0.151);
+    this.iceLidPivot.add(iceBadgeMesh);
+
+    iceBinGroup.add(this.iceLidPivot);
+
+    // Generous invisible raycast hitbox covering the entire recessed lid & well for effortless tap/click
+    const iceHitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.31, 0.095, 0.225),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    iceHitbox.position.set(0, 0.042, 0);
+    iceHitbox.userData.isHitbox = true;
+    iceBinGroup.add(iceHitbox);
+
+    iceBinGroup.position.set(ICE_COMPARTMENT_POS.x, ICE_COMPARTMENT_POS.y, ICE_COMPARTMENT_POS.z);
     this.registerInteractiveTool(
       'ice',
       iceBinGroup,
-      'Recessed Polycarbonate Ice Bin & Scoop — Click to Scoop Crystal Ice Cubes',
+      'Recessed Ice Compartment & Lid — Click to Open Lid & Scoop Crystal Ice Cubes',
       4,
       () => this.callbacks.onToolAction('add_ice')
     );
@@ -9803,17 +10087,28 @@ export class KlasikCafeScene3D {
     group.add(pelvisGroup);
 
     const pelvisMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.155, 0.145, 0.12, 16),
+      new THREE.CylinderGeometry(0.152, 0.142, 0.12, 16),
       denimMat
     );
+    pelvisMesh.scale.set(1.06, 1, 0.8);
     pelvisGroup.add(pelvisMesh);
 
+    // Subtle belt / waistband seam grounding trousers to torso
+    const beltMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.155, 0.154, 0.026, 16),
+      new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.55 })
+    );
+    beltMesh.scale.set(1.06, 1, 0.82);
+    beltMesh.position.y = 0.052;
+    pelvisGroup.add(beltMesh);
+
+    const soleMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.52 });
     const buildLeg = (sideX: number) => {
       const hipJoint = new THREE.Group();
       hipJoint.position.set(sideX, -0.02, 0);
 
       const thigh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.068, 0.056, 0.28, 12),
+        new THREE.CylinderGeometry(0.068, 0.054, 0.28, 12),
         denimMat
       );
       thigh.position.y = -0.14;
@@ -9835,16 +10130,35 @@ export class KlasikCafeScene3D {
       hipJoint.add(kneeJoint);
 
       const calf = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.054, 0.045, 0.26, 12),
+        new THREE.CylinderGeometry(0.052, 0.042, 0.245, 12),
         denimMat
       );
-      calf.position.y = -0.13;
+      calf.position.y = -0.122;
       calf.castShadow = true;
       kneeJoint.add(calf);
 
-      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.065, 0.17), shoeMat);
-      shoe.position.set(0, -0.25, 0.03);
-      kneeJoint.add(shoe);
+      // Tailored trouser cuff hem above sneaker collar
+      const trouserHem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045, 0.047, 0.022, 12),
+        denimMat
+      );
+      trouserHem.position.y = -0.232;
+      kneeJoint.add(trouserHem);
+
+      // Sculpted stylized sneaker (upper + rounded toe box + crisp midsole)
+      const shoeGroup = new THREE.Group();
+      shoeGroup.position.set(0, -0.252, 0.026);
+      const shoeUpper = new THREE.Mesh(new THREE.BoxGeometry(0.088, 0.048, 0.145), shoeMat);
+      shoeUpper.position.y = 0.004;
+      shoeGroup.add(shoeUpper);
+      const toeCap = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), shoeMat);
+      toeCap.scale.set(1.04, 0.56, 0.92);
+      toeCap.position.set(0, -0.002, 0.068);
+      shoeGroup.add(toeCap);
+      const midsole = new THREE.Mesh(new THREE.BoxGeometry(0.092, 0.018, 0.168), soleMat);
+      midsole.position.set(0, -0.022, 0.008);
+      shoeGroup.add(midsole);
+      kneeJoint.add(shoeGroup);
 
       pelvisGroup.add(hipJoint);
       return { hipJoint, kneeJoint };
@@ -9857,26 +10171,45 @@ export class KlasikCafeScene3D {
     torsoGroup.position.y = 0.04;
     pelvisGroup.add(torsoGroup);
 
-    const torsoMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.185, 0.155, 0.48, 18),
-      jacketMat
-    );
-    torsoMesh.scale.set(1.12, 1, 0.78);
-    torsoMesh.position.y = 0.24;
+    // Stylized semi-realistic sculpted LatheGeometry torso (fitted waist -> ribcage -> rounded sloping shoulders -> collar)
+    const torsoLathePts = [
+      new THREE.Vector2(0.0, 0.0),
+      new THREE.Vector2(0.146, 0.0),
+      new THREE.Vector2(0.152, 0.09),
+      new THREE.Vector2(0.164, 0.22),
+      new THREE.Vector2(0.178, 0.35),
+      new THREE.Vector2(0.174, 0.415),
+      new THREE.Vector2(0.148, 0.456),
+      new THREE.Vector2(0.104, 0.478),
+      new THREE.Vector2(0.068, 0.488),
+      new THREE.Vector2(0.0, 0.488),
+    ];
+    const torsoGeo = new THREE.LatheGeometry(torsoLathePts, 22);
+    torsoGeo.computeVertexNormals();
+    const torsoMesh = new THREE.Mesh(torsoGeo, jacketMat);
+    torsoMesh.scale.set(1.12, 1.0, 0.76);
     torsoMesh.castShadow = true;
     torsoGroup.add(torsoMesh);
 
     const vNeckPatch = new THREE.Mesh(
-      new THREE.BoxGeometry(0.11, 0.22, 0.155),
+      new THREE.BoxGeometry(0.102, 0.21, 0.132),
       innerShirtMat
     );
-    vNeckPatch.position.set(0, 0.34, 0.08);
+    vNeckPatch.position.set(0, 0.335, 0.078);
     torsoGroup.add(vNeckPatch);
 
-    [-0.065, 0.065].forEach((lx) => {
-      const lapel = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.025), jacketMat);
-      lapel.position.set(lx, 0.36, 0.15);
-      lapel.rotation.z = lx < 0 ? -0.2 : 0.2;
+    const shirtCrewCollar = new THREE.Mesh(
+      new THREE.TorusGeometry(0.064, 0.011, 8, 18),
+      innerShirtMat
+    );
+    shirtCrewCollar.rotation.x = Math.PI / 2 + 0.12;
+    shirtCrewCollar.position.set(0, 0.486, 0.008);
+    torsoGroup.add(shirtCrewCollar);
+
+    [-0.062, 0.062].forEach((lx) => {
+      const lapel = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.2, 0.02), jacketMat);
+      lapel.position.set(lx, 0.355, 0.138);
+      lapel.rotation.z = lx < 0 ? -0.18 : 0.18;
       torsoGroup.add(lapel);
     });
 
@@ -10068,28 +10401,29 @@ export class KlasikCafeScene3D {
     torsoGroup.add(neckJoint);
 
     const neckCyl = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.055, 0.062, 0.08, 12),
+      new THREE.CylinderGeometry(0.05, 0.06, 0.092, 12),
       skinMat
     );
-    neckCyl.position.y = 0.03;
+    neckCyl.position.y = 0.034;
     neckJoint.add(neckCyl);
 
-    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.165, 20, 18), skinMat);
-    headMesh.scale.set(0.95, 1.06, 0.96);
-    headMesh.position.y = 0.19;
+    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.162, 22, 18), skinMat);
+    headMesh.scale.set(0.93, 1.09, 0.96);
+    headMesh.position.y = 0.194;
     headMesh.castShadow = true;
     neckJoint.add(headMesh);
 
-    [-0.155, 0.155].forEach((ex) => {
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.032, 10, 10), skinMat);
-      ear.scale.set(0.55, 1.1, 0.8);
-      ear.position.set(ex, 0.185, 0);
+    [-0.152, 0.152].forEach((ex) => {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 10), skinMat);
+      ear.scale.set(0.5, 1.08, 0.78);
+      ear.position.set(ex, 0.188, -0.004);
       neckJoint.add(ear);
     });
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.048, 10), skinMat);
-    nose.rotation.x = Math.PI / 2 - 0.18;
-    nose.position.set(0, 0.184, 0.166);
+    // Subtle sculpted nose bridge & soft rounded tip instead of a harsh spike cone
+    const nose = new THREE.Mesh(new THREE.CapsuleGeometry(0.012, 0.022, 6, 8), skinMat);
+    nose.rotation.x = 0.26;
+    nose.position.set(0, 0.188, 0.158);
     neckJoint.add(nose);
 
     // Sculpted Warm Smile Mouth & Subtle Rosy Cheek Blush
@@ -10176,14 +10510,20 @@ export class KlasikCafeScene3D {
       neckJoint.add(brow);
     });
 
-    // Base Hair Crown tilted back (-0.34 rad) so it NEVER clips through eyebrows or eyes!
-    const hairCrown = new THREE.Mesh(
-      new THREE.SphereGeometry(0.172, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.52),
-      hairMat
+    // Multi-layered stylized semi-realistic hairstyle (cleanly toggled off when wearing hats/helmets/berets/patron headgear)
+    const patronWearsHeadgear = Boolean(
+      patronOutfit &&
+        !isRider &&
+        !secretNpcAppearance &&
+        (patronOutfit.id === 'french' ||
+          (patronOutfit.id === 'swiss' && patronOutfit.climate === 'winter') ||
+          patronOutfit.id === 'hiker')
     );
-    hairCrown.position.y = 0.215;
-    hairCrown.rotation.x = -0.34;
+    const hairCrown = buildStylizedCustomerHairstyle(seed % 6, hairMat);
     neckJoint.add(hairCrown);
+    if (patronWearsHeadgear) {
+      hairCrown.visible = false;
+    }
 
     // Helper for Full 3D Baseball / Pit-Crew Cap (Crown Dome + Band + Top Button + Curved Visor)
     const addFull3DCap = (crownHex: number, visorHex: number) => {
@@ -10399,46 +10739,13 @@ export class KlasikCafeScene3D {
       bucketBrim.position.set(0, 0.248, 0);
       neckJoint.add(bucketBrim);
     } else if (secretNpcAppearance) {
-      // Phase 3: Secret NPC Anton owns 100% of his sculpted male head & dual-state cap-safe hair mesh!
+      // Secret NPC Anton / Beb / Duminiki owns 100% of his sculpted head & cap-safe layered hair mesh
       hairCrown.visible = false;
-    } else {
-      // 6 Diverse Hairstyle & Full 3D Hat Variants
+    } else if (!patronWearsHeadgear) {
+      // Rich layered hairstyles come from buildStylizedCustomerHairstyle(seed % 6);
+      // add refined glasses or optional headwear on select variants without clipping!
       const styleVariant = seed % 6;
-      if (styleVariant === 0) {
-        const topBun = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 14), hairMat);
-        topBun.position.set(0, 0.38, -0.05);
-        neckJoint.add(topBun);
-      } else if (styleVariant === 1) {
-        hairCrown.visible = false;
-        const beanieMat = new THREE.MeshStandardMaterial({
-          color: 0xd97706,
-          roughness: 0.85,
-        });
-        const beanieDome = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.52),
-          beanieMat
-        );
-        beanieDome.position.y = 0.225;
-        neckJoint.add(beanieDome);
-        const beanieCuff = new THREE.Mesh(
-          new THREE.TorusGeometry(0.166, 0.026, 10, 22),
-          beanieMat
-        );
-        beanieCuff.rotation.x = Math.PI / 2 - 0.08;
-        beanieCuff.position.y = 0.252;
-        neckJoint.add(beanieCuff);
-        const pomPom = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 10), beanieMat);
-        pomPom.position.set(0, 0.41, -0.01);
-        neckJoint.add(pomPom);
-      } else if (styleVariant === 2) {
-        [-0.145, 0.145].forEach((sx) => {
-          const lock = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.035, 0.025, 0.18, 10),
-            hairMat
-          );
-          lock.position.set(sx, 0.16, 0.01);
-          neckJoint.add(lock);
-        });
+      if (styleVariant === 2) {
         const glassesMat = new THREE.MeshStandardMaterial({
           color: 0xd97706,
           metalness: 0.85,
@@ -10446,29 +10753,16 @@ export class KlasikCafeScene3D {
         });
         [-0.054, 0.054].forEach((gx) => {
           const rim = new THREE.Mesh(
-            new THREE.TorusGeometry(0.032, 0.004, 8, 16),
+            new THREE.TorusGeometry(0.032, 0.0038, 8, 16),
             glassesMat
           );
-          rim.position.set(gx, 0.206, 0.164);
+          rim.position.set(gx, 0.206, 0.163);
           neckJoint.add(rim);
         });
-      } else if (styleVariant === 3) {
-        [
-          [0, 0.34, -0.02],
-          [-0.115, 0.29, -0.01],
-          [0.115, 0.29, -0.01],
-          [0, 0.27, -0.12],
-        ].forEach(([ax, ay, az]) => {
-          const puff = new THREE.Mesh(new THREE.SphereGeometry(0.092, 12, 12), hairMat);
-          puff.position.set(ax, ay, az);
-          neckJoint.add(puff);
-        });
-      } else if (styleVariant === 4) {
-        const pony = new THREE.Mesh(new THREE.ConeGeometry(0.058, 0.22, 12), hairMat);
-        pony.position.set(0, 0.2, -0.2);
-        pony.rotation.x = -0.65;
-        neckJoint.add(pony);
-      } else {
+        const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.004, 0.004), glassesMat);
+        bridge.position.set(0, 0.21, 0.164);
+        neckJoint.add(bridge);
+      } else if (styleVariant === 5 && seed % 12 === 11) {
         hairCrown.visible = false;
         addFull3DCap(0x1e3a8a, 0x172554);
       }
@@ -10481,18 +10775,19 @@ export class KlasikCafeScene3D {
 
     const buildArm = (sideX: number) => {
       const shoulderJoint = new THREE.Group();
-      shoulderJoint.position.set(sideX, 0.44, 0);
+      shoulderJoint.position.set(sideX, 0.422, 0);
 
-      // Phase 8: Sculpted Rounded Shoulder Cap matching sleeve/jacket so arms join torso seamlessly!
-      const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.056, 10, 8), sleeveMat);
-      shoulderCap.position.set(sideX < 0 ? 0.012 : -0.012, -0.008, 0);
+      // Smooth rounded deltoid cap tucked seamlessly into the sloped LatheGeometry shoulder contour
+      const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), sleeveMat);
+      shoulderCap.scale.set(0.96, 1.05, 0.94);
+      shoulderCap.position.set(sideX < 0 ? 0.016 : -0.016, -0.004, 0);
       shoulderJoint.add(shoulderCap);
 
       const upperArm = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.052, 0.044, 0.23, 12),
+        new THREE.CylinderGeometry(0.051, 0.043, 0.225, 12),
         sleeveMat
       );
-      upperArm.position.y = -0.115;
+      upperArm.position.y = -0.112;
       upperArm.castShadow = true;
       shoulderJoint.add(upperArm);
 
@@ -10512,17 +10807,28 @@ export class KlasikCafeScene3D {
       }
 
       const elbowJoint = new THREE.Group();
-      elbowJoint.position.set(0, -0.23, 0);
+      elbowJoint.position.set(0, -0.225, 0);
       shoulderJoint.add(elbowJoint);
 
       const forearm = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.042, 0.036, 0.21, 12),
+        new THREE.CylinderGeometry(0.04, 0.033, 0.205, 12),
         skinMat
       );
-      forearm.position.y = -0.105;
+      forearm.position.y = -0.102;
       elbowJoint.add(forearm);
 
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10), skinMat);
+      // Rolled jacket sleeve cuff at elbow transition
+      const sleeveCuff = new THREE.Mesh(
+        new THREE.TorusGeometry(0.043, 0.007, 6, 14),
+        sleeveMat
+      );
+      sleeveCuff.rotation.x = Math.PI / 2;
+      sleeveCuff.position.y = -0.006;
+      elbowJoint.add(sleeveCuff);
+
+      // Sculpted palm + thumb silhouette instead of a round ball
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.037, 10, 10), skinMat);
+      hand.scale.set(0.85, 1.18, 0.68);
       hand.position.y = -0.22;
       elbowJoint.add(hand);
 
@@ -10530,16 +10836,18 @@ export class KlasikCafeScene3D {
       return { shoulderJoint, elbowJoint };
     };
 
-    const leftArm = buildArm(-0.235);
-    const rightArm = buildArm(0.235);
+    const leftArm = buildArm(-0.206);
+    const rightArm = buildArm(0.206);
 
-    // 3D Wristwatch on Left Forearm (for checking time while waiting in queue)
-    const watchBand = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.04, 0.04, 0.022, 12),
-      new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.85, roughness: 0.25 })
-    );
-    watchBand.position.y = -0.18;
-    leftArm.elbowJoint.add(watchBand);
+    // 3D Wristwatch on Left Forearm (skip for Secret NPC since secretNpc3d mounts Anton's custom black-dial watch!)
+    if (!secretNpcAppearance) {
+      const watchBand = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.038, 0.038, 0.02, 12),
+        new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.85, roughness: 0.25 })
+      );
+      watchBand.position.y = -0.18;
+      leftArm.elbowJoint.add(watchBand);
+    }
 
     // 3D Smartphone in Left Hand (Used in SELFIE_MODE, CAR_SELFIE & Queue Waiting)
     const phoneMesh = new THREE.Mesh(
@@ -12254,9 +12562,10 @@ export class KlasikCafeScene3D {
         this.espressoChassisMat.metalness = 0.92;
         this.espressoChassisMat.roughness = 0.18;
       } else {
-        this.espressoChassisMat.color.setHex(0xe5e7eb);
-        this.espressoChassisMat.metalness = 0.88;
-        this.espressoChassisMat.roughness = 0.2;
+        // Minimalist Modern Matte architectural slate default
+        this.espressoChassisMat.color.setHex(0x262b33);
+        this.espressoChassisMat.metalness = 0.34;
+        this.espressoChassisMat.roughness = 0.52;
       }
     }
 
@@ -12271,9 +12580,9 @@ export class KlasikCafeScene3D {
         this.grinderBodyMat.metalness = 0.92;
         this.grinderBodyMat.roughness = 0.18;
       } else {
-        this.grinderBodyMat.color.setHex(0x18181b);
-        this.grinderBodyMat.metalness = 0.45;
-        this.grinderBodyMat.roughness = 0.45;
+        this.grinderBodyMat.color.setHex(0x232830);
+        this.grinderBodyMat.metalness = 0.32;
+        this.grinderBodyMat.roughness = 0.54;
       }
     }
 
@@ -12288,9 +12597,10 @@ export class KlasikCafeScene3D {
         this.pitcherBodyMat.metalness = 0.94;
         this.pitcherBodyMat.roughness = 0.12;
       } else {
-        this.pitcherBodyMat.color.setHex(0xe2e8f0);
-        this.pitcherBodyMat.metalness = 0.92;
-        this.pitcherBodyMat.roughness = 0.15;
+        // Satin anodized aluminum barista pitcher default
+        this.pitcherBodyMat.color.setHex(0xd4dbe3);
+        this.pitcherBodyMat.metalness = 0.84;
+        this.pitcherBodyMat.roughness = 0.24;
       }
     }
 
@@ -12391,14 +12701,19 @@ export class KlasikCafeScene3D {
       cup.hasSteamedMilk ||
       cup.hasIce ||
       cup.syrup !== 'none' ||
-      this.gameState.activeStation === 4;
+      this.gameState.activeStation === 4 ||
+      this.pullTransitionHoldTimer > 0;
 
     if (isPullShotLocked) {
       this.cupTargetPos.set(-0.16, 1.055, 0.30);
     } else if (this.gameState.activeStation === 5 && hasAnyLiquid) {
       this.cupTargetPos.set(-1.32, 1.03, 0.34);
     } else if (isStageB) {
-      this.cupTargetPos.set(1.18, 1.01, 0.38);
+      this.cupTargetPos.set(
+        ACTIVE_CUP_STATION4_POS.x,
+        ACTIVE_CUP_STATION4_POS.y,
+        ACTIVE_CUP_STATION4_POS.z
+      );
     } else {
       this.cupTargetPos.set(-0.16, 1.055, 0.30);
     }
@@ -12583,7 +12898,10 @@ export class KlasikCafeScene3D {
 
       updateNdc(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
-      const hits = this.raycaster.intersectObjects(this.interactables, true);
+      const rawHoverHits = this.raycaster.intersectObjects(this.interactables, true);
+      const hits = this.isServeCupClickable
+        ? rawHoverHits
+        : rawHoverHits.filter((h) => h.object.userData?.toolKey !== 'serve-ready-cup');
       if (hits.length > 0) {
         const data = hits[0].object.userData;
         if (data && data.toolKey) {
@@ -12640,7 +12958,10 @@ export class KlasikCafeScene3D {
 
       updateNdc(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
-      const hits = this.raycaster.intersectObjects(this.interactables, true);
+      const rawClickHits = this.raycaster.intersectObjects(this.interactables, true);
+      const hits = this.isServeCupClickable
+        ? rawClickHits
+        : rawClickHits.filter((h) => h.object.userData?.toolKey !== 'serve-ready-cup');
       if (hits.length > 0) {
         // Phase 0.4: Prioritize plated pastry return hitbox ahead of neighboring counter props when visible
         const prioritizedHit =
@@ -12813,8 +13134,8 @@ export class KlasikCafeScene3D {
       targetFill = 0.96;
     } else if (this.stepAnim?.type === 'pull_espresso' || this.stepAnim?.type === 'steep_tea') {
       targetFill = Math.max(targetFill, Math.min(0.62, this.stepAnim.progress * 0.68));
-    } else if (this.stepAnim?.type === 'steam_milk' && this.stepAnim.progress > 0.45) {
-      const pourP = (this.stepAnim.progress - 0.45) / 0.55;
+    } else if (this.stepAnim?.type === 'steam_milk' && this.stepAnim.progress > 0.48) {
+      const pourP = Math.min(1, (this.stepAnim.progress - 0.48) / 0.36);
       targetFill = Math.max(targetFill, 0.54 + pourP * 0.42);
     }
 
@@ -12899,14 +13220,37 @@ export class KlasikCafeScene3D {
     this.tamperMeshGroup.position.set(-0.075, 0.02, -0.02);
     this.tamperMeshGroup.rotation.set(0, 0, 0);
 
-    // Station 4 Shifted Rest Coords (clear of Rinser at 0.52 & Trash Chute at 0.74)
-    this.milkPitcherGroup.position.set(0.96, 1.0, 0.38);
+    if (this.pullTransitionHoldTimer > 0) {
+      this.pullTransitionHoldTimer = Math.max(0, this.pullTransitionHoldTimer - dt);
+      if (this.gameState.activeStation === 4) {
+        this.pullTransitionHoldTimer = 0;
+      }
+    }
+
+    // Station 4 Shifted Rest Coords (Milk Pitcher at left pad, Teapot on front-right walnut coaster clear of cup!)
+    this.milkPitcherGroup.position.set(
+      MILK_PITCHER_REST_POS.x,
+      MILK_PITCHER_REST_POS.y,
+      MILK_PITCHER_REST_POS.z
+    );
     this.milkPitcherGroup.rotation.set(0, 0, 0);
-    this.teaPotGroup.position.set(1.18, 1.0, 0.14);
+    this.teaPotGroup.position.set(TEA_POT_REST_POS.x, TEA_POT_REST_POS.y, TEA_POT_REST_POS.z);
     this.teaPotGroup.rotation.set(0, 0, 0);
     this.steamWandPivot.rotation.set(0, 0, 0);
-    this.iceScoopGroup.position.set(0.02, 0.065, 0.01);
+    this.iceScoopGroup.position.set(0.005, 0.022, 0.004);
     this.iceScoopGroup.rotation.set(0, 0, 0);
+    if (this.iceLidPivot) {
+      const targetIceLid =
+        this.stepAnim?.type === 'add_ice'
+          ? this.stepAnim.progress < 0.84
+            ? 1.0
+            : Math.max(0, 1 - (this.stepAnim.progress - 0.84) / 0.16)
+          : this.hoveredToolKey === 'ice'
+          ? 0.34
+          : 0.0;
+      this.iceLidOpenAmount += (targetIceLid - this.iceLidOpenAmount) * Math.min(1, dt * 11);
+      this.iceLidPivot.rotation.x = -this.iceLidOpenAmount * 1.56;
+    }
     this.matchaWhiskGroup.position.set(0, 0.095, 0);
     this.matchaWhiskGroup.rotation.set(0, 0, 0);
 
@@ -13039,16 +13383,24 @@ export class KlasikCafeScene3D {
       }
       this.tampedPuckMesh.visible = true;
 
-      // Phase 4 Pull-Shot Cooldown Sync: Cup stays firmly on Espresso Drip Tray (-0.16, 1.055, 0.30) until p >= 0.86!
+      // Phase 4 Pull-Shot Cooldown Sync: Cup stays firmly on Espresso Drip Tray (-0.16, 1.055, 0.30) until p >= 0.86,
+      // then glides cleanly to Station 4 while syncing cupCurrentPos & arming pullTransitionHoldTimer (zero snap-back!)
       if (p < 0.86) {
         this.activeBaristaCupGroup.position.set(-0.16, 1.055, 0.30);
+        this.cupCurrentPos.set(-0.16, 1.055, 0.30);
       } else {
         const glide = easeInOutCubic((p - 0.86) / 0.14);
-        this.activeBaristaCupGroup.position.set(
-          evalQuadBezier(-0.16, 0.51, 1.18, glide),
-          evalQuadBezier(1.055, 1.12, 1.01, glide),
-          evalQuadBezier(0.30, 0.42, 0.38, glide)
+        const gx = evalQuadBezier(-0.16, 0.51, ACTIVE_CUP_STATION4_POS.x, glide);
+        const gy = evalQuadBezier(1.055, 1.12, ACTIVE_CUP_STATION4_POS.y, glide);
+        const gz = evalQuadBezier(0.30, 0.42, ACTIVE_CUP_STATION4_POS.z, glide);
+        this.activeBaristaCupGroup.position.set(gx, gy, gz);
+        this.cupCurrentPos.set(gx, gy, gz);
+        this.cupTargetPos.set(
+          ACTIVE_CUP_STATION4_POS.x,
+          ACTIVE_CUP_STATION4_POS.y,
+          ACTIVE_CUP_STATION4_POS.z
         );
+        this.pullTransitionHoldTimer = POST_PULL_HANDOFF_DURATION_SEC;
       }
 
       this.groupHeadLedMat.emissiveIntensity = 1.6 + Math.sin(this.elapsed * 16) * 0.4;
@@ -13063,56 +13415,79 @@ export class KlasikCafeScene3D {
         this.floatingBadgeSprite.position.set(-0.16, 1.54, 0.32);
       }
     } else if (this.stepAnim.type === 'steam_milk') {
-      // 3-Phase Bezier Steamed Milk & Rosetta Latte Art Pour over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
-      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
-      if (p < 0.45) {
-        const sub = Math.sin((p / 0.45) * Math.PI);
-        this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.96, 0.61, 0.26, sub),
-          evalQuadBezier(1.0, 1.08, 1.12, sub),
-          0.38
-        );
-        this.steamWandPivot.rotation.z = -0.36 * sub;
+      // C1-Continuous 4-Phase Steamed Milk & Rosetta Latte Art Pour over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
+      this.activeBaristaCupGroup.position.set(
+        ACTIVE_CUP_STATION4_POS.x,
+        ACTIVE_CUP_STATION4_POS.y,
+        ACTIVE_CUP_STATION4_POS.z
+      );
+      const milkPose = evaluateMilkPourPose(p, this.elapsed);
+      this.milkPitcherGroup.position.set(
+        milkPose.position.x,
+        milkPose.position.y,
+        milkPose.position.z
+      );
+      this.milkPitcherGroup.rotation.set(milkPose.rotationX, 0, milkPose.rotationZ);
+      this.steamWandPivot.rotation.z = milkPose.steamWandTiltZ;
+      if (milkPose.vortexSpinActive) {
         this.pitcherMilkMesh.rotation.y += dt * 14;
+      }
+      if (milkPose.badgePos) {
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(0.26, 1.38, 0.36);
-      } else if (p < 0.85) {
-        const pourT = easeInOutCubic((p - 0.45) / 0.4);
-        const hoverArc = Math.sin(pourT * Math.PI);
-        const wiggleZ = Math.sin(this.elapsed * 28) * 0.015;
-        this.milkPitcherGroup.position.set(
-          evalQuadBezier(0.58, 0.88, 1.07, Math.min(1, pourT * 1.4)),
-          1.24 + hoverArc * 0.03,
-          0.38 + wiggleZ
+        this.floatingBadgeSprite.position.set(
+          milkPose.badgePos.x,
+          milkPose.badgePos.y,
+          milkPose.badgePos.z
         );
-        this.milkPitcherGroup.rotation.z = -1.08 * Math.min(1, Math.sin(pourT * Math.PI) * 1.35);
-        this.milkPitcherGroup.rotation.x = wiggleZ * 2.5;
+      }
+      if (milkPose.streamActive && this.milkPitcherSpoutTip) {
+        this.milkPitcherGroup.updateMatrixWorld(true);
+        this.milkPitcherSpoutTip.getWorldPosition(this.streamSpoutScratch);
+        this.streamTargetScratch.set(
+          ACTIVE_CUP_STATION4_POS.x,
+          ACTIVE_CUP_STATION4_POS.y + 0.082,
+          ACTIVE_CUP_STATION4_POS.z
+        );
+        this.streamDirScratch.subVectors(this.streamSpoutScratch, this.streamTargetScratch);
+        const streamLen = Math.max(0.04, this.streamDirScratch.length());
+        this.streamMidScratch
+          .addVectors(this.streamSpoutScratch, this.streamTargetScratch)
+          .multiplyScalar(0.5);
         this.milkPourStreamMesh.visible = true;
-        this.milkPourStreamMesh.position.set(1.16, 1.18, 0.38 + wiggleZ * 0.6);
-      } else {
-        const restT = easeInOutCubic((p - 0.85) / 0.15);
-        this.milkPitcherGroup.position.set(
-          evalQuadBezier(1.07, 1.01, 0.96, restT),
-          evalQuadBezier(1.24, 1.12, 1.0, restT),
-          0.38
+        this.milkPourStreamMesh.position.copy(this.streamMidScratch);
+        this.streamDirScratch.normalize();
+        this.milkPourStreamMesh.quaternion.setFromUnitVectors(
+          this.streamAxisY,
+          this.streamDirScratch
         );
-        this.milkPitcherGroup.rotation.z = THREE.MathUtils.lerp(-0.95, 0, restT);
+        const ribbonWidth = 0.65 + milkPose.streamStrength * 0.45;
+        this.milkPourStreamMesh.scale.set(ribbonWidth, streamLen, ribbonWidth);
+      } else {
         this.milkPourStreamMesh.visible = false;
       }
     } else if (this.stepAnim.type === 'add_ice') {
-      // Ice Scoop dips into bin (1.44, 0.16), arcs over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
-      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
-      const arc = Math.sin(p * Math.PI);
+      // Hinged lid swings open on the recessed ice compartment (0.74, 1.0, 0.56);
+      // scoop lifts crystal cubes and arcs cleanly to the Station 4 Assembly Coaster (1.18, 1.01, 0.38).
+      this.activeBaristaCupGroup.position.set(
+        ACTIVE_CUP_STATION4_POS.x,
+        ACTIVE_CUP_STATION4_POS.y,
+        ACTIVE_CUP_STATION4_POS.z
+      );
+      const scoopPhase = Math.max(0, Math.min(1, (p - 0.1) / 0.76));
+      const arc = Math.sin(scoopPhase * Math.PI);
+      const destDx = ACTIVE_CUP_STATION4_POS.x - ICE_COMPARTMENT_POS.x;
+      const destDz = ACTIVE_CUP_STATION4_POS.z - ICE_COMPARTMENT_POS.z;
       this.iceScoopGroup.position.set(
-        evalQuadBezier(0.02, -0.13, -0.26, arc),
-        evalQuadBezier(0.065, 0.28, 0.24, arc),
-        evalQuadBezier(0.01, 0.14, 0.22, arc)
+        evalQuadBezier(0.01, destDx * 0.52, destDx, arc),
+        evalQuadBezier(0.034, 0.3, 0.23, arc),
+        evalQuadBezier(0.006, destDz * 0.45, destDz, arc)
       );
       this.iceScoopGroup.rotation.z = -arc * 0.95;
-      this.activeCupIceGroup.visible = true;
-      const dropH = Math.max(0, (1 - Math.min(1, p * 1.6)) * 0.14);
+      this.activeCupIceGroup.visible = p > 0.32;
+      const dropT = Math.max(0, Math.min(1, (p - 0.32) / 0.42));
+      const dropH = Math.max(0, (1 - dropT) * 0.14);
       this.activeCupIceGroup.children.forEach((cube, idx) => {
-        cube.position.y = 0.132 + dropH + idx * 0.018 * (1 - smoothP);
+        cube.position.y = 0.132 + dropH + idx * 0.016 * (1 - dropT);
       });
     } else if (this.stepAnim.type === 'add_syrup') {
       this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
@@ -13208,20 +13583,47 @@ export class KlasikCafeScene3D {
         }
       }
     } else if (this.stepAnim.type === 'steep_tea') {
-      // Kyoto Borosilicate Glass Teapot lifts along a quadratic curve over Station 4 Assembly Coaster (1.18, 1.01, 0.38)
-      this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
-      const arc = Math.sin(p * Math.PI);
-      this.teaPotGroup.position.set(
-        1.18,
-        evalQuadBezier(1.0, 1.26, 1.22, arc),
-        evalQuadBezier(0.14, 0.24, 0.26, arc)
+      // Relocated Front-Right Kyoto Borosilicate Teapot lifts from walnut coaster (1.44, 1.0, 0.42) and tilts left into cup!
+      this.activeBaristaCupGroup.position.set(
+        ACTIVE_CUP_STATION4_POS.x,
+        ACTIVE_CUP_STATION4_POS.y,
+        ACTIVE_CUP_STATION4_POS.z
       );
-      this.teaPotGroup.rotation.x = arc * 0.85;
-      if (p > 0.2 && p < 0.85) {
-        this.teaPourStreamMesh.visible = true;
-        this.teaPourStreamMesh.position.set(1.18, 1.18, 0.36);
+      const teaPose = evaluateTeaSteepPose(p);
+      this.teaPotGroup.position.set(teaPose.position.x, teaPose.position.y, teaPose.position.z);
+      this.teaPotGroup.rotation.set(0, 0, teaPose.rotationZ);
+      if (teaPose.badgePos) {
         this.floatingBadgeSprite.visible = true;
-        this.floatingBadgeSprite.position.set(1.18, 1.44 + p * 0.05, 0.28);
+        this.floatingBadgeSprite.position.set(
+          teaPose.badgePos.x,
+          teaPose.badgePos.y,
+          teaPose.badgePos.z
+        );
+      }
+      if (teaPose.streamActive && this.teaPotSpoutTip) {
+        this.teaPotGroup.updateMatrixWorld(true);
+        this.teaPotSpoutTip.getWorldPosition(this.streamSpoutScratch);
+        this.streamTargetScratch.set(
+          ACTIVE_CUP_STATION4_POS.x,
+          ACTIVE_CUP_STATION4_POS.y + 0.082,
+          ACTIVE_CUP_STATION4_POS.z
+        );
+        this.streamDirScratch.subVectors(this.streamSpoutScratch, this.streamTargetScratch);
+        const streamLen = Math.max(0.04, this.streamDirScratch.length());
+        this.streamMidScratch
+          .addVectors(this.streamSpoutScratch, this.streamTargetScratch)
+          .multiplyScalar(0.5);
+        this.teaPourStreamMesh.visible = true;
+        this.teaPourStreamMesh.position.copy(this.streamMidScratch);
+        this.streamDirScratch.normalize();
+        this.teaPourStreamMesh.quaternion.setFromUnitVectors(
+          this.streamAxisY,
+          this.streamDirScratch
+        );
+        const ribbonWidth = 0.72 + teaPose.streamStrength * 0.35;
+        this.teaPourStreamMesh.scale.set(ribbonWidth, streamLen, ribbonWidth);
+      } else {
+        this.teaPourStreamMesh.visible = false;
       }
     } else if (this.stepAnim.type === 'rinse_cup') {
       // Phase 5 Vessel-Aware Rinse & Disposal:
@@ -13469,39 +13871,18 @@ export class KlasikCafeScene3D {
       _targetLook.copy(_codexCenter);
     } else {
       const preset = STATION_CAMERAS[this.gameState.activeStation] || STATION_CAMERAS[3];
-      _targetPos.copy(preset.pos);
-      _targetLook.copy(preset.look);
-
-      // Smart Cup-Follow Camera Tracking during active step animations & serving handoff
-      if (this.stepAnim) {
-        const t = this.stepAnim.type;
-        const cupPos = this.activeBaristaCupGroup.position;
-        if (t === 'grind') {
-          _targetPos.set(-0.52, 1.48, 1.28);
-          _targetLook.set(-0.74, 1.1, 0.28);
-        } else if (t === 'tamp') {
-          _targetPos.set(-0.38, 1.46, 1.26);
-          _targetLook.set(-0.43, 1.06, 0.36);
-        } else if (t === 'pull_espresso') {
-          const trackX = THREE.MathUtils.lerp(-0.16, cupPos.x, 0.75);
-          _targetPos.set(trackX, 1.46, 1.28);
-          _targetLook.set(cupPos.x, 1.08, 0.32);
-        } else if (t === 'rinse_cup') {
-          _targetPos.set(0.62, 1.48, 1.24);
-          _targetLook.set(0.62, 1.08, 0.28);
-        } else if (
-          t === 'steam_milk' ||
-          t === 'steep_tea' ||
-          t === 'add_ice' ||
-          t === 'add_syrup'
-        ) {
-          _targetPos.set(1.24, 1.46, 1.32);
-          _targetLook.set(cupPos.x, 1.1, 0.36);
-        } else if (t === 'serve_drink') {
-          _targetPos.set(-1.32, 1.54, 1.38);
-          _targetLook.set(-1.32, 1.15, -0.42);
-        }
-      }
+      const st4Preset = STATION_CAMERAS[4];
+      const resolvedCam = resolveBaristaCameraTarget({
+        activeStation: this.gameState.activeStation,
+        stationPreset: { pos: preset.pos, look: preset.look },
+        station4Preset: { pos: st4Preset.pos, look: st4Preset.look },
+        stepAnimType: this.stepAnim?.type ?? null,
+        stepAnimProgress: this.stepAnim?.progress ?? 0,
+        cupPos: this.activeBaristaCupGroup.position,
+        pullTransitionHoldTimer: this.pullTransitionHoldTimer,
+      });
+      _targetPos.set(resolvedCam.pos.x, resolvedCam.pos.y, resolvedCam.pos.z);
+      _targetLook.set(resolvedCam.look.x, resolvedCam.look.y, resolvedCam.look.z);
 
       _targetPos.z += this.manualCameraZoomOffset;
       _targetLook.x += this.manualCameraYawOffset * 2.2;
@@ -13514,12 +13895,10 @@ export class KlasikCafeScene3D {
         ? 1 - Math.exp(-16.0 * dt)
         : this.isCodexFocused
         ? 1 - Math.exp(-9.0 * dt)
-        : dampFactor;
+        : 1 - Math.exp(-11.0 * dt);
       this.camera.position.lerp(_targetPos, camDamp);
       this.currentLookAt.lerp(_targetLook, camDamp);
-      _lookMat.lookAt(this.camera.position, this.currentLookAt, _upVec);
-      _targetQuat.setFromRotationMatrix(_lookMat);
-      this.camera.quaternion.slerp(_targetQuat, camDamp);
+      this.camera.lookAt(this.currentLookAt);
     }
 
     // Update active 3D Outdoor Scenery animations (bypasses per-frame outdoor loops while inside cafe!)
@@ -13780,50 +14159,93 @@ export class KlasikCafeScene3D {
       }
     }
 
-    const haloCoords: Record<string, [number, number]> = {
-      'pastry-daisy-donut': [-2.12, 0.22],
-      'pastry-miata-cake': [-1.86, 0.22],
-      'pastry-croissant': [-1.6, 0.22],
-      grinder: [-0.78, 0.22],
-      tamper: [-0.48, 0.36],
-      espresso: [-0.16, 0.30],
-      rinse: [0.52, 0.28],
-      sink: [0.52, 0.28],
-      tea: [1.18, 0.14],
-      milk: [0.96, 0.38],
-      ice: [1.44, 0.16],
-      'syrup-vanilla': [1.66, 0.18],
-      'syrup-caramel': [1.78, 0.18],
-      'syrup-chocolate': [1.9, 0.18],
-      'syrup-matcha': [1.96, 0.38],
-      serve: [-1.32, 0.34],
+    // [x, beaconTopY, z] for every guided counter asset
+    const haloCoords: Record<string, [number, number, number]> = {
+      'pastry-daisy-donut': [-2.12, 1.24, 0.22],
+      'pastry-miata-cake': [-1.86, 1.24, 0.22],
+      'pastry-croissant': [-1.6, 1.24, 0.22],
+      grinder: [-0.78, 1.56, 0.22],
+      tamper: [-0.48, 1.19, 0.36],
+      espresso: [-0.16, 1.58, 0.3],
+      rinse: [0.52, 1.16, 0.28],
+      sink: [0.52, 1.16, 0.28],
+      tea: [TEA_POT_REST_POS.x, 1.26, TEA_POT_REST_POS.z],
+      milk: [MILK_PITCHER_REST_POS.x, 1.25, MILK_PITCHER_REST_POS.z],
+      ice: [ICE_COMPARTMENT_POS.x, 1.12, ICE_COMPARTMENT_POS.z],
+      'syrup-vanilla': [1.66, 1.39, 0.18],
+      'syrup-caramel': [1.78, 1.39, 0.18],
+      'syrup-chocolate': [1.9, 1.39, 0.18],
+      'syrup-matcha': [1.96, 1.2, 0.38],
+      serve: [-1.32, 1.26, 0.34],
     };
+
+    const showGuidedBeacon =
+      this.gameState.phase === 'playing' &&
+      !this.gameState.realismMode &&
+      Boolean(recommendedToolKey) &&
+      Boolean(recommendedToolKey && haloCoords[recommendedToolKey]);
 
     if (
       this.stepHaloGroup &&
       this.stepHaloGlowMat &&
       this.stepHaloRingMat &&
-      this.gameState.phase === 'playing' &&
-      recommendedToolKey &&
-      haloCoords[recommendedToolKey]
+      showGuidedBeacon &&
+      recommendedToolKey
     ) {
-      const [hx, hz] = haloCoords[recommendedToolKey];
-      this.stepHaloGroup.visible = true;
-      this.stepHaloGroup.position.set(hx, 1.004, hz);
+      const [hx, topY, hz] = haloCoords[recommendedToolKey];
       const isRinseError = Boolean(nextStep.isError);
+      const pulseSpeed = isRinseError ? 7.2 : 4.6;
+      const pulseWave = Math.sin(this.elapsed * pulseSpeed) * 0.5 + 0.5;
+
+      this.stepHaloGroup.visible = true;
+      this.stepHaloGroup.position.set(hx, 1.005, hz);
       this.stepHaloRingMat.color.setHex(isRinseError ? 0xf43f5e : 0xfbbf24);
-      const breathe = 0.22 + (Math.sin(this.elapsed * (isRinseError ? 7.0 : 3.5)) * 0.5 + 0.5) * 0.32;
-      this.stepHaloGlowMat.opacity = breathe;
-      this.stepHaloRingMat.opacity = breathe + 0.12;
-      const haloScale = 0.96 + Math.sin(this.elapsed * (isRinseError ? 7.0 : 3.5)) * 0.06;
+      this.stepHaloGlowMat.opacity = 0.44 + pulseWave * 0.38;
+      this.stepHaloRingMat.opacity = 0.58 + pulseWave * 0.34;
+      const haloScale = 1.06 + pulseWave * 0.14;
       this.stepHaloGroup.scale.setScalar(haloScale);
-    } else if (this.stepHaloGroup) {
-      this.stepHaloGroup.visible = false;
+
+      if (
+        this.stepTriangleGroup &&
+        this.stepTriangleCoreMat &&
+        this.stepTriangleGlowMat &&
+        this.stepTriangleRingMat
+      ) {
+        const bobY = Math.sin(this.elapsed * (isRinseError ? 7.8 : 5.2)) * 0.026;
+        this.stepTriangleGroup.visible = true;
+        this.stepTriangleGroup.position.set(hx, topY + 0.105 + bobY, hz);
+        this.stepTriangleGroup.rotation.y = this.elapsed * (isRinseError ? 3.2 : 2.1);
+        const triScale = 1.0 + pulseWave * 0.1;
+        this.stepTriangleGroup.scale.setScalar(triScale);
+
+        if (isRinseError) {
+          this.stepTriangleCoreMat.color.setHex(0xfb7185);
+          this.stepTriangleCoreMat.emissive.setHex(0xf43f5e);
+          this.stepTriangleCoreMat.emissiveIntensity = 1.45 + pulseWave * 0.55;
+          this.stepTriangleGlowMat.color.setHex(0xf43f5e);
+          this.stepTriangleGlowMat.opacity = 0.36 + pulseWave * 0.28;
+          this.stepTriangleRingMat.color.setHex(0xfecdd3);
+        } else {
+          this.stepTriangleCoreMat.color.setHex(0xf59e0b);
+          this.stepTriangleCoreMat.emissive.setHex(0xd97706);
+          this.stepTriangleCoreMat.emissiveIntensity = 1.05 + pulseWave * 0.48;
+          this.stepTriangleGlowMat.color.setHex(0xf59e0b);
+          this.stepTriangleGlowMat.opacity = 0.28 + pulseWave * 0.24;
+          this.stepTriangleRingMat.color.setHex(0xfde047);
+        }
+      }
+    } else {
+      if (this.stepHaloGroup) this.stepHaloGroup.visible = false;
+      if (this.stepTriangleGroup) this.stepTriangleGroup.visible = false;
     }
 
-    const subtleRimIntensity = 0.12 + Math.sin(this.elapsed * 3.5) * 0.08;
+    // Stronger unmistakable warm-gold asset glow in Guided Mode (fully disabled in Realism Mode)
+    const guidedAssetGlowIntensity = 0.46 + Math.sin(this.elapsed * 4.8) * 0.22;
     for (const [key, group] of this.toolGroups.entries()) {
-      const isRecommended = this.gameState.phase === 'playing' && key === recommendedToolKey;
+      const isRecommended =
+        this.gameState.phase === 'playing' &&
+        !this.gameState.realismMode &&
+        key === recommendedToolKey;
       const isHovered = key === this.hoveredToolKey;
 
       if (key === 'pet-champy' && this.champyRig) {
@@ -13849,7 +14271,7 @@ export class KlasikCafeScene3D {
 
       group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
-          if (child === this.posDisplayMesh) return;
+          if (child === this.posDisplayMesh || child.userData?.isHitbox) return;
           const mat = (child as THREE.Mesh).material as THREE.MeshStandardMaterial;
           if (
             mat &&
@@ -13859,11 +14281,11 @@ export class KlasikCafeScene3D {
             mat !== this.groupHeadLedMat
           ) {
             if (isHovered) {
-              mat.emissive.setHex(0xd97706);
-              mat.emissiveIntensity = 0.26;
+              mat.emissive.setHex(0xf59e0b);
+              mat.emissiveIntensity = isRecommended ? Math.max(0.62, guidedAssetGlowIntensity + 0.14) : 0.34;
             } else if (isRecommended) {
-              mat.emissive.setHex(nextStep.isError ? 0xf43f5e : 0xd97706);
-              mat.emissiveIntensity = nextStep.isError ? 0.38 : subtleRimIntensity;
+              mat.emissive.setHex(nextStep.isError ? 0xf43f5e : 0xf59e0b);
+              mat.emissiveIntensity = nextStep.isError ? 0.64 : guidedAssetGlowIntensity;
             } else if (
               mat.emissive.getHex() === 0xd97706 ||
               mat.emissive.getHex() === 0xf59e0b ||
@@ -14092,52 +14514,32 @@ export class KlasikCafeScene3D {
       p.actor.group.position.set(pedCorner.x, pedFootY, pedCorner.z);
       p.actor.group.rotation.y = pedYaw;
 
-      // Brazilian Favela rhythmic TikTok passinho / funk walking groove (alternates 5.6s groove with casual stroll)
-      const grooveCycle = (this.elapsed + i * 3.7) % 10.5;
-      const isFavelaGrooving =
+      // Dedicated 20-bone Mixamo street dancer performs the Brazilian L-R-L-RLR choreography in the plaza;
+      // sidewalk walkers keep a natural stroll with a subtle 70 BPM head-nod to the boombox beat!
+      const isFavelaBeatNod =
         isPlayerOutsideNow &&
         p.behavior === 'favela_tiktok_dance' &&
-        !isRainActive &&
-        grooveCycle < 5.6;
+        !isRainActive;
 
-      const strideMult = p.behavior === 'jogger' ? 6.8 : isFavelaGrooving ? 6.0 : 5.0;
+      const strideMult = p.behavior === 'jogger' ? 6.8 : 5.0;
       p.walkPhase += p.speed * dt * strideMult;
       const s = Math.sin(p.walkPhase);
       const c = Math.cos(p.walkPhase);
-      const legAmp = p.behavior === 'jogger' ? 0.68 : isFavelaGrooving ? 0.56 : 0.48;
-      if (isFavelaGrooving) {
-        const beat = this.elapsed * 8.6 + i * 1.9;
-        const halfBeat = Math.sin(beat * 0.5);
-        const fastBeat = Math.sin(beat);
-        const dblBeat = Math.sin(beat * 2.0);
-        // Snappy passinho double-bounce pelvis dip + confident hip-shoulder groove sway
-        p.actor.pelvisGroup.position.y = 0.56 + Math.abs(fastBeat) * 0.068;
-        p.actor.pelvisGroup.rotation.z = halfBeat * 0.14;
-        p.actor.torsoGroup.rotation.y = fastBeat * 0.28;
-        p.actor.leftHipJoint.rotation.x = s * legAmp + Math.max(0, fastBeat) * 0.16;
-        p.actor.rightHipJoint.rotation.x = -s * legAmp + Math.max(0, -fastBeat) * 0.16;
-        p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.14)) + Math.abs(dblBeat) * 0.14;
-        p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.14)) + Math.abs(dblBeat) * 0.14;
-      } else {
-        p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * (p.behavior === 'jogger' ? 0.055 : 0.032);
-        p.actor.pelvisGroup.rotation.z = s * 0.03;
-        p.actor.torsoGroup.rotation.y = -s * 0.07;
-        p.actor.leftHipJoint.rotation.x = s * legAmp;
-        p.actor.rightHipJoint.rotation.x = -s * legAmp;
-        p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.04));
-        p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.04));
-      }
+      const legAmp = p.behavior === 'jogger' ? 0.68 : 0.48;
+      p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * (p.behavior === 'jogger' ? 0.055 : 0.032);
+      p.actor.pelvisGroup.rotation.z = s * 0.03;
+      p.actor.torsoGroup.rotation.y = -s * 0.07;
+      p.actor.leftHipJoint.rotation.x = s * legAmp;
+      p.actor.rightHipJoint.rotation.x = -s * legAmp;
+      p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.04));
+      p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.04));
 
-      // Rain umbrella vs neon umbrella vs Favela TikTok groove vs normal left-arm swing
+      // Rain umbrella vs neon umbrella vs normal left-arm swing
       const holdingNeonUmbrella = isPlayerOutsideNow && p.behavior === 'neon_umbrella';
       p.actor.umbrellaGroup.visible = isPlayerOutsideNow && isRainActive && !holdingNeonUmbrella;
       if ((isPlayerOutsideNow && isRainActive) || holdingNeonUmbrella) {
         p.actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03;
         p.actor.leftElbowJoint.rotation.x = -0.3;
-      } else if (isFavelaGrooving) {
-        const beat = this.elapsed * 8.6 + i * 1.9;
-        p.actor.leftShoulderJoint.rotation.x = -0.78 + Math.sin(beat) * 0.52;
-        p.actor.leftElbowJoint.rotation.x = -1.12 - Math.max(0, Math.cos(beat)) * 0.45;
       } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
         p.actor.leftShoulderJoint.rotation.x = -s * 0.72;
         p.actor.leftElbowJoint.rotation.x = -1.18;
@@ -14148,11 +14550,11 @@ export class KlasikCafeScene3D {
 
       // Outdoor-only right-arm & head behavior poses
       let targetNeckPitch = 0;
-      if (isFavelaGrooving) {
-        const beat = this.elapsed * 8.6 + i * 1.9;
-        p.actor.rightShoulderJoint.rotation.x = -0.82 - Math.sin(beat) * 0.56;
-        p.actor.rightElbowJoint.rotation.x = -1.18 - Math.max(0, -Math.cos(beat)) * 0.48;
-        targetNeckPitch = Math.sin(beat * 2.0) * 0.12;
+      if (isFavelaBeatNod) {
+        const beat70 = this.elapsed * ((70 / 60) * Math.PI * 2);
+        p.actor.rightShoulderJoint.rotation.x = s * 0.36;
+        p.actor.rightElbowJoint.rotation.x = -0.26 - Math.max(0, s) * 0.18;
+        targetNeckPitch = Math.sin(beat70) * 0.09;
       } else if (isPlayerOutsideNow && p.behavior === 'phone_browse') {
         p.actor.rightShoulderJoint.rotation.x = -0.68;
         p.actor.rightElbowJoint.rotation.x = -1.08;

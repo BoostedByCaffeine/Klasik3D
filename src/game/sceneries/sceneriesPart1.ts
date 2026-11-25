@@ -29,6 +29,7 @@ import {
   getHilltopUrbanLandmassTexture,
 } from './mountainTextures';
 import { createMayonOverlookLife } from './mayonOverlookLife';
+import { createBrazilianStreetDancerRig } from '../brazilianLRLRLRLRDance';
 import {
   type ArticulatedOutdoorNpcRig,
   type KyotoCyclistInstance,
@@ -3777,6 +3778,12 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     });
   });
 
+  // Dedicated Brazilian Favela Street Dancer (20-bone Mixamo rig running exact L-R-L-RLR-L-R-L-R 70 BPM clip)
+  const streetDancer = createBrazilianStreetDancerRig();
+  streetDancer.root.position.set(-1.6, 0.08, -16.85);
+  streetDancer.root.rotation.y = 0.14;
+  favelaOutdoorGroup.add(streetDancer.root);
+
   const ctx = addSurrounding360Context(root, 'brazilian_favela');
   disableShadowsRecursive(root);
 
@@ -3813,7 +3820,13 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
         laundryFlaps[i].rotation.x = Math.sin(elapsed * 2.4 + i * 0.9) * 0.22;
       }
 
-      if (!outside) return;
+      if (!outside) {
+        streetDancer.update(dt, elapsed, isNight, false);
+        return;
+      }
+
+      // Advance dedicated 20-bone Mixamo Brazilian L-R-L-RLR special boombox NPC exclusively while outdoors
+      streetDancer.update(dt, elapsed, isNight, true);
 
       // Grounded uphill/downhill walkers stepping along the Selarón hillside staircases onto the street sidewalk
       for (let i = 0; i < favelaAlleyWalkers.length; i++) {

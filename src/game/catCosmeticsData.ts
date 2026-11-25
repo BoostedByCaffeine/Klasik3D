@@ -6,14 +6,25 @@ export type CatCosmeticSlot = 'eyewear' | 'headwear' | 'neckwear' | 'body' | 'fu
 export type CatCosmeticId =
   | 'glasses'
   | 'thuglife_glasses'
+  | 'mustache_black'
+  | 'mustache_brown'
+  | 'mustache_white'
+  | 'monocle'
   | 'gold_chain'
+  | 'platinum_chain'
   | 'beret'
+  | 'top_hat_white'
+  | 'top_hat_black'
+  | 'top_hat_gray'
   | 'cloth_pink'
   | 'cloth_yellow'
   | 'cloth_blue'
   | 'cloth_white'
   | 'cloth_orange'
-  | 'dino_costume';
+  | 'dino_costume'
+  | 'skeleton_warm_white'
+  | 'skeleton_gray'
+  | 'skeleton_black';
 
 export interface CatCosmeticSpec {
   id: CatCosmeticId;
@@ -24,6 +35,9 @@ export interface CatCosmeticSpec {
   swatchHex?: string;
   meshColorHex: number;
   description: string;
+  variantGroup?: 'cloth' | 'top_hat' | 'mustache' | 'skeleton';
+  /** If set, item stays completely invisible in the shop until this cosmetic ID is unlocked. */
+  secretRequiresCosmetic?: CatCosmeticId;
 }
 
 export interface CatLoadout {
@@ -222,6 +236,7 @@ export function sampleCatDorsalSplinePoints(
 
 export const BERET_REVENUE_MILESTONE = 10000;
 export const GOLDEN_ESPRESSO_COST = 50000;
+export const MONOCLE_REVENUE_MILESTONE = 50000;
 
 export const BASE_CAT_COSMETIC_IDS: readonly CatCosmeticId[] = [
   'glasses',
@@ -255,14 +270,70 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     description: 'Iconic pixelated black 8-bit sunglasses with crisp white pixel glare.',
   },
   {
+    id: 'mustache_black',
+    name: 'Cat Mustache — Black',
+    slot: 'eyewear',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#18181b',
+    meshColorHex: 0x18181b,
+    variantGroup: 'mustache',
+    description: 'Dapper curled jet-black handlebar mustache resting neatly beneath the nose.',
+  },
+  {
+    id: 'mustache_brown',
+    name: 'Cat Mustache — Brown',
+    slot: 'eyewear',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#5c3a21',
+    meshColorHex: 0x5c3a21,
+    variantGroup: 'mustache',
+    description: 'Warm espresso-brown curled handlebar mustache for distinguished cafe cats.',
+  },
+  {
+    id: 'mustache_white',
+    name: 'Cat Mustache — White',
+    slot: 'eyewear',
+    unlockType: 'shop',
+    cost: 50,
+    swatchHex: '#f5f5f4',
+    meshColorHex: 0xf5f5f4,
+    variantGroup: 'mustache',
+    description: 'Crisp snow-white curled handlebar mustache with vintage cafe flair.',
+  },
+  {
+    id: 'monocle',
+    name: 'Distinguished Monocle',
+    slot: 'eyewear',
+    unlockType: 'revenue',
+    cost: MONOCLE_REVENUE_MILESTONE,
+    swatchHex: '#eab308',
+    meshColorHex: 0xeab308,
+    description:
+      'Polished brass single-eye monocle with draped fine chain ($50,000 total revenue).',
+  },
+  {
     id: 'gold_chain',
     name: 'Gold Chain',
     slot: 'neckwear',
     unlockType: 'golden_espresso',
     cost: GOLDEN_ESPRESSO_COST,
+    swatchHex: '#fbbf24',
     meshColorHex: 0xfbbf24,
     description:
       'Layered metallic 24K gold Cuban-link chain unlocked alongside the Golden Espresso Machine ($50,000).',
+  },
+  {
+    id: 'platinum_chain',
+    name: 'Platinum Chain',
+    slot: 'neckwear',
+    unlockType: 'golden_espresso',
+    cost: GOLDEN_ESPRESSO_COST,
+    swatchHex: '#e5e7eb',
+    meshColorHex: 0xe5e7eb,
+    description:
+      'Mirror-polished heavy platinum Cuban-link chain & faceted pendant unlocked with the Golden Espresso Machine ($50,000).',
   },
   {
     id: 'beret',
@@ -275,6 +346,39 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
       'Soft tilted French artist beret resting naturally between the ears ($10,000 total revenue).',
   },
   {
+    id: 'top_hat_white',
+    name: 'Cat Top Hat — White',
+    slot: 'headwear',
+    unlockType: 'shop',
+    cost: 250,
+    swatchHex: '#f4f1ea',
+    meshColorHex: 0xf4f1ea,
+    variantGroup: 'top_hat',
+    description: 'Ivory-white tailored felt top hat with dark espresso satin ribbon band.',
+  },
+  {
+    id: 'top_hat_black',
+    name: 'Cat Top Hat — Black',
+    slot: 'headwear',
+    unlockType: 'shop',
+    cost: 250,
+    swatchHex: '#18181b',
+    meshColorHex: 0x18181b,
+    variantGroup: 'top_hat',
+    description: 'Classic obsidian-black felt top hat with warm satin ribbon trim.',
+  },
+  {
+    id: 'top_hat_gray',
+    name: 'Cat Top Hat — Gray',
+    slot: 'headwear',
+    unlockType: 'shop',
+    cost: 250,
+    swatchHex: '#71717a',
+    meshColorHex: 0x71717a,
+    variantGroup: 'top_hat',
+    description: 'Heather-gray felt top hat styled for formal cafe appearances.',
+  },
+  {
     id: 'cloth_pink',
     name: 'Cat Cloth — Pink',
     slot: 'body',
@@ -282,6 +386,7 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     cost: 50,
     swatchHex: '#f472b6',
     meshColorHex: 0xf472b6,
+    variantGroup: 'cloth',
     description: 'Cozy fitted pastel-pink knit cafe shirt/vest.',
   },
   {
@@ -292,6 +397,7 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     cost: 50,
     swatchHex: '#facc15',
     meshColorHex: 0xfacc15,
+    variantGroup: 'cloth',
     description: 'Cozy fitted warm-yellow knit cafe shirt/vest.',
   },
   {
@@ -302,6 +408,7 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     cost: 50,
     swatchHex: '#60a5fa',
     meshColorHex: 0x60a5fa,
+    variantGroup: 'cloth',
     description: 'Cozy fitted soft-blue knit cafe shirt/vest.',
   },
   {
@@ -312,6 +419,7 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     cost: 50,
     swatchHex: '#f8fafc',
     meshColorHex: 0xf8fafc,
+    variantGroup: 'cloth',
     description: 'Cozy fitted cream-white knit cafe shirt/vest.',
   },
   {
@@ -322,6 +430,7 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     cost: 50,
     swatchHex: '#fb923c',
     meshColorHex: 0xfb923c,
+    variantGroup: 'cloth',
     description: 'Cozy fitted tangerine-orange knit cafe shirt/vest.',
   },
   {
@@ -334,6 +443,45 @@ export const CAT_COSMETICS_CATALOG: readonly CatCosmeticSpec[] = [
     meshColorHex: 0xf2efe9,
     description:
       'Plush bone-white Skeleton T-Rex open-jaw skull hood + curved back ribcage, dorsal bone spikes & tail. Auto-unlocks once all 9 base cosmetics are owned!',
+  },
+  {
+    id: 'skeleton_warm_white',
+    name: 'Cat Skeleton — Warm White',
+    slot: 'full_suit',
+    unlockType: 'shop',
+    cost: 350,
+    swatchHex: '#f5efe6',
+    meshColorHex: 0xf5efe6,
+    variantGroup: 'skeleton',
+    secretRequiresCosmetic: 'dino_costume',
+    description:
+      'Secret bone-craft feline skeleton costume in warm ivory bone plush with sculpted cat-ear skull hood & ribcage.',
+  },
+  {
+    id: 'skeleton_gray',
+    name: 'Cat Skeleton — Gray',
+    slot: 'full_suit',
+    unlockType: 'shop',
+    cost: 350,
+    swatchHex: '#9ca3af',
+    meshColorHex: 0x9ca3af,
+    variantGroup: 'skeleton',
+    secretRequiresCosmetic: 'dino_costume',
+    description:
+      'Secret feline skeleton costume in weathered ash-gray stone bone with sculpted skull hood, ribcage & tail.',
+  },
+  {
+    id: 'skeleton_black',
+    name: 'Cat Skeleton — Black',
+    slot: 'full_suit',
+    unlockType: 'shop',
+    cost: 350,
+    swatchHex: '#1f242b',
+    meshColorHex: 0x1f242b,
+    variantGroup: 'skeleton',
+    secretRequiresCosmetic: 'dino_costume',
+    description:
+      'Secret obsidian-black feline skeleton costume with high-contrast charcoal bones, skull hood & spine.',
   },
 ] as const;
 
@@ -439,6 +587,18 @@ export function getCatCosmeticSpec(id: CatCosmeticId): CatCosmeticSpec {
   return CAT_COSMETICS_CATALOG.find((c) => c.id === id) || CAT_COSMETICS_CATALOG[0];
 }
 
+/**
+ * Pure secret-shop visibility gate: items with `secretRequiresCosmetic` stay completely
+ * invisible in the Cosmetics Shop until the prerequisite cosmetic (e.g. `dino_costume`) is unlocked.
+ */
+export function isCatCosmeticVisibleInShop(
+  spec: CatCosmeticSpec,
+  unlockedCosmetics: readonly CatCosmeticId[] | undefined
+): boolean {
+  if (!spec.secretRequiresCosmetic) return true;
+  return Array.isArray(unlockedCosmetics) && unlockedCosmetics.includes(spec.secretRequiresCosmetic);
+}
+
 export function createEmptyCatLoadout(): CatLoadout {
   return {
     eyewear: null,
@@ -501,12 +661,20 @@ export function syncCatCosmeticMilestones(
     newlyUnlocked.push('beret');
   }
 
-  if (
-    (goldenEspressoUnlocked || lifetimeRevenue >= GOLDEN_ESPRESSO_COST) &&
-    !set.has('gold_chain')
-  ) {
-    set.add('gold_chain');
-    newlyUnlocked.push('gold_chain');
+  if (lifetimeRevenue >= MONOCLE_REVENUE_MILESTONE && !set.has('monocle')) {
+    set.add('monocle');
+    newlyUnlocked.push('monocle');
+  }
+
+  if (goldenEspressoUnlocked || lifetimeRevenue >= GOLDEN_ESPRESSO_COST) {
+    if (!set.has('gold_chain')) {
+      set.add('gold_chain');
+      newlyUnlocked.push('gold_chain');
+    }
+    if (!set.has('platinum_chain')) {
+      set.add('platinum_chain');
+      newlyUnlocked.push('platinum_chain');
+    }
   }
 
   const dinoCheck = checkDinoCostumeUnlock(Array.from(set));
@@ -516,7 +684,20 @@ export function syncCatCosmeticMilestones(
 
   let toastMessage: string | null = null;
   if (dinoCheck.justUnlockedDino) {
-    toastMessage = '🦖 Master Wardrobe Complete! Dinosaur Costume unlocked for all Cafe Cats!';
+    toastMessage =
+      '🦖 Master Wardrobe Complete! Dinosaur Costume unlocked — and Secret Cat Skeleton outfits revealed in the shop!';
+  } else if (
+    newlyUnlocked.includes('platinum_chain') &&
+    newlyUnlocked.includes('gold_chain')
+  ) {
+    toastMessage =
+      '✨ Gold Chain, Platinum Chain & Distinguished Monocle unlocked at $50,000!';
+  } else if (newlyUnlocked.includes('platinum_chain')) {
+    toastMessage =
+      '✨ Platinum Chain Cat Cosmetic unlocked with the Golden Espresso Machine!';
+  } else if (newlyUnlocked.includes('monocle')) {
+    toastMessage =
+      '🧐 $50,000 Revenue Milestone! Distinguished Monocle unlocked in Eyewear!';
   } else if (newlyUnlocked.includes('gold_chain')) {
     toastMessage = '✨ Gold Chain Cat Cosmetic unlocked with the Golden Espresso Machine!';
   } else if (newlyUnlocked.includes('beret')) {

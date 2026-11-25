@@ -120,12 +120,17 @@ import {
   checkDinoCostumeUnlock,
   getEffectiveVisibleLoadout,
   BERET_REVENUE_MILESTONE,
+  MONOCLE_REVENUE_MILESTONE,
+  isCatCosmeticVisibleInShop,
+  getCatCosmeticSpec,
 } from './catCosmeticsData';
 import {
   CURATED_RADIO_STATIONS,
   filterVerifiedRadioStations,
   resolveStationMirrorUrls,
   cleanAudioFileName,
+  isAllowedRadioCountry,
+  parseCapturedTabTitle,
 } from './audio/MusicPlayerController';
 import {
   DEFAULT_SIDEWALK_BOUNDS,
@@ -1476,8 +1481,9 @@ test('Expansion Phase 3: New cats Amby ($1,500), Gigi ($500 kitten), and Secret 
 
 test('Expansion Phase 4: Adaptive Cat Cosmetics, CAT_FIT_PROFILES, Dinosaur Costume 9/9 Meta-Unlock, and full_suit override work cleanly', () => {
   assert.equal(BASE_CAT_COSMETIC_IDS.length, 9);
-  assert.equal(CAT_COSMETICS_CATALOG.length, 10);
+  assert.equal(CAT_COSMETICS_CATALOG.length, 21);
   assert.equal(BERET_REVENUE_MILESTONE, 10000);
+  assert.equal(MONOCLE_REVENUE_MILESTONE, 50000);
 
   // Fit profiles exist for key builds: tiny Gigi, thin Tisay, wide Chunky, standard Amby
   assert.equal(CAT_FIT_PROFILES.gigi.bodyScale, 0.68);
@@ -1691,14 +1697,14 @@ test('Outdoor Sceneries Phase 5: Secret Easter Egg NPC rotates Beb -> Anton -> D
   assert.equal(advanceSecretNpcNameIdx(1), 2);
   assert.equal(advanceSecretNpcNameIdx(2), 0);
 
-  // Cap (40%) + Auto hood-up ONLY when capless in Rain/Snow/Winter
+  // Cap (40%) + Hood ALWAYS down across all weather/climate states
   const withCapInRain = resolveSecretNpcAppearance('summer', true, () => 0.1);
   assert.equal(withCapInRain.wearsCap, true);
   assert.equal(withCapInRain.hoodUp, false);
 
   const caplessInRain = resolveSecretNpcAppearance('summer', true, () => 0.65);
   assert.equal(caplessInRain.wearsCap, false);
-  assert.equal(caplessInRain.hoodUp, true);
+  assert.equal(caplessInRain.hoodUp, false);
 
   // Singleton & Cooldown enforcement
   assert.equal(
@@ -2616,6 +2622,141 @@ test('Detail Truncation Fix Phase D: Mountain range ribbon locks ALL 4 perimeter
       }
     }
   }
+});
+
+test('Cat Cosmetics Expansion: Secret Skeleton Outfits (Warm White/Gray/Black), Top Hat ($250 x3), Mustache ($50 x3 in Eyewear), Platinum Chain (Golden Espresso), and Monocle ($50k Revenue)', () => {
+  let state = createInitialGameState();
+  state.cash = 5000;
+
+  // 1. Secret Cat Skeleton variants MUST remain invisible & non-purchasable until dino_costume is unlocked
+  const skeletonIds = ['skeleton_warm_white', 'skeleton_gray', 'skeleton_black'] as const;
+  for (const id of skeletonIds) {
+    const spec = getCatCosmeticSpec(id);
+    assert.equal(spec.cost, 350);
+    assert.equal(spec.slot, 'full_suit');
+    assert.equal(isCatCosmeticVisibleInShop(spec, state.unlockedCosmetics), false);
+    const blocked = purchaseCatCosmetic(state, id);
+    assert.equal(blocked.unlockedCosmetics.includes(id), false);
+    assert.equal(blocked.cash, 5000);
+  }
+
+  // 2. Cat Mustache ($50 x3) lives in Eyewear and purchases cleanly
+  const mustacheIds = ['mustache_black', 'mustache_brown', 'mustache_white'] as const;
+  for (const id of mustacheIds) {
+    const spec = getCatCosmeticSpec(id);
+    assert.equal(spec.slot, 'eyewear');
+    assert.equal(spec.cost, 50);
+    assert.equal(isCatCosmeticVisibleInShop(spec, state.unlockedCosmetics), true);
+    state = purchaseCatCosmetic(state, id);
+    assert.ok(state.unlockedCosmetics.includes(id));
+  }
+  assert.equal(state.cash, 5000 - 150);
+
+  // 3. Cat Top Hat ($250 x3) lives in Headwear and purchases cleanly
+  const topHatIds = ['top_hat_white', 'top_hat_black', 'top_hat_gray'] as const;
+  for (const id of topHatIds) {
+    const spec = getCatCosmeticSpec(id);
+    assert.equal(spec.slot, 'headwear');
+    assert.equal(spec.cost, 250);
+    state = purchaseCatCosmetic(state, id);
+    assert.ok(state.unlockedCosmetics.includes(id));
+  }
+  assert.equal(state.cash, 5000 - 150 - 750);
+
+  // 4. Buy the original 7 shop items + reach $50k Golden Espresso -> unlocks Platinum Chain, Monocle ($50k), AND Dino Costume!
+  for (const id of [
+    'glasses',
+    'thuglife_glasses',
+    'cloth_pink',
+    'cloth_yellow',
+    'cloth_blue',
+    'cloth_white',
+    'cloth_orange',
+  ] as const) {
+    state = purchaseCatCosmetic(state, id);
+  }
+  assert.equal(state.unlockedCosmetics.includes('platinum_chain'), false);
+  assert.equal(state.unlockedCosmetics.includes('monocle'), false);
+  assert.equal(state.unlockedCosmetics.includes('dino_costume'), false);
+
+  state = reachGoldenMachineMilestone(state);
+  assert.ok(state.unlockedCosmetics.includes('platinum_chain'), 'Platinum Chain must auto-unlock with Golden Espresso');
+  assert.ok(state.unlockedCosmetics.includes('monocle'), 'Monocle must auto-unlock at $50k gross revenue');
+  assert.ok(state.unlockedCosmetics.includes('dino_costume'), 'Dinosaur Costume must unlock on 9/9 base cosmetics');
+
+  // 5. Once dino_costume is unlocked, all 3 Secret Cat Skeleton outfits become visible and purchasable for $350 each
+  state.cash = 1500;
+  for (const id of skeletonIds) {
+    const spec = getCatCosmeticSpec(id);
+    assert.equal(isCatCosmeticVisibleInShop(spec, state.unlockedCosmetics), true);
+    state = purchaseCatCosmetic(state, id);
+    assert.ok(state.unlockedCosmetics.includes(id));
+  }
+  assert.equal(state.cash, 1500 - 1050);
+
+  // 6. Equip Platinum Chain, Monocle, and Skeleton full suit
+  state = equipCatCosmetic(state, 'champy', 'platinum_chain', 'neckwear');
+  state = equipCatCosmetic(state, 'champy', 'monocle', 'eyewear');
+  state = equipCatCosmetic(state, 'champy', 'skeleton_warm_white', 'full_suit');
+  const eff = getEffectiveVisibleLoadout(state.catLoadouts.champy);
+  assert.equal(eff.neckwear, 'platinum_chain');
+  assert.equal(eff.eyewear, 'monocle');
+  assert.equal(eff.full_suit, 'skeleton_warm_white');
+  assert.equal(eff.headwear, null);
+  assert.equal(eff.body, null);
+});
+
+test('Radio & External Audio Overhaul: strictly allows PH & US channels only, includes PH staples, rejects India/Pakistan/dead hosts, and parses tab audio titles', () => {
+  assert.equal(isAllowedRadioCountry('PH'), true);
+  assert.equal(isAllowedRadioCountry('US'), true);
+  assert.equal(isAllowedRadioCountry('IN'), false);
+  assert.equal(isAllowedRadioCountry('PK'), false);
+  assert.equal(isAllowedRadioCountry('GB'), false);
+  assert.equal(isAllowedRadioCountry('JP'), false);
+
+  assert.ok(CURATED_RADIO_STATIONS.length >= 10);
+  for (const st of CURATED_RADIO_STATIONS) {
+    assert.ok(
+      st.countryCode === 'PH' || st.countryCode === 'US',
+      `Curated station ${st.id} had disallowed country ${st.countryCode}`
+    );
+    for (const url of resolveStationMirrorUrls(st)) {
+      assert.ok(!url.includes('radioca.st'), `Dead host radioca.st found in ${st.id}: ${url}`);
+    }
+  }
+
+  const phNames = CURATED_RADIO_STATIONS.filter((s) => s.countryCode === 'PH').map((s) =>
+    s.name.toLowerCase()
+  );
+  assert.ok(phNames.some((n) => n.includes('90.7') && n.includes('love radio')), 'Missing 90.7 Love Radio');
+  assert.ok(phNames.some((n) => n.includes('101.1') || n.includes('yes')), 'Missing 101.1 Yes FM');
+  assert.ok(phNames.some((n) => n.includes('101.5') || n.includes('101.7')), 'Missing 101.5/101.7 FM');
+  assert.ok(phNames.some((n) => n.includes('bombo radyo')), 'Missing Bombo Radyo');
+  assert.ok(CURATED_RADIO_STATIONS.some((s) => s.countryCode === 'US'), 'Must include US radio stations');
+
+  const filtered = filterVerifiedRadioStations([
+    { stationuuid: 'ph1', name: '90.7 Love Radio', url_resolved: 'https://azura.loveradio.com.ph/listen/love_radio_manila/radio.mp3', codec: 'MP3', countrycode: 'PH' },
+    { stationuuid: 'us1', name: 'SomaFM Groove', url_resolved: 'https://ice1.somafm.com/groovesalad-128-mp3', codec: 'MP3', countrycode: 'US' },
+    { stationuuid: 'in1', name: 'Bollywood FM', url_resolved: 'https://stream.india.example/radio.mp3', codec: 'MP3', countrycode: 'IN' },
+    { stationuuid: 'pk1', name: 'Karachi FM', url_resolved: 'https://stream.pakistan.example/radio.mp3', codec: 'MP3', countrycode: 'PK' },
+    { stationuuid: 'gb1', name: 'London Radio', url_resolved: 'https://stream.uk.example/radio.mp3', codec: 'MP3', countrycode: 'GB' },
+    { stationuuid: 'dead1', name: 'Dead PH Stream', url_resolved: 'https://s2.radioca.st/stream', codec: 'MP3', countrycode: 'PH' },
+  ]);
+  assert.equal(filtered.length, 2);
+  assert.deepEqual(
+    filtered.map((s) => s.countryCode),
+    ['PH', 'US']
+  );
+
+  const yt = parseCapturedTabTitle('Laufey - From The Start - YouTube Music');
+  assert.equal(yt.artist, 'Laufey');
+  assert.equal(yt.title, 'From The Start');
+  assert.equal(yt.sourceApp, 'YouTube Music');
+
+  const sp = parseCapturedTabTitle('Coffee Shop Jazz • Cozy Beats | Spotify');
+  assert.equal(sp.title, 'Coffee Shop Jazz');
+  assert.equal(sp.artist, 'Cozy Beats');
+  assert.equal(sp.sourceApp, 'Spotify Web');
 });
 
 

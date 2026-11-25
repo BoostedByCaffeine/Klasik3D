@@ -227,6 +227,210 @@ function buildGoldChainMesh(profile: CatFitProfile): THREE.Group {
   return g;
 }
 
+function buildPlatinumChainMesh(profile: CatFitProfile): THREE.Group {
+  const g = new THREE.Group();
+  const s = profile.neckRadius;
+  g.scale.set(s, s, s);
+  g.position.set(0, -0.004, 0.004);
+
+  const platMat = new THREE.MeshStandardMaterial({
+    color: 0xe5e7eb,
+    metalness: 0.96,
+    roughness: 0.14,
+    emissive: 0x94a3b8,
+    emissiveIntensity: 0.16,
+  });
+  const diamondMat = new THREE.MeshStandardMaterial({
+    color: 0xf8fafc,
+    metalness: 0.55,
+    roughness: 0.08,
+    emissive: 0xe0f2fe,
+    emissiveIntensity: 0.35,
+  });
+
+  const chainLoop = new THREE.Group();
+  chainLoop.rotation.x = Math.PI / 2 + 0.35;
+  g.add(chainLoop);
+
+  const ringRadius = 0.06;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(ringRadius, 0.0076, 8, 24), platMat);
+  chainLoop.add(ring);
+
+  const linkGeo = new THREE.BoxGeometry(0.015, 0.0095, 0.011);
+  for (let i = 0; i < 14; i++) {
+    const angle = (i / 14) * Math.PI * 2;
+    const link = new THREE.Mesh(linkGeo, platMat);
+    link.position.set(Math.cos(angle) * ringRadius, Math.sin(angle) * ringRadius, 0);
+    link.rotation.z = angle + Math.PI / 2;
+    chainLoop.add(link);
+  }
+
+  // Faceted octagonal platinum pendant with crisp ice-diamond center inlay
+  const bail = new THREE.Mesh(new THREE.TorusGeometry(0.0065, 0.0024, 6, 10), platMat);
+  bail.position.set(0, -0.021, 0.059);
+  g.add(bail);
+
+  const pendant = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.006, 8), platMat);
+  pendant.rotation.x = Math.PI / 2 - 0.18;
+  pendant.position.set(0, -0.037, 0.063);
+  g.add(pendant);
+
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.009, 0), diamondMat);
+  gem.scale.set(1, 1, 0.45);
+  gem.position.set(0, -0.037, 0.067);
+  g.add(gem);
+
+  return g;
+}
+
+function buildMustacheMesh(colorHex: number, profile: CatFitProfile): THREE.Group {
+  const g = new THREE.Group();
+  const hs = profile.headScale;
+  g.scale.set(hs * profile.eyeWidth, hs, hs);
+  // Seated directly beneath the cat's nose bridge on anchorEyes
+  g.position.set(0, -0.024, profile.furOffset + 0.011);
+
+  const hairMat = new THREE.MeshStandardMaterial({
+    color: colorHex,
+    roughness: 0.78,
+    metalness: 0.04,
+  });
+
+  // Sculpted symmetrical curled handlebar mustache (left + right curves)
+  [-1, 1].forEach((side) => {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0, 0.002, 0.002),
+      new THREE.Vector3(side * 0.014, 0.003, 0.004),
+      new THREE.Vector3(side * 0.032, -0.003, 0.001),
+      new THREE.Vector3(side * 0.046, 0.001, -0.003),
+      new THREE.Vector3(side * 0.052, 0.01, -0.005),
+    ]);
+    const tubeGeo = new THREE.TubeGeometry(curve, 14, 0.0075, 8, false);
+    const pos = tubeGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const px = Math.abs(pos.getX(i));
+      const t = THREE.MathUtils.clamp(px / 0.052, 0, 1);
+      const taper = 1.0 - t * 0.58;
+      const pt = curve.getPoint(t);
+      pos.setY(i, pt.y + (pos.getY(i) - pt.y) * taper);
+      pos.setZ(i, pt.z + (pos.getZ(i) - pt.z) * taper);
+    }
+    pos.needsUpdate = true;
+    tubeGeo.computeVertexNormals();
+    g.add(new THREE.Mesh(tubeGeo, hairMat));
+  });
+
+  // Soft center tuft joining the two handlebar wings
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.0078, 8, 8), hairMat);
+  knot.scale.set(1.2, 0.85, 0.75);
+  knot.position.set(0, 0.002, 0.002);
+  g.add(knot);
+
+  return g;
+}
+
+function buildMonocleMesh(profile: CatFitProfile): THREE.Group {
+  const g = new THREE.Group();
+  const hs = profile.headScale;
+  g.scale.set(hs * profile.eyeWidth, hs, hs);
+  g.position.set(0, 0, profile.furOffset + 0.003);
+
+  const brassMat = new THREE.MeshStandardMaterial({
+    color: 0xeab308,
+    metalness: 0.9,
+    roughness: 0.2,
+    emissive: 0x713f12,
+    emissiveIntensity: 0.12,
+  });
+  const lensMat = new THREE.MeshStandardMaterial({
+    color: 0xe0f2fe,
+    transparent: true,
+    opacity: 0.36,
+    roughness: 0.08,
+    metalness: 0.15,
+  });
+
+  // Single refined brass rim & lens positioned cleanly over the cat's right eye (+x in face space)
+  const eyeX = 0.031;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.0255, 0.0038, 10, 22), brassMat);
+  rim.position.set(eyeX, 0, 0);
+  g.add(rim);
+
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.023, 18), lensMat);
+  lens.position.set(eyeX, 0, 0.0012);
+  g.add(lens);
+
+  // Small gallery lug on outer edge of rim
+  const lug = new THREE.Mesh(new THREE.SphereGeometry(0.0046, 8, 8), brassMat);
+  lug.position.set(eyeX + 0.026, -0.004, 0);
+  g.add(lug);
+
+  // Delicate draped brass chain trailing neatly along cheek fur
+  const chainCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(eyeX + 0.026, -0.004, 0),
+    new THREE.Vector3(eyeX + 0.032, -0.028, -0.006),
+    new THREE.Vector3(eyeX + 0.027, -0.056, -0.015),
+    new THREE.Vector3(eyeX + 0.016, -0.082, -0.024),
+  ]);
+  const chainMesh = new THREE.Mesh(new THREE.TubeGeometry(chainCurve, 12, 0.0019, 6, false), brassMat);
+  g.add(chainMesh);
+
+  return g;
+}
+
+function buildTopHatMesh(colorHex: number, profile: CatFitProfile): THREE.Group {
+  const g = new THREE.Group();
+  const hs = profile.headScale;
+  g.scale.set(hs, hs, hs);
+  // Seated flush on skull crown between ears (anchorHeadTop)
+  g.position.set(0, -0.003, -0.002);
+  g.rotation.z = -0.06;
+  g.rotation.x = -0.04;
+
+  const isLight = colorHex === 0xf4f1ea;
+  const feltMat = new THREE.MeshStandardMaterial({
+    color: colorHex,
+    roughness: 0.82,
+    metalness: 0.04,
+  });
+  const ribbonMat = new THREE.MeshStandardMaterial({
+    color: isLight ? 0x292524 : 0x991b1b,
+    roughness: 0.42,
+    metalness: 0.14,
+  });
+  const buckleMat = new THREE.MeshStandardMaterial({
+    color: 0xfbbf24,
+    metalness: 0.88,
+    roughness: 0.22,
+  });
+
+  // Slightly rolled circular brim
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.081, 0.008, 22), feltMat);
+  brim.position.set(0, 0.006, 0);
+  g.add(brim);
+
+  const brimEdge = new THREE.Mesh(new THREE.TorusGeometry(0.078, 0.0045, 8, 22), feltMat);
+  brimEdge.rotation.x = Math.PI / 2;
+  brimEdge.position.set(0, 0.008, 0);
+  g.add(brimEdge);
+
+  // Satin ribbon band around lower crown
+  const ribbon = new THREE.Mesh(new THREE.CylinderGeometry(0.0525, 0.0515, 0.018, 20), ribbonMat);
+  ribbon.position.set(0, 0.02, 0);
+  g.add(ribbon);
+
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.012, 0.004), buckleMat);
+  buckle.position.set(0, 0.02, 0.052);
+  g.add(buckle);
+
+  // Tailored gently flared tall top-hat crown
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.05, 0.082, 20), feltMat);
+  crown.position.set(0, 0.052, 0);
+  g.add(crown);
+
+  return g;
+}
+
 function buildBeretMesh(profile: CatFitProfile): THREE.Group {
   const g = new THREE.Group();
   const hs = profile.headScale;
@@ -620,6 +824,208 @@ function buildDinoTorsoSuit(
   return g;
 }
 
+// Secret Cat Skeleton Costume Palette (Warm White, Gray, Black)
+interface CatSkeletonPalette {
+  boneHex: number;
+  shadeHex: number;
+  socketHex: number;
+  suitHex: number;
+}
+
+const CAT_SKELETON_PALETTES: Record<
+  'skeleton_warm_white' | 'skeleton_gray' | 'skeleton_black',
+  CatSkeletonPalette
+> = {
+  skeleton_warm_white: {
+    boneHex: 0xf5efe6,
+    shadeHex: 0xe4dacb,
+    socketHex: 0x262321,
+    suitHex: 0x272320,
+  },
+  skeleton_gray: {
+    boneHex: 0xb0b7c3,
+    shadeHex: 0x8b95a5,
+    socketHex: 0x181c22,
+    suitHex: 0x374151,
+  },
+  skeleton_black: {
+    boneHex: 0x232830,
+    shadeHex: 0x15181e,
+    socketHex: 0x090b0e,
+    suitHex: 0x111318,
+  },
+};
+
+function buildCatSkeletonHeadHood(
+  palette: CatSkeletonPalette,
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS
+): THREE.Group {
+  const g = new THREE.Group();
+  const headFitScale = (dims.headRadius * 1.16) / (0.072 * 1.16);
+  g.scale.setScalar(headFitScale);
+  g.position.set(0, -0.004, -0.002);
+
+  const boneMat = new THREE.MeshStandardMaterial({
+    color: palette.boneHex,
+    roughness: 0.72,
+    metalness: 0.06,
+  });
+  const shadeMat = new THREE.MeshStandardMaterial({
+    color: palette.shadeHex,
+    roughness: 0.82,
+    metalness: 0.04,
+  });
+  const socketMat = new THREE.MeshStandardMaterial({
+    color: palette.socketHex,
+    roughness: 0.92,
+  });
+  // Subtle contrasting bone-edge highlight for Obsidian Black variant so ribs & skull pop
+  const accentBoneMat =
+    palette.boneHex === 0x232830
+      ? new THREE.MeshStandardMaterial({ color: 0x525b68, roughness: 0.65, metalness: 0.1 })
+      : boneMat;
+
+  // Rounded feline skull cap leaving cat's real face 100% open and adorable
+  const cranium = new THREE.Mesh(
+    new THREE.SphereGeometry(0.084, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.56),
+    boneMat
+  );
+  cranium.scale.set(1.06, 0.92, 1.08);
+  cranium.rotation.x = -0.3;
+  cranium.position.set(0, -0.006, -0.01);
+  g.add(cranium);
+
+  // Cute feline skull crest & paired skeletal cat-ear frames perched cleanly on the crown
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.114, 0.028, 0.056), boneMat);
+  brow.position.set(0, 0.042, 0.026);
+  g.add(brow);
+
+  [-1, 1].forEach((side) => {
+    const earOuter = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.056, 4), boneMat);
+    earOuter.position.set(side * 0.046, 0.068, 0.002);
+    earOuter.rotation.z = -side * 0.22;
+    earOuter.rotation.y = side * 0.18;
+    g.add(earOuter);
+
+    const earInner = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.038, 4), socketMat);
+    earInner.position.set(side * 0.046, 0.066, 0.011);
+    earInner.rotation.z = -side * 0.22;
+    g.add(earInner);
+
+    // Decorative skull eye-socket markings on upper brow
+    const eyeSocket = new THREE.Mesh(new THREE.SphereGeometry(0.013, 10, 8), socketMat);
+    eyeSocket.scale.set(1.05, 0.82, 0.55);
+    eyeSocket.position.set(side * 0.028, 0.042, 0.052);
+    g.add(eyeSocket);
+
+    // Cheekbone strap anchoring skull hood neatly down to the collar
+    const strapCurve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(side * 0.074, 0.005, 0.002),
+      new THREE.Vector3(side * 0.08, -0.052, 0.01),
+      new THREE.Vector3(side * 0.056, -0.108, 0.006)
+    );
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(strapCurve, 10, 0.013, 8, false), shadeMat));
+  });
+
+  // Small feline skull nasal cutout in center of brow + stitched bone grin crest
+  const noseCut = new THREE.Mesh(new THREE.ConeGeometry(0.009, 0.015, 3), socketMat);
+  noseCut.position.set(0, 0.036, 0.055);
+  noseCut.rotation.z = Math.PI;
+  g.add(noseCut);
+
+  const collarArc = new THREE.Mesh(new THREE.TorusGeometry(0.056, 0.009, 8, 18, Math.PI), accentBoneMat);
+  collarArc.rotation.x = Math.PI / 2 + 0.12;
+  collarArc.position.set(0, -0.106, 0.01);
+  g.add(collarArc);
+
+  return g;
+}
+
+function buildCatSkeletonTorsoSuit(
+  palette: CatSkeletonPalette,
+  dims: CatRigDimensions = DEFAULT_CAT_RIG_DIMENSIONS
+): THREE.Group {
+  const g = new THREE.Group();
+
+  const boneMat = new THREE.MeshStandardMaterial({
+    color: palette.boneHex,
+    roughness: 0.72,
+    metalness: 0.06,
+  });
+  const ribAccentMat =
+    palette.boneHex === 0x232830
+      ? new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.62, metalness: 0.12 })
+      : boneMat;
+
+  // 1. Segmented external vertebral spine riding cleanly outside the cat's dorsal back
+  const dorsalSamples = sampleCatDorsalSplinePoints(dims, 6, CAT_COSMETIC_CLEARANCE);
+  const dorsalVecs = dorsalSamples.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+  const spineCurve = new THREE.CatmullRomCurve3(dorsalVecs);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(spineCurve, 18, 0.014, 8, false), boneMat));
+
+  // Rounded feline vertebrae beads along spine (distinct from spiky T-Rex)
+  const upAxis = new THREE.Vector3(0, 1, 0);
+  const normalVec = new THREE.Vector3();
+  const qTmp = new THREE.Quaternion();
+  dorsalSamples.forEach((pt, idx) => {
+    const bead = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.014, 0.02, 8), ribAccentMat);
+    normalVec.set(0, pt.ny, pt.nz).normalize();
+    qTmp.setFromUnitVectors(upAxis, normalVec);
+    bead.quaternion.copy(qTmp);
+    bead.position.set(
+      pt.x,
+      pt.y + normalVec.y * 0.011,
+      pt.z + normalVec.z * 0.011
+    );
+    bead.scale.setScalar(idx === 2 || idx === 3 ? 1.08 : 0.92);
+    g.add(bead);
+  });
+
+  // 2. 4 sleek curved feline ribcage arcs wrapping upper/mid torso strictly outside fur
+  const ribClearance = Math.max(0.032, CAT_COSMETIC_CLEARANCE + 0.005);
+  const minRibY = Math.max(0.145, dims.neckY - 0.066);
+  for (let idx = 0; idx < 4; idx++) {
+    const dorsalPt = dorsalSamples[Math.min(idx, dorsalSamples.length - 1)];
+    const ribY = Math.max(minRibY, dorsalPt.y - 0.004);
+    const ribEndTheta = idx === 0 ? 0.42 * Math.PI : idx === 1 ? 0.38 * Math.PI : 0.46 * Math.PI;
+    [-1, 1].forEach((side) => {
+      const p0 = new THREE.Vector3(side * 0.01, dorsalPt.y, dorsalPt.z);
+      const mid1 = sampleCatTorsoOuterPoint(ribY, side * (0.78 * Math.PI), dims, ribClearance);
+      const mid2 = sampleCatTorsoOuterPoint(ribY - 0.004, side * (0.58 * Math.PI), dims, ribClearance);
+      const tip = sampleCatTorsoOuterPoint(ribY - 0.007, side * ribEndTheta, dims, ribClearance);
+      const ribCurve = new THREE.CatmullRomCurve3([
+        p0,
+        new THREE.Vector3(mid1.x, mid1.y, mid1.z),
+        new THREE.Vector3(mid2.x, mid2.y, mid2.z),
+        new THREE.Vector3(tip.x, tip.y, tip.z),
+      ]);
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(ribCurve, 10, 0.0076, 7, false), ribAccentMat));
+      const ribEnd = new THREE.Mesh(new THREE.SphereGeometry(0.008, 7, 7), ribAccentMat);
+      ribEnd.position.set(tip.x, tip.y, tip.z);
+      g.add(ribEnd);
+    });
+  }
+
+  // 3. Curled articulated feline skeletal tail
+  const lastDorsal = dorsalVecs[dorsalVecs.length - 1];
+  const tailRootZ = Math.min(lastDorsal.z, dims.tailBasePos[2] - 0.022);
+  const tailRootY = Math.max(dims.tailBasePos[1] + 0.008, lastDorsal.y - 0.006);
+  const tailCurve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(0, tailRootY, tailRootZ),
+    new THREE.Vector3(0, tailRootY + 0.018, tailRootZ - 0.09),
+    new THREE.Vector3(0, tailRootY + 0.072, tailRootZ - 0.145)
+  );
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(tailCurve, 12, 0.009, 7, false), boneMat));
+  [0.18, 0.38, 0.58, 0.78, 0.96].forEach((t) => {
+    const pt = tailCurve.getPoint(t);
+    const joint = new THREE.Mesh(new THREE.SphereGeometry(0.0125 * (1 - t * 0.38), 8, 8), ribAccentMat);
+    joint.position.copy(pt);
+    g.add(joint);
+  });
+
+  return g;
+}
+
 // Phase 7 ThumbnailStudio helper: build a standalone 3D preview mesh for any cat cosmetic
 export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Group {
   const profile = CAT_FIT_PROFILES.default;
@@ -629,14 +1035,41 @@ export function buildCatCosmeticPreviewMesh(cosmeticId: CatCosmeticId): THREE.Gr
     wrap.add(buildRoundGlassesMesh(profile));
   } else if (cosmeticId === 'thuglife_glasses') {
     wrap.add(buildThuglifeGlassesMesh(profile));
+  } else if (cosmeticId === 'mustache_black') {
+    wrap.add(buildMustacheMesh(0x18181b, profile));
+  } else if (cosmeticId === 'mustache_brown') {
+    wrap.add(buildMustacheMesh(0x5c3a21, profile));
+  } else if (cosmeticId === 'mustache_white') {
+    wrap.add(buildMustacheMesh(0xf5f5f4, profile));
+  } else if (cosmeticId === 'monocle') {
+    wrap.add(buildMonocleMesh(profile));
   } else if (cosmeticId === 'gold_chain') {
     wrap.add(buildGoldChainMesh(profile));
+  } else if (cosmeticId === 'platinum_chain') {
+    wrap.add(buildPlatinumChainMesh(profile));
   } else if (cosmeticId === 'beret') {
     wrap.add(buildBeretMesh(profile));
+  } else if (cosmeticId === 'top_hat_white') {
+    wrap.add(buildTopHatMesh(0xf4f1ea, profile));
+  } else if (cosmeticId === 'top_hat_black') {
+    wrap.add(buildTopHatMesh(0x18181b, profile));
+  } else if (cosmeticId === 'top_hat_gray') {
+    wrap.add(buildTopHatMesh(0x71717a, profile));
   } else if (cosmeticId === 'dino_costume') {
     const hood = buildDinoHeadHood(profile, dims);
     hood.position.set(0, 0.145, 0.052);
     const body = buildDinoTorsoSuit(profile, dims);
+    body.position.set(0, -0.11, 0.02);
+    wrap.add(hood, body);
+  } else if (
+    cosmeticId === 'skeleton_warm_white' ||
+    cosmeticId === 'skeleton_gray' ||
+    cosmeticId === 'skeleton_black'
+  ) {
+    const pal = CAT_SKELETON_PALETTES[cosmeticId];
+    const hood = buildCatSkeletonHeadHood(pal, dims);
+    hood.position.set(0, 0.145, 0.052);
+    const body = buildCatSkeletonTorsoSuit(pal, dims);
     body.position.set(0, -0.11, 0.02);
     wrap.add(hood, body);
   } else {
@@ -664,7 +1097,7 @@ export function attachCatCosmeticsRig(
 
   const cosmeticMeshes = new Map<CatCosmeticId, THREE.Object3D[]>();
 
-  // 1. Eyewear (UNMODIFIED — working cleanly!)
+  // 1. Eyewear (Glasses, Thuglife, Mustache x3, Monocle)
   const glasses = buildRoundGlassesMesh(profile);
   glasses.visible = false;
   sockets.anchorEyes.add(glasses);
@@ -675,17 +1108,51 @@ export function attachCatCosmeticsRig(
   sockets.anchorEyes.add(thuglife);
   cosmeticMeshes.set('thuglife_glasses', [thuglife]);
 
-  // 2. Neck
+  const mustacheSpecs: Array<{ id: CatCosmeticId; hex: number }> = [
+    { id: 'mustache_black', hex: 0x18181b },
+    { id: 'mustache_brown', hex: 0x5c3a21 },
+    { id: 'mustache_white', hex: 0xf5f5f4 },
+  ];
+  mustacheSpecs.forEach(({ id, hex }) => {
+    const m = buildMustacheMesh(hex, profile);
+    m.visible = false;
+    sockets.anchorEyes.add(m);
+    cosmeticMeshes.set(id, [m]);
+  });
+
+  const monocle = buildMonocleMesh(profile);
+  monocle.visible = false;
+  sockets.anchorEyes.add(monocle);
+  cosmeticMeshes.set('monocle', [monocle]);
+
+  // 2. Neck (Gold Chain & Platinum Chain)
   const goldChain = buildGoldChainMesh(profile);
   goldChain.visible = false;
   sockets.anchorNeck.add(goldChain);
   cosmeticMeshes.set('gold_chain', [goldChain]);
 
-  // 3. Headwear
+  const platinumChain = buildPlatinumChainMesh(profile);
+  platinumChain.visible = false;
+  sockets.anchorNeck.add(platinumChain);
+  cosmeticMeshes.set('platinum_chain', [platinumChain]);
+
+  // 3. Headwear (Beret & Cat Top Hat x3)
   const beret = buildBeretMesh(profile);
   beret.visible = false;
   sockets.anchorHeadTop.add(beret);
   cosmeticMeshes.set('beret', [beret]);
+
+  const topHatSpecs: Array<{ id: CatCosmeticId; hex: number }> = [
+    { id: 'top_hat_white', hex: 0xf4f1ea },
+    { id: 'top_hat_black', hex: 0x18181b },
+    { id: 'top_hat_gray', hex: 0x71717a },
+  ];
+  topHatSpecs.forEach(({ id, hex }) => {
+    const hat = buildTopHatMesh(hex, profile);
+    hat.visible = false;
+    sockets.anchorHeadTop.add(hat);
+    cosmeticMeshes.set(id, [hat]);
+  });
 
   // Mount container for body-aligned conformal outfits (bodyRoot = un-tilted bodyPivot when provided)
   const bodyMountParent = sockets.bodyRoot ?? sockets.anchorTorso;
@@ -710,7 +1177,7 @@ export function attachCatCosmeticsRig(
     cosmeticMeshes.set(id, [vest]);
   });
 
-  // 5. Full Suit: Geometry-Driven Bone-White Plush Skeleton T-Rex (solid collar-anchored lower jaw + external dorsal spine, ribcage & tail)
+  // 5. Full Suit: Dinosaur Costume + 3 Secret Cat Skeleton Outfits (Warm White, Gray, Black)
   const dinoHood = buildDinoHeadHood(profile, rigDims);
   dinoHood.visible = false;
   sockets.anchorHeadTop.add(dinoHood);
@@ -724,6 +1191,27 @@ export function attachCatCosmeticsRig(
   bodyMountParent.add(dinoSuit);
 
   cosmeticMeshes.set('dino_costume', [dinoHood, dinoSuit]);
+
+  const skeletonIds: Array<'skeleton_warm_white' | 'skeleton_gray' | 'skeleton_black'> = [
+    'skeleton_warm_white',
+    'skeleton_gray',
+    'skeleton_black',
+  ];
+  skeletonIds.forEach((id) => {
+    const pal = CAT_SKELETON_PALETTES[id];
+    const skelHood = buildCatSkeletonHeadHood(pal, rigDims);
+    skelHood.visible = false;
+    sockets.anchorHeadTop.add(skelHood);
+
+    const skelSuit = buildCatSkeletonTorsoSuit(pal, rigDims);
+    if (needsFallbackOffset) {
+      skelSuit.position.set(0, -0.116, 0.006);
+      skelSuit.rotation.x = -0.24;
+    }
+    skelSuit.visible = false;
+    bodyMountParent.add(skelSuit);
+    cosmeticMeshes.set(id, [skelHood, skelSuit]);
+  });
 
   const applyLoadout = (loadout: CatLoadout | undefined) => {
     const visibleSlots = getEffectiveVisibleLoadout(loadout);
@@ -741,9 +1229,9 @@ export function attachCatCosmeticsRig(
       }
     });
 
-    // Hide cat's stock collar while Gold Chain is equipped so they don't overlap
+    // Hide cat's stock collar while Gold Chain or Platinum Chain is equipped so they don't overlap
     if (onToggleBaseCollar) {
-      onToggleBaseCollar(!activeIds.has('gold_chain'));
+      onToggleBaseCollar(!activeIds.has('gold_chain') && !activeIds.has('platinum_chain'));
     }
   };
 

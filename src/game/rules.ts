@@ -15,12 +15,14 @@ import {
   CatFitProfile,
   CatLoadout,
   GOLDEN_ESPRESSO_COST,
+  MONOCLE_REVENUE_MILESTONE,
   applyCosmeticToLoadout,
   checkDinoCostumeUnlock,
   createEmptyCatLoadout,
   getCatCosmeticSpec,
   getCatFitProfile,
   getEffectiveVisibleLoadout,
+  isCatCosmeticVisibleInShop,
   isValidCatCosmeticId,
   normalizeCatLoadout,
   syncCatCosmeticMilestones,
@@ -31,6 +33,8 @@ export {
   BASE_CAT_COSMETIC_IDS,
   BERET_REVENUE_MILESTONE,
   CAT_COSMETICS_CATALOG,
+  MONOCLE_REVENUE_MILESTONE,
+  isCatCosmeticVisibleInShop,
   CAT_FIT_PROFILES,
   GOLDEN_ESPRESSO_COST,
   applyCosmeticToLoadout,
@@ -3076,6 +3080,16 @@ export function purchaseCatCosmetic(
   const owned = state.unlockedCosmetics || [];
   if (owned.includes(cosmeticId)) {
     return state;
+  }
+
+  if (
+    spec.secretRequiresCosmetic &&
+    !owned.includes(spec.secretRequiresCosmetic)
+  ) {
+    return {
+      ...state,
+      lastActionFeedback: `Unlock the Dinosaur Costume first to reveal ${spec.name}!`,
+    };
   }
 
   if (spec.unlockType !== 'shop') {

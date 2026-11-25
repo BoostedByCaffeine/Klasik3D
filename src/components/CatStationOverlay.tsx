@@ -25,6 +25,7 @@ import {
   KlasikGameState,
   getCafeCatSpec,
   getEffectiveVisibleLoadout,
+  isCatCosmeticVisibleInShop,
   normalizeCatLoadout,
 } from '../game/rules';
 import { StudioPreviewThumb } from './StudioPreviewThumb';
@@ -95,7 +96,26 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
     onSelectCat(unlockedCats[nextIdx]);
   };
 
-  const tabItems = CAT_COSMETICS_CATALOG.filter((item) => item.slot === wardrobeTab);
+  const tabItems = CAT_COSMETICS_CATALOG.filter(
+    (item) =>
+      item.slot === wardrobeTab &&
+      isCatCosmeticVisibleInShop(item, gameState.unlockedCosmetics)
+  );
+
+  const swatchConfig: { label: string; group: 'cloth' | 'top_hat' | 'mustache' | 'skeleton' } | null =
+    wardrobeTab === 'body'
+      ? { label: 'Knit Colors:', group: 'cloth' }
+      : wardrobeTab === 'headwear'
+      ? { label: 'Top Hat:', group: 'top_hat' }
+      : wardrobeTab === 'eyewear'
+      ? { label: 'Mustache:', group: 'mustache' }
+      : wardrobeTab === 'full_suit'
+      ? { label: 'Skeleton:', group: 'skeleton' }
+      : null;
+
+  const swatchItems = swatchConfig
+    ? tabItems.filter((item) => item.variantGroup === swatchConfig.group)
+    : [];
 
   const modeHint = customizeOpen
     ? 'Drag cat on the left to rotate 360° preview'
@@ -236,39 +256,57 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
             })}
           </div>
 
-          {/* Cloth Quick Swatches Row when Cloth Tab is Active */}
-          {wardrobeTab === 'body' && (
+          {/* Quick Variant Swatches Row (Knit Vests, Top Hats, Mustaches, Secret Skeletons) */}
+          {swatchConfig && swatchItems.length > 0 && (
             <div className="flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-xl bg-[#18181B]/80 border border-white/10 shrink-0">
-              <span className="text-[10px] font-semibold text-[#A1A1AA]">Knit Colors:</span>
+              <span className="text-[10px] font-semibold text-[#A1A1AA]">
+                {swatchConfig.label}
+              </span>
               <div className="flex items-center gap-1.5">
-                {tabItems.map((cloth) => {
-                  const owned = unlockedCosmetics.has(cloth.id);
-                  const equipped = activeLoadout.body === cloth.id;
+                {swatchItems.map((variant) => {
+                  const owned = unlockedCosmetics.has(variant.id);
+                  const equipped =
+                    variant.slot === 'full_suit'
+                      ? activeLoadout.full_suit === variant.id
+                      : activeLoadout[variant.slot] === variant.id;
+                  const isLightSwatch =
+                    variant.swatchHex === '#f8fafc' ||
+                    variant.swatchHex === '#f4f1ea' ||
+                    variant.swatchHex === '#f5f5f4' ||
+                    variant.swatchHex === '#f5efe6';
                   return (
                     <button
-                      key={cloth.id}
+                      key={variant.id}
                       type="button"
-                      data-testid={`swatch-${cloth.id}`}
+                      data-testid={`swatch-${variant.id}`}
                       onClick={() =>
                         owned
-                          ? onToggleEquipCosmetic(activeCatId, cloth.id)
-                          : onPurchaseCosmetic(cloth.id)
+                          ? onToggleEquipCosmetic(activeCatId, variant.id)
+                          : onPurchaseCosmetic(variant.id)
                       }
                       className={`w-6 h-6 rounded-full border-2 cursor-pointer transition-transform hover:scale-110 flex items-center justify-center ${
                         equipped
                           ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.65)]'
                           : owned
                           ? 'border-white/60'
-                          : 'border-white/25 opacity-70'
+                          : 'border-white/25 opacity-75'
                       }`}
-                      style={{ backgroundColor: cloth.swatchHex || '#e65a4f' }}
+                      style={{ backgroundColor: variant.swatchHex || '#e65a4f' }}
                       title={
                         owned
-                          ? `${cloth.name} (${equipped ? 'Equipped' : 'Tap to Equip'})`
-                          : `${cloth.name} ($${cloth.cost})`
+                          ? `${variant.name} (${equipped ? 'Equipped' : 'Tap to Equip'})`
+                          : `${variant.name} ($${variant.cost})`
                       }
+                      aria-label={variant.name}
                     >
-                      {equipped && <Check className="w-3 h-3 text-white drop-shadow" strokeWidth={3} />}
+                      {equipped && (
+                        <Check
+                          className={`w-3 h-3 drop-shadow ${
+                            isLightSwatch ? 'text-[#18181B]' : 'text-white'
+                          }`}
+                          strokeWidth={3}
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -325,7 +363,14 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
                         fallbackColorHex={item.swatchHex || '#18181B'}
                       />
                       <div className="min-w-0">
-                        <div className="text-xs font-bold text-white truncate">{item.name}</div>
+                        <div className="text-xs font-bold text-white truncate flex items-center gap-1">
+                          <span className="truncate">{item.name}</span>
+                          {item.secretRequiresCosmetic && (
+                            <span className="text-[9px] font-mono uppercase tracking-wider text-[#FDE68A] shrink-0">
+                              Secret
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-[#A1A1AA] leading-tight">
                           {item.description}
                         </div>
@@ -335,7 +380,7 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
 
                   {isOverriddenByDino && (
                     <div className="text-[9px] font-mono text-[#E4E4E7]">
-                      Hidden while Dinosaur Costume is worn
+                      Hidden while Full Costume is worn
                     </div>
                   )}
 

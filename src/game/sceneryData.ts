@@ -573,9 +573,9 @@ export function advanceSecretNpcNameIdx(idx: number): number {
 }
 
 /**
- * Resolves the Secret NPC's outfit & weather-smart headgear:
+ * Resolves the Secret NPC's outfit & headwear:
  * - ~40% chance to wear brown-caramel Polo RL baseball cap (`#A66B3C` + `#1B2845` pony).
- * - If capless during Rain or Snow/Always-Winter, automatically pulls the black windbreaker hood up.
+ * - Hood always stays neatly down behind the windbreaker collar (never pulled over the head).
  * - On non-winter Clear days, ~25% chance to wear the dark charcoal tee (`#595B60`) instead of the windbreaker.
  */
 export function resolveSecretNpcAppearance(
@@ -587,7 +587,7 @@ export function resolveSecretNpcAppearance(
   const wearsCap = rng() < 0.4;
   const isClearNonWinter = !isWinterOrSnow && !isRaining;
   const wearsCharcoalTee = isClearNonWinter && rng() < 0.25;
-  const hoodUp = !wearsCap && (isRaining || isWinterOrSnow) && !wearsCharcoalTee;
+  const hoodUp = false;
   return {
     wearsCap,
     hoodUp,
