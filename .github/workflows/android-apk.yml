@@ -27,6 +27,15 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Read App Version Metadata
+        id: app_version
+        run: |
+          VERSION_NAME=$(node -e "console.log(require('./app-version.json').versionName)")
+          VERSION_CODE=$(node -e "console.log(require('./app-version.json').versionCode)")
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "Building Klasik 3D v${VERSION_NAME} (versionCode ${VERSION_CODE})"
+
       - name: Install web dependencies & build offline APK bundle
         env:
           VITE_APP_PLATFORM: apk
@@ -34,7 +43,12 @@ jobs:
           npm install --legacy-peer-deps --no-audit --no-fund
           npx vite build --base=./
 
-      - name: Generate Capacitor Android Project & Compile Landscape Fullscreen APK
+      - name: Generate Capacitor Android Project & Compile Versioned Signed APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           npm install --save --legacy-peer-deps --no-audit --no-fund @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           rm -rf android
@@ -48,12 +62,25 @@ jobs:
           elif [ -d "/usr/local/lib/android/sdk" ]; then
             echo "sdk.dir=/usr/local/lib/android/sdk" > android/local.properties
           fi
-          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
-          cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
+
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "Decoding persistent release keystore for seamless in-place APK upgrades..."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$PWD/android/app/klasik3d-release.keystore"
+            export ANDROID_KEYSTORE_PATH="$PWD/android/app/klasik3d-release.keystore"
+            cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon --stacktrace
+            cp app/build/outputs/apk/release/app-release.apk ../Klasik3D.apk
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret not configured — falling back to debug signing. Add keystore secrets so future APKs update without uninstalling."
+            cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk ../Klasik3D.apk
+          fi
+          cp ../Klasik3D.apk "../Klasik3D-v${{ steps.app_version.outputs.version_name }}.apk"
 
       - name: Upload Klasik3D.apk Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Klasik3D-Android-APK
-          path: ./Klasik3D.apk
+          name: Klasik3D-v${{ steps.app_version.outputs.version_name }}-b${{ steps.app_version.outputs.version_code }}-APK
+          path: |
+            ./Klasik3D.apk
+            ./Klasik3D-v${{ steps.app_version.outputs.version_name }}.apk
           if-no-files-found: error

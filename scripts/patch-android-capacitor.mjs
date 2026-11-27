@@ -11,6 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = process.cwd();
+const APP_VERSION_PATH = path.join(ROOT, 'app-version.json');
+const BUILD_GRADLE_PATH = path.join(ROOT, 'android/app/build.gradle');
 const MANIFEST_PATH = path.join(ROOT, 'android/app/src/main/AndroidManifest.xml');
 const STYLES_PATH = path.join(ROOT, 'android/app/src/main/res/values/styles.xml');
 const AUDIO_SRC_DIR = path.join(ROOT, 'android-native/audio');
@@ -22,6 +24,70 @@ const MAIN_ACTIVITY_PATH = path.join(
   ROOT,
   'android/app/src/main/java/com/boostedbycaffeine/klasik3d/MainActivity.java'
 );
+
+function readAppVersion() {
+  if (!fs.existsSync(APP_VERSION_PATH)) {
+    throw new Error(`Missing app-version.json at ${APP_VERSION_PATH}`);
+  }
+  const parsed = JSON.parse(fs.readFileSync(APP_VERSION_PATH, 'utf8'));
+  if (!parsed.versionName || !Number.isInteger(parsed.versionCode) || !parsed.applicationId) {
+    throw new Error('app-version.json must define versionName, integer versionCode, and applicationId');
+  }
+  return parsed;
+}
+
+function patchAppBuildGradle() {
+  if (!fs.existsSync(BUILD_GRADLE_PATH)) {
+    throw new Error(`Missing android/app/build.gradle at ${BUILD_GRADLE_PATH}`);
+  }
+  const appVersion = readAppVersion();
+  let gradle = fs.readFileSync(BUILD_GRADLE_PATH, 'utf8');
+
+  gradle = gradle.replace(
+    /applicationId\s+"[^"]+"/,
+    `applicationId "${appVersion.applicationId}"`
+  );
+  gradle = gradle.replace(
+    /versionCode\s+\d+/,
+    `versionCode ${appVersion.versionCode}`
+  );
+  gradle = gradle.replace(
+    /versionName\s+"[^"]+"/,
+    `versionName "${appVersion.versionName}"`
+  );
+
+  // Inject persistent release signingConfigs so future APKs install cleanly over existing builds without uninstalling
+  if (!gradle.includes('KLASIK3D_RELEASE_SIGNING')) {
+    const signingBlock = `
+    // KLASIK3D_RELEASE_SIGNING
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (ksPath != null && !ksPath.trim().isEmpty()) {
+                storeFile file(ksPath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("ANDROID_KEY_ALIAS") ?: "klasik3d"
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: (System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: "")
+            }
+        }
+    }
+    buildTypes {`;
+    gradle = gradle.replace(/\bbuildTypes\s*\{/, signingBlock);
+
+    gradle = gradle.replace(
+      /(buildTypes\s*\{[\s\S]*?release\s*\{)/,
+      `$1
+            if (System.getenv("ANDROID_KEYSTORE_PATH") != null && !System.getenv("ANDROID_KEYSTORE_PATH").trim().isEmpty()) {
+                signingConfig signingConfigs.release
+            }`
+    );
+  }
+
+  fs.writeFileSync(BUILD_GRADLE_PATH, gradle, 'utf8');
+  console.log(
+    `[patch-android] Patched build.gradle (applicationId=${appVersion.applicationId}, versionName=${appVersion.versionName}, versionCode=${appVersion.versionCode}, release signing ready)`
+  );
+}
 
 function patchManifest() {
   if (!fs.existsSync(MANIFEST_PATH)) {
@@ -234,6 +300,7 @@ public class MainActivity extends BridgeActivity {
   console.log('[patch-android] Wrote sticky immersive MainActivity.java with release WebView hardening & KlasikNativeAudio bridge');
 }
 
+patchAppBuildGradle();
 patchManifest();
 patchStyles();
 copyJavaAudioBridge();

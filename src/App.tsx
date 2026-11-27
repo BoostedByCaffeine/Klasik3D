@@ -3,6 +3,7 @@ import { BizUpgradesModal, UpgradesHubTab } from './components/BizUpgradesModal'
 import { CatStationActionMode, CatStationOverlay } from './components/CatStationOverlay';
 import { CodeExportModal } from './components/CodeExportModal';
 import { CustomizeModal } from './components/CustomizeModal';
+import { DeveloperNoteModal } from './components/DeveloperNoteModal';
 import { HudOverlay } from './components/HudOverlay';
 import { LandscapeIntroGate } from './components/LandscapeIntroGate';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -11,6 +12,7 @@ import { PwaApkModal } from './components/PwaApkModal';
 import { RecipeMenuModal } from './components/RecipeMenuModal';
 import { StatusModal } from './components/StatusModal';
 import { TitleScreen } from './components/TitleScreen';
+import { TutorialCoachOverlay } from './components/TutorialCoachOverlay';
 import { UnifiedAudioModal } from './components/UnifiedAudioModal';
 import { OutdoorVantageKey } from './game/OutdoorOverlookController';
 import {
@@ -85,6 +87,14 @@ import { triggerBaristaHaptic, triggerChampyPurrHaptic } from './game/haptics';
 import { soundEngine } from './game/sound';
 import { spotifyManager, SpotifyVinylState } from './game/spotifyManager';
 import { readWindowIosViewport } from './game/iosViewport';
+import {
+  TutorialStatus,
+  markDeveloperNoteSeen,
+  readDeveloperNoteSeen,
+  readTutorialStatus,
+  resolveFirstDrinkTutorialStep,
+  writeTutorialStatus,
+} from './game/onboarding';
 import { pwaManager, PwaEnvironmentStatus, shouldShowLandscapeCue } from './pwa/pwaManager';
 
 type ActiveModal =
@@ -94,7 +104,8 @@ type ActiveModal =
   | 'customize'
   | 'spotify'
   | 'pwa'
-  | 'export';
+  | 'export'
+  | 'devnote';
 
 export default function App() {
   const isAutostart =
@@ -166,6 +177,15 @@ export default function App() {
   const [hudPinnedRecipeId, setHudPinnedRecipeId] = useState<string | null>(null);
   const [hudPinnedOrderId, setHudPinnedOrderId] = useState<string | null>(null);
   const [isPinnedRecipeMinimized, setIsPinnedRecipeMinimized] = useState<boolean>(false);
+  const [devNoteFirstLaunchPending, setDevNoteFirstLaunchPending] = useState<boolean>(
+    () => !isAutostart && !readDeveloperNoteSeen()
+  );
+  const [tutorialStatus, setTutorialStatus] = useState<TutorialStatus>(() =>
+    isAutostart ? 'completed' : readTutorialStatus()
+  );
+  const [tutorialBaselineServed, setTutorialBaselineServed] = useState<number>(
+    () => gameState.totalCupsServed
+  );
 
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<KlasikCafeScene3D | null>(null);
@@ -183,6 +203,8 @@ export default function App() {
   catStationOpenRef.current = catStationOpen;
   const outdoorOverlookOpenRef = useRef<boolean>(outdoorOverlookOpen);
   outdoorOverlookOpenRef.current = outdoorOverlookOpen;
+  const tutorialStatusRef = useRef<TutorialStatus>(tutorialStatus);
+  tutorialStatusRef.current = tutorialStatus;
   const lastExpiredSeqRef = useRef<number>(gameState.lastExpiredEventSeq ?? 0);
   const lastCatUnlockSeqRef = useRef<number>(gameState.lastCatUnlockSeq ?? 0);
   const prevCatCountRef = useRef<number>(gameState.unlockedCats?.length ?? 1);
@@ -257,6 +279,35 @@ export default function App() {
   useEffect(() => {
     sceneRef.current?.setCodexFocusMode(activeModal === 'recipes');
   }, [activeModal]);
+
+  // Show the personal Developer Note automatically once on first launch right on the Title Screen
+  useEffect(() => {
+    if (!isLoading && gameState.phase === 'title' && devNoteFirstLaunchPending && activeModal === null) {
+      setActiveModal('devnote');
+    }
+  }, [isLoading, gameState.phase, devNoteFirstLaunchPending, activeModal]);
+
+  const handleCloseDeveloperNote = useCallback(() => {
+    markDeveloperNoteSeen();
+    setDevNoteFirstLaunchPending(false);
+    setActiveModal((prev) => (prev === 'devnote' ? null : prev));
+  }, []);
+
+  const handleSkipTutorial = useCallback(() => {
+    writeTutorialStatus('skipped');
+    setTutorialStatus('skipped');
+  }, []);
+
+  const handleFinishTutorial = useCallback(() => {
+    writeTutorialStatus('completed');
+    setTutorialStatus('completed');
+  }, []);
+
+  const handleReplayTutorial = useCallback(() => {
+    setTutorialBaselineServed(gameStateRef.current.totalCupsServed);
+    writeTutorialStatus('active');
+    setTutorialStatus('active');
+  }, []);
 
   // Sync HUD pinned recipe back to 3D hanging tickets (emerald pinned glow)
   useEffect(() => {
@@ -1173,6 +1224,11 @@ export default function App() {
       setLiveClockLabel(formatLocalClock(now));
       setIsEnteringCafe(false);
       isEnteringCafeRef.current = false;
+      if (tutorialStatusRef.current === 'pending') {
+        setTutorialBaselineServed(gameStateRef.current.totalCupsServed);
+        writeTutorialStatus('active');
+        setTutorialStatus('active');
+      }
       setGameState((prev) => {
         const synced = syncDailyQuotaForDate(prev, now);
         const rolledRain = synced.rainPreference === 'auto' ? rollAutoRain() : undefined;
@@ -1417,6 +1473,7 @@ export default function App() {
           isRecipeBookOpen: modal === 'recipes',
           catStationOpen: catStationOpenRef.current,
           outdoorOverlookOpen: outdoorOverlookOpenRef.current,
+          tutorialActive: tutorialStatusRef.current === 'active',
           isSecretPasserbyActive,
           activeArrivingCount,
         })
@@ -1437,6 +1494,7 @@ export default function App() {
       const phase = gameStateRef.current.phase;
 
       if (phase === 'title') {
+        if (activeModalRef.current !== null) return;
         if (e.code === 'Enter' || e.code === 'Space') {
           e.preventDefault();
           handleStartShift('career');
@@ -1719,6 +1777,7 @@ export default function App() {
           }}
           onOpenPwaModal={() => setActiveModal('pwa')}
           onOpenCodeExportModal={() => setActiveModal('export')}
+          onOpenDeveloperNote={() => setActiveModal('devnote')}
         />
       )}
 
@@ -1769,12 +1828,29 @@ export default function App() {
           onChangeGraphics={handleChangeGraphics}
           onToggleRealismMode={handleToggleRealismMode}
           onRequestFullscreenLandscape={handleRequestFullscreenLandscape}
+          onReplayTutorial={handleReplayTutorial}
           onOpenModal={(modal) => {
             if (modal === 'upgrades') setUpgradesInitialTab('upgrades');
             setActiveModal(modal);
           }}
         />
       )}
+
+      {/* First-Time Player Interactive Step-by-Step First-Drink Tutorial Coach (with Skip) */}
+      {!isLoading &&
+        gameState.phase === 'playing' &&
+        tutorialStatus === 'active' &&
+        !catStationOpen &&
+        !outdoorOverlookOpen &&
+        activeModal === null && (
+          <TutorialCoachOverlay
+            step={resolveFirstDrinkTutorialStep(gameState, tutorialBaselineServed)}
+            activeStation={gameState.activeStation}
+            onJumpToStation={handleSelectStation}
+            onSkip={handleSkipTutorial}
+            onFinish={handleFinishTutorial}
+          />
+        )}
 
       {/* Phase 6: Go Outside Scenic Overlook Mode Overlay */}
       {!isLoading && gameState.phase === 'playing' && outdoorOverlookOpen && (
@@ -1959,6 +2035,13 @@ export default function App() {
           gameState={gameState}
           onRestoreSave={(restored) => setGameState(restored)}
           onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {activeModal === 'devnote' && (
+        <DeveloperNoteModal
+          isFirstLaunch={devNoteFirstLaunchPending}
+          onClose={handleCloseDeveloperNote}
         />
       )}
 

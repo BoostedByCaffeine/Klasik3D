@@ -7,6 +7,7 @@ import {
   CloudSun,
   Download,
   Globe,
+  Heart,
   Lock,
   Moon,
   Play,
@@ -20,6 +21,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { formatAppVersionBadge } from '../game/appVersion';
 import {
   GameMode,
   GraphicsQuality,
@@ -57,6 +59,7 @@ interface TitleScreenProps {
   onOpenCatsModal: () => void;
   onOpenPwaModal: () => void;
   onOpenCodeExportModal: () => void;
+  onOpenDeveloperNote: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
@@ -78,6 +81,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onOpenCatsModal,
   onOpenPwaModal,
   onOpenCodeExportModal,
+  onOpenDeveloperNote,
 }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -310,6 +314,26 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                       <span>Install App</span>
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    data-testid="btn-title-dev-note"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      onOpenDeveloperNote();
+                    }}
+                    className={`py-1.5 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.14] border border-white/12 text-[11px] font-medium text-amber-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                      isApkVersion ? 'col-span-1' : 'col-span-2'
+                    }`}
+                  >
+                    <Heart className="w-3 h-3 text-amber-300 shrink-0" strokeWidth={2.2} />
+                    <span>Developer Note</span>
+                  </button>
+                </div>
+
+                <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-[#71717A]">
+                  <span>Klasik 3D</span>
+                  <span data-testid="title-version-badge">{formatAppVersionBadge()}</span>
                 </div>
               </div>
             )}

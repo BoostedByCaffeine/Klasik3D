@@ -1,4 +1,4 @@
-const CACHE_NAME = 'klasik-3d-v2.4.1';
+const CACHE_NAME = 'klasik-3d-v2.5.0';
 const PRECACHE_ASSETS = [
   './',
   './index.html',

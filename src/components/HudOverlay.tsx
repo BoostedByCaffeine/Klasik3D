@@ -21,7 +21,9 @@ import {
   EyeOff,
   Flame,
   Frown,
+  GraduationCap,
   Hand,
+  Heart,
   Infinity as InfinityIcon,
   Leaf,
   Lock,
@@ -70,6 +72,7 @@ import {
 import { SpotifyVinylState } from '../game/spotifyManager';
 import { MusicPlayerSnapshot } from '../game/audio/MusicPlayerController';
 import { AppRuntimeVersion } from '../pwa/pwaManager';
+import { formatAppVersionBadge } from '../game/appVersion';
 import { DailyGoalProgressBar } from './DailyGoalProgressBar';
 import { buildStepPipeline, isStepChipCompleted } from './RecipeMenuModal';
 
@@ -117,8 +120,9 @@ interface HudOverlayProps {
   onChangeGraphics: (quality: GraphicsQuality) => void;
   onToggleRealismMode: () => void;
   onRequestFullscreenLandscape: () => void;
+  onReplayTutorial: () => void;
   onOpenModal: (
-    modal: 'recipes' | 'upgrades' | 'customize' | 'spotify' | 'pwa' | 'export'
+    modal: 'recipes' | 'upgrades' | 'customize' | 'spotify' | 'pwa' | 'export' | 'devnote'
   ) => void;
 }
 
@@ -168,6 +172,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   onChangeGraphics,
   onToggleRealismMode,
   onRequestFullscreenLandscape,
+  onReplayTutorial,
   onOpenModal,
 }) => {
   const [hudHidden, setHudHidden] = useState(false);
@@ -865,13 +870,45 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
             <button
               type="button"
+              data-testid="btn-menu-dev-note"
+              onClick={() => {
+                setTopMenuOpen(false);
+                onOpenModal('devnote');
+              }}
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+            >
+              <Heart className="w-4 h-4 text-amber-300 shrink-0" strokeWidth={2.2} />
+              <div className="min-w-0">
+                <div className="truncate">Developer Note</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">Personal Story</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              data-testid="btn-menu-replay-tutorial"
+              onClick={() => {
+                setTopMenuOpen(false);
+                onReplayTutorial();
+              }}
+              className="glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center gap-2"
+            >
+              <GraduationCap className="w-4 h-4 text-emerald-300 shrink-0" strokeWidth={2.2} />
+              <div className="min-w-0">
+                <div className="truncate">Tutorial Guide</div>
+                <div className="text-[10px] text-[#A1A1AA] truncate">First-Drink Steps</div>
+              </div>
+            </button>
+
+            <button
+              type="button"
               data-testid="btn-menu-pause"
               onClick={() => {
                 setTopMenuOpen(false);
                 onTogglePause();
               }}
               className={`glass-btn-inner px-2.5 py-2 rounded-lg text-white font-semibold text-xs text-left cursor-pointer flex items-center justify-center gap-2 ${
-                isApkVersion ? 'col-span-2 sm:col-span-3' : 'col-span-1 sm:col-span-2'
+                isApkVersion ? 'col-span-2 sm:col-span-1' : 'col-span-2 sm:col-span-3'
               }`}
             >
               <SlidersHorizontal className="w-4 h-4 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />
@@ -881,6 +918,11 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                   : 'Pause Shift & Save Backup [Esc / P]'}
               </span>
             </button>
+
+            <div className="col-span-2 sm:col-span-3 pt-1 mt-0.5 border-t border-white/10 flex items-center justify-between px-1 text-[10px] font-mono text-[#71717A]">
+              <span>Klasik 3D · BoostedByCaffeine Studios</span>
+              <span data-testid="hud-menu-version-badge">{formatAppVersionBadge()}</span>
+            </div>
           </div>
         )}
 

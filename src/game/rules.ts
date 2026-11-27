@@ -4375,6 +4375,7 @@ export interface SimulationTickOptions {
   isRecipeBookOpen?: boolean;
   catStationOpen?: boolean;
   outdoorOverlookOpen?: boolean;
+  tutorialActive?: boolean;
   isSecretPasserbyActive?: boolean;
   activeArrivingCount?: number;
   rng?: () => number;
@@ -4410,7 +4411,8 @@ export function advanceSimulationTick(
     state.mode === 'zen' ||
     isLiloActive ||
     options.catStationOpen ||
-    options.outdoorOverlookOpen
+    options.outdoorOverlookOpen ||
+    options.tutorialActive
       ? 0
       : upgradeGrace * modalTimeScale * catMoodDrainMult;
 

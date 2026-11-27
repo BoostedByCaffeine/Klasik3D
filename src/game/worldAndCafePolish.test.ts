@@ -50,14 +50,28 @@ import {
 import {
   ALL_INTERIOR_THEME_IDS,
   INTERIOR_THEMES_CATALOG,
+  KlasikGameState,
   LOUNGE_SEAT_COORDS,
   LOUNGE_TABLE_LAYOUT,
+  SCENERY_CATALOG,
+  acceptCustomerOrder,
+  advanceSimulationTick,
   createInitialGameState,
   exportSaveJson,
   importSaveJson,
+  performCupAction,
+  preparePastry,
   purchaseOrEquipInteriorTheme,
+  serveCurrentCupToCustomer,
   unlockAllEverythingCheat,
 } from './rules';
+import {
+  APP_VERSION,
+  canUpgradeApkInPlace,
+  formatApkFileName,
+  formatAppVersionBadge,
+} from './appVersion';
+import { resolveFirstDrinkTutorialStep } from './onboarding';
 
 test('articulated walk gait produces phase-true uphill climb, downhill braking, and jog joint physics', () => {
   const flat = computeArticulatedWalkGait({ phase: 0.4, speedNorm: 1.0, slopePitch: 0 });
@@ -486,4 +500,111 @@ test('iOS Safari viewport resolver prioritizes visualViewport, maps rotated port
   assert.ok(ultrawideFov > 46 && ultrawideFov <= 52);
   assert.ok(ipadFov > 46 && ipadFov <= 54);
 });
+
+test('app versioning defines stable package ID, versionName/versionCode, and validates in-place APK upgrades', () => {
+  assert.equal(APP_VERSION.applicationId, 'com.boostedbycaffeine.klasik3d');
+  assert.match(APP_VERSION.versionName, /^\d+\.\d+\.\d+$/);
+  assert.ok(Number.isInteger(APP_VERSION.versionCode) && APP_VERSION.versionCode >= 250);
+  assert.equal(formatAppVersionBadge(), `v${APP_VERSION.versionName} · Build ${APP_VERSION.versionCode}`);
+  assert.equal(formatApkFileName(), `Klasik3D-v${APP_VERSION.versionName}.apk`);
+
+  // Higher versionCode with identical package ID allows seamless in-place APK upgrade
+  assert.equal(
+    canUpgradeApkInPlace(
+      { applicationId: APP_VERSION.applicationId, versionCode: APP_VERSION.versionCode },
+      { applicationId: APP_VERSION.applicationId, versionCode: APP_VERSION.versionCode + 1 }
+    ),
+    true
+  );
+  // Same/lower versionCode or mismatched package ID must be rejected
+  assert.equal(
+    canUpgradeApkInPlace(
+      { applicationId: APP_VERSION.applicationId, versionCode: APP_VERSION.versionCode },
+      { applicationId: APP_VERSION.applicationId, versionCode: APP_VERSION.versionCode }
+    ),
+    false
+  );
+  assert.equal(
+    canUpgradeApkInPlace(
+      { applicationId: APP_VERSION.applicationId, versionCode: APP_VERSION.versionCode },
+      { applicationId: 'com.other.pkg', versionCode: APP_VERSION.versionCode + 10 }
+    ),
+    false
+  );
+});
+
+test('interactive first-drink tutorial advances dynamically across espresso/milk/serve steps and pauses customer mood drain', () => {
+  let state: KlasikGameState = { ...createInitialGameState(), phase: 'playing' };
+  const baseline = state.totalCupsServed;
+  const firstCustomer = state.customers.find((c) => c.state === 'ordering');
+  assert.ok(firstCustomer, 'Initial shift should spawn a waiting guest');
+
+  // Step 1: waiting customer prompts Accept Order
+  const step1 = resolveFirstDrinkTutorialStep(state, baseline);
+  assert.equal(step1.stepId, 'accept_order');
+  assert.equal(step1.stepNumber, 1);
+
+  // Accept order -> verify patience drain stays paused during tutorialActive ticks
+  state = acceptCustomerOrder(state, firstCustomer!.id);
+  const ticked = advanceSimulationTick(state, 0.25, { tutorialActive: true });
+  const tickedCust = ticked.customers.find((c) => c.id === firstCustomer!.id);
+  assert.equal(tickedCust?.mood, 100, 'Customer mood must remain paused at 100% during tutorial');
+
+  // Force a latte order to verify full grind -> tamp -> espresso -> milk -> serve progression
+  state = {
+    ...state,
+    customers: state.customers.map((c) =>
+      c.id === firstCustomer!.id
+        ? { ...c, recipeId: 'velvet-latte', requestedPastry: null, customAddOns: [] }
+        : c
+    ),
+  };
+
+  assert.equal(resolveFirstDrinkTutorialStep(state, baseline).stepId, 'grinder');
+  state = performCupAction(state, 'grind');
+  assert.equal(resolveFirstDrinkTutorialStep(state, baseline).stepId, 'tamper');
+  state = performCupAction(state, 'tamp');
+  assert.equal(resolveFirstDrinkTutorialStep(state, baseline).stepId, 'espresso');
+  state = performCupAction(state, 'pull_espresso');
+  assert.equal(resolveFirstDrinkTutorialStep(state, baseline).stepId, 'finish_drink');
+  state = performCupAction(state, 'steam_milk');
+  assert.equal(resolveFirstDrinkTutorialStep(state, baseline).stepId, 'serve');
+
+  // If customer also wants a pastry, tutorial dynamically inserts pastry step before serve
+  const withPastry = {
+    ...state,
+    customers: state.customers.map((c) =>
+      c.id === firstCustomer!.id ? { ...c, requestedPastry: 'croissant' as const } : c
+    ),
+  };
+  assert.equal(resolveFirstDrinkTutorialStep(withPastry, baseline).stepId, 'pastry');
+  const pastryReady = preparePastry(withPastry, 'croissant');
+  assert.equal(resolveFirstDrinkTutorialStep(pastryReady, baseline).stepId, 'serve');
+
+  // Serving completes the tutorial
+  const served = serveCurrentCupToCustomer(state, firstCustomer!.id);
+  const finalStep = resolveFirstDrinkTutorialStep(served, baseline);
+  assert.equal(finalStep.stepId, 'completed');
+  assert.equal(finalStep.isCompleted, true);
+});
+
+test('all real-life landmark sceneries frame subtitles and descriptions as Inspired by real places', () => {
+  const realWorldIds = [
+    'mayon_volcano',
+    'hilltop_city_lights',
+    'japanese_tranquility',
+    'brazilian_favela',
+    'eiffel_tower',
+    'switzerland_hilltop',
+    'mt_everest',
+  ] as const;
+
+  for (const id of realWorldIds) {
+    const spec = SCENERY_CATALOG.find((s) => s.id === id);
+    assert.ok(spec, `Missing scenery spec for ${id}`);
+    assert.match(spec!.subtitle, /^Inspired by /i, `${id} subtitle should start with "Inspired by"`);
+    assert.match(spec!.description, /inspired by/i, `${id} description should clearly say "Inspired by"`);
+  }
+});
+
 

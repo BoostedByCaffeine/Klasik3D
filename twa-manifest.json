@@ -19,8 +19,8 @@
     "path": "./android.keystore",
     "alias": "klasik3d"
   },
-  "appVersionName": "2.3.0",
-  "appVersionCode": 230,
+  "appVersionName": "2.5.0",
+  "appVersionCode": 250,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "orientation": "landscape",
