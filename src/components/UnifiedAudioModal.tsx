@@ -98,13 +98,13 @@ export const UnifiedAudioModal: React.FC<UnifiedAudioModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-2 sm:p-4"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-2 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="unified-audio-title"
       data-testid="unified-audio-modal"
     >
-      <div className="w-full max-w-2xl rounded-2xl bg-[#09090B]/94 border border-white/15 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 sm:p-4 flex flex-col gap-2.5 max-h-[88vh] text-white">
+      <div className="w-full max-w-2xl rounded-2xl bg-[#09090B]/94 border border-white/15 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.9)] backdrop-blur-xl p-3 sm:p-4 flex flex-col gap-2.5 max-h-full text-white">
         {/* Header + Mode Selector */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">

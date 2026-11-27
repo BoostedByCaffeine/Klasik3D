@@ -17,6 +17,8 @@ export interface StaticObstacleCircle {
   x: number;
   z: number;
   radius: number;
+  /** Optional preferred bypass side (-1 = curbside / -Z, +1 = building-side / +Z) when room permits. */
+  preferredSide?: -1 | 1;
 }
 
 export interface NpcAgentFootprint {
@@ -114,15 +116,15 @@ export function computeArticulatedWalkGait(input: ArticulatedGaitInput): Articul
   // Double-frequency vertical pelvis bounce (grounded double-support dip, crisp rise on stair push-off)
   const pelvisBobY =
     (Math.abs(s) * 0.032 * jogBoost * flatFactor +
-      uphill * (0.025 + Math.abs(s) * 0.036) +
-      downhill * (-0.018 + Math.abs(c) * 0.022)) *
+      uphill * (0.012 + Math.abs(s) * 0.022) +
+      downhill * (-0.014 + Math.abs(c) * 0.016)) *
     spd;
-  const pelvisRollZ = s * (0.034 + uphill * 0.024) * spd;
-  const pelvisYawY = s * (0.065 + uphill * 0.02) * spd;
+  const pelvisRollZ = s * (0.034 + uphill * 0.018) * spd;
+  const pelvisYawY = s * (0.065 + uphill * 0.018) * spd;
 
   // Uphill leans torso naturally forward over climbing knee; downhill stays upright/braced back
   const torsoPitchX =
-    (0.045 * jogBoost * flatFactor + uphill * 0.24 - downhill * 0.1) * spd;
+    (0.045 * jogBoost * flatFactor + uphill * 0.21 - downhill * 0.09) * spd;
   const torsoYawY = -s * 0.082 * spd;
   const torsoBankZ = Math.max(-0.14, Math.min(0.14, -turn * 0.05 - s * 0.02 * spd));
 
@@ -131,13 +133,13 @@ export function computeArticulatedWalkGait(input: ArticulatedGaitInput): Articul
   const leftHipFlat = -s * flatHipAmp;
   const rightHipFlat = s * flatHipAmp;
 
-  // Uphill stair climb: deep forward thigh raise (-0.86 rad) to clear riser, crisp extension (-0.05..+0.26) on push-off
-  const leftHipUp = -leftForward * 0.62 - leftSwingLift * 0.48 + leftBack * 0.24;
-  const rightHipUp = -rightForward * 0.62 - rightSwingLift * 0.48 + rightBack * 0.24;
+  // Uphill compact-stair climb: realistic forward thigh raise to clear ~0.21m riser, crisp push-off extension
+  const leftHipUp = -leftForward * 0.54 - leftSwingLift * 0.36 + leftBack * 0.22;
+  const rightHipUp = -rightForward * 0.54 - rightSwingLift * 0.36 + rightBack * 0.22;
 
-  // Downhill stair descent: controlled forward step reach (-0.36 rad) and compact trailing leg
-  const leftHipDown = -leftForward * 0.36 - leftSwingLift * 0.14 + leftBack * 0.18;
-  const rightHipDown = -rightForward * 0.36 - rightSwingLift * 0.14 + rightBack * 0.18;
+  // Downhill compact-stair descent: controlled forward step reach and compact trailing leg
+  const leftHipDown = -leftForward * 0.34 - leftSwingLift * 0.12 + leftBack * 0.16;
+  const rightHipDown = -rightForward * 0.34 - rightSwingLift * 0.12 + rightBack * 0.16;
 
   const leftHipX = (leftHipFlat * flatFactor + leftHipUp * uphill + leftHipDown * downhill) * spd;
   const rightHipX = (rightHipFlat * flatFactor + rightHipUp * uphill + rightHipDown * downhill) * spd;
@@ -146,14 +148,14 @@ export function computeArticulatedWalkGait(input: ArticulatedGaitInput): Articul
   const leftKneeFlat = Math.max(0.08, leftSwingLift * 0.56 * jogBoost + leftForward * 0.1);
   const rightKneeFlat = Math.max(0.08, rightSwingLift * 0.56 * jogBoost + rightForward * 0.1);
 
-  // Uphill: high knee tuck (+1.06 rad) while lifting foot over step edge, then straightening to push body up
-  const leftKneeUp = Math.max(0.12, leftSwingLift * 1.04 + leftForward * 0.32);
-  const rightKneeUp = Math.max(0.12, rightSwingLift * 1.04 + rightForward * 0.32);
+  // Uphill: natural human stair knee tuck (+0.88 rad) while lifting foot over compact step lip, then straightening
+  const leftKneeUp = Math.max(0.10, leftSwingLift * 0.88 + leftForward * 0.26);
+  const rightKneeUp = Math.max(0.10, rightSwingLift * 0.88 + rightForward * 0.26);
 
-  // Downhill: trailing stance knee bends deeply (+0.74 rad) to lower body smoothly onto the lower tread,
-  // while leading leg reaches down with cushioned shock-absorbing bend (+0.26 rad)
-  const leftKneeDown = 0.22 + leftBack * 0.54 + leftSwingLift * 0.34 + leftForward * 0.16;
-  const rightKneeDown = 0.22 + rightBack * 0.54 + rightSwingLift * 0.34 + rightForward * 0.16;
+  // Downhill: trailing stance knee bends smoothly to lower body onto the next lower tread,
+  // while leading leg reaches down with cushioned shock-absorbing bend
+  const leftKneeDown = 0.22 + leftBack * 0.52 + leftSwingLift * 0.32 + leftForward * 0.14;
+  const rightKneeDown = 0.22 + rightBack * 0.52 + rightSwingLift * 0.32 + rightForward * 0.14;
 
   const leftKneeX = (leftKneeFlat * flatFactor + leftKneeUp * uphill + leftKneeDown * downhill) * spd;
   const rightKneeX = (rightKneeFlat * flatFactor + rightKneeUp * uphill + rightKneeDown * downhill) * spd;
@@ -162,21 +164,21 @@ export function computeArticulatedWalkGait(input: ArticulatedGaitInput): Articul
   const leftAnkleFlat = Math.max(-0.3, Math.min(0.32, s * 0.2 - leftSwingLift * 0.14));
   const rightAnkleFlat = Math.max(-0.3, Math.min(0.32, -s * 0.2 - rightSwingLift * 0.14));
   // On stairs, counter-pitch ankle against (hip + knee) so sole stays flat & clears step lip cleanly
-  const leftAnkleUp = Math.max(-0.42, Math.min(0.38, -(leftHipUp + leftKneeUp) * 0.62));
-  const rightAnkleUp = Math.max(-0.42, Math.min(0.38, -(rightHipUp + rightKneeUp) * 0.62));
-  const leftAnkleDown = Math.max(-0.34, Math.min(0.42, leftForward * 0.24 - leftBack * 0.22));
-  const rightAnkleDown = Math.max(-0.34, Math.min(0.42, rightForward * 0.24 - rightBack * 0.22));
+  const leftAnkleUp = Math.max(-0.38, Math.min(0.34, -(leftHipUp + leftKneeUp) * 0.64));
+  const rightAnkleUp = Math.max(-0.38, Math.min(0.34, -(rightHipUp + rightKneeUp) * 0.64));
+  const leftAnkleDown = Math.max(-0.32, Math.min(0.38, leftForward * 0.22 - leftBack * 0.2));
+  const rightAnkleDown = Math.max(-0.32, Math.min(0.38, rightForward * 0.22 - rightBack * 0.2));
 
   const leftAnkleX = (leftAnkleFlat * flatFactor + leftAnkleUp * uphill + leftAnkleDown * downhill) * spd;
   const rightAnkleX = (rightAnkleFlat * flatFactor + rightAnkleUp * uphill + rightAnkleDown * downhill) * spd;
 
   // --- COUNTER-SWINGING ARMS (left leg forward -> right arm forward = negative shoulder X) ---
-  const armAmp = (0.42 + uphill * 0.18 - downhill * 0.12) * jogBoost * spd;
+  const armAmp = (0.42 + uphill * 0.14 - downhill * 0.12) * jogBoost * spd;
   const leftShoulderX = s * armAmp;
   const rightShoulderX = -s * armAmp;
-  const baseElbow = input.isJogging ? -1.16 : uphill > 0.2 ? -0.48 : downhill > 0.2 ? -0.32 : -0.22;
-  const leftElbowX = baseElbow - Math.max(0, -s) * (input.isJogging ? 0.15 : 0.26) * spd;
-  const rightElbowX = baseElbow - Math.max(0, s) * (input.isJogging ? 0.15 : 0.26) * spd;
+  const baseElbow = input.isJogging ? -1.16 : uphill > 0.2 ? -0.44 : downhill > 0.2 ? -0.3 : -0.22;
+  const leftElbowX = baseElbow - Math.max(0, -s) * (input.isJogging ? 0.15 : 0.24) * spd;
+  const rightElbowX = baseElbow - Math.max(0, s) * (input.isJogging ? 0.15 : 0.24) * spd;
 
   // Secondary spring-like lag signal for hair/ponytails/backpacks/scarves
   const secondaryBounce = Math.sin(input.phase * 2 - 0.65) * 0.04 * spd * jogBoost;
@@ -207,6 +209,28 @@ export function computeArticulatedWalkGait(input: ArticulatedGaitInput): Articul
  * signposts) across both near and far sidewalks so passersby & overlook NPCs glide cleanly around them
  * without blocking narrow curb corridors.
  */
+export const TITLE_MIATA_PARKED_TRANSFORM = {
+  x: -3.55,
+  z: -8.68,
+  rotationY: 1.36,
+} as const;
+
+/**
+ * 3-circle composite capsule tightly hugging the parked 1990 Mazda Miata along its true 1.36 rad
+ * Title Screen heading (rear bumper, cabin center, front pop-up headlight nose).
+ * Sets `preferredSide: -1` so near-sidewalk pedestrians smoothly walk around the Miata curbside.
+ */
+export function getTitleScreenMiataObstacles(): StaticObstacleCircle[] {
+  const { x, z, rotationY } = TITLE_MIATA_PARKED_TRANSFORM;
+  const fwdX = Math.sin(rotationY);
+  const fwdZ = Math.cos(rotationY);
+  return [
+    { id: 'miata-rear', x: x - fwdX * 1.28, z: z - fwdZ * 1.28, radius: 0.94, preferredSide: -1 },
+    { id: 'miata-mid', x, z, radius: 0.96, preferredSide: -1 },
+    { id: 'miata-front', x: x + fwdX * 1.28, z: z + fwdZ * 1.28, radius: 0.94, preferredSide: -1 },
+  ];
+}
+
 export function getSceneryStaticObstacles(
   sceneryId: SceneryId,
   isMiataParkedOutside: boolean
@@ -229,11 +253,7 @@ export function getSceneryStaticObstacles(
   ];
 
   if (isMiataParkedOutside) {
-    // Parked Title Screen Miata along near curb (leaves clean indoor-side walking lane at z ~ -7.55)
-    obs.push(
-      { id: 'miata-front', x: -4.4, z: -8.72, radius: 0.86 },
-      { id: 'miata-rear', x: -2.7, z: -8.72, radius: 0.86 }
-    );
+    obs.push(...getTitleScreenMiataObstacles());
   }
 
   if (sceneryId === 'brazilian_favela') {
@@ -323,14 +343,19 @@ export function computeCrowdAndObstacleSteering(params: {
       longWeight = c * c * (3 - 2 * c);
     }
 
-    // Choose which side of the obstacle has strictly more open walkway room within [minZ, maxZ]
+    // Choose which side of the obstacle has strictly more open walkway room within [minZ, maxZ],
+    // honoring obstacle-specific curbside routing (e.g., parked Title Screen Miata -> preferredSide: -1)
     const posTargetZ = obs.z + clearanceZ;
     const negTargetZ = obs.z - clearanceZ;
     const posFits = posTargetZ <= maxZ - 0.04;
     const negFits = negTargetZ >= minZ + 0.04;
 
     let sideSign: -1 | 1;
-    if (posFits && !negFits) {
+    if (obs.preferredSide === -1 && negFits) {
+      sideSign = -1;
+    } else if (obs.preferredSide === 1 && posFits) {
+      sideSign = 1;
+    } else if (posFits && !negFits) {
       sideSign = 1;
     } else if (negFits && !posFits) {
       sideSign = -1;
@@ -343,7 +368,12 @@ export function computeCrowdAndObstacleSteering(params: {
 
     const goalZForObs = Math.max(minZ, Math.min(maxZ, obs.z + sideSign * clearanceZ));
     const neededShift = (goalZForObs - baseLaneZ) * longWeight;
-    if (Math.abs(neededShift) > Math.abs(desiredZShift)) {
+    if (obs.preferredSide !== undefined && longWeight > 0.15) {
+      // Strong curbside priority for large hero obstacles like the parked Miata so smaller lamps never push walkers into the car
+      if (Math.abs(neededShift) >= Math.abs(desiredZShift) * 0.65) {
+        desiredZShift = neededShift;
+      }
+    } else if (Math.abs(neededShift) > Math.abs(desiredZShift)) {
       desiredZShift = neededShift;
     } else {
       desiredZShift += neededShift * 0.35;

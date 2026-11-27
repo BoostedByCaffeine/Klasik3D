@@ -84,12 +84,12 @@ export const SpotifyVinylModal: React.FC<SpotifyVinylModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="spotify-modal-title"
     >
-      <div className="w-full max-w-lg glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 max-h-[84vh] overflow-y-auto no-scrollbar">
+      <div className="w-full max-w-lg glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 max-h-full overflow-y-auto no-scrollbar">
         <div className="flex items-center justify-between border-b border-white/12 pb-2.5">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-950/70 border border-emerald-400/40 flex items-center justify-center text-emerald-300 shrink-0">

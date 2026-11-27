@@ -97,7 +97,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     <div
       id="title-overlay"
       data-testid="title-overlay"
-      className={`fixed inset-0 z-20 pointer-events-none title-scrim-overlay hud-safe-frame overflow-hidden transition-opacity duration-[250ms] ease-out ${
+      className={`absolute inset-0 z-20 pointer-events-none title-scrim-overlay hud-safe-frame overflow-hidden transition-opacity duration-[250ms] ease-out ${
         isEnteringCafe ? 'opacity-0' : 'opacity-100'
       }`}
     >

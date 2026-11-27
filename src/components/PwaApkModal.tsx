@@ -144,7 +144,7 @@ export const PwaApkModal: React.FC<PwaApkModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="pwa-modal-title"

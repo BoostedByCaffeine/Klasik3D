@@ -53,7 +53,7 @@ export const OutdoorOverlookOverlay: React.FC<OutdoorOverlookOverlayProps> = ({
   if (photoModeHidden) {
     return (
       <div
-        className="fixed inset-0 z-30 pointer-events-none flex items-start justify-end p-3"
+        className="absolute inset-0 z-30 pointer-events-none hud-safe-frame flex items-start justify-end p-3"
         data-testid="outdoor-photo-mode-overlay"
       >
         <button
@@ -72,7 +72,7 @@ export const OutdoorOverlookOverlay: React.FC<OutdoorOverlookOverlayProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-30 pointer-events-none flex flex-col justify-between p-2.5 sm:p-4 overflow-hidden"
+      className="absolute inset-0 z-30 pointer-events-none hud-safe-frame flex flex-col justify-between p-2.5 sm:p-4 overflow-hidden"
       data-testid="outdoor-overlook-overlay"
     >
       {/* TOP BAR: Back Inside | Scenery Title & Subtitle | Mood Paused + Hide HUD */}
@@ -90,7 +90,7 @@ export const OutdoorOverlookOverlay: React.FC<OutdoorOverlookOverlayProps> = ({
         {/* Active Scenery Pill */}
         <div
           data-testid="outdoor-scenery-badge"
-          className="pointer-events-auto px-3.5 py-1.5 rounded-2xl bg-[#09090B]/82 border border-white/15 backdrop-blur-md shadow-lg text-center max-w-[48vw] sm:max-w-md"
+          className="pointer-events-auto px-3.5 py-1.5 rounded-2xl bg-[#09090B]/82 border border-white/15 backdrop-blur-md shadow-lg text-center max-w-[48%] sm:max-w-md"
         >
           <div className="flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold text-white glass-text-crisp truncate">
             <Compass className="w-3.5 h-3.5 text-[#E4E4E7] shrink-0" strokeWidth={2.2} />

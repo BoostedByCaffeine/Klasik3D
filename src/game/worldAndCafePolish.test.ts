@@ -6,16 +6,29 @@ import {
   computeCatenaryLeashPoints,
   computeCrowdAndObstacleSteering,
   getSceneryStaticObstacles,
+  getTitleScreenMiataObstacles,
   rollDineInStaySeconds,
   selectSpreadLoungeSeat,
   stepSpringScalar,
 } from './npcPhysicsAndSteering';
 import {
+  FAVELA_STAIR_END_Z,
+  FAVELA_STAIR_START_Z,
+  FAVELA_STAIR_STEP_COUNT,
+  FAVELA_STAIR_TOP_OFFSET,
+  FAVELA_STAIR_TREAD_DEPTH,
+  FAVELA_UPPER_CURVE_STEP_COUNT,
   evaluateFavelaAlleyLifecycle,
   getFavelaHillHeight,
+  getFavelaStairCenterX,
   getFavelaUpperCurveDir,
   sampleFavelaStairSurfaceY,
 } from './outdoorLod';
+import {
+  computeAdaptiveCameraFov,
+  mapPointerToViewportNdc,
+  resolveIosSafariViewport,
+} from './iosViewport';
 import {
   BRAZILIAN_GUIDE_DANCE_STEPS,
   FAVELA_DANCE_AUDIO_PLAYBACK_RATE,
@@ -197,19 +210,29 @@ test('Brazilian 88 BPM dance guide choreography matches exact 10-step mirrored t
   assert.ok(computeBeatSnappedPulse(0.18, true) > 0.95);
 });
 
-test('Favela discrete stair sampler clears every tread box top and lifecycle starts/ends off-screen or concealed', () => {
+test('Favela 32-step realistic stair sampler clears every tread box top with compact risers and step-synced lifecycle', () => {
   const alleyX = -5.2;
   const upperDir = getFavelaUpperCurveDir(alleyX);
   assert.ok(upperDir === 1 || upperDir === -1);
+  assert.ok(FAVELA_STAIR_STEP_COUNT >= 32);
 
-  // Verify sampleFavelaStairSurfaceY sits at or above every single discrete stair tread top (zero buried feet!)
-  for (let step = 0; step < 16; step++) {
-    const stepT = step / 16;
-    const tz = -17.6 + (-32.6 - -17.6) * stepT;
-    const tx = alleyX + Math.sin(step * 0.38) * 1.15;
-    const treadTopY = getFavelaHillHeight(tx, tz) + 0.48;
+  // Verify compact human-scale risers (~0.23m average) and zero buried feet across every step
+  let prevTopY: number | null = null;
+  let totalRiser = 0;
+  for (let step = 0; step < FAVELA_STAIR_STEP_COUNT; step++) {
+    const stepT = step / FAVELA_STAIR_STEP_COUNT;
+    const tz = FAVELA_STAIR_START_Z + (FAVELA_STAIR_END_Z - FAVELA_STAIR_START_Z) * stepT;
+    const tx = getFavelaStairCenterX(alleyX, stepT);
+    const treadTopY = getFavelaHillHeight(tx, tz) + FAVELA_STAIR_TOP_OFFSET;
+    if (prevTopY !== null) {
+      const riser = treadTopY - prevTopY;
+      totalRiser += riser;
+      assert.ok(riser > 0.05 && riser < 0.30, `Step ${step} riser=${riser.toFixed(3)}m must be realistic human scale`);
+    }
+    prevTopY = treadTopY;
+
     const sampledCenter = sampleFavelaStairSurfaceY(alleyX, tz);
-    const sampledFrontLip = sampleFavelaStairSurfaceY(alleyX, tz + 0.44);
+    const sampledFrontLip = sampleFavelaStairSurfaceY(alleyX, tz + FAVELA_STAIR_TREAD_DEPTH * 0.42);
     assert.ok(
       sampledCenter >= treadTopY - 0.001,
       `Step ${step} center Y=${sampledCenter.toFixed(3)} sank below treadTopY=${treadTopY.toFixed(3)}`
@@ -219,8 +242,10 @@ test('Favela discrete stair sampler clears every tread box top and lifecycle sta
       `Step ${step} front-lip Y=${sampledFrontLip.toFixed(3)} sank below treadTopY=${treadTopY.toFixed(3)}`
     );
   }
+  const avgRiser = totalRiser / (FAVELA_STAIR_STEP_COUNT - 1);
+  assert.ok(avgRiser <= 0.25, `Average stair riser (${avgRiser.toFixed(3)}m) should stay compact and realistic`);
 
-  // Lifecycle starts far off-screen (±31.5m), climbs stairs, and conceals behind upper house
+  // Lifecycle starts far off-screen (±31.5m), climbs 32 steps + 8 upper curved steps, and conceals behind upper house
   const edgeStart = evaluateFavelaAlleyLifecycle(0.0, alleyX, 'uphill', 1);
   assert.ok(Math.abs(edgeStart.x) >= 30.5, 'Sidewalk start must be completely off-screen');
 
@@ -234,9 +259,14 @@ test('Favela discrete stair sampler clears every tread box top and lifecycle sta
   assert.equal(startPose.isConcealed, false);
   assert.equal(turnPose.phaseKind, 'stair_entry_turn');
   assert.equal(midStairPose.phaseKind, 'stairs');
+  assert.ok(midStairPose.stepIndex > 8 && midStairPose.stepIndex < FAVELA_STAIR_STEP_COUNT);
   assert.ok(midStairPose.slopePitch > 0.15, 'Uphill climber must have positive slope pitch');
   assert.ok(midStairPose.y > startPose.y + 1.0, 'Climber elevates up the favela hillside');
   assert.equal(curvePose.phaseKind, 'upper_curve');
+  assert.ok(
+    curvePose.stepIndex >= FAVELA_STAIR_STEP_COUNT &&
+      curvePose.stepIndex <= FAVELA_STAIR_STEP_COUNT + FAVELA_UPPER_CURVE_STEP_COUNT
+  );
   assert.equal(endPose.phaseKind, 'concealed_behind_building');
   assert.equal(endPose.isConcealed, true);
 
@@ -358,3 +388,102 @@ test('full-room architectural interior themes build barista-visible walls, raise
   const allUnlocked = unlockAllEverythingCheat(state);
   assert.equal(allUnlocked.unlockedInteriorThemes.length, 6);
 });
+
+test('Title Screen pedestrians curve curbside around the parked red Miata without penetrating its bodywork', () => {
+  const miataObstacles = getTitleScreenMiataObstacles();
+  assert.equal(miataObstacles.length, 3);
+  const obstacles = [...getSceneryStaticObstacles('busy_street', true), ...miataObstacles];
+
+  for (const dir of [1, -1] as const) {
+    let x = dir === 1 ? -8.5 : 1.5;
+    const baseLaneZ = -8.25;
+    let z = baseLaneZ;
+    let avoidSide: -1 | 0 | 1 = 0;
+    let minZReached = z;
+    const dt = 0.04;
+    const speed = 1.45;
+
+    for (let step = 0; step < 260; step++) {
+      const steer = computeCrowdAndObstacleSteering({
+        selfId: `title-walker-${dir}`,
+        x,
+        z,
+        dir,
+        baseLaneZ,
+        minZ: -10.65,
+        maxZ: -7.48,
+        obstacles,
+        neighbors: [],
+        preferredAvoidSide: avoidSide,
+      });
+      avoidSide = steer.chosenAvoidSide;
+      const targetZ = Math.max(-10.65, Math.min(-7.48, baseLaneZ + steer.avoidZOffset));
+      z += (targetZ - z) * Math.min(1, dt * 7.2);
+      x += dir * speed * steer.speedScale * dt;
+      minZReached = Math.min(minZReached, z);
+
+      for (const carCircle of miataObstacles) {
+        const dist = Math.hypot(x - carCircle.x, z - carCircle.z);
+        assert.ok(
+          dist > carCircle.radius * 0.96,
+          `dir=${dir} walker at (${x.toFixed(2)}, ${z.toFixed(2)}) penetrated ${carCircle.id} (dist=${dist.toFixed(2)}, r=${carCircle.radius})`
+        );
+      }
+    }
+
+    assert.ok(
+      minZReached < -9.55,
+      `dir=${dir} walker should route curbside around the Miata (minZReached=${minZReached.toFixed(2)})`
+    );
+  }
+});
+
+test('iOS Safari viewport resolver prioritizes visualViewport, maps rotated portrait touches, and adapts camera FOV', () => {
+  // iPhone Portrait with Safari top & bottom toolbars visible (visualViewport smaller than innerHeight)
+  const portrait = resolveIosSafariViewport({
+    innerWidth: 390,
+    innerHeight: 844,
+    visualViewportWidth: 390,
+    visualViewportHeight: 664,
+    visualViewportOffsetTop: 0,
+    visualViewportOffsetLeft: 0,
+  });
+  assert.equal(portrait.vw, 390);
+  assert.equal(portrait.vh, 664);
+  assert.equal(portrait.isPortraitRotated, true);
+  assert.equal(portrait.effectiveWidth, 664);
+  assert.equal(portrait.effectiveHeight, 390);
+
+  // Portrait-rotated touch mapping: top-right of portrait screen (clientX=390, clientY=0)
+  // rotates 90deg CW to top-left of landscape stage -> ndcX=-1, ndcY=+1
+  const topRightNdc = mapPointerToViewportNdc({ clientX: 390, clientY: 0, viewport: portrait });
+  assert.ok(Math.abs(topRightNdc.x - -1) < 0.001);
+  assert.ok(Math.abs(topRightNdc.y - 1) < 0.001);
+
+  // Bottom-right of portrait screen (clientX=390, clientY=664) -> top-right of landscape stage (ndcX=+1, ndcY=+1)
+  const bottomRightNdc = mapPointerToViewportNdc({ clientX: 390, clientY: 664, viewport: portrait });
+  assert.ok(Math.abs(bottomRightNdc.x - 1) < 0.001);
+  assert.ok(Math.abs(bottomRightNdc.y - 1) < 0.001);
+
+  // iPhone Landscape with Safari toolbar visible (844x336 -> wide aspect ~2.51)
+  const landscape = resolveIosSafariViewport({
+    innerWidth: 844,
+    innerHeight: 390,
+    visualViewportWidth: 844,
+    visualViewportHeight: 336,
+  });
+  assert.equal(landscape.vw, 844);
+  assert.equal(landscape.vh, 336);
+  assert.equal(landscape.isPortraitRotated, false);
+  assert.equal(landscape.effectiveWidth, 844);
+  assert.equal(landscape.effectiveHeight, 336);
+
+  // Adaptive FOV stays baseline at 16:9 and gently widens on ultrawide iPhone landscape and 4:3 iPad
+  const desktopFov = computeAdaptiveCameraFov(46, 16 / 9);
+  const ultrawideFov = computeAdaptiveCameraFov(46, 844 / 336);
+  const ipadFov = computeAdaptiveCameraFov(46, 4 / 3);
+  assert.equal(desktopFov, 46);
+  assert.ok(ultrawideFov > 46 && ultrawideFov <= 52);
+  assert.ok(ipadFov > 46 && ipadFov <= 54);
+});
+

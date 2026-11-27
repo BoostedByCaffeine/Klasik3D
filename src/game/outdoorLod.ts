@@ -754,6 +754,20 @@ export type FavelaAlleyPhaseKind =
   | 'upper_curve'
   | 'concealed_behind_building';
 
+export const FAVELA_STAIR_STEP_COUNT = 38;
+export const FAVELA_UPPER_CURVE_STEP_COUNT = 8;
+export const FAVELA_STAIR_START_Z = -17.6;
+export const FAVELA_STAIR_END_Z = -32.6;
+export const FAVELA_STAIR_TREAD_HEIGHT = 0.28;
+export const FAVELA_STAIR_TREAD_DEPTH = 0.45;
+export const FAVELA_STAIR_TREAD_Y_OFFSET = 0.17;
+export const FAVELA_STAIR_TOP_OFFSET = FAVELA_STAIR_TREAD_Y_OFFSET + FAVELA_STAIR_TREAD_HEIGHT * 0.5; // 0.31
+
+/** Returns the sinusoidal X centerline along the Selarón hillside alley for normalized stair progress `stairT` in [0, 1]. */
+export function getFavelaStairCenterX(alleyBaseX: number, stairT: number): number {
+  return alleyBaseX + Math.sin(stairT * 6.08) * 1.15;
+}
+
 export interface FavelaAlleyPose {
   x: number;
   y: number;
@@ -766,6 +780,8 @@ export interface FavelaAlleyPose {
   phaseKind: FavelaAlleyPhaseKind;
   /** True while concealed behind the flanking upper corner building. */
   isConcealed: boolean;
+  /** Continuous physical step index along the 32-step + 8-curve staircase (1.0 = 1 step = 1 footfall). */
+  stepIndex: number;
 }
 
 /**
@@ -777,43 +793,39 @@ export function getFavelaUpperCurveDir(alleyBaseX: number): 1 | -1 {
 }
 
 /**
- * Evaluates a continuous, realistic Favela hillside resident journey along `u` in [0, 1]:
- * - `direction = 'uphill'`: walks along street sidewalk as a passerby -> curves smoothly into
- *   the mosaic staircase -> climbs uphill -> bends 90° laterally around the top landing behind a
- *   flanking hillside building -> vanishes completely out of view.
- * - `direction = 'downhill'`: emerges from behind the upper corner building -> curves onto the
- *   mosaic staircase -> descends -> turns smoothly onto the sidewalk and walks off as a passerby.
+ * Samples the exact top surface Y across all 32 compact Selarón mosaic stair treads so climbing
+ * and descending sneakers land flush on each human-scale (~0.21m riser) step with zero foot burying.
  */
 export function sampleFavelaStairSurfaceY(
   alleyBaseX: number,
   z: number,
-  stepCount = 16,
-  stairStartZ = -17.6,
-  stairEndZ = -32.6
+  stepCount = FAVELA_STAIR_STEP_COUNT,
+  stairStartZ = FAVELA_STAIR_START_Z,
+  stairEndZ = FAVELA_STAIR_END_Z
 ): number {
-  const halfDepth = 0.48; // BoxGeometry(1.65, 0.56, 0.96) -> half-depth 0.48, half-height 0.28
-  const bevel = 0.14; // Smooth riser climb ramp right at front lip of each tread
+  const halfDepth = FAVELA_STAIR_TREAD_DEPTH * 0.5;
+  const bevel = 0.09; // Crisp human-scale riser climb transition right at the front lip of each compact tread
   let surfaceY = 0.08;
   let matched = false;
 
   for (let step = 0; step < stepCount; step++) {
     const stepT = step / stepCount;
     const tz = stairStartZ + (stairEndZ - stairStartZ) * stepT;
-    const tx = alleyBaseX + Math.sin(step * 0.38) * 1.15;
-    const treadTopY = getFavelaHillHeight(tx, tz) + 0.48; // ty = hill + 0.2, top = ty + 0.28
+    const tx = getFavelaStairCenterX(alleyBaseX, stepT);
+    const treadTopY = getFavelaHillHeight(tx, tz) + FAVELA_STAIR_TOP_OFFSET;
 
     // Check if walker's Z footprint sits on top of this tread or on its front riser lip
     const frontLipZ = tz + halfDepth;
     const backLipZ = tz - halfDepth;
-    if (z <= frontLipZ + bevel && z >= backLipZ - 0.06) {
+    if (z <= frontLipZ + bevel && z >= backLipZ - 0.04) {
       let localY = treadTopY;
       if (z > frontLipZ) {
-        // Gentle riser ramp onto the front edge of this step from the step just below
+        // Smooth riser step-up from the previous lower tread onto this tread's front lip
         const prevStep = Math.max(0, step - 1);
         const prevT = prevStep / stepCount;
         const prevTz = stairStartZ + (stairEndZ - stairStartZ) * prevT;
-        const prevTx = alleyBaseX + Math.sin(prevStep * 0.38) * 1.15;
-        const prevTopY = step === 0 ? 0.08 : getFavelaHillHeight(prevTx, prevTz) + 0.48;
+        const prevTx = getFavelaStairCenterX(alleyBaseX, prevT);
+        const prevTopY = step === 0 ? 0.08 : getFavelaHillHeight(prevTx, prevTz) + FAVELA_STAIR_TOP_OFFSET;
         const rampT = 1 - (z - frontLipZ) / bevel;
         const smooth = rampT * rampT * (3 - 2 * rampT);
         localY = prevTopY + (treadTopY - prevTopY) * smooth;
@@ -827,20 +839,28 @@ export function sampleFavelaStairSurfaceY(
 
   if (!matched) {
     if (z > stairStartZ + halfDepth) {
-      // Smooth blend from flat sidewalk (-16.55) up to bottom tread lip (-17.12)
-      const firstTx = alleyBaseX;
-      const firstTopY = getFavelaHillHeight(firstTx, stairStartZ) + 0.48;
+      // Smooth blend from flat sidewalk (-16.55) up to bottom tread lip
+      const firstTx = getFavelaStairCenterX(alleyBaseX, 0);
+      const firstTopY = getFavelaHillHeight(firstTx, stairStartZ) + FAVELA_STAIR_TOP_OFFSET;
       const t = Math.max(0, Math.min(1, (-16.55 - z) / (-16.55 - (stairStartZ + halfDepth))));
       return 0.08 + (firstTopY - 0.08) * (t * t * (3 - 2 * t));
     }
     // Past top tread (-32.6): hold top step elevation cleanly into curved landing
-    const topTx = alleyBaseX + Math.sin(stepCount * 0.38) * 1.15;
-    return getFavelaHillHeight(topTx, stairEndZ) + 0.48;
+    const topTx = getFavelaStairCenterX(alleyBaseX, 1);
+    return getFavelaHillHeight(topTx, stairEndZ) + FAVELA_STAIR_TOP_OFFSET;
   }
 
   return surfaceY;
 }
 
+/**
+ * Evaluates a continuous, realistic Favela hillside resident journey along `u` in [0, 1]:
+ * - `direction = 'uphill'`: walks along street sidewalk as a passerby -> curves smoothly into
+ *   the 32-step mosaic staircase -> climbs uphill with step-synced footfalls -> bends 90° laterally
+ *   around the 8-step curved top landing behind a 2-story flanking hillside corner house -> vanishes out of view.
+ * - `direction = 'downhill'`: emerges from behind the upper corner house -> curves onto the
+ *   32-step mosaic staircase -> descends step-by-step -> turns smoothly onto the sidewalk and walks off-screen.
+ */
 export function evaluateFavelaAlleyLifecycle(
   u: number,
   alleyBaseX: number,
@@ -852,11 +872,13 @@ export function evaluateFavelaAlleyLifecycle(
   const s = direction === 'uphill' ? progress : 1 - progress;
   const upperTurnDir = getFavelaUpperCurveDir(alleyBaseX);
 
-  const sampleArc = (arcS: number): { x: number; y: number; z: number; phaseKind: FavelaAlleyPhaseKind } => {
+  const sampleArc = (
+    arcS: number
+  ): { x: number; y: number; z: number; phaseKind: FavelaAlleyPhaseKind; stepIndex: number } => {
     const cs = Math.max(0, Math.min(1, arcS));
     const sidewalkZ = -16.55;
-    const stairStartZ = -17.6;
-    const stairEndZ = -32.6;
+    const stairStartZ = FAVELA_STAIR_START_Z;
+    const stairEndZ = FAVELA_STAIR_END_Z;
     const turnRadius = 1.05;
     // Start/end completely past the off-screen street corners (±31.5m) so walkers NEVER pop in/out mid-view!
     const offscreenSidewalkX = sidewalkApproachSign * 31.5;
@@ -870,6 +892,7 @@ export function evaluateFavelaAlleyLifecycle(
         y: 0.08,
         z: sidewalkZ,
         phaseKind: 'sidewalk',
+        stepIndex: 0,
       };
     }
     if (cs < 0.30) {
@@ -878,27 +901,28 @@ export function evaluateFavelaAlleyLifecycle(
       const theta = t * (Math.PI * 0.5);
       const x = alleyBaseX + sidewalkApproachSign * Math.cos(theta) * turnRadius;
       const z = sidewalkZ - Math.sin(theta) * turnRadius;
-      const entryY = sampleFavelaStairSurfaceY(alleyBaseX, z) + 0.02;
+      const entryY = sampleFavelaStairSurfaceY(alleyBaseX, z) + 0.015;
       const y = 0.08 + (entryY - 0.08) * (t * t * (3 - 2 * t));
-      return { x, y, z, phaseKind: 'stair_entry_turn' };
+      return { x, y, z, phaseKind: 'stair_entry_turn', stepIndex: 0 };
     }
     if (cs < 0.80) {
-      // Discrete tread-top-accurate Selarón staircase ascent/descent (zero buried feet!)
+      // 32-step compact human-scale Selarón staircase ascent/descent (zero buried feet, 1 footfall per step!)
       const stairT = (cs - 0.30) / 0.50;
-      const stepF = stairT * 16;
+      const stepF = stairT * FAVELA_STAIR_STEP_COUNT;
       const z = stairStartZ + (stairEndZ - stairStartZ) * stairT;
-      const x = alleyBaseX + Math.sin(stepF * 0.38) * 1.15;
-      const treadSurfaceY = sampleFavelaStairSurfaceY(alleyBaseX, z) + 0.025;
-      return { x, y: treadSurfaceY, z, phaseKind: 'stairs' };
+      const x = getFavelaStairCenterX(alleyBaseX, stairT);
+      const treadSurfaceY = sampleFavelaStairSurfaceY(alleyBaseX, z) + 0.015;
+      return { x, y: treadSurfaceY, z, phaseKind: 'stairs', stepIndex: stepF };
     }
 
-    // Upper staircase curve (cs in [0.80, 1.0]): bends 90° laterally behind the enlarged concealing corner house
-    const topBaseX = alleyBaseX + Math.sin(16 * 0.38) * 1.15;
+    // Upper staircase curve (cs in [0.80, 1.0]): bends 90° laterally behind the 2-story concealing corner house
+    const topBaseX = getFavelaStairCenterX(alleyBaseX, 1);
     const topBaseZ = stairEndZ;
-    const topBaseY = Math.max(
-      sampleFavelaStairSurfaceY(alleyBaseX, topBaseZ),
-      getFavelaHillHeight(topBaseX, topBaseZ) + 0.48
-    ) + 0.025;
+    const topBaseY =
+      Math.max(
+        sampleFavelaStairSurfaceY(alleyBaseX, topBaseZ),
+        getFavelaHillHeight(topBaseX, topBaseZ) + FAVELA_STAIR_TOP_OFFSET
+      ) + 0.015;
     const upperCurveR = 1.65;
 
     if (cs < 0.90) {
@@ -907,18 +931,30 @@ export function evaluateFavelaAlleyLifecycle(
       const x = topBaseX + upperTurnDir * upperCurveR * (1 - Math.cos(theta));
       const z = topBaseZ - Math.sin(theta) * upperCurveR;
       const y = topBaseY + t * 0.72;
-      return { x, y, z, phaseKind: 'upper_curve' };
+      return {
+        x,
+        y,
+        z,
+        phaseKind: 'upper_curve',
+        stepIndex: FAVELA_STAIR_STEP_COUNT + t * FAVELA_UPPER_CURVE_STEP_COUNT,
+      };
     }
 
     const t = (cs - 0.90) / 0.10;
     const x = topBaseX + upperTurnDir * (upperCurveR + t * 3.6);
     const z = topBaseZ - upperCurveR - t * 0.45;
     const y = topBaseY + 0.72 + t * 0.18;
-    return { x, y, z, phaseKind: 'concealed_behind_building' };
+    return {
+      x,
+      y,
+      z,
+      phaseKind: 'concealed_behind_building',
+      stepIndex: FAVELA_STAIR_STEP_COUNT + FAVELA_UPPER_CURVE_STEP_COUNT,
+    };
   };
 
   const curr = sampleArc(s);
-  const delta = direction === 'uphill' ? 0.015 : -0.015;
+  const delta = direction === 'uphill' ? 0.012 : -0.012;
   const ahead = sampleArc(s + delta);
   const behind = sampleArc(s - delta);
 
@@ -926,10 +962,10 @@ export function evaluateFavelaAlleyLifecycle(
   const dz = ahead.z - curr.z;
   const yaw = Math.atan2(dx, dz);
 
-  // Compute macro staircase slope across ~2 steps so flat discrete tread tops never zero out climbing/descending posture!
+  // Compute macro staircase slope across ~2-3 compact steps so climbing/descending posture stays smooth
   let slopePitch = 0;
   if (curr.phaseKind === 'stairs' || curr.phaseKind === 'upper_curve') {
-    const macroDelta = direction === 'uphill' ? 0.055 : -0.055;
+    const macroDelta = direction === 'uphill' ? 0.045 : -0.045;
     const macroAhead = sampleArc(s + macroDelta);
     const macroBehind = sampleArc(s - macroDelta);
     const mdx = macroAhead.x - macroBehind.x;
@@ -955,6 +991,7 @@ export function evaluateFavelaAlleyLifecycle(
     lateralTurnRate,
     phaseKind: curr.phaseKind,
     isConcealed: curr.phaseKind === 'concealed_behind_building',
+    stepIndex: curr.stepIndex,
   };
 }
 

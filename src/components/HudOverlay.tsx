@@ -287,9 +287,9 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   // PURE 3D IMMERSIVE MODE (When HUD is Hidden via Hide HUD Toggle)
   if (hudHidden) {
     return (
-      <div className="fixed inset-0 z-10 pointer-events-none hud-safe-frame overflow-hidden">
+      <div className="absolute inset-0 z-10 pointer-events-none hud-safe-frame overflow-hidden">
         {/* Ultra-minimal floating controls in top-right corner so 98% of 3D view is open */}
-        <div className="pointer-events-auto fixed top-2 right-2 flex items-center gap-1.5 glass-pill rounded-full px-2.5 py-1">
+        <div className="pointer-events-auto absolute top-2 right-2 flex items-center gap-1.5 glass-pill rounded-full px-2.5 py-1">
           <button
             type="button"
             onClick={handlePrevStation}
@@ -376,7 +376,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
 
         {/* Tiny progress pill at top-center only while actively executing a timed step */}
         {stepProgress !== null && displayBannerText && (
-          <div className="fixed top-2 left-1/2 -translate-x-1/2 glass-pill rounded-full px-3 py-0.5 flex items-center gap-2">
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 glass-pill rounded-full px-3 py-0.5 flex items-center gap-2">
             <span className="text-[10px] font-semibold text-white glass-text-crisp whitespace-nowrap">
               {displayBannerText}
             </span>
@@ -393,7 +393,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-10 pointer-events-none flex flex-col justify-between overflow-hidden">
+    <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between overflow-hidden">
       {/* 1. ULTRA-SLIM TOP TELEMETRY RIBBON (All Top Navigation Consolidated Inside Menu Button) */}
       <div className="flex flex-col w-full pointer-events-none relative">
         <div
@@ -887,7 +887,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
         {/* Ultra-Compact Single-Line Order Strip + Inline Timed Progress */}
         <div className="flex items-start justify-between gap-2 px-2 mt-1.5 pointer-events-none">
           {!ticketsCollapsed && pinnedOrder && targetRecipe ? (
-            <div className="pointer-events-auto inline-flex items-center gap-1.5 glass-panel rounded-full px-2.5 py-0.5 max-w-[82vw] sm:max-w-2xl overflow-hidden">
+            <div className="pointer-events-auto inline-flex items-center gap-1.5 glass-panel rounded-full px-2.5 py-0.5 max-w-[82%] sm:max-w-2xl overflow-hidden">
               {renderCategoryIcon()}
               <span
                 data-testid="order-type-badge"
@@ -1070,7 +1070,7 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
               return (
                 <div
                   data-testid="hud-feedback-banner"
-                  className={`pointer-events-none inline-flex items-center gap-2 glass-pill glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[60vw] truncate ${
+                  className={`pointer-events-none inline-flex items-center gap-2 glass-pill glass-text-crisp text-[10px] sm:text-[11px] font-semibold px-2.5 py-0.5 rounded-full max-w-[60%] truncate ${
                     isCheatToast
                       ? '!bg-[#18181B]/95 !border-white/55 text-white font-bold shadow-[0_0_22px_rgba(255,255,255,0.22)]'
                       : isExpiredAlert

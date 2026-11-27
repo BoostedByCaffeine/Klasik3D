@@ -84,6 +84,7 @@ import { KlasikCafeScene3D, StepAnimType } from './game/scene3d';
 import { triggerBaristaHaptic, triggerChampyPurrHaptic } from './game/haptics';
 import { soundEngine } from './game/sound';
 import { spotifyManager, SpotifyVinylState } from './game/spotifyManager';
+import { readWindowIosViewport } from './game/iosViewport';
 import { pwaManager, PwaEnvironmentStatus, shouldShowLandscapeCue } from './pwa/pwaManager';
 
 type ActiveModal =
@@ -110,7 +111,7 @@ export default function App() {
   const [isSceneReady, setIsSceneReady] = useState<boolean>(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [isPortraitRotated, setIsPortraitRotated] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false
+    readWindowIosViewport().isPortraitRotated
   );
   const [gameState, setGameState] = useState<KlasikGameState>(() => {
     const now = new Date();
@@ -191,27 +192,48 @@ export default function App() {
   const gameStateRef = useRef<KlasikGameState>(gameState);
   gameStateRef.current = gameState;
 
-  // Enforce strict Landscape Viewport detection & sync CSS full-bleed dimensions across all devices
+  // Enforce full-bleed iOS Safari / Mobile / Desktop viewport tracking with exact visualViewport fit
   useEffect(() => {
-    const checkOrientation = () => {
-      const vw = Math.max(window.innerWidth || 0, document.documentElement.clientWidth || 0);
-      const vh = Math.max(
-        window.innerHeight || 0,
-        document.documentElement.clientHeight || 0,
-        window.visualViewport?.height || 0
-      );
-      document.documentElement.style.setProperty('--app-vw', `${vw}px`);
-      document.documentElement.style.setProperty('--app-vh', `${vh}px`);
-      setIsPortraitRotated(vh > vw);
+    let settleTimerA: number | null = null;
+    let settleTimerB: number | null = null;
+
+    const syncViewport = () => {
+      const vp = readWindowIosViewport();
+      const rootStyle = document.documentElement.style;
+      rootStyle.setProperty('--app-vw', `${vp.vw}px`);
+      rootStyle.setProperty('--app-vh', `${vp.vh}px`);
+      rootStyle.setProperty('--app-vtop', `${vp.offsetTop}px`);
+      rootStyle.setProperty('--app-vleft', `${vp.offsetLeft}px`);
+      setIsPortraitRotated(vp.isPortraitRotated);
+      // Keep iOS Safari pinned at scroll (0, 0) so address-bar transitions never drift the canvas
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
     };
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    window.addEventListener('orientationchange', checkOrientation);
-    window.visualViewport?.addEventListener('resize', checkOrientation);
+
+    const scheduleSync = () => {
+      syncViewport();
+      if (settleTimerA !== null) window.clearTimeout(settleTimerA);
+      if (settleTimerB !== null) window.clearTimeout(settleTimerB);
+      // Delayed settle passes catch iOS Safari's asynchronous toolbar / orientation animation
+      settleTimerA = window.setTimeout(syncViewport, 120);
+      settleTimerB = window.setTimeout(syncViewport, 360);
+    };
+
+    syncViewport();
+    window.addEventListener('resize', scheduleSync);
+    window.addEventListener('orientationchange', scheduleSync);
+    window.addEventListener('pageshow', scheduleSync);
+    window.visualViewport?.addEventListener('resize', scheduleSync);
+    window.visualViewport?.addEventListener('scroll', syncViewport);
     return () => {
-      window.removeEventListener('resize', checkOrientation);
-      window.removeEventListener('orientationchange', checkOrientation);
-      window.visualViewport?.removeEventListener('resize', checkOrientation);
+      if (settleTimerA !== null) window.clearTimeout(settleTimerA);
+      if (settleTimerB !== null) window.clearTimeout(settleTimerB);
+      window.removeEventListener('resize', scheduleSync);
+      window.removeEventListener('orientationchange', scheduleSync);
+      window.removeEventListener('pageshow', scheduleSync);
+      window.visualViewport?.removeEventListener('resize', scheduleSync);
+      window.visualViewport?.removeEventListener('scroll', syncViewport);
     };
   }, []);
 
@@ -1623,7 +1645,7 @@ export default function App() {
 
       {/* Safe On-Screen Recovery Fallback if WebGL or Service Worker Encounters an Error */}
       {webglError && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4">
+        <div className="absolute inset-0 hud-safe-frame z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm p-4">
           <div className="max-w-md w-full glass-modal rounded-2xl p-5 text-center space-y-3">
             <h2 className="text-lg font-bold font-display text-white glass-text-crisp">
               3D Graphics Recovery Mode
@@ -1944,7 +1966,7 @@ export default function App() {
       <div
         aria-hidden="true"
         data-fade-visible={sceneryFadeVisible ? '1' : '0'}
-        className={`pointer-events-none fixed inset-0 z-50 bg-[#09090B] transition-opacity duration-200 ${
+        className={`pointer-events-none absolute inset-0 z-50 bg-[#09090B] transition-opacity duration-200 ${
           sceneryFadeVisible ? 'opacity-100' : 'opacity-0'
         }`}
       />

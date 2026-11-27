@@ -95,12 +95,12 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="export-modal-title"
     >
-      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5">
+      <div className="w-full max-w-lg max-h-full overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5">
         <div className="flex items-center justify-between border-b border-white/12 pb-2.5">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[#18181B] border border-white/20 flex items-center justify-center text-[#E4E4E7] shrink-0">

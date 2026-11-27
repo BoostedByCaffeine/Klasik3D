@@ -11,10 +11,18 @@ import {
   createProceduralFacadeTextures,
 } from './surroundingContext';
 import {
+  FAVELA_STAIR_END_Z,
+  FAVELA_STAIR_START_Z,
+  FAVELA_STAIR_STEP_COUNT,
+  FAVELA_STAIR_TREAD_DEPTH,
+  FAVELA_STAIR_TREAD_HEIGHT,
+  FAVELA_STAIR_TREAD_Y_OFFSET,
+  FAVELA_UPPER_CURVE_STEP_COUNT,
   computeFavelaHouseFloorY,
   evaluateCornerTurnPath,
   evaluateFavelaAlleyLifecycle,
   getFavelaHillHeight,
+  getFavelaStairCenterX,
   getFavelaUpperCurveDir,
 } from '../outdoorLod';
 import { computeArticulatedWalkGait } from '../npcPhysicsAndSteering';
@@ -3455,43 +3463,51 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
   ];
   const alleyCurbMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.88 });
   const upperConcealPalette = [0xe07a5f, 0x0d9488, 0xeab308, 0xec4899];
+  const mainTreadGeo = new THREE.BoxGeometry(
+    1.66,
+    FAVELA_STAIR_TREAD_HEIGHT,
+    FAVELA_STAIR_TREAD_DEPTH
+  );
+  const sideCurbGeo = new THREE.BoxGeometry(0.18, 0.56, FAVELA_STAIR_TREAD_DEPTH + 0.04);
+  const curvedTreadGeo = new THREE.BoxGeometry(1.62, FAVELA_STAIR_TREAD_HEIGHT, 0.5);
+
   FAVELA_ALLEY_STAIR_XS.forEach((sx, sIdx) => {
     const upperTurnDir = getFavelaUpperCurveDir(sx);
-    // Main 16-step winding mosaic ascent up to z = -32.6
-    for (let step = 0; step < 16; step++) {
-      const stepT = step / 16;
-      const tz = -17.6 + (-32.6 - -17.6) * stepT;
-      const tx = sx + Math.sin(step * 0.38) * 1.15;
-      const ty = getFavelaHillHeight(tx, tz) + 0.2;
+    // Main 32-step compact human-scale winding Selarón mosaic ascent (~0.21m riser height) up to z = -32.6
+    for (let step = 0; step < FAVELA_STAIR_STEP_COUNT; step++) {
+      const stepT = step / FAVELA_STAIR_STEP_COUNT;
+      const tz = FAVELA_STAIR_START_Z + (FAVELA_STAIR_END_Z - FAVELA_STAIR_START_Z) * stepT;
+      const tx = getFavelaStairCenterX(sx, stepT);
+      const ty = getFavelaHillHeight(tx, tz) + FAVELA_STAIR_TREAD_Y_OFFSET;
       const tread = new THREE.Mesh(
-        new THREE.BoxGeometry(1.65, 0.56, 0.96),
+        mainTreadGeo,
         mosaicMats[(sIdx + step) % mosaicMats.length]
       );
       tread.position.set(tx, ty, tz);
       root.add(tread);
 
-      // Low plastered side curbs framing the open stepped alleyway cleanly
+      // Low plastered side curbs framing the stepped alleyway cleanly
       [-0.92, 0.92].forEach((sideOffset) => {
-        const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.78, 0.98), alleyCurbMat);
-        curb.position.set(tx + sideOffset, ty + 0.14, tz);
+        const curb = new THREE.Mesh(sideCurbGeo, alleyCurbMat);
+        curb.position.set(tx + sideOffset, ty + 0.12, tz);
         root.add(curb);
       });
     }
 
-    // Upper 90-degree curved mosaic landing bending laterally behind a flanking hillside corner house
-    const topBaseX = sx + Math.sin(16 * 0.38) * 1.15;
-    const topBaseZ = -32.6;
-    const topBaseY = getFavelaHillHeight(topBaseX, topBaseZ) + 0.2;
+    // Upper 90-degree curved 8-step compact mosaic landing bending laterally behind the 2-story flanking corner house
+    const topBaseX = getFavelaStairCenterX(sx, 1);
+    const topBaseZ = FAVELA_STAIR_END_Z;
+    const topBaseY = getFavelaHillHeight(topBaseX, topBaseZ) + FAVELA_STAIR_TREAD_Y_OFFSET;
     const upperCurveR = 1.65;
-    for (let cStep = 0; cStep < 5; cStep++) {
-      const ct = (cStep + 0.5) / 5;
+    for (let cStep = 0; cStep < FAVELA_UPPER_CURVE_STEP_COUNT; cStep++) {
+      const ct = (cStep + 0.5) / FAVELA_UPPER_CURVE_STEP_COUNT;
       const theta = ct * (Math.PI * 0.5);
       const cx = topBaseX + upperTurnDir * upperCurveR * (1 - Math.cos(theta));
       const cz = topBaseZ - Math.sin(theta) * upperCurveR;
       const cy = topBaseY + ct * 0.72;
       const curvedTread = new THREE.Mesh(
-        new THREE.BoxGeometry(1.62, 0.56, 0.88),
-        mosaicMats[(sIdx + 16 + cStep) % mosaicMats.length]
+        curvedTreadGeo,
+        mosaicMats[(sIdx + FAVELA_STAIR_STEP_COUNT + cStep) % mosaicMats.length]
       );
       curvedTread.position.set(cx, cy, cz);
       curvedTread.rotation.y = upperTurnDir * theta;
@@ -4064,22 +4080,20 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
         // Never vanish in view: only cull when fully tucked behind the upper corner house or past far street edge
         w.group.visible = !pose.isConcealed && Math.abs(pose.x) <= 30.5;
 
-        const strideRate =
-          pose.phaseKind === 'stairs'
-            ? w.direction === 'uphill'
-              ? 4.8
-              : 5.2
-            : 5.8;
+        // Step-synced stair kinematics: 1 physical mosaic step = PI rad (1 exact alternating footfall per step!)
+        const onStairs = pose.phaseKind === 'stairs' || pose.phaseKind === 'upper_curve';
+        const gaitPhase = onStairs
+          ? pose.stepIndex * Math.PI + (w.direction === 'downhill' ? Math.PI * 0.15 : 0)
+          : elapsed * 5.6 + w.phase;
         const gait = computeArticulatedWalkGait({
-          phase: elapsed * strideRate + w.phase,
-          speedNorm: pose.phaseKind === 'stairs' ? 0.92 : 0.96,
+          phase: gaitPhase,
+          speedNorm: onStairs ? (w.direction === 'uphill' ? 0.94 : 0.9) : 0.96,
           slopePitch: pose.slopePitch,
           lateralTurnRate: pose.lateralTurnRate,
         });
 
-        // Lift pelvis slightly higher on uphill climbs so trailing/leading sneakers clear the step risers cleanly
-        const stairClearanceY =
-          pose.phaseKind === 'stairs' ? (w.direction === 'uphill' ? 0.035 : 0.025) : 0;
+        // Ground sneakers flush on compact 0.21m treads with subtle clearance while stepping over riser lips
+        const stairClearanceY = onStairs ? (w.direction === 'uphill' ? 0.018 : 0.012) : 0;
         w.pelvisPivot.position.y = 0.805 + stairClearanceY + gait.pelvisBobY;
         w.pelvisPivot.rotation.z = gait.pelvisRollZ;
         w.pelvisPivot.rotation.y = gait.pelvisYawY;
@@ -4087,7 +4101,7 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
         w.torsoGroup.rotation.y = gait.torsoYawY;
         w.torsoGroup.rotation.z = gait.torsoBankZ;
         w.headPivot.rotation.y = Math.sin(elapsed * 0.8 + w.phase) * 0.14 - gait.torsoYawY * 0.45;
-        w.headPivot.rotation.x = -pose.slopePitch * 0.28 + gait.secondaryBounce * 0.25;
+        w.headPivot.rotation.x = -pose.slopePitch * 0.24 + gait.secondaryBounce * 0.22;
 
         w.leftHip.rotation.x = gait.leftHipX;
         w.rightHip.rotation.x = gait.rightHipX;

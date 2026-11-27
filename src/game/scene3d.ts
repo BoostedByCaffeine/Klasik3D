@@ -63,6 +63,11 @@ import {
   updateSecretNpcAssetPose,
 } from './secretNpc3d';
 import {
+  computeAdaptiveCameraFov,
+  mapPointerToViewportNdc,
+  readWindowIosViewport,
+} from './iosViewport';
+import {
   ACTIVE_CUP_STATION4_POS,
   CUP_SERVE_HITBOX_RADIUS,
   ICE_COMPARTMENT_POS,
@@ -672,6 +677,7 @@ export class KlasikCafeScene3D {
   private isCapacitor: boolean;
   private resizeObserver: ResizeObserver | null = null;
   private resizeDebounceTimer: number | null = null;
+  private resizeSettleTimer: number | null = null;
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -1092,7 +1098,13 @@ export class KlasikCafeScene3D {
     this.scene.background = new THREE.Color(0x1a120e);
     this.scene.fog = new THREE.FogExp2(0x1a120e, 0.015);
 
-    this.camera = new THREE.PerspectiveCamera(46, width / height, 0.1, 240);
+    const initAspect = width / Math.max(1, height);
+    this.camera = new THREE.PerspectiveCamera(
+      computeAdaptiveCameraFov(46, initAspect),
+      initAspect,
+      0.1,
+      240
+    );
     if (this.gameState.phase === 'title') {
       this.camera.position.set(0.30, 1.60, -10.25);
       this.currentLookAt.set(-2.45, 1.12, -7.25);
@@ -1406,29 +1418,22 @@ export class KlasikCafeScene3D {
     height: number;
     isPortraitRotated: boolean;
   } {
-    const isPortraitRotated = window.innerHeight > window.innerWidth;
-    if (isPortraitRotated) {
+    const vp = readWindowIosViewport();
+    if (vp.isPortraitRotated) {
       return {
-        width: Math.max(1, window.innerHeight, document.documentElement.clientHeight || 0),
-        height: Math.max(1, window.innerWidth, document.documentElement.clientWidth || 0),
+        width: vp.effectiveWidth,
+        height: vp.effectiveHeight,
         isPortraitRotated: true,
       };
     }
     const rect = this.container.getBoundingClientRect();
+    const width =
+      rect.width > 1 && Math.abs(rect.width - vp.vw) <= 24 ? Math.round(rect.width) : vp.vw;
+    const height =
+      rect.height > 1 && Math.abs(rect.height - vp.vh) <= 24 ? Math.round(rect.height) : vp.vh;
     return {
-      width: Math.max(
-        1,
-        rect.width || 0,
-        window.innerWidth || 0,
-        document.documentElement.clientWidth || 0
-      ),
-      height: Math.max(
-        1,
-        rect.height || 0,
-        window.innerHeight || 0,
-        document.documentElement.clientHeight || 0,
-        window.visualViewport?.height || 0
-      ),
+      width: Math.max(1, width),
+      height: Math.max(1, height),
       isPortraitRotated: false,
     };
   }
@@ -13112,17 +13117,15 @@ export class KlasikCafeScene3D {
     const dom = this.renderer.domElement;
 
     const updateNdc = (clientX: number, clientY: number) => {
-      const isPortraitRotated = window.innerHeight > window.innerWidth;
-      if (isPortraitRotated) {
-        const localX = clientY;
-        const localY = window.innerWidth - clientX;
-        this.pointerNdc.x = (localX / Math.max(1, window.innerHeight)) * 2 - 1;
-        this.pointerNdc.y = -(localY / Math.max(1, window.innerWidth)) * 2 + 1;
-      } else {
-        const rect = dom.getBoundingClientRect();
-        this.pointerNdc.x = ((clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-        this.pointerNdc.y = -((clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1;
-      }
+      const vp = readWindowIosViewport();
+      const ndc = mapPointerToViewportNdc({
+        clientX,
+        clientY,
+        viewport: vp,
+        canvasRect: vp.isPortraitRotated ? null : dom.getBoundingClientRect(),
+      });
+      this.pointerNdc.x = ndc.x;
+      this.pointerNdc.y = ndc.y;
     };
 
     let lastCombSfxTime = 0;
@@ -13139,7 +13142,7 @@ export class KlasikCafeScene3D {
         const pts = Array.from(this.activeTouchPoints.values());
         this.lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
       }
-      const isPortraitRotated = window.innerHeight > window.innerWidth;
+      const isPortraitRotated = readWindowIosViewport().isPortraitRotated;
       this.dragStartCoord = isPortraitRotated ? e.clientY : e.clientX;
       updateNdc(e.clientX, e.clientY);
 
@@ -13174,7 +13177,7 @@ export class KlasikCafeScene3D {
           return;
         }
         if (this.isPointerDragging) {
-          const isPortraitRotated = window.innerHeight > window.innerWidth;
+          const isPortraitRotated = readWindowIosViewport().isPortraitRotated;
           const rawDx = e.clientX - this.lastPointerX;
           const rawDy = e.clientY - this.lastPointerY;
           this.lastPointerX = e.clientX;
@@ -13187,7 +13190,7 @@ export class KlasikCafeScene3D {
       }
 
       if (this.isPointerDragging && this.gameState.phase === 'playing') {
-        const isPortraitRotated = window.innerHeight > window.innerWidth;
+        const isPortraitRotated = readWindowIosViewport().isPortraitRotated;
         const curCoord = isPortraitRotated ? e.clientY : e.clientX;
         const dx = curCoord - this.dragStartCoord;
         this.dragStartCoord = curCoord;
@@ -13348,7 +13351,9 @@ export class KlasikCafeScene3D {
 
     window.addEventListener('resize', this.scheduleDebouncedResize);
     window.addEventListener('orientationchange', this.scheduleDebouncedResize);
+    window.addEventListener('pageshow', this.scheduleDebouncedResize);
     window.visualViewport?.addEventListener('resize', this.scheduleDebouncedResize);
+    window.visualViewport?.addEventListener('scroll', this.scheduleDebouncedResize);
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => this.scheduleDebouncedResize());
       this.resizeObserver.observe(this.container);
@@ -13394,16 +13399,28 @@ export class KlasikCafeScene3D {
     if (this.resizeDebounceTimer !== null) {
       window.clearTimeout(this.resizeDebounceTimer);
     }
+    if (this.resizeSettleTimer !== null) {
+      window.clearTimeout(this.resizeSettleTimer);
+    }
     this.resizeDebounceTimer = window.setTimeout(() => {
       this.resizeDebounceTimer = null;
       this.handleResize();
-    }, 120);
+    }, 60);
+    // Secondary settle pass handles iOS Safari's delayed address-bar / orientation animation
+    this.resizeSettleTimer = window.setTimeout(() => {
+      this.resizeSettleTimer = null;
+      this.handleResize();
+    }, 340);
   };
 
   private handleResize = () => {
     if (this.isDisposed) return;
     const { width, height } = this.getEffectiveLandscapeDimensions();
-    this.camera.aspect = width / height;
+    const aspect = width / Math.max(1, height);
+    this.camera.aspect = aspect;
+    if (!this.outdoorOverlook.active) {
+      this.camera.fov = computeAdaptiveCameraFov(46, aspect);
+    }
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
     this.renderer.render(this.scene, this.camera);
@@ -14893,8 +14910,10 @@ export class KlasikCafeScene3D {
       }
 
       // Unified, forward-monotonic hysteresis obstacle & crowd avoidance (zero double-avoidance, zero stalling!)
+      // While the Miata is parked outside on the Title Screen, expand the near-sidewalk curbside apron
+      // to z = -10.65 so pedestrians smoothly curve around the Miata curbside without ever clipping its chassis!
       const isNearBand = p.laneZ > -12.0;
-      const bandMinZ = isNearBand ? -9.15 : -17.35;
+      const bandMinZ = isNearBand ? (isMiataOutsideNow ? -10.65 : -9.15) : -17.35;
       const bandMaxZ = isNearBand ? -7.48 : -15.82;
       const steering = computeCrowdAndObstacleSteering({
         selfId: `ped-${i}`,
@@ -15199,9 +15218,28 @@ export class KlasikCafeScene3D {
           });
         }
       } else {
-        sp.x += sp.dir * sp.speed * dt;
-        sp.actor.group.position.set(sp.x, 0.08, sp.laneZ);
-        sp.actor.group.rotation.y = sp.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+        const spNearBand = sp.laneZ > -12.0;
+        const spMinZ = spNearBand ? (isMiataOutsideNow ? -10.65 : -9.15) : -17.35;
+        const spMaxZ = spNearBand ? -7.48 : -15.82;
+        const spSteer = computeCrowdAndObstacleSteering({
+          selfId: 'secret-passerby',
+          x: sp.x,
+          z: sp.actor.group.position.z || sp.laneZ,
+          dir: sp.dir,
+          baseLaneZ: sp.laneZ,
+          minZ: spMinZ,
+          maxZ: spMaxZ,
+          obstacles: sceneryStaticObstacles,
+          neighbors: [],
+        });
+        sp.x += sp.dir * sp.speed * spSteer.speedScale * dt;
+        const spTargetZ = Math.max(spMinZ, Math.min(spMaxZ, sp.laneZ + spSteer.avoidZOffset));
+        const spCurZ = sp.actor.group.position.z || sp.laneZ;
+        const spNextZ = spCurZ + (spTargetZ - spCurZ) * Math.min(1, dt * 5.0);
+        sp.actor.group.position.set(sp.x, 0.08, spNextZ);
+        const spBaseYaw = sp.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+        const spTurnBias = Math.max(-0.42, Math.min(0.42, ((spNextZ - spCurZ) / Math.max(dt, 1e-3)) * 0.25));
+        sp.actor.group.rotation.y = spBaseYaw - sp.dir * spTurnBias;
         sp.walkPhase += sp.speed * dt * 5.0;
         const s = Math.sin(sp.walkPhase);
         const c = Math.cos(sp.walkPhase);
@@ -16261,9 +16299,15 @@ export class KlasikCafeScene3D {
       window.clearTimeout(this.resizeDebounceTimer);
       this.resizeDebounceTimer = null;
     }
+    if (this.resizeSettleTimer !== null) {
+      window.clearTimeout(this.resizeSettleTimer);
+      this.resizeSettleTimer = null;
+    }
     window.removeEventListener('resize', this.scheduleDebouncedResize);
     window.removeEventListener('orientationchange', this.scheduleDebouncedResize);
+    window.removeEventListener('pageshow', this.scheduleDebouncedResize);
     window.visualViewport?.removeEventListener('resize', this.scheduleDebouncedResize);
+    window.visualViewport?.removeEventListener('scroll', this.scheduleDebouncedResize);
     this.resizeObserver?.disconnect();
     this.studioLogoTexture?.dispose();
     this.studioCupEmblemTexture?.dispose();

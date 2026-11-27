@@ -212,13 +212,13 @@ export const RecipeMenuModal: React.FC<RecipeMenuModalProps> = ({
     <div
       data-testid="pos-codex-overlay"
       onClick={onClose}
-      className="fixed inset-0 z-40 flex items-center justify-center p-2 sm:p-4 bg-black/45 backdrop-blur-sm"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center p-2 sm:p-4 bg-black/45 backdrop-blur-sm"
     >
       {/* Diegetic Klasik 3D Roastery POS Tablet Frame */}
       <div
         data-testid="pos-codex-terminal"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[86vw] sm:max-w-[80vw] max-h-[82dvh] h-[78dvh] pos-terminal-bezel rounded-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-[94%] sm:max-w-4xl max-h-full h-full pos-terminal-bezel rounded-2xl overflow-hidden flex flex-col"
       >
         {/* Top Roastery POS Header Bar */}
         <div className="px-3 sm:px-5 py-2.5 border-b border-white/12 bg-[#09090B]/95 flex items-center justify-between gap-3 shrink-0">

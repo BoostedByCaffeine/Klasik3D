@@ -31,12 +31,12 @@ export const StatusModal: React.FC<StatusModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-3"
       role="dialog"
       aria-modal="true"
       aria-labelledby="status-modal-title"
     >
-      <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 text-center">
+      <div className="w-full max-w-lg max-h-full overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-3.5 text-center">
         <div className="space-y-1">
           <div className="text-[11px] font-mono uppercase tracking-wider text-[#A1A1AA] glass-text-crisp">
             {isPaused ? `STORE PAUSED · DAY ${gameState.day}` : `DAILY SUMMARY · DAY ${gameState.day}`}

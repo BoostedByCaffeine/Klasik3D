@@ -132,7 +132,7 @@ export const CatStationOverlay: React.FC<CatStationOverlayProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-30 pointer-events-none flex flex-col justify-between p-2.5 sm:p-4 overflow-hidden"
+      className="absolute inset-0 z-30 pointer-events-none hud-safe-frame flex flex-col justify-between p-2.5 sm:p-4 overflow-hidden"
       data-testid="cat-station-overlay"
     >
       {/* TOP BAR: Back to Cafe | Cat Switcher | Waiting Orders Bell (Patience Paused) */}

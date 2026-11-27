@@ -161,12 +161,12 @@ export const BizUpgradesModal: React.FC<BizUpgradesModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-2.5 sm:p-4"
+      className="absolute inset-0 hud-safe-frame z-40 flex items-center justify-center bg-black/65 backdrop-blur-sm p-2.5 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="upgrades-modal-title"
     >
-      <div className="w-full max-w-3xl glass-modal rounded-2xl p-3.5 sm:p-5 space-y-3 max-h-[86vh] flex flex-col">
+      <div className="w-full max-w-3xl glass-modal rounded-2xl p-3.5 sm:p-5 space-y-3 max-h-full flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/12 pb-2.5 shrink-0 gap-2">
           <div>
