@@ -462,6 +462,7 @@ export interface SecretNpcAssetRig {
   rightKneePivot: THREE.Group;
   basePelvisY: number;
   meshCounts: SecretNpcMeshCounts;
+  phoneMesh: THREE.Mesh;
 }
 
 export interface SecretNpcPoseInput {
@@ -486,6 +487,7 @@ export interface SecretNpcPoseInput {
   rightShoulderX: number;
   rightElbowX: number;
   isWaving?: boolean;
+  holdingPhone?: boolean;
 }
 
 type SecretNpcFactoryFn = (threeRef?: typeof THREE) => THREE.Group;
@@ -694,6 +696,29 @@ export function partitionSecretNpcGroupToRig(
     meshCounts.total++;
   }
 
+  // Dedicated palm-anchored smartphone inside leftElbowPivot so the phone NEVER floats away from the Secret NPC's hand
+  const phoneBodyMat = new THREE.MeshStandardMaterial({
+    color: 0x0f172a,
+    roughness: 0.25,
+    metalness: 0.45,
+  });
+  const phoneScreenMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    emissive: 0x38bdf8,
+    emissiveIntensity: 0.72,
+    roughness: 0.16,
+  });
+  const secretPhone = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.122, 0.012), phoneBodyMat);
+  const phoneScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.052, 0.106), phoneScreenMat);
+  phoneScreen.position.z = 0.0068;
+  secretPhone.add(phoneScreen);
+  // Seated directly in the Secret NPC's left palm (raw forearm length ~0.27m below leftElbowPivot)
+  secretPhone.position.set(0.012, -0.275, 0.042);
+  secretPhone.rotation.set(Math.PI * 0.36, -0.14, 0.08);
+  secretPhone.visible = false;
+  secretPhone.name = 'secret_npc_hand_phone';
+  leftElbowPivot.add(secretPhone);
+
   root.scale.setScalar(SECRET_NPC_ASSET_SCALE);
   return {
     variant,
@@ -711,6 +736,7 @@ export function partitionSecretNpcGroupToRig(
     rightKneePivot,
     basePelvisY,
     meshCounts,
+    phoneMesh: secretPhone,
   };
 }
 
@@ -807,7 +833,8 @@ export function updateSecretNpcAssetPose(
   rig.leftKneePivot.rotation.x = THREE.MathUtils.lerp(walkLeftKnee, seatedKnee, sb);
   rig.rightKneePivot.rotation.x = THREE.MathUtils.lerp(walkRightKnee, seatedKnee, sb);
 
-  // Arms: lively stride swing, natural slight elbow flex, cup/pastry carry, or friendly overhead wave!
+  // Arms: lively stride swing, natural slight elbow flex, palm-anchored phone pose, or friendly overhead wave!
+  rig.phoneMesh.visible = Boolean(pose.holdingPhone) && !pose.isWaving;
   if (pose.isWaving) {
     rig.rightShoulderPivot.rotation.x = -2.25;
     rig.rightShoulderPivot.rotation.z = 0.24 + Math.sin(pose.elapsed * 9.5) * 0.14;
@@ -817,17 +844,24 @@ export function updateSecretNpcAssetPose(
     rig.leftElbowPivot.rotation.x = -0.22;
   } else {
     const idleArmFlex = -0.06 + breath * 0.02;
-    rig.leftShoulderPivot.rotation.x = THREE.MathUtils.clamp(
-      pose.leftShoulderX * 0.86 + idleArmFlex * (1 - wb),
-      -1.45,
-      0.62
-    );
-    rig.leftShoulderPivot.rotation.z = -0.04 - Math.abs(s) * 0.025 * wb;
-    rig.leftElbowPivot.rotation.x = THREE.MathUtils.clamp(
-      pose.leftElbowX * 0.82 - 0.08 * wb,
-      -1.15,
-      0.08
-    );
+    if (pose.holdingPhone) {
+      // Bring left forearm comfortably forward toward eye level so palm & phone align naturally
+      rig.leftShoulderPivot.rotation.x = THREE.MathUtils.clamp(pose.leftShoulderX, -1.35, -0.45);
+      rig.leftShoulderPivot.rotation.z = 0.12;
+      rig.leftElbowPivot.rotation.x = THREE.MathUtils.clamp(pose.leftElbowX, -1.15, -0.45);
+    } else {
+      rig.leftShoulderPivot.rotation.x = THREE.MathUtils.clamp(
+        pose.leftShoulderX * 0.86 + idleArmFlex * (1 - wb),
+        -1.45,
+        0.62
+      );
+      rig.leftShoulderPivot.rotation.z = -0.04 - Math.abs(s) * 0.025 * wb;
+      rig.leftElbowPivot.rotation.x = THREE.MathUtils.clamp(
+        pose.leftElbowX * 0.82 - 0.08 * wb,
+        -1.15,
+        0.08
+      );
+    }
 
     rig.rightShoulderPivot.rotation.x = THREE.MathUtils.clamp(
       pose.rightShoulderX * 0.86 + idleArmFlex * (1 - wb),

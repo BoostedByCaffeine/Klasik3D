@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { applyPatronOutfitToRig, type PatronRigTargets } from './patronOutfits3d';
 import type { ClimateState, PatronOutfitId } from './sceneryData';
+import { computeArticulatedWalkGait } from './npcPhysicsAndSteering';
 
 export type OutdoorNpcPoseMode =
   | 'walk'
@@ -325,30 +326,36 @@ export function updateArticulatedNpcPose(
 
   if (mode === 'walk') {
     const strideFreq = 5.4 * Math.max(0.45, speed);
-    const s = Math.sin(elapsed * strideFreq + phase);
-    const bob = Math.abs(s) * 0.035;
-    rig.pelvisPivot.position.y = 0.76 + bob;
-    rig.torsoGroup.rotation.x = 0.04;
+    const gait = computeArticulatedWalkGait({
+      phase: elapsed * strideFreq + phase,
+      speedNorm: Math.max(0.4, Math.min(1.35, speed)),
+    });
+    rig.pelvisPivot.position.y = 0.76 + gait.pelvisBobY;
+    rig.pelvisPivot.rotation.z = gait.pelvisRollZ;
+    rig.pelvisPivot.rotation.y = gait.pelvisYawY;
+    rig.torsoGroup.rotation.x = gait.torsoPitchX;
+    rig.torsoGroup.rotation.y = gait.torsoYawY;
+    rig.torsoGroup.rotation.z = gait.torsoBankZ;
 
-    rig.leftHipPivot.rotation.x = s * 0.46;
-    rig.rightHipPivot.rotation.x = -s * 0.46;
-    rig.leftKneePivot.rotation.x = Math.max(0, -s) * 0.48;
-    rig.rightKneePivot.rotation.x = Math.max(0, s) * 0.48;
+    rig.leftHipPivot.rotation.x = gait.leftHipX;
+    rig.rightHipPivot.rotation.x = gait.rightHipX;
+    rig.leftKneePivot.rotation.x = gait.leftKneeX;
+    rig.rightKneePivot.rotation.x = gait.rightKneeX;
 
     if (holdingLeftProp) {
-      rig.leftShoulderPivot.rotation.x = -1.08;
+      rig.leftShoulderPivot.rotation.x = -1.08 + gait.secondaryBounce * 0.4;
       rig.leftShoulderPivot.rotation.z = -0.06;
       rig.leftElbowPivot.rotation.x = -0.35;
     } else {
-      rig.leftShoulderPivot.rotation.x = -s * 0.36;
+      rig.leftShoulderPivot.rotation.x = gait.leftShoulderX;
       rig.leftShoulderPivot.rotation.z = 0;
-      rig.leftElbowPivot.rotation.x = -0.18 - Math.max(0, s) * 0.18;
+      rig.leftElbowPivot.rotation.x = gait.leftElbowX;
     }
-    rig.rightShoulderPivot.rotation.x = s * 0.36;
+    rig.rightShoulderPivot.rotation.x = gait.rightShoulderX;
     rig.rightShoulderPivot.rotation.z = 0;
-    rig.rightElbowPivot.rotation.x = -0.18 - Math.max(0, -s) * 0.18;
-    rig.headPivot.rotation.y = Math.sin(elapsed * 0.9 + phase) * 0.16;
-    rig.headPivot.rotation.x = state.lookUpPitch ?? 0;
+    rig.rightElbowPivot.rotation.x = gait.rightElbowX;
+    rig.headPivot.rotation.y = Math.sin(elapsed * 0.9 + phase) * 0.16 - gait.torsoYawY * 0.5;
+    rig.headPivot.rotation.x = (state.lookUpPitch ?? 0) + gait.secondaryBounce * 0.35;
     return;
   }
 

@@ -244,23 +244,22 @@ test('Recessed ice compartment sits cleanly below rinsing sink row with zero cam
   );
 });
 
-test('Favela Boombox Special NPC cycles walk_in -> place -> dancing -> pickup -> walk_out -> cooldown with exact 2.825s video beat lock', () => {
-  // 1. Verify exact calibrated 8-beat funk clip duration (2.825s @ 169.9115 BPM)
-  const clip = createBrazilianLRLRLRLRClip({
-    patternId: 'lrl_rlr_lrlr_funk8',
-    bpm: FAVELA_DANCE_VIDEO_BPM,
-  });
+test('Favela Boombox Special NPC cycles walk_in -> place -> dancing -> pickup -> walk_out -> cooldown with exact 88 BPM guide beat lock', () => {
+  // 1. Verify exact 88 BPM 8-beat mirrored guide clip duration (~5.4545s)
+  const clip = createBrazilianLRLRLRLRClip();
+  const expected88Loop = (8 * 60) / 88;
   assert.ok(
-    Math.abs(clip.duration - FAVELA_DANCE_PHRASE_DURATION_SEC) < 1e-3,
-    `Expected clip duration ${FAVELA_DANCE_PHRASE_DURATION_SEC}s, got ${clip.duration}`
+    Math.abs(clip.duration - expected88Loop) < 1e-3,
+    `Expected 88 BPM 8-beat loop duration ${expected88Loop}s, got ${clip.duration}`
   );
 
-  // 2. Verify microscopic audio-clock beat sync locks to phrase modulo 2.825s
+  // 2. Verify microscopic audio-clock beat sync locks cleanly to loop start & playback-rate-adjusted time
   assert.ok(Math.abs(resolveVideoBeatSyncTime(FAVELA_DANCE_LOOP_START_SEC, 0) - 0) < 1e-4);
+  const rate = 88 / (FAVELA_DANCE_VIDEO_BPM / 2);
   assert.ok(
     Math.abs(
-      resolveVideoBeatSyncTime(FAVELA_DANCE_LOOP_START_SEC + FAVELA_DANCE_PHRASE_DURATION_SEC + 0.5, 0) - 0.5
-    ) < 1e-4
+      resolveVideoBeatSyncTime(FAVELA_DANCE_LOOP_START_SEC + (expected88Loop + 0.5) * rate, 0) - 0.5
+    ) < 1e-3
   );
 
   // 3. Verify complete special NPC lifecycle transitions so dancer never loops forever

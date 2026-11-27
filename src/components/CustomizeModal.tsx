@@ -1,6 +1,8 @@
 import React from 'react';
 import {
+  Building2,
   Cat,
+  Check,
   Clock,
   CloudRain,
   CloudSnow,
@@ -19,6 +21,8 @@ import {
 } from 'lucide-react';
 import {
   DecorCustomization,
+  INTERIOR_THEMES_CATALOG,
+  InteriorThemeId,
   RainPreference,
   SceneryId,
   TimeOfDayMode,
@@ -31,6 +35,8 @@ import { StudioPreviewThumb } from './StudioPreviewThumb';
 
 interface CustomizeModalProps {
   decor: DecorCustomization;
+  cash?: number;
+  unlockedInteriorThemes?: InteriorThemeId[];
   weather: WeatherMode;
   timeOfDayMode: TimeOfDayMode;
   rainPreference: RainPreference;
@@ -43,6 +49,7 @@ interface CustomizeModalProps {
     value: string
   ) => string;
   onUpdateDecor: (next: DecorCustomization) => void;
+  onSelectInteriorTheme?: (themeId: InteriorThemeId) => void;
   onUpdateTimeOfDay: (mode: TimeOfDayMode) => void;
   onUpdateRainPreference: (rain: RainPreference) => void;
   onOpenCafeCats?: () => void;
@@ -52,6 +59,8 @@ interface CustomizeModalProps {
 
 export const CustomizeModal: React.FC<CustomizeModalProps> = ({
   decor,
+  cash = 0,
+  unlockedInteriorThemes = ['garage_garden'],
   weather,
   timeOfDayMode,
   rainPreference,
@@ -61,6 +70,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
   unlockedCatsCount = 1,
   getDecorThumbnail,
   onUpdateDecor,
+  onSelectInteriorTheme,
   onUpdateTimeOfDay,
   onUpdateRainPreference,
   onOpenCafeCats,
@@ -70,6 +80,7 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
   const snowAllowed = isSnowAllowedForScenery(activeScenery);
   const alwaysWinter = isAlwaysWinterScenery(activeScenery);
   const scenerySpec = getScenerySpec(activeScenery);
+  const activeInteriorTheme: InteriorThemeId = decor.interiorTheme ?? 'garage_garden';
 
   return (
     <div
@@ -108,7 +119,104 @@ export const CustomizeModal: React.FC<CustomizeModalProps> = ({
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3.5">
+          {/* Architectural Interior Themes (Free Starter + 5 Cash-Unlockable 3D Makeovers) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-[#E4E4E7] flex items-center gap-1.5 glass-text-crisp">
+                <Building2 className="w-3.5 h-3.5 text-amber-300 shrink-0" strokeWidth={2.2} />
+                <span>Architectural Interior Themes (6 Full 3D Makeovers)</span>
+              </label>
+              <span className="text-[11px] font-mono tabular-nums font-bold text-[#34D399]">
+                Cash: ${cash.toFixed(0)}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {INTERIOR_THEMES_CATALOG.map((theme) => {
+                const isUnlocked =
+                  theme.cost === 0 || unlockedInteriorThemes.includes(theme.id);
+                const isEquipped = activeInteriorTheme === theme.id;
+                const canAfford = cash >= theme.cost;
+
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    data-testid={`btn-interior-theme-${theme.id}`}
+                    disabled={!isUnlocked && !canAfford}
+                    onClick={() => {
+                      if (onSelectInteriorTheme) {
+                        onSelectInteriorTheme(theme.id);
+                      } else if (isUnlocked) {
+                        onUpdateDecor({ ...decor, interiorTheme: theme.id });
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl text-left transition-colors flex items-start gap-2.5 ${
+                      isEquipped
+                        ? 'bg-white/[0.13] border border-white/60 shadow-[0_0_18px_rgba(255,255,255,0.12)] cursor-pointer'
+                        : isUnlocked || canAfford
+                        ? 'glass-btn-inner hover:bg-white/[0.09] cursor-pointer'
+                        : 'bg-[#121216] border border-white/10 cursor-not-allowed'
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-lg shrink-0 border flex flex-col overflow-hidden mt-0.5 ${
+                        !isUnlocked && !canAfford ? 'border-white/10 saturate-75' : 'border-white/20'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="flex-1 w-full"
+                        style={{ backgroundColor: theme.swatchHex }}
+                      />
+                      <div
+                        className="h-3 w-full"
+                        style={{ backgroundColor: theme.accentHex }}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span
+                          className={`text-xs font-bold truncate ${
+                            isEquipped || isUnlocked || canAfford ? 'text-white' : 'text-[#C4C4CC]'
+                          }`}
+                        >
+                          {theme.name}
+                        </span>
+                        {isEquipped ? (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-[#34D399] shrink-0">
+                            <Check className="w-3 h-3" strokeWidth={2.6} />
+                            Equipped
+                          </span>
+                        ) : isUnlocked ? (
+                          <span className="text-[10px] font-semibold text-[#D4D4D8] shrink-0">
+                            Equip
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-0.5 text-[10px] font-mono tabular-nums font-bold shrink-0 ${
+                              canAfford ? 'text-amber-300' : 'text-[#8F8F99]'
+                            }`}
+                          >
+                            <Lock className="w-2.5 h-2.5" strokeWidth={2.3} />
+                            ${theme.cost}
+                          </span>
+                        )}
+                      </div>
+                      <p
+                        className={`text-[10px] leading-snug line-clamp-2 ${
+                          isEquipped || isUnlocked || canAfford ? 'text-[#A1A1AA]' : 'text-[#7C7C86]'
+                        }`}
+                      >
+                        {theme.tagline} · {theme.architecturalHighlights}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Countertop Timber with 3D Thumbnails */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-[#E4E4E7] flex items-center gap-1.5 glass-text-crisp">

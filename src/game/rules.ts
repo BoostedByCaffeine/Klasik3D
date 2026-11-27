@@ -27,6 +27,10 @@ import {
   normalizeCatLoadout,
   syncCatCosmeticMilestones,
 } from './catCosmeticsData';
+import {
+  selectSpreadLoungeSeat,
+  rollDineInStaySeconds,
+} from './npcPhysicsAndSteering';
 
 export {
   ALL_CAT_COSMETIC_IDS,
@@ -890,7 +894,7 @@ export function getVisibleShopCats(unlockedCats: readonly CafeCatId[]): CafeCatS
 
 export const SHIFT_SECONDS = 300;
 export const MAX_QUEUE = 3;
-export const MAX_GARDEN_SEATS = 6;
+export const MAX_GARDEN_SEATS = 8;
 export const DAILY_REALTIME_CUP_QUOTA = 35;
 export const DAILY_QUOTA_COMPLETION_BONUS = 120;
 export const DELIVERY_PARTNER_BONUS = 3;
@@ -1430,7 +1434,97 @@ export interface LoginRewardItem {
   claimed: boolean;
 }
 
+export type InteriorThemeId =
+  | 'garage_garden'
+  | 'botanical_greenhouse'
+  | 'midnight_vinyl'
+  | 'parisian_bistro'
+  | 'kyoto_timber'
+  | 'industrial_loft';
+
+export interface InteriorThemeSpec {
+  id: InteriorThemeId;
+  name: string;
+  tagline: string;
+  architecturalHighlights: string;
+  cost: number;
+  swatchHex: string;
+  accentHex: string;
+}
+
+export const INTERIOR_THEMES_CATALOG: readonly InteriorThemeSpec[] = [
+  {
+    id: 'garage_garden',
+    name: 'Garage Garden',
+    tagline: 'Starter Architecture',
+    architecturalHighlights: 'Walnut rafters · Terrazzo floor · Brushed aluminum pendants',
+    cost: 0,
+    swatchHex: '#4a2c18',
+    accentHex: '#10b981',
+  },
+  {
+    id: 'botanical_greenhouse',
+    name: 'Botanical Greenhouse',
+    tagline: 'Hanging Ferns & Conservatory',
+    architecturalHighlights: 'Sage iron glasshouse beams · Terracotta fern baskets · Limestone floor',
+    cost: 180,
+    swatchHex: '#2e7d32',
+    accentHex: '#c26a45',
+  },
+  {
+    id: 'midnight_vinyl',
+    name: 'Midnight Vinyl Lounge',
+    tagline: 'Edison Bulbs & Acoustic Slats',
+    architecturalHighlights: 'Walnut acoustic wall · Filament bulb clusters · Framed LP gallery',
+    cost: 240,
+    swatchHex: '#3b2416',
+    accentHex: '#f59e0b',
+  },
+  {
+    id: 'industrial_loft',
+    name: 'Industrial Loft Brick',
+    tagline: 'Exposed Pipes & Steel Cages',
+    architecturalHighlights: 'Exposed red-brick wall · Iron & copper ceiling conduits · Factory pendants',
+    cost: 260,
+    swatchHex: '#8f3a2b',
+    accentHex: '#fb923c',
+  },
+  {
+    id: 'parisian_bistro',
+    name: 'Parisian Brass Bistro',
+    tagline: 'Carrara Marble & Gilt Mirrors',
+    architecturalHighlights: 'Checkered tile floor · Marble tabletops · Fluted brass sconces',
+    cost: 290,
+    swatchHex: '#f5f0e6',
+    accentHex: '#dcb35c',
+  },
+  {
+    id: 'kyoto_timber',
+    name: 'Kyoto Timber & Lanterns',
+    tagline: 'Shoji Lattice & Washi Glow',
+    architecturalHighlights: 'Backlit cedar shoji screens · Hanging paper lanterns · Tatami lounge',
+    cost: 320,
+    swatchHex: '#c99c68',
+    accentHex: '#ffb74d',
+  },
+] as const;
+
+export const ALL_INTERIOR_THEME_IDS: readonly InteriorThemeId[] = INTERIOR_THEMES_CATALOG.map(
+  (t) => t.id
+);
+
+export function isValidInteriorThemeId(value: unknown): value is InteriorThemeId {
+  return typeof value === 'string' && (ALL_INTERIOR_THEME_IDS as readonly string[]).includes(value);
+}
+
+export function getInteriorThemeSpec(themeId: InteriorThemeId): InteriorThemeSpec {
+  return (
+    INTERIOR_THEMES_CATALOG.find((t) => t.id === themeId) || INTERIOR_THEMES_CATALOG[0]
+  );
+}
+
 export interface DecorCustomization {
+  interiorTheme?: InteriorThemeId;
   counterWood: 'walnut' | 'white-oak' | 'charcoal-ash' | 'cherry-mahogany' | 'bamboo-zen';
   mugColor: 'cream' | 'matte-black' | 'sage-green' | 'terracotta' | 'royal-gold' | 'sakura-pink';
   neonSignColor: 'amber' | 'emerald' | 'rose' | 'cyber-cyan' | 'violet-dream';
@@ -1525,6 +1619,7 @@ export interface KlasikGameState {
   loginRewards: LoginRewardItem[];
   loginStreakDays: number;
   decor: DecorCustomization;
+  unlockedInteriorThemes: InteriorThemeId[];
   unlockedCats: CafeCatId[];
   secretCatsUnlocked: CafeCatId[];
   equippedCatId: CafeCatId;
@@ -2125,11 +2220,13 @@ export function createInitialGameState(): KlasikGameState {
     loginRewards: INITIAL_LOGIN_REWARDS.map((r) => ({ ...r })),
     loginStreakDays: 1,
     decor: {
+      interiorTheme: 'garage_garden',
       counterWood: 'walnut',
       mugColor: 'cream',
       neonSignColor: 'amber',
       plantDensity: 'lush-jungle',
     },
+    unlockedInteriorThemes: ['garage_garden'],
     unlockedCats: ['champy'],
     secretCatsUnlocked: [],
     equippedCatId: 'champy',
@@ -3218,10 +3315,50 @@ export function unlockAllEverythingCheat(state: KlasikGameState): KlasikGameStat
     unlockedCosmetics: [...ALL_CAT_COSMETIC_IDS],
     unlockedSceneries: [...ALL_SCENERY_IDS],
     unlockedPatronOutfits: [...ALL_PATRON_OUTFIT_IDS],
+    unlockedInteriorThemes: [...ALL_INTERIOR_THEME_IDS],
     goldenEspressoUnlocked: true,
     hasUnseenCatUnlock: true,
     cookieJarCheatUnlocked: true,
     lastActionFeedback: 'you got what you wanted, now enjoy',
+  };
+}
+
+export function purchaseOrEquipInteriorTheme(
+  state: KlasikGameState,
+  themeId: InteriorThemeId
+): KlasikGameState {
+  const spec = getInteriorThemeSpec(themeId);
+  const unlocked = state.unlockedInteriorThemes || ['garage_garden'];
+  const alreadyUnlocked = spec.cost <= 0 || unlocked.includes(themeId);
+
+  if (alreadyUnlocked) {
+    return {
+      ...state,
+      decor: {
+        ...state.decor,
+        interiorTheme: themeId,
+      },
+      unlockedInteriorThemes: unlocked.includes(themeId) ? unlocked : [...unlocked, themeId],
+      lastActionFeedback: `Cafe architecture transformed: ${spec.name}!`,
+    };
+  }
+
+  if (state.cash < spec.cost) {
+    return {
+      ...state,
+      lastActionFeedback: `Need $${spec.cost} cash to remodel into ${spec.name}.`,
+    };
+  }
+
+  return {
+    ...state,
+    cash: state.cash - spec.cost,
+    decor: {
+      ...state.decor,
+      interiorTheme: themeId,
+    },
+    unlockedInteriorThemes: [...unlocked, themeId],
+    lastActionFeedback: `Unlocked & remodeled cafe into ${spec.name} (-$${spec.cost})!`,
   };
 }
 
@@ -3349,20 +3486,35 @@ export function serveCurrentCupToCustomer(
   // Takeout & Delivery Rider patrons leave straight through the front entrance without occupying any indoor seat!
   const isTakeoutOrder =
     targetCustomer.orderType === 'takeout' || Boolean(targetCustomer.isDeliveryRider);
+  let customerSeed = 0;
+  for (let si = 0; si < targetCustomer.id.length; si++) {
+    customerSeed = (customerSeed * 31 + targetCustomer.id.charCodeAt(si)) >>> 0;
+  }
+
   let assignedSeat: number | null = null;
   if (!isTakeoutOrder) {
-    const occupiedSeats = new Set(
+    const occupiedSeats = new Set<number>(
       state.customers
         .filter((c) => c.state === 'seated' && c.seatIndex !== null)
-        .map((c) => c.seatIndex)
+        .map((c) => c.seatIndex as number)
     );
-    for (let i = 0; i < MAX_GARDEN_SEATS; i++) {
-      if (!occupiedSeats.has(i)) {
-        assignedSeat = i;
-        break;
-      }
-    }
+    // Spread dine-in patrons evenly across ALL 4 lounge tables (rotating by totalCupsServed)
+    // First served customer in a fresh cafe cleanly takes Table 0 Seat 0, subsequent patrons spread across tables 1, 2, 3!
+    const rotationNorm =
+      occupiedSeats.size === 0 && state.totalCupsServed === 0
+        ? 0
+        : ((state.totalCupsServed * 0.27 + (customerSeed % 7) * 0.13) % 1);
+    assignedSeat = selectSpreadLoungeSeat(
+      occupiedSeats,
+      MAX_GARDEN_SEATS,
+      2,
+      () => rotationNorm
+    );
   }
+
+  const dineInStaySeconds = rollDineInStaySeconds(
+    () => ((customerSeed * 17 + state.totalCupsServed * 31) % 100) / 100
+  );
 
   const updatedCustomers = state.customers.map((c) => {
     if (c.id !== targetCustomer.id) return c;
@@ -3372,7 +3524,7 @@ export function serveCurrentCupToCustomer(
       seatIndex: assignedSeat,
       seatedTimer:
         assignedSeat !== null
-          ? 24
+          ? dineInStaySeconds
           : targetCustomer.isDeliveryRider
           ? 16
           : isTakeoutOrder
@@ -4696,6 +4848,7 @@ export function exportSaveJson(state: KlasikGameState): string {
         loginRewards: state.loginRewards,
         loginStreakDays: state.loginStreakDays,
         decor: state.decor,
+        unlockedInteriorThemes: state.unlockedInteriorThemes || ['garage_garden'],
         unlockedCats: state.unlockedCats || ['champy'],
         secretCatsUnlocked: state.secretCatsUnlocked || [],
         equippedCatId: state.equippedCatId || 'champy',
@@ -5036,7 +5189,23 @@ export function importSaveJson(jsonStr: string): KlasikGameState | null {
       customers: syncedCustomers,
       loginRewards: mergedLogin,
       loginStreakDays: restoredLoginState.streakDay,
-      decor: d.decor ? { ...base.decor, ...d.decor } : base.decor,
+      decor: d.decor
+        ? {
+            ...base.decor,
+            ...d.decor,
+            interiorTheme: isValidInteriorThemeId(d.decor.interiorTheme)
+              ? d.decor.interiorTheme
+              : 'garage_garden',
+          }
+        : base.decor,
+      unlockedInteriorThemes: Array.isArray(d.unlockedInteriorThemes)
+        ? Array.from(
+            new Set<InteriorThemeId>([
+              'garage_garden',
+              ...d.unlockedInteriorThemes.filter(isValidInteriorThemeId),
+            ])
+          )
+        : ['garage_garden'],
       unlockedCats: syncedCats,
       secretCatsUnlocked: catSync.secretCatsUnlocked,
       equippedCatId: restoredEquippedCat,

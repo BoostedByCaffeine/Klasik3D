@@ -84,18 +84,12 @@ import { DoorwayTrafficController } from './doorwayTraffic';
 import { OutdoorOverlookController, OutdoorVantageKey } from './OutdoorOverlookController';
 import { ThumbnailStudio } from './ThumbnailStudio';
 import {
-  DEFAULT_SIDEWALK_BOUNDS,
-  computeAvoidedSidewalkZ,
-  getSidewalkObstacles,
-} from './sidewalkAvoidance';
-import {
   OutdoorNpcBehavior,
   PEDESTRIAN_CORNER_BOUND,
   ROAD_ELEVATION_LAYERS,
   TRAFFIC_MIN_LANE_SPACING,
   TRAFFIC_X_BOUND,
   T_JUNCTION_OUTER_EDGE,
-  computeLeashTransform,
   evaluateCornerTurnPath,
   getEiffelRoadPose,
   getJunctionTurnOutZSign,
@@ -104,6 +98,20 @@ import {
   isUrbanStreetScenery,
   stepTwoLaneTraffic,
 } from './outdoorLod';
+import {
+  type NpcAgentFootprint,
+  type SculptedDogRig,
+  buildChairSafeExitWaypoints,
+  buildSculptedDogRig,
+  computeArticulatedWalkGait,
+  computeCrowdAndObstacleSteering,
+  getSceneryStaticObstacles,
+  updateSculptedDogAndLeash,
+} from './npcPhysicsAndSteering';
+import {
+  type InteriorDecorTheme3DRig,
+  buildInteriorDecorThemes3D,
+} from './interiorDecorThemes3d';
 
 // Pre-allocated scratch math objects (Zero GC in render loop)
 const _targetPos = new THREE.Vector3();
@@ -454,14 +462,14 @@ interface PooledPedestrian {
   skin: string;
   shirt: string;
   appliedOutfitKey: string;
-  dogRig: {
-    root: THREE.Group;
-    legs: THREE.Mesh[];
-    tail: THREE.Mesh;
-    leash: THREE.Mesh;
-  } | null;
+  prevYaw: number;
+  smoothedYaw: number;
+  avoidSideMemory: -1 | 0 | 1;
+  dogRig: SculptedDogRig | null;
   lanternGroup: THREE.Group | null;
   hikerGear: THREE.Group | null;
+  trekkingPoleRight: THREE.Group | null;
+  trekkingPoleLeft: THREE.Group | null;
   neonUmbrella: THREE.Group | null;
   footballMesh: THREE.Mesh | null;
 }
@@ -736,6 +744,8 @@ export class KlasikCafeScene3D {
   private urbanRoadAndCrosswalkGroup!: THREE.Group;
   private natureWalkwayApronGroup!: THREE.Group;
   private pendantBulbMats: THREE.MeshStandardMaterial[] = [];
+  private defaultPendantsGroup: THREE.Group | null = null;
+  private interiorWallPlasterMat: THREE.MeshStandardMaterial | null = null;
   private streetLampBulbMats: THREE.MeshStandardMaterial[] = [];
   private streetLampConeMat!: THREE.MeshBasicMaterial;
   private streetLampPoolMat!: THREE.MeshBasicMaterial;
@@ -848,10 +858,14 @@ export class KlasikCafeScene3D {
 
   // Pooled Outdoor Living World (Full-Quality Pedestrians & Stylized Traffic) + 2D Static Colliders
   private pedestrianPool: PooledPedestrian[] = [];
+  private pedFootprintsScratch: NpcAgentFootprint[] = [];
+  private pedHandWorldScratch = new THREE.Vector3();
+  private pedHandLocalScratch = new THREE.Vector3();
   private doorwayTraffic = new DoorwayTrafficController();
   private lastPedestrianOutfitSyncKey = '';
   private trafficPool: PooledTrafficVehicle[] = [];
   private staticColliders: StaticCollider2D[] = [];
+  private interiorDecorRig: InteriorDecorTheme3DRig | null = null;
 
   // 3D Shop Upgrade Showroom & Counter Props
   private upgradeTubePreampGroup!: THREE.Group;
@@ -908,6 +922,7 @@ export class KlasikCafeScene3D {
   // Phase 6: Overhauled Pastry Display Case & Staged Prepared Pastry (Mini Plate / Kraft Bag)
   private pastryCaseItemGroups: Map<PastryId, THREE.Group> = new Map();
   private pastryCaseHaloMats: Map<PastryId, THREE.MeshBasicMaterial> = new Map();
+  private pastryCaseBeaconGroups: Map<PastryId, THREE.Group> = new Map();
   private preparedPastryStageGroup!: THREE.Group;
   private preparedPlateGroup!: THREE.Group;
   private preparedBagGroup!: THREE.Group;
@@ -2764,6 +2779,7 @@ export class KlasikCafeScene3D {
       roughness: 0.82,
       metalness: 0.04,
     });
+    this.interiorWallPlasterMat = warmPlasterMat;
     const concreteDadoMat = new THREE.MeshStandardMaterial({
       color: 0x35322f,
       roughness: 0.76,
@@ -3325,7 +3341,10 @@ export class KlasikCafeScene3D {
       archGroup.add(skylight);
     });
 
-    // 5 Suspended Brushed-Brass Industrial Dome Pendant Lamps (over Miata bay, counter & lounge)
+    // 5 Suspended Brushed-Brass Industrial Dome Pendant Lamps (hidden cleanly when a full-room custom theme supplies its own hanging fixtures)
+    const defaultPendantsGroup = new THREE.Group();
+    defaultPendantsGroup.name = 'default_garage_pendants';
+    this.defaultPendantsGroup = defaultPendantsGroup;
     const pendantCoords: Array<[number, number, number]> = [
       [-3.45, 2.52, -3.55],
       [-1.05, 2.56, 0.38],
@@ -3369,8 +3388,9 @@ export class KlasikCafeScene3D {
       pGroup.add(bulb);
 
       pGroup.position.set(px, py, pz);
-      archGroup.add(pGroup);
+      defaultPendantsGroup.add(pGroup);
     });
+    archGroup.add(defaultPendantsGroup);
 
     // Volumetric Skylight Sunbeams softly illuminating the Miata Showroom & Walnut Lounge
     const sunbeamMat = new THREE.MeshBasicMaterial({
@@ -3560,6 +3580,10 @@ export class KlasikCafeScene3D {
 
     // 11. Subtle Diegetic Step Halo Ring on Counter Surface
     this.buildStepHaloHighlight();
+
+    // 12. Architectural Interior Decor Themes (6 distinct 3D build-outs toggled cleanly with zero geometry rebuild)
+    this.interiorDecorRig = buildInteriorDecorThemes3D(LOUNGE_TABLE_LAYOUT);
+    archGroup.add(this.interiorDecorRig.root);
 
     this.scene.add(archGroup);
   }
@@ -4778,13 +4802,14 @@ export class KlasikCafeScene3D {
   private syncOutdoorBiomeAndLod(force = false) {
     const sc = this.gameState.activeScenery || 'busy_street';
     this.outdoorOverlook.setSceneryId(sc);
-    const isPlayerOutside = this.outdoorOverlook.active || this.gameState.phase === 'title';
+    const isTitlePhase = this.gameState.phase === 'title';
+    const isPlayerOutside = this.outdoorOverlook.active || isTitlePhase;
     const isWinter =
       this.gameState.climateState === 'winter' ||
       Boolean(this.gameState.isSnowing) ||
       sc === 'mt_everest';
     const quality = this.gameState.graphicsQuality;
-    const key = `${sc}|${isPlayerOutside ? 1 : 0}|${isWinter ? 1 : 0}|${quality}`;
+    const key = `${sc}|${isPlayerOutside ? 1 : 0}|${isTitlePhase ? 1 : 0}|${isWinter ? 1 : 0}|${quality}`;
     if (!force && key === this.lastOutdoorLodKey) return;
     this.lastOutdoorLodKey = key;
 
@@ -4860,10 +4885,15 @@ export class KlasikCafeScene3D {
       }
     });
 
-    // 4. Apply Pedestrian Pool LOD Budget & Outdoor-Only Scenery Behaviors
+    // 4. Apply Pedestrian Pool LOD Budget & Calm Sparse Sidewalk Traffic (minimal overlap on title & outdoor streets)
     const behaviorPool = getSceneryOutdoorBehaviors(sc);
+    const activePedCap = isTitlePhase
+      ? Math.min(4, budgets.maxPedestrians)
+      : isPlayerOutside
+      ? Math.min(5, budgets.maxPedestrians)
+      : budgets.maxPedestrians;
     this.pedestrianPool.forEach((p, idx) => {
-      p.actor.group.visible = idx < budgets.maxPedestrians;
+      p.actor.group.visible = idx < activePedCap;
       const assignedBehavior: OutdoorNpcBehavior = budgets.enableRichNpcBehaviors
         ? behaviorPool[idx % behaviorPool.length]
         : 'plain_stroll';
@@ -4891,9 +4921,16 @@ export class KlasikCafeScene3D {
         p.lanternGroup.visible =
           budgets.enableRichNpcBehaviors && assignedBehavior === 'lantern_stroll';
       }
+      const showHikerGear =
+        budgets.enableRichNpcBehaviors && assignedBehavior === 'everest_hiker';
       if (p.hikerGear) {
-        p.hikerGear.visible =
-          budgets.enableRichNpcBehaviors && assignedBehavior === 'everest_hiker';
+        p.hikerGear.visible = showHikerGear;
+      }
+      if (p.trekkingPoleRight) {
+        p.trekkingPoleRight.visible = showHikerGear;
+      }
+      if (p.trekkingPoleLeft) {
+        p.trekkingPoleLeft.visible = showHikerGear;
       }
       if (p.neonUmbrella) {
         p.neonUmbrella.visible =
@@ -5199,10 +5236,18 @@ export class KlasikCafeScene3D {
 
     this.pastryCaseItemGroups.clear();
     this.pastryCaseHaloMats.clear();
+    this.pastryCaseBeaconGroups.clear();
     const hitInvisibleMat = new THREE.MeshBasicMaterial({
       transparent: true,
       opacity: 0,
       depthWrite: false,
+    });
+    const beaconGoldMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 1.55,
+      roughness: 0.2,
+      metalness: 0.4,
     });
 
     pastryShowcaseDefs.forEach((def) => {
@@ -5225,7 +5270,7 @@ export class KlasikCafeScene3D {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
-      const haloRing = new THREE.Mesh(new THREE.RingGeometry(0.052, 0.068, 22), haloMat);
+      const haloRing = new THREE.Mesh(new THREE.RingGeometry(0.052, 0.074, 24), haloMat);
       haloRing.rotation.x = -Math.PI / 2;
       haloRing.position.y = 0.006;
       slotGroup.add(haloRing);
@@ -5235,6 +5280,19 @@ export class KlasikCafeScene3D {
       const pastryMesh = this.buildSculptedPastryMesh(def.id, 1.0);
       pastryMesh.position.y = 0.006;
       slotGroup.add(pastryMesh);
+
+      // Elevated bobbing golden 3D diamond/chevron indicator beacon above the requested pastry
+      const beaconGroup = new THREE.Group();
+      const arrowCone = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.044, 6), beaconGoldMat);
+      arrowCone.rotation.x = Math.PI;
+      arrowCone.position.y = 0.022;
+      const crownGem = new THREE.Mesh(new THREE.OctahedronGeometry(0.014, 0), beaconGoldMat);
+      crownGem.position.y = 0.058;
+      beaconGroup.add(arrowCone, crownGem);
+      beaconGroup.position.set(0, 0.095, 0);
+      beaconGroup.visible = false;
+      slotGroup.add(beaconGroup);
+      this.pastryCaseBeaconGroups.set(def.id, beaconGroup);
 
       // Generous invisible tap hitbox for reliable mobile & desktop pastry selection
       const hitCyl = new THREE.Mesh(
@@ -9251,21 +9309,25 @@ export class KlasikCafeScene3D {
   }
 
   private buildOutdoorPedestrianPool() {
+    // Calm, sparse directional sub-lanes: Eastbound (+1) and Westbound (-1) occupy separated Z bands
+    // and wide X spacing so title-screen and outdoor passersby glide smoothly with minimal overlap!
     const pedProfiles = [
-      { seed: 101, skin: '#f3d2b3', shirt: '#3b82f6', laneZ: -7.95, x: -9.5, dir: 1 as const, speed: 1.18 },
-      { seed: 207, skin: '#c68642', shirt: '#10b981', laneZ: -8.55, x: 5.2, dir: -1 as const, speed: 1.28 },
-      { seed: 313, skin: '#f1c27d', shirt: '#f43f5e', laneZ: -16.45, x: -3.2, dir: 1 as const, speed: 1.12 },
-      { seed: 419, skin: '#8d5524', shirt: '#f59e0b', laneZ: -8.25, x: 11.2, dir: -1 as const, speed: 1.22 },
-      { seed: 523, skin: '#ffdbac', shirt: '#8b5cf6', laneZ: -16.85, x: 7.4, dir: -1 as const, speed: 1.08 },
-      { seed: 631, skin: '#d8a373', shirt: '#06b6d4', laneZ: -16.35, x: -11.5, dir: 1 as const, speed: 1.16 },
-      { seed: 743, skin: '#e0ac69', shirt: '#ec4899', laneZ: -8.45, x: -2.4, dir: 1 as const, speed: 1.2 },
-      { seed: 857, skin: '#a86b3c', shirt: '#eab308', laneZ: -16.7, x: 12.6, dir: -1 as const, speed: 1.14 },
+      { seed: 101, skin: '#f3d2b3', shirt: '#3b82f6', laneZ: -7.82, x: -16.5, dir: 1 as const, speed: 1.14 },
+      { seed: 207, skin: '#c68642', shirt: '#10b981', laneZ: -8.68, x: 14.5, dir: -1 as const, speed: 1.18 },
+      { seed: 313, skin: '#f1c27d', shirt: '#f43f5e', laneZ: -16.12, x: -18.5, dir: 1 as const, speed: 1.08 },
+      { seed: 523, skin: '#ffdbac', shirt: '#8b5cf6', laneZ: -16.92, x: 17.5, dir: -1 as const, speed: 1.06 },
+      { seed: 419, skin: '#8d5524', shirt: '#f59e0b', laneZ: -7.82, x: 7.5, dir: 1 as const, speed: 1.16 },
+      { seed: 631, skin: '#d8a373', shirt: '#06b6d4', laneZ: -16.12, x: 5.5, dir: 1 as const, speed: 1.12 },
+      { seed: 743, skin: '#e0ac69', shirt: '#ec4899', laneZ: -8.68, x: -9.5, dir: -1 as const, speed: 1.15 },
+      { seed: 857, skin: '#a86b3c', shirt: '#eab308', laneZ: -16.92, x: -6.5, dir: -1 as const, speed: 1.10 },
     ];
 
-    const dogFurColors = [0xc28b4e, 0xe7d3b7, 0x6b4423, 0x3f3f46];
-    const leashMat = new THREE.MeshBasicMaterial({ color: 0x18181b });
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.6 });
+    const dogFurColors = [0xc28b4e, 0xe7d3b7, 0x6b4423, 0x4b5563];
+    const dogCollarColors = [0xdc2626, 0x2563eb, 0x16a34a, 0xd97706];
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.36, metalness: 0.76 });
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 });
     const packMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.75 });
+    const packAccentMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.78 });
     const lanternPaperMat = new THREE.MeshStandardMaterial({
       color: 0xffedd5,
       emissive: 0xf97316,
@@ -9274,6 +9336,26 @@ export class KlasikCafeScene3D {
     });
     const neonUmbrellaColors = [0x06b6d4, 0xec4899, 0xa855f7];
     const ballMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.6 });
+
+    const buildHandTrekkingPole = (): THREE.Group => {
+      const pole = new THREE.Group();
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.016, 0.13, 8), gripMat);
+      grip.position.y = 0.01;
+      const strap = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.005, 5, 10), packAccentMat);
+      strap.position.set(0, 0.04, -0.018);
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.0075, 0.96, 6), poleMat);
+      shaft.position.y = -0.49;
+      const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.012, 8), packAccentMat);
+      basket.position.y = -0.88;
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.045, 6), gripMat);
+      tip.rotation.x = Math.PI;
+      tip.position.y = -0.99;
+      pole.add(grip, strap, shaft, basket, tip);
+      pole.position.set(0.0, -0.22, 0.025);
+      pole.rotation.x = 0.14;
+      pole.visible = false;
+      return pole;
+    };
 
     this.pedestrianPool = [];
     pedProfiles.forEach((cfg, idx) => {
@@ -9290,47 +9372,14 @@ export class KlasikCafeScene3D {
       actor.appliedVesselType = pedVessel;
       this.setVesselVariantVisibility(actor.heldVesselVariants, pedVessel);
 
-      // 1. Optional Outdoor Dog Walker Companion + Thin Leash (attached to actor.group local +Z forward)
-      const dogRoot = new THREE.Group();
-      const furMat = new THREE.MeshStandardMaterial({
-        color: dogFurColors[idx % dogFurColors.length],
-        roughness: 0.85,
-      });
-      const dBody = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.36), furMat);
-      dBody.position.set(0.26, 0.22, 0.72);
-      dogRoot.add(dBody);
-      const dHead = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.15), furMat);
-      dHead.position.set(0.26, 0.31, 0.92);
-      dogRoot.add(dHead);
-      const dTail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 0.04), furMat);
-      dTail.position.set(0.26, 0.31, 0.54);
-      dTail.rotation.x = -0.45;
-      dogRoot.add(dTail);
-      const dLegs: THREE.Mesh[] = [];
-      [
-        [-0.06, 0.12],
-        [0.06, 0.12],
-        [-0.06, -0.12],
-        [0.06, -0.12],
-      ].forEach(([lx, lz]) => {
-        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.15, 0.045), furMat);
-        leg.position.set(0.26 + lx, 0.08, 0.72 + lz);
-        dogRoot.add(leg);
-        dLegs.push(leg);
-      });
-      // Phase 1.3: Dynamic Hand-to-Collar Dog Leash (unit-length cylinder scaled & quaternion-aligned strictly from NPC right hand forward to dog collar!)
-      const leash = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 1.0, 5), leashMat);
-      const initLeash = computeLeashTransform(
-        { x: 0.21, y: 0.78, z: 0.21 },
-        { x: 0.26, y: 0.29, z: 0.85 }
+      // 1. Sculpted Multi-Part Companion Dog + Live Catenary Physics Leash
+      const dogRig = buildSculptedDogRig(
+        idx,
+        dogFurColors[idx % dogFurColors.length],
+        dogCollarColors[idx % dogCollarColors.length]
       );
-      leash.position.set(initLeash.midpoint.x, initLeash.midpoint.y, initLeash.midpoint.z);
-      leash.scale.set(1, initLeash.length, 1);
-      _tempVec.set(initLeash.direction.x, initLeash.direction.y, initLeash.direction.z);
-      leash.quaternion.setFromUnitVectors(_upVec, _tempVec);
-      dogRoot.add(leash);
-      dogRoot.visible = false;
-      actor.group.add(dogRoot);
+      dogRig.root.visible = false;
+      actor.group.add(dogRig.root);
 
       // 2. Japanese Tranquility Glowing Paper Lantern carried ahead on right hand
       const lanternGroup = new THREE.Group();
@@ -9345,17 +9394,23 @@ export class KlasikCafeScene3D {
       lanternGroup.visible = false;
       actor.rightElbowJoint.add(lanternGroup);
 
-      // 3. Mt. Everest Hiker Backpack + Trekking Pole
+      // 3. Mt. Everest Hiker Framed Backpack (torso) + Hand-Anchored Trekking Poles (left & right elbows!)
       const hikerGear = new THREE.Group();
-      const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.18), packMat);
+      const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.4, 0.19), packMat);
       backpack.position.set(0, 0.24, -0.18);
-      hikerGear.add(backpack);
-      const trekkingPole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.01, 1.05, 6), poleMat);
-      trekkingPole.position.set(0.26, -0.02, 0.26);
-      trekkingPole.rotation.x = 0.22;
-      hikerGear.add(trekkingPole);
+      const packLid = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.075, 0.2), packAccentMat);
+      packLid.position.set(0, 0.45, -0.18);
+      const bedroll = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.32, 8), poleMat);
+      bedroll.rotation.z = Math.PI / 2;
+      bedroll.position.set(0, 0.51, -0.18);
+      hikerGear.add(backpack, packLid, bedroll);
       hikerGear.visible = false;
       actor.torsoGroup.add(hikerGear);
+
+      const trekkingPoleRight = buildHandTrekkingPole();
+      actor.rightElbowJoint.add(trekkingPoleRight);
+      const trekkingPoleLeft = buildHandTrekkingPole();
+      actor.leftElbowJoint.add(trekkingPoleLeft);
 
       // 4. Cyberpunk Translucent Neon Umbrella
       const neonUmbrella = new THREE.Group();
@@ -9390,8 +9445,9 @@ export class KlasikCafeScene3D {
         }
       });
 
+      const initYaw = cfg.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
       actor.group.position.set(cfg.x, 0.08, cfg.laneZ);
-      actor.group.rotation.y = cfg.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
+      actor.group.rotation.y = initYaw;
       this.scene.add(actor.group);
 
       this.pedestrianPool.push({
@@ -9411,9 +9467,14 @@ export class KlasikCafeScene3D {
         skin: cfg.skin,
         shirt: cfg.shirt,
         appliedOutfitKey: '',
-        dogRig: { root: dogRoot, legs: dLegs, tail: dTail, leash },
+        prevYaw: initYaw,
+        smoothedYaw: initYaw,
+        avoidSideMemory: 0,
+        dogRig,
         lanternGroup,
         hikerGear,
+        trekkingPoleRight,
+        trekkingPoleLeft,
         neonUmbrella,
         footballMesh,
       });
@@ -9473,6 +9534,8 @@ export class KlasikCafeScene3D {
       if (p.dogRig) p.actor.group.remove(p.dogRig.root);
       if (p.lanternGroup) p.actor.rightElbowJoint.remove(p.lanternGroup);
       if (p.hikerGear) p.actor.torsoGroup.remove(p.hikerGear);
+      if (p.trekkingPoleRight) p.actor.rightElbowJoint.remove(p.trekkingPoleRight);
+      if (p.trekkingPoleLeft) p.actor.leftElbowJoint.remove(p.trekkingPoleLeft);
       if (p.neonUmbrella) p.actor.torsoGroup.remove(p.neonUmbrella);
       if (p.footballMesh) p.actor.rightElbowJoint.remove(p.footballMesh);
 
@@ -9497,6 +9560,8 @@ export class KlasikCafeScene3D {
       if (p.dogRig) rebuilt.group.add(p.dogRig.root);
       if (p.lanternGroup) rebuilt.rightElbowJoint.add(p.lanternGroup);
       if (p.hikerGear) rebuilt.torsoGroup.add(p.hikerGear);
+      if (p.trekkingPoleRight) rebuilt.rightElbowJoint.add(p.trekkingPoleRight);
+      if (p.trekkingPoleLeft) rebuilt.leftElbowJoint.add(p.trekkingPoleLeft);
       if (p.neonUmbrella) rebuilt.torsoGroup.add(p.neonUmbrella);
       if (p.footballMesh) rebuilt.rightElbowJoint.add(p.footballMesh);
 
@@ -12810,6 +12875,25 @@ export class KlasikCafeScene3D {
       this.redrawHangingSignTexture(neonCss);
     }
 
+    // Apply Full-Room Architectural Interior Decor Theme + Calibrated Theme Lighting & Pendants
+    if (this.interiorDecorRig) {
+      const themeId = this.gameState.decor.interiorTheme || 'garage_garden';
+      const lightProfile = this.interiorDecorRig.applyTheme(
+        themeId,
+        isNightWeather(this.gameState.weather),
+        this.elapsed
+      );
+      if (this.defaultPendantsGroup) {
+        this.defaultPendantsGroup.visible = !lightProfile.hideDefaultPendants;
+      }
+      if (this.interiorWallPlasterMat) {
+        this.interiorWallPlasterMat.color.setHex(lightProfile.wallPlasterHex);
+      }
+      if (this.cafeWarmLight) this.cafeWarmLight.color.setHex(lightProfile.warmLightHex);
+      if (this.pastryPoolLight) this.pastryPoolLight.color.setHex(lightProfile.pastryLightHex);
+      if (this.seatingPoolLight) this.seatingPoolLight.color.setHex(lightProfile.seatingLightHex);
+    }
+
     // Apply Equipped Espresso Machine Skin (isolated exclusively to Espresso Machine)
     if (this.espressoChassisMat) {
       const mSkin = this.gameState.equippedMachineSkin || 'classic-steel';
@@ -13592,37 +13676,50 @@ export class KlasikCafeScene3D {
         const sub = easeInOutCubic(Math.min(1, p / 0.22));
         this.portafilterGroup.position.set(
           evalQuadBezier(-0.43, -0.62, -0.78, sub),
-          evalQuadBezier(1.05, 1.19, 1.15, sub),
-          evalQuadBezier(0.37, 0.36, 0.35, sub)
+          evalQuadBezier(1.05, 1.21, 1.15, sub),
+          evalQuadBezier(0.37, 0.35, 0.35, sub)
         );
-        this.grinderGroup.position.x = -0.78 + Math.sin(this.elapsed * 55) * 0.004;
-        this.hopperBeansGroup.rotation.y += dt * 9.5;
-        this.groundStreamGroup.visible = p > 0.15;
+        this.portafilterGroup.rotation.set(0, -0.18 * sub, Math.sin(sub * Math.PI) * 0.12);
+        const grindActive = p > 0.18;
+        this.grinderGroup.position.x = -0.78 + (grindActive ? Math.sin(this.elapsed * 58) * 0.0032 : 0);
+        this.hopperBeansGroup.rotation.y += dt * (grindActive ? 10.5 : 3.2);
+        this.groundStreamGroup.visible = p > 0.16 && p < 0.7;
         this.groundStreamGroup.children.forEach((speck, i) => {
-          speck.position.y = -(((p * 6 + i * 0.1) % 1) * 0.08);
+          speck.position.y = -(((p * 6.5 + i * 0.1) % 1) * 0.085);
         });
         this.fluffyGroundsMesh.visible = true;
-        this.fluffyGroundsMesh.scale.setScalar(Math.max(0.15, (p - 0.1) / 0.62));
+        const doseGrow = easeInOutCubic(Math.max(0, Math.min(1, (p - 0.12) / 0.56)));
+        this.fluffyGroundsMesh.scale.setScalar(0.18 + doseGrow * 0.84);
       } else {
         const back = easeInOutCubic((p - 0.72) / 0.28);
+        this.grinderGroup.position.x = -0.78;
         this.fluffyGroundsMesh.scale.setScalar(1);
         this.portafilterGroup.position.set(
           evalQuadBezier(-0.78, -0.6, -0.43, back),
-          evalQuadBezier(1.15, 1.22, 1.05, back),
+          evalQuadBezier(1.15, 1.23, 1.05, back),
           evalQuadBezier(0.35, 0.38, 0.37, back)
         );
+        // Gentle leveling tap settle at landing
+        const settleTap = back > 0.8 ? Math.sin(((back - 0.8) / 0.2) * Math.PI) * 0.012 : 0;
+        this.portafilterGroup.position.y += settleTap;
+        this.portafilterGroup.rotation.set(0, -0.18 * (1 - back), 0);
       }
     } else if (this.stepAnim.type === 'tamp') {
-      const arc = Math.sin(p * Math.PI);
-      const press = p > 0.28 && p < 0.76 ? Math.sin(((p - 0.28) / 0.48) * Math.PI) : 0;
+      const enterT = easeInOutCubic(Math.min(1, p / 0.26));
+      const exitT = p > 0.76 ? easeInOutCubic((p - 0.76) / 0.24) : 0;
+      const hoverMix = enterT * (1 - exitT);
+      // Firm compression press + slight polish twist at bottom of stroke
+      const pressRaw = p > 0.26 && p < 0.74 ? Math.sin(((p - 0.26) / 0.48) * Math.PI) : 0;
+      const press = pressRaw * pressRaw * (3 - 2 * pressRaw);
       this.tamperMeshGroup.position.set(
-        evalQuadBezier(-0.075, 0.02, 0.05, Math.min(1, arc * 1.35)),
-        0.02 + arc * 0.13 - press * 0.058,
-        evalQuadBezier(-0.02, 0.01, 0.01, Math.min(1, arc * 1.35))
+        evalQuadBezier(-0.075, 0.01, 0.05, hoverMix),
+        0.02 + hoverMix * 0.125 - press * 0.062,
+        evalQuadBezier(-0.02, 0.01, 0.01, hoverMix)
       );
+      this.tamperMeshGroup.rotation.y = press * 0.52;
       if (p > 0.32 && p < 0.86) {
         this.tampPressureRingMesh.visible = true;
-        const ringScale = 0.85 + ((p - 0.32) / 0.54) * 0.55;
+        const ringScale = 0.85 + easeInOutCubic((p - 0.32) / 0.54) * 0.55;
         this.tampPressureRingMesh.scale.setScalar(ringScale);
         this.floatingBadgeSprite.visible = true;
         this.floatingBadgeSprite.position.set(-0.43, 1.32 + p * 0.06, 0.37);
@@ -13632,18 +13729,19 @@ export class KlasikCafeScene3D {
         this.tampedPuckMesh.visible = true;
       }
     } else if (this.stepAnim.type === 'pull_espresso') {
-      // Phase 1 (0..0.18): Portafilter locks into grouphead (-0.16)
-      if (p < 0.18) {
-        const lockT = easeInOutCubic(p / 0.18);
+      // Phase 1 (0..0.20): Portafilter lifts and locks smoothly with bayonet twist into grouphead (-0.16)
+      if (p < 0.20) {
+        const liftT = easeInOutCubic(Math.min(1, p / 0.13));
+        const lockTwistT = p > 0.11 ? easeInOutCubic((p - 0.11) / 0.09) : 0;
         this.portafilterGroup.position.set(
-          evalQuadBezier(-0.43, -0.28, -0.16, lockT),
-          evalQuadBezier(1.05, 1.28, 1.26, lockT),
-          evalQuadBezier(0.37, 0.36, 0.32, lockT)
+          evalQuadBezier(-0.43, -0.28, -0.16, liftT),
+          evalQuadBezier(1.05, 1.29, 1.26, liftT),
+          evalQuadBezier(0.37, 0.36, 0.32, liftT)
         );
-        this.portafilterGroup.rotation.y = THREE.MathUtils.lerp(-0.78, 0, lockT);
+        this.portafilterGroup.rotation.set(0, THREE.MathUtils.lerp(-0.82, 0, lockTwistT), 0);
       } else {
         this.portafilterGroup.position.set(-0.16, 1.26, 0.32);
-        this.portafilterGroup.rotation.y = 0;
+        this.portafilterGroup.rotation.set(0, 0, 0);
       }
       this.tampedPuckMesh.visible = true;
 
@@ -13737,21 +13835,27 @@ export class KlasikCafeScene3D {
         ACTIVE_CUP_STATION4_POS.y,
         ACTIVE_CUP_STATION4_POS.z
       );
-      const scoopPhase = Math.max(0, Math.min(1, (p - 0.1) / 0.76));
+      const scoopPhase = Math.max(0, Math.min(1, (p - 0.08) / 0.8));
       const arc = Math.sin(scoopPhase * Math.PI);
       const destDx = ACTIVE_CUP_STATION4_POS.x - ICE_COMPARTMENT_POS.x;
       const destDz = ACTIVE_CUP_STATION4_POS.z - ICE_COMPARTMENT_POS.z;
       this.iceScoopGroup.position.set(
         evalQuadBezier(0.01, destDx * 0.52, destDx, arc),
-        evalQuadBezier(0.034, 0.3, 0.23, arc),
+        evalQuadBezier(0.034, 0.31, 0.24, arc),
         evalQuadBezier(0.006, destDz * 0.45, destDz, arc)
       );
-      this.iceScoopGroup.rotation.z = -arc * 0.95;
-      this.activeCupIceGroup.visible = p > 0.32;
-      const dropT = Math.max(0, Math.min(1, (p - 0.32) / 0.42));
-      const dropH = Math.max(0, (1 - dropT) * 0.14);
+      // Smooth dump tilt at peak of scoop arc
+      const pourTilt = scoopPhase > 0.34 && scoopPhase < 0.68 ? Math.sin(((scoopPhase - 0.34) / 0.34) * Math.PI) : 0;
+      this.iceScoopGroup.rotation.set(pourTilt * 0.22, 0, -arc * 0.72 - pourTilt * 0.55);
+      this.activeCupIceGroup.visible = p > 0.34;
       this.activeCupIceGroup.children.forEach((cube, idx) => {
-        cube.position.y = 0.132 + dropH + idx * 0.016 * (1 - dropT);
+        // Staggered gravity drop + damped float bounce per crystal ice cube
+        const staggerStart = 0.34 + idx * 0.045;
+        const dropT = Math.max(0, Math.min(1, (p - staggerStart) / 0.32));
+        const grav = 1 - dropT * dropT;
+        const splashBounce = dropT >= 0.92 ? Math.sin(((dropT - 0.92) / 0.08) * Math.PI) * 0.01 : 0;
+        cube.position.y = 0.132 + grav * 0.15 + splashBounce;
+        cube.rotation.x = grav * (1.2 + idx * 0.4);
       });
     } else if (this.stepAnim.type === 'add_syrup') {
       this.activeBaristaCupGroup.position.set(1.18, 1.01, 0.38);
@@ -13979,24 +14083,35 @@ export class KlasikCafeScene3D {
         this.floatingBadgeSprite.position.set(rinserX, 1.38 + p * 0.08, rinserZ);
       }
     } else if (this.stepAnim.type === 'serve_drink') {
-      // 2-Stage Physical Pickup Choreography at Station 5 Walnut Pickup Coaster (-1.32, 1.03, 0.34)
-      if (p < 0.48) {
-        const s1 = easeInOutCubic(p / 0.48);
+      // Silky 2-Stage Physical Pickup Choreography at Station 5 Walnut Pickup Coaster (-1.32, 1.03, 0.34)
+      if (p < 0.46) {
+        const s1 = easeInOutCubic(p / 0.46);
         this.activeBaristaCupGroup.position.set(
           evalQuadBezier(1.18, -0.05, -1.32, s1),
-          evalQuadBezier(1.01, 1.14, 1.03, s1),
+          evalQuadBezier(1.01, 1.15, 1.03, s1),
           evalQuadBezier(0.38, 0.36, 0.34, s1)
         );
-        this.bellRippleRingMesh.visible = s1 > 0.5;
-        this.bellRippleRingMesh.scale.setScalar(1 + (s1 - 0.5) * 3.5);
+        // Subtle barista wrist banking as the cup glides smoothly to the coaster
+        this.activeBaristaCupGroup.rotation.set(0, 0, Math.sin(s1 * Math.PI) * 0.08);
+        this.bellRippleRingMesh.visible = s1 > 0.55;
+        this.bellRippleRingMesh.scale.setScalar(1 + Math.max(0, s1 - 0.55) * 3.8);
       } else {
-        const s2 = easeInOutCubic((p - 0.48) / 0.52);
-        this.activeBaristaCupGroup.visible = s2 < 0.38;
+        const s2 = easeInOutCubic((p - 0.46) / 0.54);
+        this.activeBaristaCupGroup.visible = s2 < 0.42;
+        this.activeBaristaCupGroup.rotation.set(0, 0, 0);
         this.activeBaristaCupGroup.position.set(
           -1.32,
-          1.03 + s2 * 0.14,
-          THREE.MathUtils.lerp(0.34, -0.25, Math.min(1, s2 * 2.5))
+          1.03 + Math.sin(Math.min(1, s2 * 2.2) * Math.PI * 0.5) * 0.14,
+          THREE.MathUtils.lerp(0.34, -0.25, Math.min(1, s2 * 2.3))
         );
+        // Synchronize staged pastry plate/bag gliding smoothly forward with the served drink!
+        if (this.preparedPastryStageGroup && this.preparedPastryStageGroup.visible && !this.pastryReturnAnim.active) {
+          this.preparedPastryStageGroup.position.set(
+            THREE.MathUtils.lerp(-1.55, -1.46, Math.min(1, s2 * 2.0)),
+            1.02 + Math.sin(Math.min(1, s2 * 2.2) * Math.PI * 0.5) * 0.09,
+            THREE.MathUtils.lerp(0.36, -0.18, Math.min(1, s2 * 2.2))
+          );
+        }
         this.pickupSpeechSprite.visible = true;
         this.pickupSpeechSprite.position.set(-1.32, 1.68 + s2 * 0.08, -0.55);
       }
@@ -14408,7 +14523,7 @@ export class KlasikCafeScene3D {
       }
     }
 
-    // Pulse Pastry Display Case shelf halos when pinned customer requests a pastry
+    // Pulse Pastry Display Case shelf halos AND elevated 3D golden diamond beacons when customer requests a pastry
     const neededPastry =
       this.gameState.phase === 'playing' &&
       pinnedOrder?.requestedPastry &&
@@ -14416,11 +14531,41 @@ export class KlasikCafeScene3D {
         ? pinnedOrder.requestedPastry
         : null;
     for (const [pid, hMat] of this.pastryCaseHaloMats.entries()) {
-      if (pid === neededPastry && !this.gameState.realismMode) {
-        hMat.opacity = 0.35 + (0.5 + 0.5 * Math.sin(this.elapsed * 4.5)) * 0.42;
+      const isNeeded = pid === neededPastry && !this.gameState.realismMode;
+      const beacon = this.pastryCaseBeaconGroups.get(pid);
+      if (isNeeded) {
+        const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 4.8);
+        hMat.opacity = 0.42 + pulse * 0.46;
+        if (beacon) {
+          beacon.visible = true;
+          beacon.position.y = 0.098 + Math.sin(this.elapsed * 5.2) * 0.016;
+          beacon.rotation.y = this.elapsed * 2.4;
+          const bScale = 0.94 + pulse * 0.16;
+          beacon.scale.setScalar(bScale);
+        }
       } else {
         hMat.opacity = 0.0;
+        if (beacon) beacon.visible = false;
       }
+    }
+
+    // Live architectural interior decor motion (swaying botanical ferns, Edison warmth, Kyoto paper lanterns)
+    if (this.interiorDecorRig) {
+      const themeId = this.gameState.decor.interiorTheme || 'garage_garden';
+      const lightProfile = this.interiorDecorRig.applyTheme(
+        themeId,
+        isNightWeather(this.gameState.weather),
+        this.elapsed
+      );
+      if (this.defaultPendantsGroup) {
+        this.defaultPendantsGroup.visible = !lightProfile.hideDefaultPendants;
+      }
+      if (this.interiorWallPlasterMat) {
+        this.interiorWallPlasterMat.color.setHex(lightProfile.wallPlasterHex);
+      }
+      if (this.cafeWarmLight) this.cafeWarmLight.color.setHex(lightProfile.warmLightHex);
+      if (this.pastryPoolLight) this.pastryPoolLight.color.setHex(lightProfile.pastryLightHex);
+      if (this.seatingPoolLight) this.seatingPoolLight.color.setHex(lightProfile.seatingLightHex);
     }
 
     // [x, beaconTopY, z] for every guided counter asset
@@ -14662,21 +14807,45 @@ export class KlasikCafeScene3D {
     const activeSceneryNow = this.gameState.activeScenery || 'busy_street';
     this.syncOutdoorBiomeAndLod(false);
     const isPlayerOutsideNow = this.outdoorOverlook.active || this.gameState.phase === 'title';
-    const isUrbanNow = isUrbanStreetScenery(activeSceneryNow);
-    const sidewalkObstacles = getSidewalkObstacles(
-      isPlayerOutsideNow ? isMiataOutsideNow : false,
-      isUrbanNow,
-      activeSceneryNow
-    );
-    if (isPlayerOutsideNow) {
+    const activeDoorways = this.sceneryManager.getActiveDoorways();
+    if (isPlayerOutsideNow && activeDoorways.length > 0 && this.gameState.phase !== 'title') {
       this.doorwayTraffic.update(
         dt,
-        this.sceneryManager.getActiveDoorways(),
+        activeDoorways,
         this.pedestrianPool,
         isRainActive,
         true
       );
     }
+    // Precompute active pedestrian footprints + unified static street obstacles (trees, lamps, planters, benches, Title Miata)
+    const sceneryStaticObstacles = getSceneryStaticObstacles(
+      activeSceneryNow,
+      isPlayerOutsideNow ? isMiataOutsideNow : false
+    );
+    this.pedFootprintsScratch.length = 0;
+    for (let i = 0; i < this.pedestrianPool.length; i++) {
+      const pi = this.pedestrianPool[i];
+      if (!pi.actor.group.visible) continue;
+      this.pedFootprintsScratch.push({
+        id: `ped-${i}`,
+        x: pi.x,
+        z: pi.currentZ,
+        vx: pi.dir * pi.speed,
+        vz: 0,
+        radius: 0.44,
+      });
+    }
+    if (this.secretPasserby) {
+      this.pedFootprintsScratch.push({
+        id: 'secret-passerby',
+        x: this.secretPasserby.x,
+        z: this.secretPasserby.laneZ,
+        vx: this.secretPasserby.dir * this.secretPasserby.speed,
+        vz: 0,
+        radius: 0.48,
+      });
+    }
+
     for (let i = 0; i < this.pedestrianPool.length; i++) {
       const p = this.pedestrianPool[i];
       if (!p.actor.group.visible || (isPlayerOutsideNow && this.doorwayTraffic.isPedestrianClaimed(i))) continue;
@@ -14684,6 +14853,7 @@ export class KlasikCafeScene3D {
       // Outdoor-only scenic photo / ridge gaze pause near the lookout railing
       const isScenicGazer =
         isPlayerOutsideNow &&
+        this.gameState.phase !== 'title' &&
         (p.behavior === 'tourist_photo' || p.behavior === 'ridge_gaze') &&
         p.laneZ < -15.0;
       if (p.pauseCooldown > 0) p.pauseCooldown -= dt;
@@ -14694,21 +14864,25 @@ export class KlasikCafeScene3D {
 
       if (p.pauseTimer > 0) {
         p.pauseTimer -= dt;
-        // Turn toward the scenic vista (-Z) and lift phone/camera for a photo
+        // Turn toward the scenic vista (-Z) and lift phone cleanly in left hand (where phoneMesh is mounted!)
         p.actor.group.rotation.y = Math.PI;
-        p.actor.pelvisGroup.position.y = 0.58;
+        p.actor.pelvisGroup.position.y = 0.58 + Math.sin(this.elapsed * 1.6 + i) * 0.008;
         p.actor.pelvisGroup.rotation.z = 0;
-        p.actor.leftHipJoint.rotation.x = 0;
-        p.actor.rightHipJoint.rotation.x = 0;
-        p.actor.leftKneeJoint.rotation.x = 0;
-        p.actor.rightKneeJoint.rotation.x = 0;
+        p.actor.pelvisGroup.rotation.y = 0;
+        p.actor.torsoGroup.rotation.x = -0.03;
+        p.actor.torsoGroup.rotation.y = 0;
+        p.actor.torsoGroup.rotation.z = 0;
+        p.actor.leftHipJoint.rotation.x = 0.04;
+        p.actor.rightHipJoint.rotation.x = -0.04;
+        p.actor.leftKneeJoint.rotation.x = 0.03;
+        p.actor.rightKneeJoint.rotation.x = 0.03;
         p.actor.neckJoint.rotation.x = -0.06;
         p.actor.neckJoint.rotation.y = Math.sin(this.elapsed * 1.4 + i) * 0.14;
         if (p.behavior === 'tourist_photo') {
-          p.actor.rightShoulderJoint.rotation.x = -1.25;
-          p.actor.rightElbowJoint.rotation.x = -0.82;
-          p.actor.leftShoulderJoint.rotation.x = -1.18;
-          p.actor.leftElbowJoint.rotation.x = -0.78;
+          p.actor.leftShoulderJoint.rotation.x = -1.22;
+          p.actor.leftElbowJoint.rotation.x = -0.82;
+          p.actor.rightShoulderJoint.rotation.x = -1.14;
+          p.actor.rightElbowJoint.rotation.x = -0.78;
         } else {
           p.actor.rightShoulderJoint.rotation.x = -0.35;
           p.actor.rightElbowJoint.rotation.x = -0.45;
@@ -14718,38 +14892,47 @@ export class KlasikCafeScene3D {
         continue;
       }
 
-      p.x += p.dir * p.speed * dt;
+      // Unified, forward-monotonic hysteresis obstacle & crowd avoidance (zero double-avoidance, zero stalling!)
+      const isNearBand = p.laneZ > -12.0;
+      const bandMinZ = isNearBand ? -9.15 : -17.35;
+      const bandMaxZ = isNearBand ? -7.48 : -15.82;
+      const steering = computeCrowdAndObstacleSteering({
+        selfId: `ped-${i}`,
+        x: p.x,
+        z: p.currentZ,
+        dir: p.dir,
+        baseLaneZ: p.laneZ,
+        minZ: bandMinZ,
+        maxZ: bandMaxZ,
+        obstacles: sceneryStaticObstacles,
+        neighbors: this.pedFootprintsScratch,
+        preferredAvoidSide: p.avoidSideMemory,
+      });
+      p.avoidSideMemory = steering.chosenAvoidSide;
+      const effectiveSpeed = p.speed * steering.speedScale;
+
+      // Strictly forward-monotonic longitudinal advance (never reversed or stuck by obstacle pushback!)
+      p.x += p.dir * effectiveSpeed * dt;
       if (p.dir === 1 && p.x > PEDESTRIAN_CORNER_BOUND) {
         p.x = -PEDESTRIAN_CORNER_BOUND;
-        p.currentZ = computeAvoidedSidewalkZ(
-          p.x,
-          p.laneZ,
-          sidewalkObstacles,
-          DEFAULT_SIDEWALK_BOUNDS,
-          activeSceneryNow
-        );
+        p.currentZ = p.laneZ;
+        p.avoidSideMemory = 0;
+        p.smoothedYaw = Math.PI / 2;
       } else if (p.dir === -1 && p.x < -PEDESTRIAN_CORNER_BOUND) {
         p.x = PEDESTRIAN_CORNER_BOUND;
-        p.currentZ = computeAvoidedSidewalkZ(
-          p.x,
-          p.laneZ,
-          sidewalkObstacles,
-          DEFAULT_SIDEWALK_BOUNDS,
-          activeSceneryNow
-        );
+        p.currentZ = p.laneZ;
+        p.avoidSideMemory = 0;
+        p.smoothedYaw = -Math.PI / 2;
       }
 
-      const targetZ = computeAvoidedSidewalkZ(
-        p.x,
-        p.laneZ,
-        sidewalkObstacles,
-        DEFAULT_SIDEWALK_BOUNDS,
-        activeSceneryNow
+      const targetZ = Math.max(
+        bandMinZ,
+        Math.min(bandMaxZ, p.laneZ + steering.avoidZOffset)
       );
       const prevZ = p.currentZ;
-      p.currentZ += (targetZ - p.currentZ) * Math.min(1, dt * 6.5);
+      p.currentZ += (targetZ - p.currentZ) * Math.min(1, dt * 4.8);
 
-      // Phase 2: Smooth 90-degree corner turn onto the perpendicular cross-street at x = ±27.5
+      // Smooth 90-degree corner turn onto the perpendicular cross-street at x = ±27.5
       // so pedestrians turn naturally behind corner storefronts/chalets instead of bubble-popping!
       const pedTurnSign: 1 | -1 =
         activeSceneryNow === 'eiffel_tower'
@@ -14765,11 +14948,24 @@ export class KlasikCafeScene3D {
       );
 
       const dzAvoid =
-        Math.abs(p.x) <= 27.5 ? (p.currentZ - prevZ) / Math.max(dt, 0.001) : 0;
-      const pedYaw =
+        Math.abs(p.x) <= 27.5 ? (p.currentZ - prevZ) / Math.max(dt, 0.008) : 0;
+      const rawTargetYaw =
         Math.abs(p.x) <= 27.5
-          ? Math.atan2(p.dir * p.speed, dzAvoid)
+          ? Math.atan2(p.dir * Math.max(0.4, effectiveSpeed), dzAvoid)
           : pedCorner.pedestrianYaw;
+
+      // Shortest-arc damped yaw smoothing eliminates twitching when steering past obstacles or NPCs
+      let yawErr = rawTargetYaw - p.smoothedYaw;
+      while (yawErr > Math.PI) yawErr -= Math.PI * 2;
+      while (yawErr < -Math.PI) yawErr += Math.PI * 2;
+      p.smoothedYaw += yawErr * Math.min(1, dt * 7.5);
+      const pedYaw = p.smoothedYaw;
+
+      let yawDelta = pedYaw - p.prevYaw;
+      while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+      while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+      const lateralTurnRate = Math.max(-1.8, Math.min(1.8, yawDelta / Math.max(dt, 0.012)));
+      p.prevYaw = pedYaw;
 
       const pedFootY =
         activeSceneryNow === 'mt_everest' && p.laneZ < -12.0
@@ -14778,104 +14974,118 @@ export class KlasikCafeScene3D {
       p.actor.group.position.set(pedCorner.x, pedFootY, pedCorner.z);
       p.actor.group.rotation.y = pedYaw;
 
-      // Dedicated 20-bone Mixamo street dancer performs the Brazilian L-R-L-RLR choreography in the plaza;
-      // sidewalk walkers keep a natural stroll with a subtle 70 BPM head-nod to the boombox beat!
       const isFavelaBeatNod =
         isPlayerOutsideNow &&
         p.behavior === 'favela_tiktok_dance' &&
         !isRainActive;
 
-      const strideMult = p.behavior === 'jogger' ? 6.8 : 5.0;
-      p.walkPhase += p.speed * dt * strideMult;
-      const s = Math.sin(p.walkPhase);
-      const c = Math.cos(p.walkPhase);
-      const legAmp = p.behavior === 'jogger' ? 0.68 : 0.48;
-      p.actor.pelvisGroup.position.y = 0.58 + Math.abs(s) * (p.behavior === 'jogger' ? 0.055 : 0.032);
-      p.actor.pelvisGroup.rotation.z = s * 0.03;
-      p.actor.torsoGroup.rotation.y = -s * 0.07;
-      p.actor.leftHipJoint.rotation.x = s * legAmp;
-      p.actor.rightHipJoint.rotation.x = -s * legAmp;
-      p.actor.leftKneeJoint.rotation.x = Math.max(0, -c * (legAmp + 0.04));
-      p.actor.rightKneeJoint.rotation.x = Math.max(0, c * (legAmp + 0.04));
+      const isJogger = isPlayerOutsideNow && p.behavior === 'jogger';
+      const strideMult = isJogger ? 6.8 : 5.2;
+      p.walkPhase += effectiveSpeed * dt * strideMult;
+      const gait = computeArticulatedWalkGait({
+        phase: p.walkPhase,
+        speedNorm: Math.max(0.35, Math.min(1.4, effectiveSpeed / 1.15)),
+        lateralTurnRate,
+        isJogging: isJogger,
+      });
 
-      // Rain umbrella vs neon umbrella vs normal left-arm swing
+      p.actor.pelvisGroup.position.y = 0.58 + gait.pelvisBobY;
+      p.actor.pelvisGroup.rotation.z = gait.pelvisRollZ;
+      p.actor.pelvisGroup.rotation.y = gait.pelvisYawY;
+      p.actor.torsoGroup.rotation.x = gait.torsoPitchX;
+      p.actor.torsoGroup.rotation.y = gait.torsoYawY;
+      p.actor.torsoGroup.rotation.z = gait.torsoBankZ;
+      p.actor.leftHipJoint.rotation.x = gait.leftHipX;
+      p.actor.rightHipJoint.rotation.x = gait.rightHipX;
+      p.actor.leftKneeJoint.rotation.x = gait.leftKneeX;
+      p.actor.rightKneeJoint.rotation.x = gait.rightKneeX;
+
+      // Left arm poses (umbrella OR phone_browse/phone_call since phoneMesh is mounted inside leftElbowJoint! OR hiker left pole!)
       const holdingNeonUmbrella = isPlayerOutsideNow && p.behavior === 'neon_umbrella';
-      p.actor.umbrellaGroup.visible = isPlayerOutsideNow && isRainActive && !holdingNeonUmbrella;
-      if ((isPlayerOutsideNow && isRainActive) || holdingNeonUmbrella) {
-        p.actor.leftShoulderJoint.rotation.x = -1.28 + Math.abs(s) * 0.03;
+      const holdingRainUmbrella = isPlayerOutsideNow && isRainActive && !holdingNeonUmbrella;
+      p.actor.umbrellaGroup.visible = holdingRainUmbrella;
+      const isPhoneBrowse = isPlayerOutsideNow && p.behavior === 'phone_browse' && !holdingRainUmbrella;
+      const isPhoneCall = isPlayerOutsideNow && p.behavior === 'phone_call' && !holdingRainUmbrella;
+      p.actor.phoneMesh.visible =
+        isPlayerOutsideNow &&
+        !holdingRainUmbrella &&
+        (p.behavior === 'phone_browse' || p.behavior === 'phone_call' || p.behavior === 'tourist_photo');
+
+      let targetNeckPitch = gait.secondaryBounce * 0.25;
+      if (holdingRainUmbrella || holdingNeonUmbrella) {
+        p.actor.leftShoulderJoint.rotation.x = -1.28 + gait.pelvisBobY * 0.7;
         p.actor.leftElbowJoint.rotation.x = -0.3;
-      } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
-        p.actor.leftShoulderJoint.rotation.x = -s * 0.72;
-        p.actor.leftElbowJoint.rotation.x = -1.18;
+      } else if (isPhoneBrowse) {
+        // Left hand holds smartphone squarely in front of chest/eyes (zero floating!)
+        p.actor.leftShoulderJoint.rotation.x = -0.66 + gait.secondaryBounce * 0.35;
+        p.actor.leftElbowJoint.rotation.x = -1.04;
+        targetNeckPitch = 0.32;
+      } else if (isPhoneCall) {
+        // Left hand brings smartphone snugly up to left ear
+        p.actor.leftShoulderJoint.rotation.x = -1.36 + gait.secondaryBounce * 0.2;
+        p.actor.leftElbowJoint.rotation.x = -1.82;
+        targetNeckPitch = 0.04;
+      } else if (isPlayerOutsideNow && p.behavior === 'everest_hiker') {
+        // Synchronized left trekking pole plant (opposes left leg stride!)
+        p.actor.leftShoulderJoint.rotation.x = -0.44 + gait.leftShoulderX * 0.92;
+        p.actor.leftElbowJoint.rotation.x = -0.48 - Math.max(0, -gait.leftShoulderX) * 0.2;
       } else {
-        p.actor.leftShoulderJoint.rotation.x = -s * 0.38;
-        p.actor.leftElbowJoint.rotation.x = -0.22 - Math.max(0, -s) * 0.22;
+        p.actor.leftShoulderJoint.rotation.x = gait.leftShoulderX;
+        p.actor.leftElbowJoint.rotation.x = gait.leftElbowX;
       }
 
-      // Outdoor-only right-arm & head behavior poses
-      let targetNeckPitch = 0;
+      // Right arm poses (dog leash, lantern, hiker pole, football, cup, or natural articulated swing)
       if (isFavelaBeatNod) {
         const beat70 = this.elapsed * ((70 / 60) * Math.PI * 2);
-        p.actor.rightShoulderJoint.rotation.x = s * 0.36;
-        p.actor.rightElbowJoint.rotation.x = -0.26 - Math.max(0, s) * 0.18;
+        p.actor.rightShoulderJoint.rotation.x = gait.rightShoulderX;
+        p.actor.rightElbowJoint.rotation.x = gait.rightElbowX;
         targetNeckPitch = Math.sin(beat70) * 0.09;
-      } else if (isPlayerOutsideNow && p.behavior === 'phone_browse') {
-        p.actor.rightShoulderJoint.rotation.x = -0.68;
-        p.actor.rightElbowJoint.rotation.x = -1.08;
-        targetNeckPitch = 0.34;
-      } else if (isPlayerOutsideNow && p.behavior === 'phone_call') {
-        p.actor.rightShoulderJoint.rotation.x = -1.35;
-        p.actor.rightElbowJoint.rotation.x = -1.78;
-        targetNeckPitch = 0.05;
       } else if (isPlayerOutsideNow && p.behavior === 'lantern_stroll') {
         p.actor.rightShoulderJoint.rotation.x = -0.82 + Math.sin(this.elapsed * 2.2 + i) * 0.05;
         p.actor.rightElbowJoint.rotation.x = -0.32;
       } else if (isPlayerOutsideNow && p.behavior === 'everest_hiker') {
-        p.actor.rightShoulderJoint.rotation.x = -0.45 + s * 0.42;
-        p.actor.rightElbowJoint.rotation.x = -0.52;
+        // Synchronized right trekking pole plant (opposes right leg stride!)
+        p.actor.rightShoulderJoint.rotation.x = -0.44 + gait.rightShoulderX * 0.92;
+        p.actor.rightElbowJoint.rotation.x = -0.48 - Math.max(0, -gait.rightShoulderX) * 0.2;
       } else if (isPlayerOutsideNow && p.behavior === 'favela_football') {
         p.actor.rightShoulderJoint.rotation.x = -0.22;
         p.actor.rightElbowJoint.rotation.x = -0.78;
-      } else if (isPlayerOutsideNow && p.behavior === 'jogger') {
-        p.actor.rightShoulderJoint.rotation.x = s * 0.72;
-        p.actor.rightElbowJoint.rotation.x = -1.18;
       } else if (isPlayerOutsideNow && p.behavior === 'dog_walker') {
-        // Hold leash steadily forward in right hand so hand & leash stay aligned
-        p.actor.rightShoulderJoint.rotation.x = -0.36 + Math.sin(p.walkPhase) * 0.06;
-        p.actor.rightElbowJoint.rotation.x = -0.42;
+        // Hold catenary leash steadily forward in right hand with slight natural spring bob
+        p.actor.rightShoulderJoint.rotation.x = -0.38 + gait.rightShoulderX * 0.16;
+        p.actor.rightElbowJoint.rotation.x = -0.44;
       } else if (p.actor.heldCup.visible) {
-        p.actor.rightShoulderJoint.rotation.x = -0.56 + Math.abs(s) * 0.04;
+        p.actor.rightShoulderJoint.rotation.x = -0.56 + gait.pelvisBobY * 0.6;
         p.actor.rightElbowJoint.rotation.x = -0.88;
       } else {
-        p.actor.rightShoulderJoint.rotation.x = s * 0.38;
-        p.actor.rightElbowJoint.rotation.x = -0.22 - Math.max(0, s) * 0.22;
+        p.actor.rightShoulderJoint.rotation.x = gait.rightShoulderX;
+        p.actor.rightElbowJoint.rotation.x = gait.rightElbowX;
       }
       p.actor.neckJoint.rotation.x += (targetNeckPitch - p.actor.neckJoint.rotation.x) * Math.min(1, dt * 6);
 
-      // Animate trotting companion dog, wagging tail & dynamically locked hand-to-collar leash
+      // Animate sculpted companion dog + live multi-segment catenary leash anchored strictly to right hand!
       if (p.dogRig && p.dogRig.root.visible) {
-        const trot = this.elapsed * 11.5 + i * 1.7;
-        p.dogRig.legs[0].rotation.x = Math.sin(trot) * 0.52;
-        p.dogRig.legs[3].rotation.x = Math.sin(trot) * 0.52;
-        p.dogRig.legs[1].rotation.x = -Math.sin(trot) * 0.52;
-        p.dogRig.legs[2].rotation.x = -Math.sin(trot) * 0.52;
-        p.dogRig.tail.rotation.z = Math.sin(this.elapsed * 13 + i) * 0.42;
-        const dogBounce = Math.abs(Math.sin(trot)) * 0.025;
-        p.dogRig.root.position.y = dogBounce;
-        const handBob = Math.abs(s) * 0.025;
-        const leashTf = computeLeashTransform(
-          { x: 0.21, y: 0.78 + handBob - dogBounce, z: 0.21 },
-          { x: 0.26, y: 0.29, z: 0.85 }
+        p.actor.group.updateMatrixWorld(true);
+        this.pedHandWorldScratch.set(0, -0.23, 0.02);
+        p.actor.rightElbowJoint.localToWorld(this.pedHandWorldScratch);
+        this.pedHandLocalScratch.copy(this.pedHandWorldScratch);
+        p.actor.group.worldToLocal(this.pedHandLocalScratch);
+        updateSculptedDogAndLeash(
+          p.dogRig,
+          {
+            x: this.pedHandLocalScratch.x,
+            y: this.pedHandLocalScratch.y,
+            z: this.pedHandLocalScratch.z,
+          },
+          this.elapsed,
+          p.seed,
+          Math.max(0.4, Math.min(1.3, effectiveSpeed / 1.15))
         );
-        p.dogRig.leash.position.set(leashTf.midpoint.x, leashTf.midpoint.y, leashTf.midpoint.z);
-        p.dogRig.leash.scale.set(1, leashTf.length, 1);
-        _tempVec.set(leashTf.direction.x, leashTf.direction.y, leashTf.direction.z);
-        p.dogRig.leash.quaternion.setFromUnitVectors(_upVec, _tempVec);
       }
 
       // Subtle glance toward the warm cafe facade when walking past
       const nearCafe = Math.abs(p.x) < 3.4 && p.laneZ > -10;
-      const targetGlance = nearCafe && p.behavior !== 'phone_browse' ? (p.dir === 1 ? -0.45 : 0.45) : 0;
+      const targetGlance = nearCafe && !isPhoneBrowse ? (p.dir === 1 ? -0.45 : 0.45) : 0;
       p.actor.neckJoint.rotation.y += (targetGlance - p.actor.neckJoint.rotation.y) * Math.min(1, dt * 4);
     }
 
@@ -15323,17 +15533,20 @@ export class KlasikCafeScene3D {
         return pts;
       }
 
-      // Exit (Takeout / Delivery Rider / Expired Walkout / Finished Dine-In)
-      if (from.z > -4.6) {
-        if (from.x < EGRESS_LANE_X - 0.15) {
-          pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, from.z));
-        }
-        pts.push(new THREE.Vector3(EGRESS_LANE_X, 0, -4.65));
+      // Chair-safe Exit Routing (steps cleanly out of lounge chairs into open horizontal aisle before egress lane!)
+      const safeExitPts = buildChairSafeExitWaypoints({
+        from: { x: from.x, z: from.z },
+        goal: { x: goal.x, z: goal.z },
+        seatExitOrigin: null,
+        tables: LOUNGE_TABLE_LAYOUT,
+        egressLaneX: EGRESS_LANE_X,
+        doorX,
+        corridorZ,
+        centerAisleZ,
+      });
+      for (let wi = 0; wi < safeExitPts.length; wi++) {
+        pts.push(new THREE.Vector3(safeExitPts[wi].x, 0, safeExitPts[wi].z));
       }
-      pts.push(new THREE.Vector3(-0.45, 0, -4.75));
-      pts.push(new THREE.Vector3(doorX, 0, -5.05));
-      pts.push(new THREE.Vector3(doorX, 0, -7.45));
-      pts.push(goal.clone());
       return pts;
     };
 
@@ -15521,28 +15734,22 @@ export class KlasikCafeScene3D {
       // Recompute smooth aisle waypoints whenever destination key changes
       if (actor.finalGoalKey !== goalKey) {
         actor.finalGoalKey = goalKey;
-        const baseWaypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
-        // Phase 1.1: If exiting from a dining seat, prepend a local chair-clearance waypoint away from the table center!
+        let baseWaypoints: THREE.Vector3[];
         if (goalKind === 'exit' && actor.seatExitOrigin) {
-          let nearestTable = LOUNGE_TABLE_LAYOUT[0];
-          let minD = Infinity;
-          for (const tbl of LOUNGE_TABLE_LAYOUT) {
-            const d = Math.hypot(actor.seatExitOrigin.x - tbl.x, actor.seatExitOrigin.z - tbl.z);
-            if (d < minD) {
-              minD = d;
-              nearestTable = tbl;
-            }
-          }
-          const outX = actor.seatExitOrigin.x - nearestTable.x;
-          const outZ = actor.seatExitOrigin.z - nearestTable.z;
-          const len = Math.max(0.01, Math.hypot(outX, outZ));
-          const clearanceWp = new THREE.Vector3(
-            actor.seatExitOrigin.x + (outX / len) * 0.42,
-            0,
-            actor.seatExitOrigin.z + (outZ / len) * 0.42
-          );
-          baseWaypoints.unshift(clearanceWp);
+          const safeExitPts = buildChairSafeExitWaypoints({
+            from: { x: actor.currentPos.x, z: actor.currentPos.z },
+            goal: { x: _targetPos.x, z: _targetPos.z },
+            seatExitOrigin: { x: actor.seatExitOrigin.x, z: actor.seatExitOrigin.z },
+            tables: LOUNGE_TABLE_LAYOUT,
+            egressLaneX: EGRESS_LANE_X,
+            doorX: DOOR_X,
+            corridorZ: -1.78,
+            centerAisleZ: -3.65,
+          });
+          baseWaypoints = safeExitPts.map((pt) => new THREE.Vector3(pt.x, 0, pt.z));
           actor.seatExitOrigin = null;
+        } else {
+          baseWaypoints = buildAisleWaypoints(actor.currentPos, _targetPos, goalKind);
         }
         actor.waypoints = baseWaypoints;
         if (actor.moveState === 'idle-queue' && _targetPos.distanceTo(actor.currentPos) > 0.22) {
@@ -16014,8 +16221,11 @@ export class KlasikCafeScene3D {
         }
       }
 
-      // Mirror live locomotion, breathing, torso sway & limb flex onto the exact `.js` Secret NPC asset rig
+      // Mirror live locomotion, breathing, torso sway, limb flex & palm-anchored phone onto the exact `.js` Secret NPC asset rig
       if (actor.secretAssetRig) {
+        const secretHoldingPhone = actor.phoneMesh.visible;
+        // Hide the underlying procedural rig's phone so ONLY the Secret NPC's palm-anchored phone renders (zero floating!)
+        actor.phoneMesh.visible = false;
         updateSecretNpcAssetPose(actor.secretAssetRig, {
           walkBlend: actor.walkBlend,
           seatedBlend: actor.seatedBlend,
@@ -16037,6 +16247,7 @@ export class KlasikCafeScene3D {
           leftElbowX: actor.leftElbowJoint.rotation.x,
           rightShoulderX: actor.rightShoulderJoint.rotation.x,
           rightElbowX: actor.rightElbowJoint.rotation.x,
+          holdingPhone: secretHoldingPhone,
         });
       }
     });
@@ -16076,6 +16287,7 @@ export class KlasikCafeScene3D {
     this.ticketGlowMats.forEach((m) => m.dispose());
     this.serveReadyHaloMat?.dispose();
     this.pastryCaseHaloMats.forEach((m) => m.dispose());
+    this.interiorDecorRig?.dispose();
     this.disposeAllDeliveryScooters();
     this.counterAudioProps?.dispose();
     if (this.champyRig) {

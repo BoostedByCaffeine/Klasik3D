@@ -13,9 +13,11 @@ import {
 import {
   computeFavelaHouseFloorY,
   evaluateCornerTurnPath,
+  evaluateFavelaAlleyLifecycle,
   getFavelaHillHeight,
-  interpolateAlleyStepY,
+  getFavelaUpperCurveDir,
 } from '../outdoorLod';
+import { computeArticulatedWalkGait } from '../npcPhysicsAndSteering';
 import {
   COASTAL_SIERRA,
   MAYON_FOOTHILLS,
@@ -3452,10 +3454,13 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
     new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.65 }),
   ];
   const alleyCurbMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.88 });
+  const upperConcealPalette = [0xe07a5f, 0x0d9488, 0xeab308, 0xec4899];
   FAVELA_ALLEY_STAIR_XS.forEach((sx, sIdx) => {
-    for (let step = 0; step < 18; step++) {
-      const stepT = step / 18;
-      const tz = -17.6 + (-34.2 - -17.6) * stepT;
+    const upperTurnDir = getFavelaUpperCurveDir(sx);
+    // Main 16-step winding mosaic ascent up to z = -32.6
+    for (let step = 0; step < 16; step++) {
+      const stepT = step / 16;
+      const tz = -17.6 + (-32.6 - -17.6) * stepT;
       const tx = sx + Math.sin(step * 0.38) * 1.15;
       const ty = getFavelaHillHeight(tx, tz) + 0.2;
       const tread = new THREE.Mesh(
@@ -3472,6 +3477,62 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
         root.add(curb);
       });
     }
+
+    // Upper 90-degree curved mosaic landing bending laterally behind a flanking hillside corner house
+    const topBaseX = sx + Math.sin(16 * 0.38) * 1.15;
+    const topBaseZ = -32.6;
+    const topBaseY = getFavelaHillHeight(topBaseX, topBaseZ) + 0.2;
+    const upperCurveR = 1.65;
+    for (let cStep = 0; cStep < 5; cStep++) {
+      const ct = (cStep + 0.5) / 5;
+      const theta = ct * (Math.PI * 0.5);
+      const cx = topBaseX + upperTurnDir * upperCurveR * (1 - Math.cos(theta));
+      const cz = topBaseZ - Math.sin(theta) * upperCurveR;
+      const cy = topBaseY + ct * 0.72;
+      const curvedTread = new THREE.Mesh(
+        new THREE.BoxGeometry(1.62, 0.56, 0.88),
+        mosaicMats[(sIdx + 16 + cStep) % mosaicMats.length]
+      );
+      curvedTread.position.set(cx, cy, cz);
+      curvedTread.rotation.y = upperTurnDir * theta;
+      root.add(curvedTread);
+    }
+
+    // Concealing 2-Story Hillside Corner House positioned directly in front of the lateral exit path.
+    // Anchored above topBaseY and widened to 5.4m so climbing/descending residents vanish 100% head-to-toe behind real architecture!
+    const houseX = topBaseX + upperTurnDir * 3.35;
+    const houseZ = topBaseZ - 0.15;
+    const houseFloorY = Math.max(
+      computeFavelaHouseFloorY(houseX, houseZ, 3.4) - 0.15,
+      topBaseY - 0.35
+    );
+    const cornerHouseGroup = new THREE.Group();
+    const cornerHouseMat = new THREE.MeshStandardMaterial({
+      color: upperConcealPalette[sIdx % upperConcealPalette.length],
+      map: favelaTex?.map,
+      emissive: 0xfde68a,
+      emissiveMap: favelaTex?.emissiveMap,
+      emissiveIntensity: 0.22,
+      roughness: 0.85,
+    });
+    const cornerPlinth = new THREE.Mesh(new THREE.BoxGeometry(5.3, 6.2, 3.3), plinthMat);
+    cornerPlinth.position.set(houseX, houseFloorY - 3.05, houseZ);
+    const cornerBody = new THREE.Mesh(new THREE.BoxGeometry(5.4, 5.4, 3.4), cornerHouseMat);
+    cornerBody.position.set(houseX, houseFloorY + 2.7, houseZ);
+    const cornerRoof = new THREE.Mesh(new THREE.BoxGeometry(5.7, 0.2, 3.7), roofMat);
+    cornerRoof.position.set(houseX, houseFloorY + 5.46, houseZ);
+    cornerRoof.rotation.x = 0.08;
+    const cornerTank = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.45, 0.38, 0.65, 8),
+      waterTankMat
+    );
+    cornerTank.position.set(houseX + 0.95, houseFloorY + 5.82, houseZ - 0.35);
+    // Low side parapet wall flanking the curved upper turn
+    const parapet = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.25, 0.24), alleyCurbMat);
+    parapet.position.set(topBaseX + upperTurnDir * 1.25, topBaseY + 1.22, topBaseZ - upperCurveR - 0.95);
+    cornerHouseGroup.add(cornerPlinth, cornerBody, cornerRoof, cornerTank, parapet);
+    cornerHouseGroup.userData.alwaysVisibleBackdrop = true;
+    root.add(cornerHouseGroup);
   });
 
   // Colorful street-level favela retaining wall murals
@@ -3750,100 +3811,175 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
 
   interface FavelaAlleyWalker {
     group: THREE.Group;
+    pelvisPivot: THREE.Group;
+    torsoGroup: THREE.Group;
+    headPivot: THREE.Group;
     leftHip: THREE.Group;
+    leftKnee: THREE.Group;
+    leftAnkle: THREE.Group;
     rightHip: THREE.Group;
+    rightKnee: THREE.Group;
+    rightAnkle: THREE.Group;
     leftShoulder: THREE.Group;
+    leftElbow: THREE.Group;
     rightShoulder: THREE.Group;
+    rightElbow: THREE.Group;
     alleyBaseX: number;
-    t: number;
-    dir: 1 | -1;
+    u: number;
+    direction: 'uphill' | 'downhill';
+    approachSign: 1 | -1;
     speed: number;
     phase: number;
   }
   const favelaAlleyWalkers: FavelaAlleyWalker[] = [];
-  const favSkinMat = new THREE.MeshStandardMaterial({ color: 0xc6865c, roughness: 0.68 });
-  const favHairMat = new THREE.MeshStandardMaterial({ color: 0x171412, roughness: 0.84 });
   const favShoeMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.45 });
   const alleyWalkerSpecs: Array<{
     alleyX: number;
-    startT: number;
-    dir: 1 | -1;
+    startU: number;
+    direction: 'uphill' | 'downhill';
+    approachSign: 1 | -1;
     speed: number;
     shirt: number;
     shorts: number;
+    skin: number;
+    hair: number;
+    hairStyle: 'short' | 'bun' | 'curly';
   }> = [
-    { alleyX: -18.5, startT: 0.82, dir: -1, speed: 0.082, shirt: 0xfacc15, shorts: 0x1d4ed8 },
-    { alleyX: -5.2, startT: 0.18, dir: 1, speed: 0.074, shirt: 0x16a34a, shorts: 0x1e293b },
-    { alleyX: 6.2, startT: 0.65, dir: -1, speed: 0.086, shirt: 0xec4899, shorts: 0x0f172a },
-    { alleyX: -5.2, startT: 0.9, dir: -1, speed: 0.07, shirt: 0x38bdf8, shorts: 0x334155 },
+    { alleyX: -18.5, startU: 0.14, direction: 'uphill', approachSign: 1, speed: 0.044, shirt: 0xfacc15, shorts: 0x1d4ed8, skin: 0xc6865c, hair: 0x171412, hairStyle: 'curly' },
+    { alleyX: -5.2, startU: 0.05, direction: 'uphill', approachSign: -1, speed: 0.041, shirt: 0x16a34a, shorts: 0x1e293b, skin: 0xa46944, hair: 0x12100e, hairStyle: 'short' },
+    { alleyX: 6.2, startU: 0.46, direction: 'downhill', approachSign: 1, speed: 0.046, shirt: 0xec4899, shorts: 0x0f172a, skin: 0xd9a07c, hair: 0x241712, hairStyle: 'bun' },
+    { alleyX: -5.2, startU: 0.62, direction: 'downhill', approachSign: 1, speed: 0.039, shirt: 0x38bdf8, shorts: 0x334155, skin: 0xb87a52, hair: 0x1a1512, hairStyle: 'short' },
+    { alleyX: 6.2, startU: 0.18, direction: 'uphill', approachSign: -1, speed: 0.042, shirt: 0xf97316, shorts: 0x1e293b, skin: 0x8d5534, hair: 0x0f0e0d, hairStyle: 'curly' },
   ];
   alleyWalkerSpecs.forEach((ws, idx) => {
     const wg = new THREE.Group();
     const sMat = new THREE.MeshStandardMaterial({ color: ws.shirt, roughness: 0.72 });
     const pMat = new THREE.MeshStandardMaterial({ color: ws.shorts, roughness: 0.82 });
+    const skMat = new THREE.MeshStandardMaterial({ color: ws.skin, roughness: 0.68 });
+    const hMat = new THREE.MeshStandardMaterial({ color: ws.hair, roughness: 0.84 });
 
-    const buildAlleyLeg = (sx: number): THREE.Group => {
-      const hip = new THREE.Group();
-      hip.position.set(sx, 0.76, 0);
-      const shortMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.074, 0.28, 8), pMat);
-      shortMesh.position.y = -0.14;
-      const calfMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.044, 0.42, 8), favSkinMat);
-      calfMesh.position.y = -0.49;
-      const shoeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.06, 0.17), favShoeMat);
-      shoeMesh.position.set(0, -0.73, 0.03);
-      hip.add(shortMesh, calfMesh, shoeMesh);
-      return hip;
-    };
+    // Pelvis root raised to exact 0.805m hip-to-sole height so shoes sit flush on every mosaic tread
+    const pelvisPivot = new THREE.Group();
+    pelvisPivot.position.set(0, 0.805, 0);
+    wg.add(pelvisPivot);
 
-    const leftHip = buildAlleyLeg(-0.098);
-    const rightHip = buildAlleyLeg(0.098);
+    const pelvisMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.135, 0.09, 4, 8), pMat);
+    pelvisMesh.rotation.z = Math.PI / 2;
+    pelvisMesh.scale.set(0.76, 1.08, 0.76);
+    pelvisPivot.add(pelvisMesh);
 
-    const pelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.152, 0.14, 10), pMat);
-    pelvis.scale.set(1.12, 1, 0.78);
-    pelvis.position.y = 0.78;
+    const torsoGroup = new THREE.Group();
+    torsoGroup.position.set(0, 0.04, 0);
+    pelvisPivot.add(torsoGroup);
 
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.148, 0.48, 10), sMat);
-    torso.scale.set(1.12, 1, 0.76);
-    torso.position.y = 1.07;
+    const torsoMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.168, 0.27, 5, 10), sMat);
+    torsoMesh.position.y = 0.25;
+    torsoMesh.scale.set(1.06, 1.0, 0.74);
+    torsoGroup.add(torsoMesh);
 
-    const buildAlleyArm = (sx: number): THREE.Group => {
-      const sh = new THREE.Group();
-      sh.position.set(sx, 1.26, 0);
-      const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.052, 0.16, 8), sMat);
-      sleeve.position.y = -0.08;
-      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.044, 0.036, 0.32, 8), favSkinMat);
-      fore.position.y = -0.3;
-      sh.add(sleeve, fore);
-      return sh;
-    };
-    const leftShoulder = buildAlleyArm(-0.22);
-    const rightShoulder = buildAlleyArm(0.22);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.058, 0.09, 8), skMat);
+    neck.position.y = 0.52;
+    torsoGroup.add(neck);
 
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.058, 0.08, 8), favSkinMat);
-    neck.position.y = 1.33;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 10, 8), favSkinMat);
-    head.scale.set(0.94, 1.08, 0.96);
-    head.position.y = 1.47;
+    const headPivot = new THREE.Group();
+    headPivot.position.set(0, 0.58, 0);
+    torsoGroup.add(headPivot);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.138, 10, 8), skMat);
+    head.scale.set(0.95, 1.06, 0.96);
+    head.position.y = 0.11;
+    headPivot.add(head);
+
     const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(0.142, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.56),
-      favHairMat
+      new THREE.SphereGeometry(0.146, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.58),
+      hMat
     );
-    hair.position.set(0, 1.49, -0.01);
+    hair.position.set(0, 0.125, -0.012);
+    headPivot.add(hair);
+    if (ws.hairStyle === 'bun') {
+      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.072, 8, 7), hMat);
+      bun.position.set(0, 0.21, -0.105);
+      headPivot.add(bun);
+    } else if (ws.hairStyle === 'curly') {
+      const crown = new THREE.Mesh(new THREE.SphereGeometry(0.155, 9, 7, 0, Math.PI * 2, 0, Math.PI * 0.48), hMat);
+      crown.position.set(0, 0.155, -0.01);
+      headPivot.add(crown);
+    }
 
-    wg.add(leftHip, rightHip, pelvis, torso, leftShoulder, rightShoulder, neck, head, hair);
+    const buildArticulatedLeg = (sx: number) => {
+      const hip = new THREE.Group();
+      hip.position.set(sx, -0.02, 0);
+      pelvisPivot.add(hip);
+      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.064, 0.22, 4, 8), pMat);
+      thigh.position.y = -0.17;
+      hip.add(thigh);
+
+      const knee = new THREE.Group();
+      knee.position.set(0, -0.35, 0);
+      hip.add(knee);
+      const calf = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.25, 4, 8), skMat);
+      calf.position.y = -0.18;
+      knee.add(calf);
+
+      const ankle = new THREE.Group();
+      ankle.position.set(0, -0.36, 0);
+      knee.add(ankle);
+      const shoe = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.09, 4, 7), favShoeMat);
+      shoe.rotation.x = Math.PI / 2;
+      shoe.position.set(0, -0.02, 0.045);
+      ankle.add(shoe);
+
+      return { hip, knee, ankle };
+    };
+
+    const leftLeg = buildArticulatedLeg(-0.095);
+    const rightLeg = buildArticulatedLeg(0.095);
+
+    const buildArticulatedArm = (sx: number) => {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(sx, 0.44, 0);
+      torsoGroup.add(shoulder);
+      const sleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.14, 4, 8), sMat);
+      sleeve.position.y = -0.11;
+      shoulder.add(sleeve);
+
+      const elbow = new THREE.Group();
+      elbow.position.set(0, -0.23, 0);
+      shoulder.add(elbow);
+      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.038, 0.16, 4, 8), skMat);
+      fore.position.y = -0.11;
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.042, 7, 6), skMat);
+      hand.position.y = -0.23;
+      elbow.add(fore, hand);
+      return { shoulder, elbow };
+    };
+
+    const leftArm = buildArticulatedArm(-0.21);
+    const rightArm = buildArticulatedArm(0.21);
+
     wg.userData.outdoorOnly = true;
     wg.userData.noMerge = true;
     favelaOutdoorGroup.add(wg);
 
     favelaAlleyWalkers.push({
       group: wg,
-      leftHip,
-      rightHip,
-      leftShoulder,
-      rightShoulder,
+      pelvisPivot,
+      torsoGroup,
+      headPivot,
+      leftHip: leftLeg.hip,
+      leftKnee: leftLeg.knee,
+      leftAnkle: leftLeg.ankle,
+      rightHip: rightLeg.hip,
+      rightKnee: rightLeg.knee,
+      rightAnkle: rightLeg.ankle,
+      leftShoulder: leftArm.shoulder,
+      leftElbow: leftArm.elbow,
+      rightShoulder: rightArm.shoulder,
+      rightElbow: rightArm.elbow,
       alleyBaseX: ws.alleyX,
-      t: ws.startT,
-      dir: ws.dir,
+      u: ws.startU,
+      direction: ws.direction,
+      approachSign: ws.approachSign,
       speed: ws.speed,
       phase: idx * 1.9,
     });
@@ -3900,27 +4036,70 @@ export function buildBrazilianFavelaScenery(): SceneryRuntimeInstance {
       // Advance dedicated 20-bone Mixamo Brazilian L-R-L-RLR special boombox NPC exclusively while outdoors
       streetDancer.update(dt, elapsed, isNight, true);
 
-      // Grounded uphill/downhill walkers stepping along the Selarón hillside staircases onto the street sidewalk
+      // Realistic Passerby -> Mosaic Stair Climb -> Curved Concealed Upper Building Lifecycle (ping-pong, zero popping!)
       for (let i = 0; i < favelaAlleyWalkers.length; i++) {
         const w = favelaAlleyWalkers[i];
-        w.t += w.dir * w.speed * dt;
-        if (w.t <= 0.0) {
-          w.t = 0.0;
-          w.dir = 1;
-        } else if (w.t >= 0.96) {
-          w.t = 0.96;
-          w.dir = -1;
+        // Sample current phase so sidewalk (long off-screen span) and stairs move at natural ~1.15 m/s ground speed
+        const prePose = evaluateFavelaAlleyLifecycle(w.u, w.alleyBaseX, w.direction, w.approachSign);
+        const phaseSpeedScale =
+          prePose.phaseKind === 'sidewalk'
+            ? 0.42
+            : prePose.phaseKind === 'stairs'
+            ? 0.84
+            : 0.72;
+        w.u += w.speed * phaseSpeedScale * dt;
+        if (w.u >= 1.0) {
+          w.u = w.u - 1.0;
+          // Ping-pong direction while 100% hidden behind the upper corner house or past ±31m off-screen!
+          if (w.direction === 'uphill') {
+            w.direction = 'downhill';
+            w.approachSign = (w.approachSign * -1) as 1 | -1;
+          } else {
+            w.direction = 'uphill';
+          }
         }
-        const curr = interpolateAlleyStepY(w.t, w.alleyBaseX);
-        const lookT = Math.max(0, Math.min(1, w.t + w.dir * 0.03));
-        const ahead = interpolateAlleyStepY(lookT, w.alleyBaseX);
-        w.group.position.set(curr.x, curr.y, curr.z);
-        w.group.rotation.y = Math.atan2(ahead.x - curr.x, ahead.z - curr.z);
-        const stride = Math.sin(elapsed * 6.5 + w.phase) * 0.44;
-        w.leftHip.rotation.x = stride;
-        w.rightHip.rotation.x = -stride;
-        w.leftShoulder.rotation.x = -stride * 0.72;
-        w.rightShoulder.rotation.x = stride * 0.72;
+        const pose = evaluateFavelaAlleyLifecycle(w.u, w.alleyBaseX, w.direction, w.approachSign);
+        w.group.position.set(pose.x, pose.y, pose.z);
+        w.group.rotation.y = pose.yaw;
+        // Never vanish in view: only cull when fully tucked behind the upper corner house or past far street edge
+        w.group.visible = !pose.isConcealed && Math.abs(pose.x) <= 30.5;
+
+        const strideRate =
+          pose.phaseKind === 'stairs'
+            ? w.direction === 'uphill'
+              ? 4.8
+              : 5.2
+            : 5.8;
+        const gait = computeArticulatedWalkGait({
+          phase: elapsed * strideRate + w.phase,
+          speedNorm: pose.phaseKind === 'stairs' ? 0.92 : 0.96,
+          slopePitch: pose.slopePitch,
+          lateralTurnRate: pose.lateralTurnRate,
+        });
+
+        // Lift pelvis slightly higher on uphill climbs so trailing/leading sneakers clear the step risers cleanly
+        const stairClearanceY =
+          pose.phaseKind === 'stairs' ? (w.direction === 'uphill' ? 0.035 : 0.025) : 0;
+        w.pelvisPivot.position.y = 0.805 + stairClearanceY + gait.pelvisBobY;
+        w.pelvisPivot.rotation.z = gait.pelvisRollZ;
+        w.pelvisPivot.rotation.y = gait.pelvisYawY;
+        w.torsoGroup.rotation.x = gait.torsoPitchX;
+        w.torsoGroup.rotation.y = gait.torsoYawY;
+        w.torsoGroup.rotation.z = gait.torsoBankZ;
+        w.headPivot.rotation.y = Math.sin(elapsed * 0.8 + w.phase) * 0.14 - gait.torsoYawY * 0.45;
+        w.headPivot.rotation.x = -pose.slopePitch * 0.28 + gait.secondaryBounce * 0.25;
+
+        w.leftHip.rotation.x = gait.leftHipX;
+        w.rightHip.rotation.x = gait.rightHipX;
+        w.leftKnee.rotation.x = gait.leftKneeX;
+        w.rightKnee.rotation.x = gait.rightKneeX;
+        w.leftAnkle.rotation.x = gait.leftAnkleX;
+        w.rightAnkle.rotation.x = gait.rightAnkleX;
+
+        w.leftShoulder.rotation.x = gait.leftShoulderX;
+        w.rightShoulder.rotation.x = gait.rightShoulderX;
+        w.leftElbow.rotation.x = gait.leftElbowX;
+        w.rightElbow.rotation.x = gait.rightElbowX;
       }
     },
   };

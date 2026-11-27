@@ -940,24 +940,26 @@ export const HudOverlay: React.FC<HudOverlayProps> = ({
                       type="button"
                       data-testid="order-pastry-badge"
                       onClick={() => onSelectStation(1)}
-                      className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded border text-[9px] font-bold shrink-0 cursor-pointer transition-colors ${
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] font-bold shrink-0 cursor-pointer transition-colors ${
                         isPastrySatisfied
-                          ? 'bg-[#34D399]/20 border-[#34D399]/55 text-[#34D399]'
-                          : 'bg-white/[0.12] hover:bg-white/[0.2] border-white/35 text-white'
+                          ? 'bg-[#34D399]/22 border-[#34D399]/60 text-[#34D399]'
+                          : 'bg-amber-400/22 hover:bg-amber-400/32 border-amber-300/70 text-amber-100 animate-pulse'
                       }`}
                       title={
                         isPastrySatisfied
-                          ? `${requestedPastrySpec.name} staged!`
-                          : `Tap to go to Station 1 & grab ${requestedPastrySpec.name} (+$${requestedPastrySpec.price})`
+                          ? `${requestedPastrySpec.name} plated and ready to serve!`
+                          : `Pastry needed — Tap to jump to Station 1 display case & grab ${requestedPastrySpec.name} (+$${requestedPastrySpec.price})`
                       }
                     >
                       {isPastrySatisfied ? (
                         <Check className="w-2.5 h-2.5 shrink-0" strokeWidth={2.8} />
                       ) : (
-                        <Croissant className="w-2.5 h-2.5 shrink-0" strokeWidth={2.3} />
+                        <Croissant className="w-2.5 h-2.5 shrink-0 text-amber-300" strokeWidth={2.4} />
                       )}
                       <span>
-                        +{requestedPastrySpec.name} (${requestedPastrySpec.price})
+                        {isPastrySatisfied
+                          ? `${requestedPastrySpec.name} Plated`
+                          : `Add ${requestedPastrySpec.name} (+$${requestedPastrySpec.price})`}
                       </span>
                     </button>
                   )}

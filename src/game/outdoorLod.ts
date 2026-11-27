@@ -747,4 +747,216 @@ export function interpolateAlleyStepY(
   return { x, y, z };
 }
 
+export type FavelaAlleyPhaseKind =
+  | 'sidewalk'
+  | 'stair_entry_turn'
+  | 'stairs'
+  | 'upper_curve'
+  | 'concealed_behind_building';
+
+export interface FavelaAlleyPose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  /** Positive when climbing uphill, negative when descending, 0 on flat sidewalk/landing. */
+  slopePitch: number;
+  /** Instantaneous turn rate sign for subtle banking lean. */
+  lateralTurnRate: number;
+  phaseKind: FavelaAlleyPhaseKind;
+  /** True while concealed behind the flanking upper corner building. */
+  isConcealed: boolean;
+}
+
+/**
+ * Deterministic lateral bend direction at the top of each Selarón staircase so the upper landing
+ * curves smoothly behind a dedicated hillside corner house (blocking line of sight from the street).
+ */
+export function getFavelaUpperCurveDir(alleyBaseX: number): 1 | -1 {
+  return alleyBaseX < -10 || (alleyBaseX > 0 && alleyBaseX < 15) ? -1 : 1;
+}
+
+/**
+ * Evaluates a continuous, realistic Favela hillside resident journey along `u` in [0, 1]:
+ * - `direction = 'uphill'`: walks along street sidewalk as a passerby -> curves smoothly into
+ *   the mosaic staircase -> climbs uphill -> bends 90° laterally around the top landing behind a
+ *   flanking hillside building -> vanishes completely out of view.
+ * - `direction = 'downhill'`: emerges from behind the upper corner building -> curves onto the
+ *   mosaic staircase -> descends -> turns smoothly onto the sidewalk and walks off as a passerby.
+ */
+export function sampleFavelaStairSurfaceY(
+  alleyBaseX: number,
+  z: number,
+  stepCount = 16,
+  stairStartZ = -17.6,
+  stairEndZ = -32.6
+): number {
+  const halfDepth = 0.48; // BoxGeometry(1.65, 0.56, 0.96) -> half-depth 0.48, half-height 0.28
+  const bevel = 0.14; // Smooth riser climb ramp right at front lip of each tread
+  let surfaceY = 0.08;
+  let matched = false;
+
+  for (let step = 0; step < stepCount; step++) {
+    const stepT = step / stepCount;
+    const tz = stairStartZ + (stairEndZ - stairStartZ) * stepT;
+    const tx = alleyBaseX + Math.sin(step * 0.38) * 1.15;
+    const treadTopY = getFavelaHillHeight(tx, tz) + 0.48; // ty = hill + 0.2, top = ty + 0.28
+
+    // Check if walker's Z footprint sits on top of this tread or on its front riser lip
+    const frontLipZ = tz + halfDepth;
+    const backLipZ = tz - halfDepth;
+    if (z <= frontLipZ + bevel && z >= backLipZ - 0.06) {
+      let localY = treadTopY;
+      if (z > frontLipZ) {
+        // Gentle riser ramp onto the front edge of this step from the step just below
+        const prevStep = Math.max(0, step - 1);
+        const prevT = prevStep / stepCount;
+        const prevTz = stairStartZ + (stairEndZ - stairStartZ) * prevT;
+        const prevTx = alleyBaseX + Math.sin(prevStep * 0.38) * 1.15;
+        const prevTopY = step === 0 ? 0.08 : getFavelaHillHeight(prevTx, prevTz) + 0.48;
+        const rampT = 1 - (z - frontLipZ) / bevel;
+        const smooth = rampT * rampT * (3 - 2 * rampT);
+        localY = prevTopY + (treadTopY - prevTopY) * smooth;
+      }
+      if (!matched || localY > surfaceY) {
+        surfaceY = localY;
+        matched = true;
+      }
+    }
+  }
+
+  if (!matched) {
+    if (z > stairStartZ + halfDepth) {
+      // Smooth blend from flat sidewalk (-16.55) up to bottom tread lip (-17.12)
+      const firstTx = alleyBaseX;
+      const firstTopY = getFavelaHillHeight(firstTx, stairStartZ) + 0.48;
+      const t = Math.max(0, Math.min(1, (-16.55 - z) / (-16.55 - (stairStartZ + halfDepth))));
+      return 0.08 + (firstTopY - 0.08) * (t * t * (3 - 2 * t));
+    }
+    // Past top tread (-32.6): hold top step elevation cleanly into curved landing
+    const topTx = alleyBaseX + Math.sin(stepCount * 0.38) * 1.15;
+    return getFavelaHillHeight(topTx, stairEndZ) + 0.48;
+  }
+
+  return surfaceY;
+}
+
+export function evaluateFavelaAlleyLifecycle(
+  u: number,
+  alleyBaseX: number,
+  direction: 'uphill' | 'downhill',
+  sidewalkApproachSign: 1 | -1 = 1
+): FavelaAlleyPose {
+  const progress = Math.max(0, Math.min(1, u));
+  // Parameterize along a canonical spatial arc s in [0, 1] where s=0 is far off-screen sidewalk and s=1 is behind upper house
+  const s = direction === 'uphill' ? progress : 1 - progress;
+  const upperTurnDir = getFavelaUpperCurveDir(alleyBaseX);
+
+  const sampleArc = (arcS: number): { x: number; y: number; z: number; phaseKind: FavelaAlleyPhaseKind } => {
+    const cs = Math.max(0, Math.min(1, arcS));
+    const sidewalkZ = -16.55;
+    const stairStartZ = -17.6;
+    const stairEndZ = -32.6;
+    const turnRadius = 1.05;
+    // Start/end completely past the off-screen street corners (±31.5m) so walkers NEVER pop in/out mid-view!
+    const offscreenSidewalkX = sidewalkApproachSign * 31.5;
+
+    if (cs < 0.22) {
+      // Flat sidewalk passerby stroll from far off-screen toward the alley entrance
+      const t = cs / 0.22;
+      const turnX = alleyBaseX + sidewalkApproachSign * turnRadius;
+      return {
+        x: offscreenSidewalkX + (turnX - offscreenSidewalkX) * t,
+        y: 0.08,
+        z: sidewalkZ,
+        phaseKind: 'sidewalk',
+      };
+    }
+    if (cs < 0.30) {
+      // Smooth 90° quarter-circle turn from sidewalk onto the base mosaic tread
+      const t = (cs - 0.22) / 0.08;
+      const theta = t * (Math.PI * 0.5);
+      const x = alleyBaseX + sidewalkApproachSign * Math.cos(theta) * turnRadius;
+      const z = sidewalkZ - Math.sin(theta) * turnRadius;
+      const entryY = sampleFavelaStairSurfaceY(alleyBaseX, z) + 0.02;
+      const y = 0.08 + (entryY - 0.08) * (t * t * (3 - 2 * t));
+      return { x, y, z, phaseKind: 'stair_entry_turn' };
+    }
+    if (cs < 0.80) {
+      // Discrete tread-top-accurate Selarón staircase ascent/descent (zero buried feet!)
+      const stairT = (cs - 0.30) / 0.50;
+      const stepF = stairT * 16;
+      const z = stairStartZ + (stairEndZ - stairStartZ) * stairT;
+      const x = alleyBaseX + Math.sin(stepF * 0.38) * 1.15;
+      const treadSurfaceY = sampleFavelaStairSurfaceY(alleyBaseX, z) + 0.025;
+      return { x, y: treadSurfaceY, z, phaseKind: 'stairs' };
+    }
+
+    // Upper staircase curve (cs in [0.80, 1.0]): bends 90° laterally behind the enlarged concealing corner house
+    const topBaseX = alleyBaseX + Math.sin(16 * 0.38) * 1.15;
+    const topBaseZ = stairEndZ;
+    const topBaseY = Math.max(
+      sampleFavelaStairSurfaceY(alleyBaseX, topBaseZ),
+      getFavelaHillHeight(topBaseX, topBaseZ) + 0.48
+    ) + 0.025;
+    const upperCurveR = 1.65;
+
+    if (cs < 0.90) {
+      const t = (cs - 0.80) / 0.10;
+      const theta = t * (Math.PI * 0.5);
+      const x = topBaseX + upperTurnDir * upperCurveR * (1 - Math.cos(theta));
+      const z = topBaseZ - Math.sin(theta) * upperCurveR;
+      const y = topBaseY + t * 0.72;
+      return { x, y, z, phaseKind: 'upper_curve' };
+    }
+
+    const t = (cs - 0.90) / 0.10;
+    const x = topBaseX + upperTurnDir * (upperCurveR + t * 3.6);
+    const z = topBaseZ - upperCurveR - t * 0.45;
+    const y = topBaseY + 0.72 + t * 0.18;
+    return { x, y, z, phaseKind: 'concealed_behind_building' };
+  };
+
+  const curr = sampleArc(s);
+  const delta = direction === 'uphill' ? 0.015 : -0.015;
+  const ahead = sampleArc(s + delta);
+  const behind = sampleArc(s - delta);
+
+  const dx = ahead.x - curr.x;
+  const dz = ahead.z - curr.z;
+  const yaw = Math.atan2(dx, dz);
+
+  // Compute macro staircase slope across ~2 steps so flat discrete tread tops never zero out climbing/descending posture!
+  let slopePitch = 0;
+  if (curr.phaseKind === 'stairs' || curr.phaseKind === 'upper_curve') {
+    const macroDelta = direction === 'uphill' ? 0.055 : -0.055;
+    const macroAhead = sampleArc(s + macroDelta);
+    const macroBehind = sampleArc(s - macroDelta);
+    const mdx = macroAhead.x - macroBehind.x;
+    const mdy = macroAhead.y - macroBehind.y;
+    const mdz = macroAhead.z - macroBehind.z;
+    const mHoriz = Math.hypot(mdx, mdz) || 1e-4;
+    const maxPitch = curr.phaseKind === 'stairs' ? 0.55 : 0.35;
+    slopePitch = Math.max(-maxPitch, Math.min(maxPitch, Math.atan2(mdy, mHoriz)));
+  }
+
+  const prevYaw = Math.atan2(curr.x - behind.x, curr.z - behind.z);
+  let yawDiff = yaw - prevYaw;
+  while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+  while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+  const lateralTurnRate = Math.max(-2, Math.min(2, yawDiff * 8));
+
+  return {
+    x: curr.x,
+    y: curr.y,
+    z: curr.z,
+    yaw,
+    slopePitch,
+    lateralTurnRate,
+    phaseKind: curr.phaseKind,
+    isConcealed: curr.phaseKind === 'concealed_behind_building',
+  };
+}
+
+
 

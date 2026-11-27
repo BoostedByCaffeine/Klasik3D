@@ -54,9 +54,11 @@ import {
   loadSavedGraphicsQuality,
   markCustomerAtCounter,
   performCupAction,
+  InteriorThemeId,
   preparePastry,
   purchaseCatCosmetic,
   purchaseOrEquipCafeCat,
+  purchaseOrEquipInteriorTheme,
   purchaseOrEquipScenery,
   purchasePatronOutfit,
   purchaseUpgrade,
@@ -1550,6 +1552,21 @@ export default function App() {
     setGameState((prev) => ({ ...prev, decor }));
   };
 
+  const handleSelectInteriorTheme = (themeId: InteriorThemeId) => {
+    setGameState((prev) => {
+      const wasUnlocked = (prev.unlockedInteriorThemes || ['garage_garden']).includes(themeId);
+      const next = purchaseOrEquipInteriorTheme(prev, themeId);
+      if (next !== prev) {
+        if (!wasUnlocked && (next.unlockedInteriorThemes || []).includes(themeId)) {
+          soundEngine.playCashRegister();
+        } else {
+          soundEngine.playCeramicClink(1.12);
+        }
+      }
+      return next;
+    });
+  };
+
   const handleChangeGraphics = (graphicsQuality: GraphicsQuality) => {
     saveGraphicsQuality(graphicsQuality);
     setGameState((prev) => ({ ...prev, graphicsQuality }));
@@ -1870,6 +1887,8 @@ export default function App() {
       {activeModal === 'customize' && (
         <CustomizeModal
           decor={gameState.decor}
+          cash={gameState.cash}
+          unlockedInteriorThemes={gameState.unlockedInteriorThemes}
           weather={gameState.weather}
           timeOfDayMode={gameState.timeOfDayMode}
           rainPreference={gameState.rainPreference}
@@ -1881,6 +1900,7 @@ export default function App() {
             sceneRef.current?.getDecorThumbnail(cat, val) ?? ''
           }
           onUpdateDecor={handleUpdateDecor}
+          onSelectInteriorTheme={handleSelectInteriorTheme}
           onUpdateTimeOfDay={handleChangeTimeOfDay}
           onUpdateRainPreference={handleChangeRainPreference}
           onOpenCafeCats={() => {
