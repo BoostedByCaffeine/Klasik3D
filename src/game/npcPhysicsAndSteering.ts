@@ -727,10 +727,12 @@ export function buildChairSafeExitWaypoints(params: {
   corridorZ?: number;
   centerAisleZ?: number;
 }): Vec2XZ[] {
-  const { from, goal, seatExitOrigin, tables, doorX } = params;
+  const { from, goal, seatExitOrigin, tables, doorX, egressLaneX } = params;
   const centerAisleZ = params.centerAisleZ ?? -3.65;
   // Unobstructed west vertical lane (x = -0.82 stays >= 0.97m clear of Table 0 at x=0.15 and >= 1.37m clear of Table 2 at x=0.55)
   const safeWestLaneX = -0.82;
+  // Dedicated served-patron egress bypass corridor east of the ordering queue column (x = -0.95)
+  const safeQueueBypassX = Math.max(-0.22, Math.min(0.28, egressLaneX));
   const pts: Vec2XZ[] = [];
 
   // 1. Exiting from a seated dining chair: step outward from chair -> enter unobstructed middle aisle -> west egress lane -> door
@@ -757,20 +759,28 @@ export function buildChairSafeExitWaypoints(params: {
     } else {
       pts.push({ x: clearX, z: seatExitOrigin.z });
       pts.push({ x: clearX, z: centerAisleZ });
-      if (Math.abs(clearX - safeWestLaneX) > 0.12) {
-        pts.push({ x: safeWestLaneX, z: centerAisleZ });
+      if (Math.abs(clearX - safeQueueBypassX) > 0.14) {
+        pts.push({ x: safeQueueBypassX, z: centerAisleZ });
       }
-      pts.push({ x: safeWestLaneX, z: -4.95 });
+      pts.push({ x: safeQueueBypassX, z: -4.85 });
     }
   } else if (from.z > -4.85) {
     // Standing inside the cafe (pickup counter, queue, selfie spot, or lounge band)
     if (from.x > -0.35) {
       pts.push({ x: from.x, z: centerAisleZ });
-      pts.push({ x: safeWestLaneX, z: centerAisleZ });
-    } else if (Math.abs(from.x - safeWestLaneX) > 0.18) {
-      pts.push({ x: safeWestLaneX, z: from.z });
+      pts.push({ x: safeQueueBypassX, z: centerAisleZ });
+      pts.push({ x: safeQueueBypassX, z: -4.85 });
+    } else if (from.z > -3.55) {
+      // Leaving directly from counter / pickup / ordering queue: step EAST into dedicated bypass lane
+      // instead of marching straight back through everyone waiting in line at x = -0.95!
+      pts.push({ x: safeQueueBypassX, z: Math.min(from.z, -1.25) });
+      pts.push({ x: safeQueueBypassX, z: -4.85 });
+    } else {
+      if (Math.abs(from.x - safeWestLaneX) > 0.18) {
+        pts.push({ x: safeWestLaneX, z: from.z });
+      }
+      pts.push({ x: safeWestLaneX, z: -4.95 });
     }
-    pts.push({ x: safeWestLaneX, z: -4.95 });
   }
 
   pts.push({ x: doorX, z: -5.15 });

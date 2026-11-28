@@ -3760,7 +3760,8 @@ export function spawnCustomerOrder(
       ? 'extra cold with fresh ice'
       : 'with silky 65°C microfoam';
 
-  const orderType: OrderType = rng() < 0.38 ? 'takeout' : 'dine-in';
+  // ~75% of regular walk-in patrons dine in at the lounge tables; ~25% grab takeout
+  const orderType: OrderType = rng() < 0.25 ? 'takeout' : 'dine-in';
   const toGoSuffix = orderType === 'takeout' ? ' to go' : '';
   const pastryPhrase = pastrySpec ? ` plus a fresh ${pastrySpec.name}` : '';
   const greetings = [
@@ -4587,13 +4588,16 @@ export function advanceSimulationTick(
         // ignore storage errors
       }
     }
+    const enforcedAppearance: SecretNpcAppearance = baseOrder.isDeliveryRider
+      ? { ...appearance, modelVariant: 'helmet' }
+      : appearance;
     return {
       ...baseOrder,
       customerName: secretName,
       avatarColor: '#C6936B',
-      shirtColor: appearance.wearsCharcoalTee ? '#595B60' : '#1C1C20',
+      shirtColor: enforcedAppearance.wearsCharcoalTee ? '#595B60' : '#1C1C20',
       isSecretNpc: true,
-      secretNpcAppearance: appearance,
+      secretNpcAppearance: enforcedAppearance,
       patronOutfitId: null,
       dialogueLine: warmDialogue,
     };

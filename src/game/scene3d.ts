@@ -59,9 +59,11 @@ import {
   applySecretNpcLookToRig,
   buildSecretNpcAssetRig,
   createSecretNpcHeartSprite,
+  preloadSecretNpcVariant,
   SecretNpcAssetRig,
   updateSecretNpcAssetPose,
 } from './secretNpc3d';
+import { updateOutdoorNpcDetailLod } from './outdoorNpcRig';
 import {
   computeAdaptiveCameraFov,
   mapPointerToViewportNdc,
@@ -472,6 +474,7 @@ interface PooledPedestrian {
   avoidSideMemory: -1 | 0 | 1;
   dogRig: SculptedDogRig | null;
   lanternGroup: THREE.Group | null;
+  lanternCordPivot: THREE.Group | null;
   hikerGear: THREE.Group | null;
   trekkingPoleRight: THREE.Group | null;
   trekkingPoleLeft: THREE.Group | null;
@@ -500,8 +503,10 @@ interface ArticulatedCustomerActor {
   neckJoint: THREE.Group;
   leftShoulderJoint: THREE.Group;
   leftElbowJoint: THREE.Group;
+  leftHandSocket: THREE.Group;
   rightShoulderJoint: THREE.Group;
   rightElbowJoint: THREE.Group;
+  rightHandSocket: THREE.Group;
   leftHipJoint: THREE.Group;
   leftKneeJoint: THREE.Group;
   rightHipJoint: THREE.Group;
@@ -556,6 +561,7 @@ interface ArticulatedCustomerActor {
   isDeliveryRider?: boolean;
   riderVariant?: DeliveryRiderVariant;
   scooterStowTimer?: number;
+  carSelfieTimer?: number;
 }
 
 interface DeliveryScooterController {
@@ -689,6 +695,7 @@ export class KlasikCafeScene3D {
   private elapsed = 0;
   private fpsFrames = 0;
   private fpsTimer = 0;
+  private outdoorNpcLodTimer = 0;
 
   // Lighting references
   private sunLight!: THREE.DirectionalLight;
@@ -1158,6 +1165,8 @@ export class KlasikCafeScene3D {
     this.redrawPosScreenTexture();
     this.syncCustomerActors();
     this.syncOutdoorBiomeAndLod(true);
+    // Warm the Secret NPC delivery helmet asset early so rider spawns never fall back to procedural gear
+    preloadSecretNpcVariant('helmet');
 
     // Pre-warm shaders on hardware GPUs
     if (!this.isSoftwareGl) {
@@ -9344,23 +9353,26 @@ export class KlasikCafeScene3D {
 
     const buildHandTrekkingPole = (): THREE.Group => {
       const pole = new THREE.Group();
-      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.016, 0.13, 8), gripMat);
-      grip.position.y = 0.01;
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.015, 0.13, 8), gripMat);
+      grip.position.y = 0;
       const strap = new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.005, 5, 10), packAccentMat);
-      strap.position.set(0, 0.04, -0.018);
+      strap.position.set(0, 0.032, -0.016);
       const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.0075, 0.96, 6), poleMat);
-      shaft.position.y = -0.49;
+      shaft.position.y = -0.5;
       const basket = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.012, 8), packAccentMat);
-      basket.position.y = -0.88;
+      basket.position.y = -0.89;
       const tip = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.045, 6), gripMat);
       tip.rotation.x = Math.PI;
-      tip.position.y = -0.99;
+      tip.position.y = -1.0;
       pole.add(grip, strap, shaft, basket, tip);
-      pole.position.set(0.0, -0.22, 0.025);
-      pole.rotation.x = 0.14;
+      // Anchored directly inside handSocket (0,0,0); pitched so shaft plants downward ahead of the stride
+      pole.position.set(0, 0, 0);
+      pole.rotation.x = 0.82;
       pole.visible = false;
       return pole;
     };
+
+    const lanternCapMat = new THREE.MeshStandardMaterial({ color: 0x292524, roughness: 0.72 });
 
     this.pedestrianPool = [];
     pedProfiles.forEach((cfg, idx) => {
@@ -9386,20 +9398,32 @@ export class KlasikCafeScene3D {
       dogRig.root.visible = false;
       actor.group.add(dogRig.root);
 
-      // 2. Japanese Tranquility Glowing Paper Lantern carried ahead on right hand
+      // 2. Japanese Tranquility Glowing Paper Lantern firmly gripped in rightHandSocket with gravity-leveled cord pivot
       const lanternGroup = new THREE.Group();
-      const lStick = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.012, 0.42, 6), poleMat);
+      const lStick = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.011, 0.38, 6), poleMat);
       lStick.rotation.x = Math.PI / 2;
-      lStick.position.set(0, -0.14, 0.22);
+      lStick.position.set(0, 0, 0.16);
       lanternGroup.add(lStick);
-      const lBulb = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 7), lanternPaperMat);
-      lBulb.scale.set(0.85, 1.35, 0.85);
-      lBulb.position.set(0, -0.26, 0.42);
-      lanternGroup.add(lBulb);
-      lanternGroup.visible = false;
-      actor.rightElbowJoint.add(lanternGroup);
 
-      // 3. Mt. Everest Hiker Framed Backpack (torso) + Hand-Anchored Trekking Poles (left & right elbows!)
+      const lanternCordPivot = new THREE.Group();
+      lanternCordPivot.position.set(0, 0, 0.34);
+      const lCord = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.1, 5), lanternCapMat);
+      lCord.position.set(0, -0.05, 0);
+      const lTopCap = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.058, 0.022, 8), lanternCapMat);
+      lTopCap.position.set(0, -0.1, 0);
+      const lBulb = new THREE.Mesh(new THREE.SphereGeometry(0.105, 9, 8), lanternPaperMat);
+      lBulb.scale.set(0.86, 1.28, 0.86);
+      lBulb.position.set(0, -0.22, 0);
+      const lBotCap = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.044, 0.022, 8), lanternCapMat);
+      lBotCap.position.set(0, -0.34, 0);
+      lanternCordPivot.add(lCord, lTopCap, lBulb, lBotCap);
+      lanternGroup.add(lanternCordPivot);
+      lanternGroup.position.set(0, 0, 0);
+      lanternGroup.rotation.x = 1.14;
+      lanternGroup.visible = false;
+      actor.rightHandSocket.add(lanternGroup);
+
+      // 3. Mt. Everest Hiker Framed Backpack (torso) + Hand-Anchored Trekking Poles (left & right hand sockets!)
       const hikerGear = new THREE.Group();
       const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.4, 0.19), packMat);
       backpack.position.set(0, 0.24, -0.18);
@@ -9413,14 +9437,17 @@ export class KlasikCafeScene3D {
       actor.torsoGroup.add(hikerGear);
 
       const trekkingPoleRight = buildHandTrekkingPole();
-      actor.rightElbowJoint.add(trekkingPoleRight);
+      actor.rightHandSocket.add(trekkingPoleRight);
       const trekkingPoleLeft = buildHandTrekkingPole();
-      actor.leftElbowJoint.add(trekkingPoleLeft);
+      actor.leftHandSocket.add(trekkingPoleLeft);
 
-      // 4. Cyberpunk Translucent Neon Umbrella
+      // 4. Cyberpunk Translucent Neon Umbrella anchored strictly inside leftHandSocket (zero floating!)
       const neonUmbrella = new THREE.Group();
-      const nuShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.92, 6), poleMat);
-      nuShaft.position.set(0, 0.46, 0);
+      const nuHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.11, 8), gripMat);
+      nuHandle.position.set(0, 0, 0);
+      neonUmbrella.add(nuHandle);
+      const nuShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.84, 6), poleMat);
+      nuShaft.position.set(0, 0.42, 0);
       neonUmbrella.add(nuShaft);
       const nuCanopyMat = new THREE.MeshStandardMaterial({
         color: neonUmbrellaColors[idx % neonUmbrellaColors.length],
@@ -9431,18 +9458,23 @@ export class KlasikCafeScene3D {
         side: THREE.DoubleSide,
         roughness: 0.2,
       });
-      const nuCanopy = new THREE.Mesh(new THREE.ConeGeometry(0.56, 0.22, 8, 1, true), nuCanopyMat);
-      nuCanopy.position.set(0, 0.9, 0);
+      const nuCanopy = new THREE.Mesh(new THREE.ConeGeometry(0.54, 0.21, 8, 1, true), nuCanopyMat);
+      nuCanopy.position.set(0, 0.82, 0);
       neonUmbrella.add(nuCanopy);
-      neonUmbrella.position.set(-0.22, 0.72, 0.08);
+      const nuTip = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.06, 6), poleMat);
+      nuTip.position.set(0, 0.94, 0);
+      neonUmbrella.add(nuTip);
+      // Matches rain umbrella grip orientation: when leftShoulder=-1.28, leftElbow=-0.30, shaft rises straight UP overhead
+      neonUmbrella.position.set(0, 0, 0);
+      neonUmbrella.rotation.set(Math.PI / 2, 0, -0.06);
       neonUmbrella.visible = false;
-      actor.torsoGroup.add(neonUmbrella);
+      actor.leftHandSocket.add(neonUmbrella);
 
-      // 5. Brazilian Favela Football tucked under right arm
-      const footballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.115, 9, 8), ballMat);
-      footballMesh.position.set(0.08, -0.18, 0.06);
+      // 5. Brazilian Favela Football cradled snugly against right palm & forearm (zero gap!)
+      const footballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.112, 9, 8), ballMat);
+      footballMesh.position.set(-0.04, 0.05, 0.065);
       footballMesh.visible = false;
-      actor.rightElbowJoint.add(footballMesh);
+      actor.rightHandSocket.add(footballMesh);
 
       actor.group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -9477,6 +9509,7 @@ export class KlasikCafeScene3D {
         avoidSideMemory: 0,
         dogRig,
         lanternGroup,
+        lanternCordPivot,
         hikerGear,
         trekkingPoleRight,
         trekkingPoleLeft,
@@ -9535,14 +9568,14 @@ export class KlasikCafeScene3D {
       const prevPhoneVisible = p.actor.phoneMesh.visible;
       const prevVessel = p.actor.appliedVesselType;
 
-      // Detach reusable behavior props before removing old actor group
+      // Detach reusable behavior props from hand sockets/torso before removing old actor group
       if (p.dogRig) p.actor.group.remove(p.dogRig.root);
-      if (p.lanternGroup) p.actor.rightElbowJoint.remove(p.lanternGroup);
+      if (p.lanternGroup) p.actor.rightHandSocket.remove(p.lanternGroup);
       if (p.hikerGear) p.actor.torsoGroup.remove(p.hikerGear);
-      if (p.trekkingPoleRight) p.actor.rightElbowJoint.remove(p.trekkingPoleRight);
-      if (p.trekkingPoleLeft) p.actor.leftElbowJoint.remove(p.trekkingPoleLeft);
-      if (p.neonUmbrella) p.actor.torsoGroup.remove(p.neonUmbrella);
-      if (p.footballMesh) p.actor.rightElbowJoint.remove(p.footballMesh);
+      if (p.trekkingPoleRight) p.actor.rightHandSocket.remove(p.trekkingPoleRight);
+      if (p.trekkingPoleLeft) p.actor.leftHandSocket.remove(p.trekkingPoleLeft);
+      if (p.neonUmbrella) p.actor.leftHandSocket.remove(p.neonUmbrella);
+      if (p.footballMesh) p.actor.rightHandSocket.remove(p.footballMesh);
 
       this.scene.remove(p.actor.group);
       p.actor.activityTexture.dispose();
@@ -9563,12 +9596,12 @@ export class KlasikCafeScene3D {
       this.setVesselVariantVisibility(rebuilt.heldVesselVariants, prevVessel);
 
       if (p.dogRig) rebuilt.group.add(p.dogRig.root);
-      if (p.lanternGroup) rebuilt.rightElbowJoint.add(p.lanternGroup);
+      if (p.lanternGroup) rebuilt.rightHandSocket.add(p.lanternGroup);
       if (p.hikerGear) rebuilt.torsoGroup.add(p.hikerGear);
-      if (p.trekkingPoleRight) rebuilt.rightElbowJoint.add(p.trekkingPoleRight);
-      if (p.trekkingPoleLeft) rebuilt.leftElbowJoint.add(p.trekkingPoleLeft);
-      if (p.neonUmbrella) rebuilt.torsoGroup.add(p.neonUmbrella);
-      if (p.footballMesh) rebuilt.rightElbowJoint.add(p.footballMesh);
+      if (p.trekkingPoleRight) rebuilt.rightHandSocket.add(p.trekkingPoleRight);
+      if (p.trekkingPoleLeft) rebuilt.leftHandSocket.add(p.trekkingPoleLeft);
+      if (p.neonUmbrella) rebuilt.leftHandSocket.add(p.neonUmbrella);
+      if (p.footballMesh) rebuilt.rightHandSocket.add(p.footballMesh);
 
       rebuilt.group.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
@@ -10111,6 +10144,8 @@ export class KlasikCafeScene3D {
   > {
     const group = new THREE.Group();
     const isRider = Boolean(deliveryRiderVariant);
+    // Secret NPC delivery riders strictly use secretnpchelmet.js — never procedural default rider outfits!
+    const isProceduralRider = isRider && !secretNpcAppearance;
     const riderHex =
       deliveryRiderVariant === 'blue'
         ? 0x2563eb
@@ -10124,9 +10159,9 @@ export class KlasikCafeScene3D {
       metalness: 0.02,
     });
     const jacketMat = new THREE.MeshStandardMaterial({
-      color: isRider ? riderHex : new THREE.Color(shirtColor),
-      roughness: isRider ? 0.42 : skinPackId === 'cyber-neon-night' ? 0.32 : 0.58,
-      metalness: isRider ? 0.12 : skinPackId === 'cyber-neon-night' ? 0.45 : 0.06,
+      color: isProceduralRider ? riderHex : new THREE.Color(shirtColor),
+      roughness: isProceduralRider ? 0.42 : skinPackId === 'cyber-neon-night' ? 0.32 : 0.58,
+      metalness: isProceduralRider ? 0.12 : skinPackId === 'cyber-neon-night' ? 0.45 : 0.06,
     });
     const innerShirtMat = new THREE.MeshStandardMaterial({
       color:
@@ -10753,7 +10788,7 @@ export class KlasikCafeScene3D {
     };
 
     // Pack-Specific, Rider & Seed-Specific Full 3D Headgear & Hairstyles (with zero hair-through-hat clipping!)
-    if (isRider) {
+    if (isProceduralRider) {
       // Phase 7: Open-Face Color-Matched Scooter Helmet + Dark Tinted Flip-Visor (hides hairCrown cleanly!)
       hairCrown.visible = false;
       const helmetMat = new THREE.MeshStandardMaterial({
@@ -10953,7 +10988,7 @@ export class KlasikCafeScene3D {
     }
 
     const sleeveMat =
-      !isRider && skinPackId === 'tokyo-streetwear'
+      !isProceduralRider && skinPackId === 'tokyo-streetwear'
         ? new THREE.MeshStandardMaterial({ color: 0xfafaf9, roughness: 0.55 })
         : jacketMat;
 
@@ -11016,8 +11051,13 @@ export class KlasikCafeScene3D {
       hand.position.y = -0.22;
       elbowJoint.add(hand);
 
+      // Dedicated hand-palm attachment socket so all held props sit flush inside the grip with zero air gap
+      const handSocket = new THREE.Group();
+      handSocket.position.set(0, -0.22, 0);
+      elbowJoint.add(handSocket);
+
       torsoGroup.add(shoulderJoint);
-      return { shoulderJoint, elbowJoint };
+      return { shoulderJoint, elbowJoint, handSocket };
     };
 
     const leftArm = buildArm(-0.206);
@@ -11033,7 +11073,7 @@ export class KlasikCafeScene3D {
       leftArm.elbowJoint.add(watchBand);
     }
 
-    // 3D Smartphone in Left Hand (Used in SELFIE_MODE, CAR_SELFIE & Queue Waiting)
+    // 3D Smartphone in Left Hand Socket (Used in SELFIE_MODE, CAR_SELFIE & Queue Waiting)
     const phoneMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.055, 0.11, 0.01),
       new THREE.MeshStandardMaterial({
@@ -11043,35 +11083,35 @@ export class KlasikCafeScene3D {
         roughness: 0.2,
       })
     );
-    phoneMesh.position.set(0, -0.25, 0.04);
+    phoneMesh.position.set(0, -0.015, 0.024);
     phoneMesh.rotation.x = Math.PI / 3;
     phoneMesh.visible = false;
     phoneMesh.userData.isCustomerHeldProp = true;
-    leftArm.elbowJoint.add(phoneMesh);
+    leftArm.handSocket.add(phoneMesh);
 
-    // Phase 6: Procedural Rainy-Day 3D Umbrella attached to Left Hand (shown automatically outdoors in rain!)
+    // Phase 6: Procedural Rainy-Day 3D Umbrella anchored strictly inside Left Hand Socket (zero floating!)
     const umbrellaPalette = [0x1d4ed8, 0xb91c1c, 0x0f766e, 0xd97706, 0x4c1d95, 0x334155, 0xbe185d];
     const umbrellaHex = umbrellaPalette[Math.abs(seed) % umbrellaPalette.length];
     const umbrellaGroup = this.createUmbrellaMesh(umbrellaHex);
     // Oriented so when leftShoulder=-1.28, leftElbow=-0.30 (forearm forward), the shaft rises straight UP (+Y world) above the head
-    umbrellaGroup.position.set(0.06, -0.22, 0.02);
-    umbrellaGroup.rotation.set(Math.PI / 2, 0, -0.08);
+    umbrellaGroup.position.set(0, 0, 0);
+    umbrellaGroup.rotation.set(Math.PI / 2, 0, -0.06);
     umbrellaGroup.visible = false;
     umbrellaGroup.userData.isCustomerHeldProp = true;
-    leftArm.elbowJoint.add(umbrellaGroup);
+    leftArm.handSocket.add(umbrellaGroup);
 
-    // Held Authentic Multi-Vessel Drink Cup in Right Hand (Hot Mug / Iced Glass / Hot Takeout / Iced Takeout)
+    // Held Authentic Multi-Vessel Drink Cup in Right Hand Socket (Hot Mug / Iced Glass / Hot Takeout / Iced Takeout)
     const heldVesselRig = this.createMultiVesselRig(0.76, true);
     const heldCup = heldVesselRig.root;
-    heldCup.position.set(0, -0.24, 0.06);
+    heldCup.position.set(0, -0.01, 0.045);
     heldCup.rotation.x = Math.PI / 2;
     heldCup.visible = false;
     heldCup.userData.isCustomerHeldProp = true;
-    rightArm.elbowJoint.add(heldCup);
+    rightArm.handSocket.add(heldCup);
 
-    // Phase 6: Held Artisanal Pastry in Left Hand (Mini Porcelain Plate for Dine-In OR Kraft Paper Bag for Takeout/Delivery!)
+    // Phase 6: Held Artisanal Pastry in Left Hand Socket (Mini Porcelain Plate for Dine-In OR Kraft Paper Bag for Takeout/Delivery!)
     const heldPastryGroup = new THREE.Group();
-    heldPastryGroup.position.set(0, -0.24, 0.075);
+    heldPastryGroup.position.set(0, -0.01, 0.055);
     heldPastryGroup.rotation.x = Math.PI / 2;
     heldPastryGroup.visible = false;
     heldPastryGroup.userData.isCustomerHeldProp = true;
@@ -11103,7 +11143,7 @@ export class KlasikCafeScene3D {
     const heldPastryBagGroup = this.buildKraftPastryBagMesh(0.88);
     heldPastryBagGroup.visible = false;
     heldPastryGroup.add(heldPastryBagGroup);
-    leftArm.elbowJoint.add(heldPastryGroup);
+    leftArm.handSocket.add(heldPastryGroup);
 
     // Overhead Platinum Order & Social Activity Badge Sprite (Offline Vector Canvas Icon)
     const actCanvas = document.createElement('canvas');
@@ -11122,13 +11162,14 @@ export class KlasikCafeScene3D {
     // Phase 4 & 5: Apply Exact Imported Secret NPC `.js` Asset (4 variants: default, hat, helmet, hike) OR modular Patron Outfit pack
     let resolvedSecretVariant: SecretNpcModelVariant | undefined;
     if (secretNpcAppearance) {
-      resolvedSecretVariant =
-        secretNpcAppearance.modelVariant ??
-        resolveSecretNpcModelVariant({
-          activeScenery: this.gameState?.activeScenery || 'busy_street',
-          isDeliveryRider: isRider,
-          wearsCap: secretNpcAppearance.wearsCap,
-        });
+      resolvedSecretVariant = isRider
+        ? 'helmet'
+        : secretNpcAppearance.modelVariant ??
+          resolveSecretNpcModelVariant({
+            activeScenery: this.gameState?.activeScenery || 'busy_street',
+            isDeliveryRider: isRider,
+            wearsCap: secretNpcAppearance.wearsCap,
+          });
       // Hide procedural body meshes while keeping skeletal joint pivots active for held cup/pastry/umbrella/phone
       const isInsideHeldProp = (obj: THREE.Object3D): boolean => {
         let cur: THREE.Object3D | null = obj;
@@ -11180,8 +11221,10 @@ export class KlasikCafeScene3D {
       neckJoint,
       leftShoulderJoint: leftArm.shoulderJoint,
       leftElbowJoint: leftArm.elbowJoint,
+      leftHandSocket: leftArm.handSocket,
       rightShoulderJoint: rightArm.shoulderJoint,
       rightElbowJoint: rightArm.elbowJoint,
+      rightHandSocket: rightArm.handSocket,
       leftHipJoint: leftLeg.hipJoint,
       leftKneeJoint: leftLeg.kneeJoint,
       rightHipJoint: rightLeg.hipJoint,
@@ -11228,33 +11271,40 @@ export class KlasikCafeScene3D {
       isDeliveryRider: isRider,
       riderVariant: deliveryRiderVariant,
       scooterStowTimer: 0,
+      carSelfieTimer: 0,
     };
 
-    // Lazily load & attach the exact imported `.js` 3D Secret NPC asset + 11-joint articulated rig
+    // Lazily load & attach the exact imported `.js` 3D Secret NPC asset + 11-joint articulated rig (with 1 automatic retry)
     if (secretNpcAppearance && resolvedSecretVariant) {
       const variantToLoad = resolvedSecretVariant;
+      const attachRig = (rig: SecretNpcAssetRig) => {
+        if (this.isDisposed) return;
+        if (group.userData.secretNpcNoCastShadow === true) {
+          rig.root.traverse((obj) => {
+            if ((obj as THREE.Mesh).isMesh) obj.castShadow = false;
+          });
+        }
+        group.add(rig.root);
+        builtActor.secretAssetRig = rig;
+        builtActor.secretAssetVariant = variantToLoad;
+        // Also sync into live customerActors / secretPasserby references if actor was cloned via spread
+        for (const liveActor of this.customerActors.values()) {
+          if (liveActor.group === group) {
+            liveActor.secretAssetRig = rig;
+            liveActor.secretAssetVariant = variantToLoad;
+          }
+        }
+        if (this.secretPasserby && this.secretPasserby.actor.group === group) {
+          this.secretPasserby.actor.secretAssetRig = rig;
+          this.secretPasserby.actor.secretAssetVariant = variantToLoad;
+        }
+      };
+
       void buildSecretNpcAssetRig(variantToLoad)
-        .then((rig) => {
-          if (this.isDisposed) return;
-          if (group.userData.secretNpcNoCastShadow === true) {
-            rig.root.traverse((obj) => {
-              if ((obj as THREE.Mesh).isMesh) obj.castShadow = false;
-            });
-          }
-          group.add(rig.root);
-          builtActor.secretAssetRig = rig;
-          // Also sync into live customerActors / secretPasserby references if actor was cloned via spread
-          for (const liveActor of this.customerActors.values()) {
-            if (liveActor.group === group) {
-              liveActor.secretAssetRig = rig;
-            }
-          }
-          if (this.secretPasserby && this.secretPasserby.actor.group === group) {
-            this.secretPasserby.actor.secretAssetRig = rig;
-          }
-        })
+        .catch(() => buildSecretNpcAssetRig(variantToLoad))
+        .then(attachRig)
         .catch(() => {
-          // Fallback to procedural look only if dynamic module import unexpectedly fails
+          // Fallback to procedural look only if dynamic module import fails twice
           if (this.isDisposed) return;
           pelvisGroup.traverse((child) => {
             if ((child as THREE.Mesh).isMesh) child.visible = true;
@@ -11875,9 +11925,40 @@ export class KlasikCafeScene3D {
         this.customerActors.set(cust.id, actor);
       }
 
+      // Self-heal if a Secret NPC Delivery Rider was somehow instantiated without the dedicated 'helmet' asset
+      if (
+        actor &&
+        cust.isSecretNpc &&
+        cust.isDeliveryRider &&
+        actor.secretAssetVariant !== 'helmet'
+      ) {
+        this.customersRoot.remove(actor.group);
+        actor.activityTexture.dispose();
+        this.customerActors.delete(cust.id);
+        actor = undefined;
+      }
+
       if (!actor) {
         const seed =
           cust.customerName.charCodeAt(0) + cust.customerName.length * 7 + idx * 13;
+        const baseSecretAppearance = cust.isSecretNpc
+          ? cust.secretNpcAppearance ||
+            resolveSecretNpcAppearance(
+              this.gameState.climateState || 'summer',
+              isRainyWeather(this.gameState.weather),
+              Math.random,
+              this.gameState.activeScenery || 'busy_street',
+              Boolean(cust.isDeliveryRider)
+            )
+          : null;
+        const enforcedSecretAppearance =
+          baseSecretAppearance && cust.isDeliveryRider
+            ? {
+                ...baseSecretAppearance,
+                wearsCap: false,
+                modelVariant: 'helmet' as const,
+              }
+            : baseSecretAppearance;
         const built = this.createCustomerCharacter(
           seed,
           cust.avatarColor,
@@ -11885,16 +11966,7 @@ export class KlasikCafeScene3D {
           activePackId,
           cust.isDeliveryRider ? cust.riderVariant || 'green' : undefined,
           desiredPatronOutfit,
-          cust.isSecretNpc
-            ? cust.secretNpcAppearance ||
-                resolveSecretNpcAppearance(
-                  this.gameState.climateState || 'summer',
-                  isRainyWeather(this.gameState.weather),
-                  Math.random,
-                  this.gameState.activeScenery || 'busy_street',
-                  Boolean(cust.isDeliveryRider)
-                )
-            : null
+          enforcedSecretAppearance
         );
         // Delivery Rider arrives riding their assigned scooter!
         const assignedScooter = this.deliveryScooters.find((s) => s.customerId === cust.id);
@@ -11925,6 +11997,7 @@ export class KlasikCafeScene3D {
           isDeliveryRider: Boolean(cust.isDeliveryRider),
           riderVariant: cust.riderVariant,
           scooterStowTimer: 0,
+          carSelfieTimer: 0,
         };
         this.customerActors.set(cust.id, actor);
       }
@@ -14308,6 +14381,18 @@ export class KlasikCafeScene3D {
         this.gameState.weather,
         isPlayerOutsideFrame
       );
+      this.outdoorNpcLodTimer += dt;
+      if (isPlayerOutsideFrame && this.outdoorNpcLodTimer >= 0.25) {
+        this.outdoorNpcLodTimer = 0;
+        const isLowOutdoorQuality =
+          this.isSoftwareGl || this.gameState.graphicsQuality === 'low';
+        updateOutdoorNpcDetailLod(
+          this.sceneryManager.container,
+          this.camera.position,
+          isLowOutdoorQuality,
+          16
+        );
+      }
     }
 
     // Mobile adaptive resolution guard: step down to 1.0 DPR if rolling frame time stays > 28ms
@@ -15062,6 +15147,14 @@ export class KlasikCafeScene3D {
       } else if (isPlayerOutsideNow && p.behavior === 'lantern_stroll') {
         p.actor.rightShoulderJoint.rotation.x = -0.82 + Math.sin(this.elapsed * 2.2 + i) * 0.05;
         p.actor.rightElbowJoint.rotation.x = -0.32;
+        if (p.lanternGroup) {
+          p.lanternGroup.rotation.x = -(
+            p.actor.rightShoulderJoint.rotation.x + p.actor.rightElbowJoint.rotation.x
+          );
+        }
+        if (p.lanternCordPivot) {
+          p.lanternCordPivot.rotation.x = Math.sin(this.elapsed * 3.1 + i) * 0.08;
+        }
       } else if (isPlayerOutsideNow && p.behavior === 'everest_hiker') {
         // Synchronized right trekking pole plant (opposes right leg stride!)
         p.actor.rightShoulderJoint.rotation.x = -0.44 + gait.rightShoulderX * 0.92;
@@ -15612,7 +15705,34 @@ export class KlasikCafeScene3D {
         actor.heldCup.visible = false;
         actor.heldPastryGroup.visible = false;
         actor.umbrellaGroup.visible = false;
+        actor.phoneMesh.visible = false;
         actor.activitySprite.visible = false;
+        if (actor.secretAssetRig) {
+          updateSecretNpcAssetPose(actor.secretAssetRig, {
+            walkBlend: 0,
+            seatedBlend: 1,
+            walkPhase: actor.walkPhase,
+            elapsed: this.elapsed,
+            seed: actor.seed,
+            pelvisYOffset: -0.14,
+            pelvisRollZ: 0,
+            torsoYawY: 0,
+            torsoRollZ: 0,
+            neckPitchX: 0,
+            neckYawY: 0,
+            neckRollZ: 0,
+            leftHipX: -1.15,
+            rightHipX: -1.15,
+            leftKneeX: 1.15,
+            rightKneeX: 1.15,
+            leftShoulderX: -0.78,
+            leftElbowX: -0.35,
+            rightShoulderX: -0.78,
+            rightElbowX: -0.35,
+            holdingPhone: false,
+            isRidingScooter: true,
+          });
+        }
         return;
       }
       if (scooter && scooter.phase === 'stowing') {
@@ -15629,7 +15749,34 @@ export class KlasikCafeScene3D {
         actor.heldCup.visible = scooter.stowTimer < 0.28;
         actor.heldPastryGroup.visible = scooter.stowTimer < 0.28 && Boolean(cust.requestedPastry);
         actor.umbrellaGroup.visible = false;
+        actor.phoneMesh.visible = false;
         actor.activitySprite.visible = false;
+        if (actor.secretAssetRig) {
+          updateSecretNpcAssetPose(actor.secretAssetRig, {
+            walkBlend: 0,
+            seatedBlend: 0,
+            walkPhase: actor.walkPhase,
+            elapsed: this.elapsed,
+            seed: actor.seed,
+            pelvisYOffset: 0,
+            pelvisRollZ: 0,
+            torsoYawY: 0,
+            torsoRollZ: 0,
+            neckPitchX: 0.16,
+            neckYawY: 0,
+            neckRollZ: 0,
+            leftHipX: 0,
+            rightHipX: 0,
+            leftKneeX: 0,
+            rightKneeX: 0,
+            leftShoulderX: -1.05,
+            leftElbowX: -0.45,
+            rightShoulderX: -1.05,
+            rightElbowX: -0.45,
+            holdingPhone: false,
+            isStowingScooter: true,
+          });
+        }
         return;
       }
 
@@ -15668,6 +15815,31 @@ export class KlasikCafeScene3D {
         actor.rightShoulderJoint.rotation.x = actor.heldCup.visible ? -0.56 : -0.35 * sb;
         actor.rightElbowJoint.rotation.x = actor.heldCup.visible ? -0.88 : -0.45 * sb;
         actor.group.position.copy(actor.currentPos);
+        if (actor.secretAssetRig) {
+          updateSecretNpcAssetPose(actor.secretAssetRig, {
+            walkBlend: 0,
+            seatedBlend: sb,
+            walkPhase: actor.walkPhase,
+            elapsed: this.elapsed,
+            seed: actor.seed,
+            pelvisYOffset: actor.pelvisGroup.position.y - 0.58,
+            pelvisRollZ: 0,
+            torsoYawY: 0,
+            torsoRollZ: 0,
+            neckPitchX: actor.neckJoint.rotation.x,
+            neckYawY: actor.neckJoint.rotation.y,
+            neckRollZ: actor.neckJoint.rotation.z,
+            leftHipX: actor.leftHipJoint.rotation.x,
+            rightHipX: actor.rightHipJoint.rotation.x,
+            leftKneeX: actor.leftKneeJoint.rotation.x,
+            rightKneeX: actor.rightKneeJoint.rotation.x,
+            leftShoulderX: actor.leftShoulderJoint.rotation.x,
+            leftElbowX: actor.leftElbowJoint.rotation.x,
+            rightShoulderX: actor.rightShoulderJoint.rotation.x,
+            rightElbowX: actor.rightElbowJoint.rotation.x,
+            holdingPhone: false,
+          });
+        }
         if (u >= 1) {
           actor.seatedBlend = 0;
           actor.torsoGroup.rotation.x = 0;
@@ -15681,6 +15853,12 @@ export class KlasikCafeScene3D {
         this.activePickupCustomerId === cust.id &&
         this.stepAnim?.type === 'serve_drink' &&
         this.stepAnim.progress < 0.82;
+
+      // Car-selfie guests snap a quick 5.5s Miata photo before walking to their assigned lounge table!
+      const wantsCarSelfie =
+        cust.state === 'seated' &&
+        cust.socialBehavior === 'car_selfie' &&
+        (cust.seatIndex === null || (actor.carSelfieTimer ?? 0) < 5.5);
 
       let goalKind: 'pickup' | 'queue' | 'seat' | 'car_selfie' | 'exit' = 'exit';
       let goalKey = 'exit';
@@ -15700,7 +15878,7 @@ export class KlasikCafeScene3D {
         _targetPos.set(INGRESS_LANE_X, 0, -1.45 - orderQueueIdx * 1.0);
         targetFacing = 0;
         orderQueueIdx++;
-      } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
+      } else if (wantsCarSelfie) {
         goalKind = 'car_selfie';
         goalKey = 'car_selfie';
         _targetPos.set(-1.75, 0, -3.25);
@@ -15902,16 +16080,16 @@ export class KlasikCafeScene3D {
         remainingDistToFinal = _targetPos.distanceTo(actor.currentPos);
       }
 
-      // Phase 1 Stuck-Detector Watchdog: if walking actor moves < 0.10m over 1.0s, activate ghostPassTimer = 1.1s!
+      // Hardened Stuck-Detector Watchdog: only trigger brief recovery after 2.6s truly wedged so normal yields never ghost!
       if (actor.ghostPassTimer > 0) {
         actor.ghostPassTimer = Math.max(0, actor.ghostPassTimer - dt);
       }
       if (actor.moveState === 'walking' && remainingDistToFinal > 0.25) {
         actor.stuckTimer += dt;
-        if (actor.stuckTimer >= 1.0) {
+        if (actor.stuckTimer >= 2.6) {
           const netMoved = actor.currentPos.distanceTo(actor.stuckAnchorPos);
-          if (netMoved < 0.1) {
-            actor.ghostPassTimer = 1.1;
+          if (netMoved < 0.08) {
+            actor.ghostPassTimer = 0.55;
           }
           actor.stuckAnchorPos.copy(actor.currentPos);
           actor.stuckTimer = 0;
@@ -15921,12 +16099,11 @@ export class KlasikCafeScene3D {
         actor.stuckAnchorPos.copy(actor.currentPos);
       }
 
-      // Collision-Layer Filtered Avoidance:
-      // Departing/seated patrons NEVER bounce against 'idle-queue' patrons; ghostPassTimer bypasses inter-actor repulsion!
+      // Full-Body Social Separation + Predictive Tangent Sidestep Avoidance (zero NPC ghosting!)
       const inDoorCorridor = isInsideAirlock(actor.currentPos);
       const shouldApplyAvoidance =
         actor.moveState === 'walking' &&
-        remainingDistToFinal > 0.25 &&
+        remainingDistToFinal > 0.22 &&
         !isPickingUpDrink &&
         !inDoorCorridor &&
         actor.ghostPassTimer <= 0;
@@ -15941,26 +16118,64 @@ export class KlasikCafeScene3D {
           const distSq = dx * dx + dz * dz;
           if (distSq < minR * minR && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
-            const push = (minR - dist) * 0.42;
+            const push = (minR - dist) * 0.45;
             actor.currentPos.x += (dx / dist) * push;
             actor.currentPos.z += (dz / dist) * push;
           }
         }
+        const moveLen = Math.hypot(moveDx, moveDz);
+        const dirX = moveLen > 0.001 ? moveDx / moveLen : 0;
+        const dirZ = moveLen > 0.001 ? moveDz / moveLen : 0;
         const isDepartingOrSeated = cust.state !== 'ordering';
         for (const [otherId, otherActor] of this.customerActors.entries()) {
           if (otherId === cust.id) continue;
           if (otherActor.moveState === 'yielding-door') continue;
-          // Never push departing/served patrons back into the ordering queue column!
-          if (isDepartingOrSeated && otherActor.moveState === 'idle-queue') continue;
           const dx = actor.currentPos.x - otherActor.currentPos.x;
           const dz = actor.currentPos.z - otherActor.currentPos.z;
-          const minSep = 0.56;
+          const minSep = 0.66;
           const distSq = dx * dx + dz * dz;
           if (distSq < minSep * minSep && distSq > 0.0001) {
             const dist = Math.sqrt(distSq);
-            const push = (minSep - dist) * 0.25;
-            actor.currentPos.x += (dx / dist) * push;
-            actor.currentPos.z += (dz / dist) * push;
+            const overlap = minSep - dist;
+            const nx = dx / dist;
+            const nz = dz / dist;
+            // Solid radial separation so shoulders never intersect
+            const radialPush = overlap * 0.52;
+            actor.currentPos.x += nx * radialPush;
+            actor.currentPos.z += nz * radialPush;
+            // Smooth tangent sidestep (departing/seated patrons bias east into egress aisle past queued guests)
+            if (moveLen > 0.001) {
+              if (isDepartingOrSeated && otherActor.moveState === 'idle-queue') {
+                actor.currentPos.x += Math.min(0.18, overlap * 0.65);
+              } else {
+                const rightX = dirZ;
+                const rightZ = -dirX;
+                const sideDot = nx * rightX + nz * rightZ;
+                const sideSign = sideDot >= 0 ? 1 : -1;
+                const tangentPush = overlap * 0.32;
+                actor.currentPos.x += rightX * sideSign * tangentPush;
+                actor.currentPos.z += rightZ * sideSign * tangentPush;
+              }
+            }
+          } else if (moveLen > 0.001 && distSq < 1.35 * 1.35) {
+            // Predictive sidestep ahead of stationary or oncoming NPCs before contact occurs
+            const toOtherX = otherActor.currentPos.x - actor.currentPos.x;
+            const toOtherZ = otherActor.currentPos.z - actor.currentPos.z;
+            const forwardProj = toOtherX * dirX + toOtherZ * dirZ;
+            if (forwardProj > 0.05 && forwardProj < 1.15) {
+              const lateral = toOtherX * dirZ - toOtherZ * dirX;
+              if (Math.abs(lateral) < 0.62) {
+                const urgency = (1 - forwardProj / 1.15) * (1 - Math.abs(lateral) / 0.62);
+                const sidestep = walkSpeed * dt * 0.72 * urgency;
+                if (isDepartingOrSeated && otherActor.moveState === 'idle-queue') {
+                  actor.currentPos.x += sidestep;
+                } else {
+                  const avoidSign = lateral >= 0 ? -1 : 1;
+                  actor.currentPos.x += dirZ * avoidSign * sidestep;
+                  actor.currentPos.z += -dirX * avoidSign * sidestep;
+                }
+              }
+            }
           }
         }
       }
@@ -15982,7 +16197,7 @@ export class KlasikCafeScene3D {
       const isArrivedSeated =
         !isActivelyWalking &&
         cust.state === 'seated' &&
-        cust.socialBehavior !== 'car_selfie' &&
+        !wantsCarSelfie &&
         !isPickingUpDrink &&
         remainingDistToFinal <= 0.14;
       const seatedTarget = isArrivedSeated ? 1 : 0;
@@ -16106,8 +16321,9 @@ export class KlasikCafeScene3D {
           actor.rightShoulderJoint.rotation.x = s * 0.4 * wb;
           actor.rightElbowJoint.rotation.x = -0.22 - Math.max(0, s) * 0.25 * wb;
         }
-      } else if (cust.state === 'seated' && cust.socialBehavior === 'car_selfie') {
-        // Standing beside the 1990 Mazda Miata MX-5 showroom plinth taking a Car Selfie!
+      } else if (wantsCarSelfie) {
+        // Standing beside the 1990 Mazda Miata MX-5 showroom plinth taking a brief 5.5s Car Selfie before sitting at their lounge table!
+        actor.carSelfieTimer = (actor.carSelfieTimer ?? 0) + dt;
         actor.pelvisGroup.position.y = 0.58;
         actor.pelvisGroup.rotation.z = 0.04;
         actor.torsoGroup.rotation.y = 0;

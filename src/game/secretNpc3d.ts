@@ -488,6 +488,8 @@ export interface SecretNpcPoseInput {
   rightElbowX: number;
   isWaving?: boolean;
   holdingPhone?: boolean;
+  isRidingScooter?: boolean;
+  isStowingScooter?: boolean;
 }
 
 type SecretNpcFactoryFn = (threeRef?: typeof THREE) => THREE.Group;
@@ -497,35 +499,50 @@ const secretNpcFactoryCache: Partial<Record<SecretNpcModelVariant, Promise<Secre
 /**
  * Lazily imports one of the 4 exact Secret NPC `.js` asset modules with Vite code-splitting
  * so the main bundle stays fast while every variant renders its authentic imported geometry.
+ * Evicts any failed promise so transient chunk errors never permanently poison a variant.
  */
 export function loadSecretNpcFactory(variant: SecretNpcModelVariant): Promise<SecretNpcFactoryFn> {
   const existing = secretNpcFactoryCache[variant];
   if (existing) return existing;
 
   const loader = (async (): Promise<SecretNpcFactoryFn> => {
-    switch (variant) {
-      case 'hat': {
-        const mod = await import('../../secretnpchat.js');
-        return mod.default as SecretNpcFactoryFn;
+    try {
+      switch (variant) {
+        case 'hat': {
+          const mod = await import('../../secretnpchat.js');
+          return mod.default as SecretNpcFactoryFn;
+        }
+        case 'helmet': {
+          const mod = await import('../../secretnpchelmet.js');
+          return mod.default as SecretNpcFactoryFn;
+        }
+        case 'hike': {
+          const mod = await import('../../secretnpchike.js');
+          return mod.default as SecretNpcFactoryFn;
+        }
+        case 'default':
+        default: {
+          const mod = await import('../../secretnpc.js');
+          return mod.default as SecretNpcFactoryFn;
+        }
       }
-      case 'helmet': {
-        const mod = await import('../../secretnpchelmet.js');
-        return mod.default as SecretNpcFactoryFn;
-      }
-      case 'hike': {
-        const mod = await import('../../secretnpchike.js');
-        return mod.default as SecretNpcFactoryFn;
-      }
-      case 'default':
-      default: {
-        const mod = await import('../../secretnpc.js');
-        return mod.default as SecretNpcFactoryFn;
-      }
+    } catch (err) {
+      delete secretNpcFactoryCache[variant];
+      throw err;
     }
   })();
 
   secretNpcFactoryCache[variant] = loader;
   return loader;
+}
+
+/**
+ * Proactively warms the requested Secret NPC `.js` asset module so it resolves immediately on spawn.
+ */
+export function preloadSecretNpcVariant(variant: SecretNpcModelVariant): void {
+  void loadSecretNpcFactory(variant).catch(() => {
+    // Cache already evicted; next spawn will retry cleanly
+  });
 }
 
 const _partBox = new THREE.Box3();
@@ -766,6 +783,46 @@ export function updateSecretNpcAssetPose(
   const c = Math.cos(pose.walkPhase);
   const breath = Math.sin(pose.elapsed * 2.15 + pose.seed * 0.73);
   const sway = Math.sin(pose.elapsed * 1.1 + pose.seed * 1.3);
+
+  // Dedicated scooter riding posture (seated on delivery scooter saddle, hands firmly on handlebars!)
+  if (pose.isRidingScooter) {
+    const roadVib = Math.sin(pose.elapsed * 18 + pose.seed) * 0.008;
+    rig.pelvisPivot.position.y = rig.basePelvisY - 0.16 + roadVib;
+    rig.pelvisPivot.rotation.z = 0;
+    rig.pelvisPivot.rotation.y = 0;
+    rig.torsoPivot.rotation.set(0.14, 0, 0);
+    rig.torsoPivot.scale.set(1, 1, 1);
+    rig.neckPivot.rotation.set(-0.08, Math.sin(pose.elapsed * 0.9 + pose.seed) * 0.08, 0);
+    rig.leftHipPivot.rotation.x = -1.08;
+    rig.rightHipPivot.rotation.x = -1.08;
+    rig.leftKneePivot.rotation.x = 1.12;
+    rig.rightKneePivot.rotation.x = 1.12;
+    rig.leftShoulderPivot.rotation.set(-0.84, 0, -0.06);
+    rig.leftElbowPivot.rotation.x = -0.34;
+    rig.rightShoulderPivot.rotation.set(-0.84, 0, 0.06);
+    rig.rightElbowPivot.rotation.x = -0.34;
+    rig.phoneMesh.visible = false;
+    return;
+  }
+
+  // Dedicated stowing posture at the scooter top-box before hopping on
+  if (pose.isStowingScooter) {
+    rig.pelvisPivot.position.y = rig.basePelvisY + breath * 0.005;
+    rig.pelvisPivot.rotation.set(0, 0, 0);
+    rig.torsoPivot.rotation.set(0.12, 0, 0);
+    rig.torsoPivot.scale.set(1, 1, 1);
+    rig.neckPivot.rotation.set(0.16, 0, 0);
+    rig.leftHipPivot.rotation.x = 0;
+    rig.rightHipPivot.rotation.x = 0;
+    rig.leftKneePivot.rotation.x = 0;
+    rig.rightKneePivot.rotation.x = 0;
+    rig.leftShoulderPivot.rotation.set(-1.02, 0, -0.04);
+    rig.leftElbowPivot.rotation.x = -0.38;
+    rig.rightShoulderPivot.rotation.set(-1.02, 0, 0.04);
+    rig.rightElbowPivot.rotation.x = -0.38;
+    rig.phoneMesh.visible = false;
+    return;
+  }
 
   // Pelvis vertical bounce (walk stride + gentle breathing + seated drop)
   const walkBounce = Math.abs(s) * 0.044 * wb;

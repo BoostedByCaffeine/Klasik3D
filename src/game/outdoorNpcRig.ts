@@ -54,6 +54,7 @@ export interface ArticulatedOutdoorNpcRig {
   rightKneePivot: THREE.Group;
   slots: ArticulatedOutdoorNpcSlots;
   patronTargets: PatronRigTargets;
+  detailNodes: THREE.Object3D[];
 }
 
 export interface OutdoorNpcPoseState {
@@ -66,51 +67,140 @@ export interface OutdoorNpcPoseState {
   lookUpPitch?: number;
 }
 
-// Shared smooth low-poly geometries (8-10 radial segments) to avoid boxy "Minecraft" limbs
-const SHARED_PELVIS_GEO = new THREE.CapsuleGeometry(0.145, 0.1, 4, 8);
-const SHARED_TORSO_GEO = new THREE.CapsuleGeometry(0.175, 0.28, 5, 10);
-const SHARED_KIMONO_SKIRT_GEO = new THREE.CylinderGeometry(0.175, 0.235, 0.84, 10);
-const SHARED_OBI_GEO = new THREE.CylinderGeometry(0.195, 0.195, 0.2, 10);
-const SHARED_NECK_GEO = new THREE.CylinderGeometry(0.052, 0.06, 0.1, 8);
-const SHARED_HEAD_GEO = new THREE.SphereGeometry(0.142, 10, 9);
-const SHARED_EYE_GEO = new THREE.SphereGeometry(0.015, 6, 5);
-const SHARED_HAIR_CAP_GEO = new THREE.SphereGeometry(0.15, 10, 7, 0, Math.PI * 2, 0, Math.PI * 0.58);
-const SHARED_HAIR_BUN_GEO = new THREE.SphereGeometry(0.075, 8, 7);
-const SHARED_SHOULDER_CAP_GEO = new THREE.SphereGeometry(0.062, 7, 6);
-const SHARED_UPPER_ARM_GEO = new THREE.CapsuleGeometry(0.048, 0.17, 4, 8);
-const SHARED_FOREARM_GEO = new THREE.CapsuleGeometry(0.04, 0.17, 4, 8);
-const SHARED_HAND_GEO = new THREE.SphereGeometry(0.044, 7, 6);
-const SHARED_THIGH_GEO = new THREE.CapsuleGeometry(0.064, 0.24, 4, 8);
-const SHARED_CALF_GEO = new THREE.CapsuleGeometry(0.052, 0.25, 4, 8);
-const SHARED_SHOE_GEO = new THREE.CapsuleGeometry(0.05, 0.1, 4, 7);
-const SHARED_EYE_MAT = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.25 });
+// Shared smooth sculpted geometries (customer-grade silhouette with reused buffers for low memory)
+const SHARED_PELVIS_GEO = new THREE.CapsuleGeometry(0.145, 0.1, 5, 10);
+const SHARED_TORSO_GEO = new THREE.CapsuleGeometry(0.175, 0.28, 6, 12);
+const SHARED_INNER_TEE_GEO = new THREE.CylinderGeometry(0.088, 0.082, 0.36, 10, 1, true, -0.58, 1.16);
+const SHARED_COLLAR_RING_GEO = new THREE.TorusGeometry(0.095, 0.017, 6, 14);
+const SHARED_LAPEL_GEO = new THREE.BoxGeometry(0.042, 0.24, 0.022);
+const SHARED_BELT_GEO = new THREE.CylinderGeometry(0.156, 0.158, 0.044, 12);
+const SHARED_BUCKLE_GEO = new THREE.BoxGeometry(0.052, 0.042, 0.024);
+const SHARED_KIMONO_SKIRT_GEO = new THREE.CylinderGeometry(0.175, 0.235, 0.84, 12);
+const SHARED_OBI_GEO = new THREE.CylinderGeometry(0.195, 0.195, 0.2, 12);
+const SHARED_NECK_GEO = new THREE.CylinderGeometry(0.052, 0.06, 0.1, 10);
+const SHARED_HEAD_GEO = new THREE.SphereGeometry(0.144, 14, 12);
+const SHARED_SCLERA_GEO = new THREE.SphereGeometry(0.021, 8, 7);
+const SHARED_EYE_GEO = new THREE.SphereGeometry(0.014, 8, 6);
+const SHARED_EYE_SPEC_GEO = new THREE.SphereGeometry(0.0048, 5, 4);
+const SHARED_BROW_GEO = new THREE.BoxGeometry(0.04, 0.009, 0.012);
+const SHARED_NOSE_GEO = new THREE.SphereGeometry(0.014, 7, 6);
+const SHARED_SMILE_GEO = new THREE.TorusGeometry(0.024, 0.005, 6, 10, Math.PI * 0.72);
+const SHARED_EAR_GEO = new THREE.SphereGeometry(0.024, 7, 6);
+const SHARED_CHEEK_GEO = new THREE.CircleGeometry(0.022, 10);
+const SHARED_HAIR_CAP_GEO = new THREE.SphereGeometry(0.152, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.6);
+const SHARED_HAIR_BANGS_GEO = new THREE.CapsuleGeometry(0.032, 0.11, 4, 8);
+const SHARED_HAIR_SIDE_GEO = new THREE.CapsuleGeometry(0.026, 0.085, 4, 7);
+const SHARED_HAIR_QUIFF_GEO = new THREE.SphereGeometry(0.072, 9, 7);
+const SHARED_HAIR_BUN_GEO = new THREE.SphereGeometry(0.076, 10, 8);
+const SHARED_HAIR_BAND_GEO = new THREE.TorusGeometry(0.056, 0.01, 6, 12);
+const SHARED_HAIR_BOB_GEO = new THREE.SphereGeometry(0.15, 12, 8, 0, Math.PI * 2, 0.28, Math.PI * 0.62);
+const SHARED_SHOULDER_CAP_GEO = new THREE.SphereGeometry(0.064, 9, 8);
+const SHARED_UPPER_ARM_GEO = new THREE.CapsuleGeometry(0.049, 0.17, 5, 10);
+const SHARED_SLEEVE_CUFF_GEO = new THREE.TorusGeometry(0.044, 0.009, 6, 12);
+const SHARED_FOREARM_GEO = new THREE.CapsuleGeometry(0.04, 0.17, 5, 10);
+const SHARED_HAND_GEO = new THREE.SphereGeometry(0.042, 8, 7);
+const SHARED_THUMB_GEO = new THREE.CapsuleGeometry(0.012, 0.024, 4, 6);
+const SHARED_THIGH_GEO = new THREE.CapsuleGeometry(0.065, 0.24, 5, 10);
+const SHARED_CALF_GEO = new THREE.CapsuleGeometry(0.053, 0.25, 5, 10);
+const SHARED_HEM_CUFF_GEO = new THREE.TorusGeometry(0.054, 0.009, 6, 12);
+const SHARED_SHOE_GEO = new THREE.CapsuleGeometry(0.05, 0.105, 5, 9);
+const SHARED_SHOE_SOLE_GEO = new THREE.BoxGeometry(0.098, 0.022, 0.19);
+const SHARED_SHOE_STRIPE_GEO = new THREE.BoxGeometry(0.104, 0.018, 0.046);
+const SHARED_GLASSES_LENS_GEO = new THREE.BoxGeometry(0.046, 0.026, 0.01);
+const SHARED_GLASSES_BRIDGE_GEO = new THREE.BoxGeometry(0.028, 0.008, 0.008);
+const SHARED_CROSSBODY_STRAP_GEO = new THREE.TorusGeometry(0.225, 0.014, 6, 18);
+const SHARED_CROSSBODY_POUCH_GEO = new THREE.BoxGeometry(0.11, 0.13, 0.055);
+
+const SHARED_SCLERA_MAT = new THREE.MeshStandardMaterial({ color: 0xfefefe, roughness: 0.3 });
+const SHARED_EYE_MAT = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2 });
+const SHARED_EYE_SPEC_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const SHARED_SMILE_MAT = new THREE.MeshStandardMaterial({ color: 0x9f4b43, roughness: 0.65 });
+const SHARED_CHEEK_MAT = new THREE.MeshBasicMaterial({
+  color: 0xfb7185,
+  transparent: true,
+  opacity: 0.24,
+  depthWrite: false,
+});
+const SHARED_INNER_TEE_MAT = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.78 });
+const SHARED_BELT_MAT = new THREE.MeshStandardMaterial({ color: 0x292524, roughness: 0.62 });
+const SHARED_BUCKLE_MAT = new THREE.MeshStandardMaterial({
+  color: 0xd6d3d1,
+  roughness: 0.3,
+  metalness: 0.78,
+});
+const SHARED_MIDSOLE_MAT = new THREE.MeshStandardMaterial({ color: 0xf5f5f4, roughness: 0.65 });
+const SHARED_SUNGLASSES_MAT = new THREE.MeshStandardMaterial({
+  color: 0x0f172a,
+  roughness: 0.14,
+  metalness: 0.75,
+});
+const SHARED_POUCH_MAT = new THREE.MeshStandardMaterial({ color: 0x573b26, roughness: 0.72 });
+
+const _lodWorldPos = new THREE.Vector3();
 
 /**
- * Unified full-detail articulated outdoor NPC rig with strict bone-parented slots
- * (`headwear`, `backProp`, `leftHandProp`, `rightHandProp`) so accessories never detach.
+ * Distance-based micro-detail LOD culler for overlook NPCs.
+ * On Low graphics quality, hides fine facial/garment/sneaker accent meshes beyond `lodDistance`
+ * while preserving the complete articulated character silhouette. Zero per-frame allocations.
+ */
+export function updateOutdoorNpcDetailLod(
+  scopeRoot: THREE.Object3D,
+  cameraPosition: THREE.Vector3,
+  isLowQuality: boolean,
+  lodDistance = 16
+): void {
+  const maxDistSq = lodDistance * lodDistance;
+  scopeRoot.traverse((obj) => {
+    const detailNodes = obj.userData?.outdoorNpcDetailNodes as THREE.Object3D[] | undefined;
+    if (!detailNodes || detailNodes.length === 0) return;
+    let showDetail = true;
+    if (isLowQuality) {
+      obj.getWorldPosition(_lodWorldPos);
+      showDetail = _lodWorldPos.distanceToSquared(cameraPosition) <= maxDistSq;
+    }
+    for (let i = 0; i < detailNodes.length; i++) {
+      if (detailNodes[i].visible !== showDetail) {
+        detailNodes[i].visible = showDetail;
+      }
+    }
+  });
+}
+
+/**
+ * Unified full-detail articulated outdoor NPC rig with customer-grade facial, hair, garment,
+ * and sneaker sculpting plus strict bone-parented slots (`headwear`, `backProp`, `leftHandProp`,
+ * `rightHandProp`) so accessories never detach.
  */
 export function createArticulatedOutdoorNpc(
   options: ArticulatedOutdoorNpcOptions
 ): ArticulatedOutdoorNpcRig {
+  const seed = Math.abs(Math.floor(options.seed ?? 1));
+  const detailNodes: THREE.Object3D[] = [];
+  const registerDetail = <T extends THREE.Object3D>(node: T): T => {
+    detailNodes.push(node);
+    return node;
+  };
+
   const root = new THREE.Group();
   root.userData.outdoorOnly = true;
   root.userData.noMerge = true;
   root.userData.skipStaticBatch = true;
+  root.userData.outdoorNpcDetailNodes = detailNodes;
   if (options.isSecretNpc) root.userData.isSecretNpc = true;
 
-  const jacketMat = new THREE.MeshStandardMaterial({ color: options.shirtHex, roughness: 0.76 });
-  const denimMat = new THREE.MeshStandardMaterial({ color: options.pantsHex, roughness: 0.84 });
+  const jacketMat = new THREE.MeshStandardMaterial({ color: options.shirtHex, roughness: 0.72 });
+  const denimMat = new THREE.MeshStandardMaterial({ color: options.pantsHex, roughness: 0.82 });
   const skinMat = new THREE.MeshStandardMaterial({
     color: options.skinHex ?? 0xe4b89c,
-    roughness: 0.68,
+    roughness: 0.62,
   });
   const hairMat = new THREE.MeshStandardMaterial({
     color: options.hairHex ?? 0x1c1917,
-    roughness: 0.85,
+    roughness: 0.8,
   });
   const shoeMat = new THREE.MeshStandardMaterial({
     color: options.shoeHex ?? 0x1f2937,
-    roughness: 0.72,
+    roughness: 0.66,
   });
 
   // Pelvis pivot sits at hip height (0.76) so subtle walk bob lifts the whole upper & lower body cohesively
@@ -135,9 +225,54 @@ export function createArticulatedOutdoorNpc(
   torsoMesh.scale.set(1.06, 1.0, 0.72);
   torsoGroup.add(torsoMesh);
 
+  // Customer-grade layered garment accents (inner tee, folded collar, lapels, waist belt & buckle)
+  if (!options.isKimono) {
+    const collarRing = registerDetail(new THREE.Mesh(SHARED_COLLAR_RING_GEO, jacketMat));
+    collarRing.rotation.x = Math.PI / 2;
+    collarRing.position.set(0, 0.495, 0.005);
+    torsoGroup.add(collarRing);
+
+    if (options.apronHex === undefined) {
+      const innerTee = registerDetail(new THREE.Mesh(SHARED_INNER_TEE_GEO, SHARED_INNER_TEE_MAT));
+      innerTee.position.set(0, 0.285, 0.056);
+      innerTee.scale.set(1.0, 1.0, 0.88);
+      torsoGroup.add(innerTee);
+
+      [-1, 1].forEach((side) => {
+        const lapel = registerDetail(new THREE.Mesh(SHARED_LAPEL_GEO, jacketMat));
+        lapel.position.set(side * 0.068, 0.34, 0.122);
+        lapel.rotation.z = side * -0.14;
+        lapel.rotation.y = side * 0.24;
+        torsoGroup.add(lapel);
+      });
+
+      const belt = registerDetail(new THREE.Mesh(SHARED_BELT_GEO, SHARED_BELT_MAT));
+      belt.position.set(0, 0.035, 0);
+      belt.scale.set(1.04, 1.0, 0.78);
+      const buckle = registerDetail(new THREE.Mesh(SHARED_BUCKLE_GEO, SHARED_BUCKLE_MAT));
+      buckle.position.set(0, 0.036, 0.125);
+      torsoGroup.add(belt, buckle);
+
+      // Optional crossbody camera/travel bag strap for natural tourist variety
+      if (seed % 4 === 1 && !options.isSecretNpc) {
+        const strap = registerDetail(new THREE.Mesh(SHARED_CROSSBODY_STRAP_GEO, SHARED_POUCH_MAT));
+        strap.position.set(0.01, 0.25, 0);
+        strap.scale.set(0.84, 1.15, 0.62);
+        strap.rotation.z = 0.56;
+        const pouch = registerDetail(new THREE.Mesh(SHARED_CROSSBODY_POUCH_GEO, SHARED_POUCH_MAT));
+        pouch.position.set(-0.165, 0.08, -0.02);
+        pouch.rotation.y = 0.2;
+        torsoGroup.add(strap, pouch);
+      }
+    }
+  }
+
   if (options.apronHex !== undefined) {
     const apronMat = new THREE.MeshStandardMaterial({ color: options.apronHex, roughness: 0.85 });
-    const apron = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.19, 0.56, 10, 1, true, -1.1, 2.2), apronMat);
+    const apron = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, 0.19, 0.56, 12, 1, true, -1.1, 2.2),
+      apronMat
+    );
     apron.position.set(0, 0.06, 0.02);
     torsoGroup.add(apron);
   }
@@ -160,7 +295,7 @@ export function createArticulatedOutdoorNpc(
     });
     const obi = new THREE.Mesh(SHARED_OBI_GEO, obiMat);
     obi.position.y = 0.14;
-    const obiBow = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.12, 4, 7), obiMat);
+    const obiBow = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.12, 4, 8), obiMat);
     obiBow.rotation.z = Math.PI / 2;
     obiBow.position.set(0, 0.14, -0.17);
     torsoGroup.add(obi, obiBow);
@@ -171,7 +306,7 @@ export function createArticulatedOutdoorNpc(
   backProp.position.set(0, 0.28, -0.16);
   torsoGroup.add(backProp);
 
-  // Neck -> HeadPivot -> Head + Eyes + Hair + Headwear Slot
+  // Neck -> HeadPivot -> Sculpted Head + Expressive Face + Layered Hair + Headwear Slot
   const neckJoint = new THREE.Group();
   neckJoint.position.set(0, 0.53, 0);
   torsoGroup.add(neckJoint);
@@ -186,32 +321,106 @@ export function createArticulatedOutdoorNpc(
 
   const headMesh = new THREE.Mesh(SHARED_HEAD_GEO, skinMat);
   headMesh.position.y = 0.12;
+  headMesh.scale.set(0.96, 1.04, 0.98);
   headPivot.add(headMesh);
 
-  [-0.048, 0.048].forEach((ex) => {
-    const eye = new THREE.Mesh(SHARED_EYE_GEO, SHARED_EYE_MAT);
-    eye.position.set(ex, 0.135, 0.128);
-    headPivot.add(eye);
+  // Sculpted ears
+  [-0.132, 0.132].forEach((earX) => {
+    const ear = registerDetail(new THREE.Mesh(SHARED_EAR_GEO, skinMat));
+    ear.scale.set(0.55, 1.15, 0.85);
+    ear.position.set(earX, 0.118, -0.004);
+    headPivot.add(ear);
   });
 
+  // Expressive eyes (sclera + dark iris + specular highlight) + arched brows + soft cheek blush
+  [-1, 1].forEach((side) => {
+    const ex = side * 0.048;
+    const sclera = registerDetail(new THREE.Mesh(SHARED_SCLERA_GEO, SHARED_SCLERA_MAT));
+    sclera.scale.set(1.05, 0.92, 0.52);
+    sclera.position.set(ex, 0.132, 0.126);
+    headPivot.add(sclera);
+
+    const eye = new THREE.Mesh(SHARED_EYE_GEO, SHARED_EYE_MAT);
+    eye.scale.set(1.0, 1.05, 0.6);
+    eye.position.set(ex, 0.132, 0.134);
+    headPivot.add(eye);
+
+    const spec = registerDetail(new THREE.Mesh(SHARED_EYE_SPEC_GEO, SHARED_EYE_SPEC_MAT));
+    spec.position.set(ex + 0.005, 0.138, 0.141);
+    headPivot.add(spec);
+
+    const brow = registerDetail(new THREE.Mesh(SHARED_BROW_GEO, hairMat));
+    brow.position.set(ex, 0.162, 0.127);
+    brow.rotation.z = side * -0.1;
+    headPivot.add(brow);
+
+    const cheek = registerDetail(new THREE.Mesh(SHARED_CHEEK_GEO, SHARED_CHEEK_MAT));
+    cheek.position.set(side * 0.072, 0.104, 0.122);
+    cheek.rotation.y = side * 0.42;
+    headPivot.add(cheek);
+  });
+
+  // Sculpted nose & warm smile
+  const nose = registerDetail(new THREE.Mesh(SHARED_NOSE_GEO, skinMat));
+  nose.scale.set(0.75, 1.12, 1.05);
+  nose.position.set(0, 0.112, 0.138);
+  const smile = registerDetail(new THREE.Mesh(SHARED_SMILE_GEO, SHARED_SMILE_MAT));
+  smile.position.set(0, 0.084, 0.129);
+  smile.rotation.z = Math.PI * 1.14;
+  headPivot.add(nose, smile);
+
+  // Optional slim tourist sunglasses on select regular passersby
+  if (!options.isKimono && options.apronHex === undefined && !options.isSecretNpc && seed % 5 === 0) {
+    const bridge = registerDetail(new THREE.Mesh(SHARED_GLASSES_BRIDGE_GEO, SHARED_SUNGLASSES_MAT));
+    bridge.position.set(0, 0.136, 0.148);
+    headPivot.add(bridge);
+    [-0.048, 0.048].forEach((gx) => {
+      const lens = registerDetail(new THREE.Mesh(SHARED_GLASSES_LENS_GEO, SHARED_SUNGLASSES_MAT));
+      lens.position.set(gx, 0.134, 0.147);
+      headPivot.add(lens);
+    });
+  }
+
+  // Layered hair silhouette (crown cap + forehead fringe/bangs + temple tapers + hairstyle variation)
   const hairCap = new THREE.Mesh(SHARED_HAIR_CAP_GEO, hairMat);
-  hairCap.position.set(0, 0.132, -0.012);
+  hairCap.position.set(0, 0.132, -0.01);
   headPivot.add(hairCap);
+
+  const bangs = registerDetail(new THREE.Mesh(SHARED_HAIR_BANGS_GEO, hairMat));
+  bangs.rotation.z = Math.PI / 2 + (seed % 2 === 0 ? 0.12 : -0.12);
+  bangs.scale.set(0.82, 1.0, 0.65);
+  bangs.position.set(seed % 2 === 0 ? 0.012 : -0.012, 0.205, 0.105);
+  headPivot.add(bangs);
+
+  [-0.125, 0.125].forEach((sx) => {
+    const taper = registerDetail(new THREE.Mesh(SHARED_HAIR_SIDE_GEO, hairMat));
+    taper.position.set(sx, 0.145, -0.015);
+    headPivot.add(taper);
+  });
+
   if (options.hairStyle === 'bun') {
     const bun = new THREE.Mesh(SHARED_HAIR_BUN_GEO, hairMat);
-    bun.position.set(0, 0.23, -0.11);
-    headPivot.add(bun);
+    bun.position.set(0, 0.232, -0.112);
+    const band = registerDetail(new THREE.Mesh(SHARED_HAIR_BAND_GEO, SHARED_MIDSOLE_MAT));
+    band.rotation.x = Math.PI * 0.35;
+    band.position.set(0, 0.214, -0.088);
+    headPivot.add(bun, band);
   } else if (options.hairStyle === 'bob') {
-    const bob = new THREE.Mesh(new THREE.SphereGeometry(0.146, 9, 6, 0, Math.PI * 2, 0.3, Math.PI * 0.6), hairMat);
+    const bob = new THREE.Mesh(SHARED_HAIR_BOB_GEO, hairMat);
     bob.position.set(0, 0.11, -0.025);
     headPivot.add(bob);
+  } else {
+    const quiff = registerDetail(new THREE.Mesh(SHARED_HAIR_QUIFF_GEO, hairMat));
+    quiff.scale.set(1.35, 0.68, 1.15);
+    quiff.position.set(seed % 2 === 0 ? 0.02 : -0.02, 0.246, 0.032);
+    headPivot.add(quiff);
   }
 
   const headwear = new THREE.Group();
   headwear.position.set(0, 0.24, 0);
   headPivot.add(headwear);
 
-  // Articulated 2-bone Arms (Shoulder -> UpperArm -> Elbow -> Forearm -> HandSlot)
+  // Articulated 2-bone Arms (Shoulder -> UpperArm -> Elbow -> Rolled Cuff + Forearm -> Sculpted Palm + HandSlot)
   const makeArm = (side: -1 | 1) => {
     const shoulder = new THREE.Group();
     shoulder.position.set(side * 0.215, 0.45, 0);
@@ -226,14 +435,23 @@ export function createArticulatedOutdoorNpc(
     elbow.position.set(0, -0.25, 0);
     shoulder.add(elbow);
 
+    const cuff = registerDetail(new THREE.Mesh(SHARED_SLEEVE_CUFF_GEO, jacketMat));
+    cuff.rotation.x = Math.PI / 2;
+    cuff.position.y = -0.006;
+    elbow.add(cuff);
+
     const forearm = new THREE.Mesh(SHARED_FOREARM_GEO, options.isKimono ? jacketMat : skinMat);
     forearm.position.y = -0.12;
     const hand = new THREE.Mesh(SHARED_HAND_GEO, skinMat);
+    hand.scale.set(0.84, 1.15, 0.72);
     hand.position.y = -0.24;
-    elbow.add(forearm, hand);
+    const thumb = registerDetail(new THREE.Mesh(SHARED_THUMB_GEO, skinMat));
+    thumb.position.set(-side * 0.028, -0.23, 0.02);
+    thumb.rotation.z = side * 0.45;
+    elbow.add(forearm, hand, thumb);
 
     const handSlot = new THREE.Group();
-    handSlot.position.set(0, -0.24, 0.03);
+    handSlot.position.set(0, -0.24, 0.02);
     elbow.add(handSlot);
 
     return { shoulder, elbow, handSlot };
@@ -242,7 +460,7 @@ export function createArticulatedOutdoorNpc(
   const leftArm = makeArm(-1);
   const rightArm = makeArm(1);
 
-  // Articulated 2-bone Legs (Hip -> Thigh -> Knee -> Calf -> Shoe)
+  // Articulated 2-bone Legs (Hip -> Thigh -> Knee -> Calf + Pant Cuff -> Detailed Sneaker with Midsole & Stripe)
   const makeLeg = (side: -1 | 1) => {
     const hip = new THREE.Group();
     hip.position.set(side * 0.095, -0.02, 0);
@@ -258,10 +476,21 @@ export function createArticulatedOutdoorNpc(
 
     const calf = new THREE.Mesh(SHARED_CALF_GEO, denimMat);
     calf.position.y = -0.18;
+    const hemCuff = registerDetail(new THREE.Mesh(SHARED_HEM_CUFF_GEO, denimMat));
+    hemCuff.rotation.x = Math.PI / 2;
+    hemCuff.position.y = -0.295;
+
     const shoe = new THREE.Mesh(SHARED_SHOE_GEO, shoeMat);
     shoe.rotation.x = Math.PI / 2;
-    shoe.position.set(0, -0.34, 0.045);
-    knee.add(calf, shoe);
+    shoe.position.set(0, -0.335, 0.045);
+
+    const midsole = registerDetail(new THREE.Mesh(SHARED_SHOE_SOLE_GEO, SHARED_MIDSOLE_MAT));
+    midsole.position.set(0, -0.376, 0.044);
+
+    const stripe = registerDetail(new THREE.Mesh(SHARED_SHOE_STRIPE_GEO, SHARED_MIDSOLE_MAT));
+    stripe.position.set(0, -0.34, 0.042);
+
+    knee.add(calf, hemCuff, shoe, midsole, stripe);
 
     return { hip, knee };
   };
@@ -310,6 +539,7 @@ export function createArticulatedOutdoorNpc(
       rightHandProp: rightArm.handSlot,
     },
     patronTargets,
+    detailNodes,
   };
 }
 

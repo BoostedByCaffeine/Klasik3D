@@ -2966,6 +2966,169 @@ test('Optimization Batch: Secret NPC variant routing enforces helmet for deliver
   }
 });
 
+test('Optimization Batch 2: Secret NPC delivery rider enforces secretnpchelmet.js variant and animates scooter riding & stowing poses', async () => {
+  const prevDoc = (globalThis as { document?: unknown }).document;
+  if (!prevDoc) {
+    (globalThis as { document?: unknown }).document = {
+      createElementNS: () => ({
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        style: {},
+      }),
+    };
+  }
+  try {
+    const baseState = createInitialGameState();
+    const state = {
+      ...baseState,
+      phase: 'playing' as const,
+      activeScenery: 'mt_everest' as const,
+      secretNpcCooldownRemaining: 0,
+      regularCustomersSinceLastRider: 5,
+      nextCustomerSpawnTimer: 0.01,
+      customers: [],
+    };
+    // Low deterministic RNG forces delivery rider spawn AND secret NPC rider roll
+    const rng = () => 0.01;
+    const nextState = advanceSimulationTick(state, 0.1, { rng });
+    const order = nextState.customers[0];
+    assert.ok(order, 'Expected advanceSimulationTick to spawn a customer');
+    assert.equal(order.isDeliveryRider, true);
+    assert.equal(order.isSecretNpc, true);
+    assert.equal(
+      order.secretNpcAppearance?.modelVariant,
+      'helmet',
+      'Secret NPC delivery rider must always enforce helmet variant even on Mt. Everest'
+    );
+
+    const { buildSecretNpcAssetRig, updateSecretNpcAssetPose } = await import('./secretNpc3d');
+    const helmetRig = await buildSecretNpcAssetRig('helmet');
+    assert.equal(helmetRig.variant, 'helmet');
+    updateSecretNpcAssetPose(helmetRig, {
+      walkBlend: 0,
+      seatedBlend: 1,
+      walkPhase: 0,
+      elapsed: 2.0,
+      seed: 1,
+      pelvisYOffset: -0.14,
+      pelvisRollZ: 0,
+      torsoYawY: 0,
+      torsoRollZ: 0,
+      neckPitchX: 0,
+      neckYawY: 0,
+      neckRollZ: 0,
+      leftHipX: -1.15,
+      rightHipX: -1.15,
+      leftKneeX: 1.15,
+      rightKneeX: 1.15,
+      leftShoulderX: -0.78,
+      leftElbowX: -0.35,
+      rightShoulderX: -0.78,
+      rightElbowX: -0.35,
+      isRidingScooter: true,
+    });
+    assert.ok(helmetRig.leftHipPivot.rotation.x < -0.8, 'Scooter ride pose must bend hips');
+    assert.ok(helmetRig.leftKneePivot.rotation.x > 0.8, 'Scooter ride pose must bend knees');
+
+    updateSecretNpcAssetPose(helmetRig, {
+      walkBlend: 0,
+      seatedBlend: 0,
+      walkPhase: 0,
+      elapsed: 3.0,
+      seed: 1,
+      pelvisYOffset: 0,
+      pelvisRollZ: 0,
+      torsoYawY: 0,
+      torsoRollZ: 0,
+      neckPitchX: 0.16,
+      neckYawY: 0,
+      neckRollZ: 0,
+      leftHipX: 0,
+      rightHipX: 0,
+      leftKneeX: 0,
+      rightKneeX: 0,
+      leftShoulderX: -1.05,
+      leftElbowX: -0.45,
+      rightShoulderX: -1.05,
+      rightElbowX: -0.45,
+      isStowingScooter: true,
+    });
+    assert.ok(helmetRig.leftShoulderPivot.rotation.x < -0.6, 'Scooter stow pose must reach into cargo box');
+  } finally {
+    if (!prevDoc) {
+      delete (globalThis as { document?: unknown }).document;
+    }
+  }
+});
+
+test('Optimization Batch 2: Regular customers predominantly dine in (~75%) and counter exits route into queue bypass lane', async () => {
+  let seed = 1337;
+  const rng = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  let dineInCount = 0;
+  const total = 240;
+  for (let i = 0; i < total; i++) {
+    const order = spawnCustomerOrder(1, i, undefined, rng, 'busy_street');
+    if (order.orderType === 'dine-in') dineInCount++;
+  }
+  const dineInRatio = dineInCount / total;
+  assert.ok(
+    dineInRatio >= 0.67 && dineInRatio <= 0.83,
+    `Expected regular dine-in ratio around 75%, got ${(dineInRatio * 100).toFixed(1)}%`
+  );
+
+  const { buildChairSafeExitWaypoints } = await import('./npcPhysicsAndSteering');
+  const exitPts = buildChairSafeExitWaypoints({
+    from: { x: -1.18, z: -0.82 },
+    goal: { x: 9.2, z: -8.15 },
+    seatExitOrigin: null,
+    tables: LOUNGE_TABLE_LAYOUT,
+    egressLaneX: 0.28,
+    doorX: -0.85,
+    corridorZ: -1.78,
+    centerAisleZ: -3.65,
+  });
+  assert.ok(
+    exitPts.some((pt) => pt.x >= 0.25 && pt.z > -4.6 && pt.z < -0.7),
+    'Exiting from counter pickup must step east into egress bypass lane to clear the ordering queue column'
+  );
+});
+
+test('Optimization Batch 2: Overlook NPC rig exposes customer-grade micro-detail meshes and Low-graphics distance LOD', async () => {
+  const THREE = await import('three');
+  const { createArticulatedOutdoorNpc, updateOutdoorNpcDetailLod } = await import('./outdoorNpcRig');
+  const container = new THREE.Group();
+  const nearRig = createArticulatedOutdoorNpc({
+    shirtHex: 0x2563eb,
+    pantsHex: 0x1e293b,
+    hairStyle: 'short',
+    seed: 5,
+  });
+  nearRig.root.position.set(0, 0, 0);
+  const farRig = createArticulatedOutdoorNpc({
+    shirtHex: 0xdc2626,
+    pantsHex: 0x334155,
+    hairStyle: 'bun',
+    seed: 1,
+  });
+  farRig.root.position.set(0, 0, -28);
+  container.add(nearRig.root, farRig.root);
+  container.updateMatrixWorld(true);
+
+  assert.ok(nearRig.detailNodes.length >= 16, 'Overlook NPC should have customer-grade facial, hair, garment & sneaker details');
+  assert.ok(farRig.detailNodes.length >= 16, 'Overlook NPC bun/crossbody variant should expose detailNodes');
+
+  const camPos = new THREE.Vector3(0, 1.8, 4);
+  updateOutdoorNpcDetailLod(container, camPos, true, 16);
+  assert.equal(nearRig.detailNodes.every((n) => n.visible), true, 'Near NPC keeps full detail on Low graphics');
+  assert.equal(farRig.detailNodes.every((n) => !n.visible), true, 'Far NPC culls micro-detail on Low graphics');
+
+  updateOutdoorNpcDetailLod(container, camPos, false, 16);
+  assert.equal(farRig.detailNodes.every((n) => n.visible), true, 'Far NPC restores full detail on Medium/High/Max graphics');
+});
+
 
 
 
